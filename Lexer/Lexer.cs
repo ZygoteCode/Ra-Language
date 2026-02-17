@@ -40,7 +40,7 @@ namespace RaLanguage.Lexer
 
             while (_currentChar != null)
             {
-                if (" \t".Contains(_currentChar.Value))
+                if (" \t\r".Contains(_currentChar.Value))
                 {
                     Advance();
                 }

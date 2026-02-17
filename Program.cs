@@ -63,40 +63,22 @@ namespace RaLanguage
         public static void Main(string[] args)
         {
             Console.Title = "Ra Language | Made by https://github.com/ZygoteCode/";
-            Console.WriteLine("Ra Language Interpreter, made by https://github.com/ZygoteCode/ in C# .NET 10.0.");
-            Console.WriteLine("Type 'exit' to quit.");
+            string text = File.ReadAllText("main.ra");
+            var (result, error) = Run("<stdin>", text);
 
-            while (true)
+            if (error != null)
             {
-                Console.Write("Ra Language > ");
-                string text = Console.ReadLine() ?? "";
-
-                if (string.IsNullOrWhiteSpace(text))
+                Console.WriteLine(error.AsString());
+            }
+            else if (result != null)
+            {
+                if (result is ListVal l && l.Elements.Count == 1)
                 {
-                    continue;
+                    Console.WriteLine(l.Elements[0]);
                 }
-
-                if (text == "exit")
+                else
                 {
-                    break;
-                }
-
-                var (result, error) = Run("<stdin>", text);
-
-                if (error != null)
-                {
-                    Console.WriteLine(error.AsString());
-                }
-                else if (result != null)
-                {
-                    if (result is ListVal l && l.Elements.Count == 1)
-                    {
-                        Console.WriteLine(l.Elements[0]);
-                    }
-                    else
-                    {
-                        Console.WriteLine(result);
-                    }
+                    Console.WriteLine(result);
                 }
             }
         }
