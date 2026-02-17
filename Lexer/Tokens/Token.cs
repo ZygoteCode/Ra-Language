@@ -4,20 +4,20 @@
     {
         public TokenType Type { get; }
         public object? Value { get; }
-        public Position PosStart { get; }
-        public Position PosEnd { get; }
+        public Position PositionStart { get; }
+        public Position PositionEnd { get; }
 
-        public Token(TokenType type, object? value, Position positionStart, Position? posEnd = null)
+        public Token(TokenType type, object? value, Position positionStart, Position? positionEnd = null)
         {
             Type = type;
             Value = value;
 
-            PosStart = positionStart.Copy();
-            PosEnd = posEnd?.Copy() ?? positionStart.Copy();
+            PositionStart = positionStart.Copy();
+            PositionEnd = positionEnd?.Copy() ?? positionStart.Copy();
 
-            if (posEnd == null)
+            if (positionEnd == null)
             {
-                PosEnd.Advance();
+                PositionEnd.Advance();
             }
         }
 

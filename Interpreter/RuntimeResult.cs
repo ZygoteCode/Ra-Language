@@ -3,7 +3,7 @@ using RaLanguage.Interpreter.Values;
 
 namespace RaLanguage.Interpreter
 {
-    public class RTResult
+    public class RuntimeResult
     {
         public RuntimeValue? Value { get; private set; }
         public Error? Error { get; private set; }
@@ -20,7 +20,7 @@ namespace RaLanguage.Interpreter
             LoopShouldBreak = false;
         }
 
-        public RuntimeValue Register(RTResult res)
+        public RuntimeValue Register(RuntimeResult res)
         {
             Error = res.Error;
             FuncReturnValue = res.FuncReturnValue;
@@ -29,35 +29,35 @@ namespace RaLanguage.Interpreter
             return res.Value;
         }
 
-        public RTResult Success(RuntimeValue? value)
+        public RuntimeResult Success(RuntimeValue? value)
         {
             Reset();
             Value = value;
             return this;
         }
 
-        public RTResult SuccessReturn(RuntimeValue value)
+        public RuntimeResult SuccessReturn(RuntimeValue value)
         {
             Reset();
             FuncReturnValue = value;
             return this;
         }
 
-        public RTResult SuccessContinue()
+        public RuntimeResult SuccessContinue()
         {
             Reset();
             LoopShouldContinue = true;
             return this;
         }
 
-        public RTResult SuccessBreak()
+        public RuntimeResult SuccessBreak()
         {
             Reset();
             LoopShouldBreak = true;
             return this;
         }
 
-        public RTResult Failure(Error error)
+        public RuntimeResult Failure(Error error)
         {
             Reset();
             Error = error;

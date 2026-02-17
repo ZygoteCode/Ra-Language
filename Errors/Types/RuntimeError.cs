@@ -8,8 +8,8 @@ namespace RaLanguage.Errors.Types
     {
         public Context Context { get; }
 
-        public RuntimeError(Position positionStart, Position posEnd, string details, Context context)
-            : base(positionStart, posEnd, "Runtime Error", details)
+        public RuntimeError(Position positionStart, Position positionEnd, string details, Context context)
+            : base(positionStart, positionEnd, "Runtime Error", details)
         {
             Context = context;
         }
@@ -18,14 +18,14 @@ namespace RaLanguage.Errors.Types
         {
             var result = GenerateTraceback();
             result += $"{ErrorName}: {Details}";
-            result += "\n\n" + Utils.StringWithArrows(PosStart.Ftxt, PosStart, PosEnd);
+            result += "\n\n" + Utils.StringWithArrows(PositionStart.Ftxt, PositionStart, PositionEnd);
             return result;
         }
 
         private string GenerateTraceback()
         {
             var result = "";
-            var pos = PosStart;
+            var pos = PositionStart;
             var ctx = Context;
 
             while (ctx != null)

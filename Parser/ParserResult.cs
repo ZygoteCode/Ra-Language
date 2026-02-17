@@ -3,7 +3,7 @@ using RaLanguage.Parser.Nodes;
 
 namespace RaLanguage.Parser
 {
-    public class ParseResult
+    public class ParserResult
     {
         public Error? Error { get; private set; }
         public AstNode? Node { get; private set; }
@@ -17,7 +17,7 @@ namespace RaLanguage.Parser
             AdvanceCount++;
         }
 
-        public AstNode Register(ParseResult res)
+        public AstNode Register(ParserResult res)
         {
             LastRegisteredAdvanceCount = res.AdvanceCount;
             AdvanceCount += res.AdvanceCount;
@@ -25,7 +25,7 @@ namespace RaLanguage.Parser
             return res.Node;
         }
 
-        public AstNode? TryRegister(ParseResult res)
+        public AstNode? TryRegister(ParserResult res)
         {
             if (res.Error != null)
             {
@@ -35,13 +35,13 @@ namespace RaLanguage.Parser
             return Register(res);
         }
 
-        public ParseResult Success(AstNode node)
+        public ParserResult Success(AstNode node)
         {
             Node = node;
             return this;
         }
 
-        public ParseResult Failure(Error error)
+        public ParserResult Failure(Error error)
         {
             if (Error == null || LastRegisteredAdvanceCount == 0)
             {

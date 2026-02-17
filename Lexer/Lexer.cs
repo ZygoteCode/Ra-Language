@@ -173,7 +173,7 @@ namespace RaLanguage.Lexer
             var str = new StringBuilder();
             var positionStart = _pos.Copy();
             bool escapeChar = false;
-            Advance(); // Skip start quote
+            Advance();
 
             var escapeCharacters = new Dictionary<char, char> { { 'n', '\n' }, { 't', '\t' } };
 
@@ -193,7 +193,7 @@ namespace RaLanguage.Lexer
                 }
                 Advance();
             }
-            Advance(); // Skip end quote
+            Advance();
             return new Token(TokenType.STRING, str.ToString(), positionStart, _pos);
         }
 

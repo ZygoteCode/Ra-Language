@@ -5,7 +5,7 @@ namespace RaLanguage.Utilities
 {
     public static class Utils
     {
-        public static string StringWithArrows(string text, Position positionStart, Position posEnd)
+        public static string StringWithArrows(string text, Position positionStart, Position positionEnd)
         {
             var result = new StringBuilder();
             int idxStart = text.LastIndexOf('\n', Math.Min(positionStart.Idx, text.Length - 1));
@@ -26,7 +26,7 @@ namespace RaLanguage.Utilities
                 idxEnd = text.Length;
             }
 
-            int lineCount = posEnd.Ln - positionStart.Ln + 1;
+            int lineCount = positionEnd.Ln - positionStart.Ln + 1;
 
             for (int i = 0; i < lineCount; i++)
             {
@@ -38,7 +38,7 @@ namespace RaLanguage.Utilities
                 string line = text.Substring(idxStart, idxEnd - idxStart);
 
                 int colStart = (i == 0) ? positionStart.Col : 0;
-                int colEnd = (i == lineCount - 1) ? posEnd.Col : line.Length - 1;
+                int colEnd = (i == lineCount - 1) ? positionEnd.Col : line.Length - 1;
 
                 result.AppendLine(line);
                 result.Append(new string(' ', colStart));

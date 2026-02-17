@@ -9,10 +9,10 @@
         {
             NodeToCall = nodeToCall;
             ArgNodes = argNodes;
-            PosStart = nodeToCall.PosStart;
+            PositionStart = nodeToCall.PositionStart;
 
-            if (argNodes.Count > 0) PosEnd = argNodes[argNodes.Count - 1].PosEnd;
-            else PosEnd = nodeToCall.PosEnd;
+            if (argNodes.Count > 0) PositionEnd = argNodes[argNodes.Count - 1].PositionEnd;
+            else PositionEnd = nodeToCall.PositionEnd;
         }
     }
 }

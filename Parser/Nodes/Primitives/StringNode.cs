@@ -8,8 +8,8 @@ namespace RaLanguage.Parser.Nodes.Primitives
         public StringNode(Token tok)
         {
             Tok = tok;
-            PosStart = tok.PosStart;
-            PosEnd = tok.PosEnd;
+            PositionStart = tok.PositionStart;
+            PositionEnd = tok.PositionEnd;
         }
         public override string ToString() => Tok.ToString();
     }

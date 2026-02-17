@@ -4,7 +4,7 @@ namespace RaLanguage.Errors.Types
 {
     public class ExpectedCharacterError : Error
     {
-        public ExpectedCharacterError(Position positionStart, Position posEnd, string details)
-            : base(positionStart, posEnd, "Expected Character", details) { }
+        public ExpectedCharacterError(Position positionStart, Position positionEnd, string details)
+            : base(positionStart, positionEnd, "Expected Character", details) { }
     }
 }

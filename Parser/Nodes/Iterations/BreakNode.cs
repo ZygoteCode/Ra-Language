@@ -4,10 +4,10 @@ namespace RaLanguage.Parser.Nodes.Iterations
 {
     public class BreakNode : AstNode
     {
-        public BreakNode(Position positionStart, Position posEnd)
+        public BreakNode(Position positionStart, Position positionEnd)
         {
-            PosStart = positionStart;
-            PosEnd = posEnd;
+            PositionStart = positionStart;
+            PositionEnd = positionEnd;
         }
     }
 }

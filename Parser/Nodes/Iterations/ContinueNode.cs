@@ -4,10 +4,10 @@ namespace RaLanguage.Parser.Nodes.Iterations
 {
     public class ContinueNode : AstNode
     {
-        public ContinueNode(Position positionStart, Position posEnd)
+        public ContinueNode(Position positionStart, Position positionEnd)
         {
-            PosStart = positionStart;
-            PosEnd = posEnd;
+            PositionStart = positionStart;
+            PositionEnd = positionEnd;
         }
     }
 }

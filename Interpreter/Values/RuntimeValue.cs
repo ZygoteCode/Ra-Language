@@ -7,14 +7,14 @@ namespace RaLanguage.Interpreter.Values
 {
     public abstract class RuntimeValue
     {
-        public Position PosStart { get; set; }
-        public Position PosEnd { get; set; }
+        public Position PositionStart { get; set; }
+        public Position PositionEnd { get; set; }
         public Context Context { get; set; }
 
-        public RuntimeValue SetPos(Position positionStart, Position posEnd)
+        public RuntimeValue SetPos(Position positionStart, Position positionEnd)
         {
-            PosStart = positionStart;
-            PosEnd = posEnd;
+            PositionStart = positionStart;
+            PositionEnd = positionEnd;
             return this;
         }
 
@@ -39,9 +39,9 @@ namespace RaLanguage.Interpreter.Values
         public virtual (RuntimeValue?, Error?) OredBy(RuntimeValue other) => (null, IllegalOperation(other));
         public virtual (RuntimeValue?, Error?) Notted() => (null, IllegalOperation(this));
 
-        public virtual RTResult Execute(List<RuntimeValue> args)
+        public virtual RuntimeResult Execute(List<RuntimeValue> args)
         {
-            return new RTResult().Failure(IllegalOperation());
+            return new RuntimeResult().Failure(IllegalOperation());
         }
 
         public abstract RuntimeValue Copy();
@@ -51,7 +51,7 @@ namespace RaLanguage.Interpreter.Values
         public Error IllegalOperation(RuntimeValue? other = null)
         {
             if (other == null) other = this;
-            return new RuntimeError(PosStart, other.PosEnd, "Illegal operation", Context);
+            return new RuntimeError(PositionStart, other.PositionEnd, "Illegal operation", Context);
         }
     }
 }

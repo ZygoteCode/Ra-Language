@@ -19,8 +19,8 @@ namespace RaLanguage.Parser.Nodes.Statements
             StepValueNode = stepValueNode;
             BodyNode = bodyNode;
             ShouldReturnNull = shouldReturnNull;
-            PosStart = varNameTok.PosStart;
-            PosEnd = bodyNode.PosEnd;
+            PositionStart = varNameTok.PositionStart;
+            PositionEnd = bodyNode.PositionEnd;
         }
     }
 }

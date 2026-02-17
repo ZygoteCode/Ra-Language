@@ -16,11 +16,11 @@ namespace RaLanguage.Parser.Nodes.Functions
             BodyNode = bodyNode;
             ShouldAutoReturn = shouldAutoReturn;
 
-            if (varNameTok != null) PosStart = varNameTok.PosStart;
-            else if (argNameToks.Count > 0) PosStart = argNameToks[0].PosStart;
-            else PosStart = bodyNode.PosStart;
+            if (varNameTok != null) PositionStart = varNameTok.PositionStart;
+            else if (argNameToks.Count > 0) PositionStart = argNameToks[0].PositionStart;
+            else PositionStart = bodyNode.PositionStart;
 
-            PosEnd = bodyNode.PosEnd;
+            PositionEnd = bodyNode.PositionEnd;
         }
     }
 }

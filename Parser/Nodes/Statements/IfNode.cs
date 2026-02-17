@@ -9,12 +9,12 @@
         {
             Cases = cases;
             ElseCase = elseCase;
-            PosStart = cases[0].Item1.PosStart;
+            PositionStart = cases[0].Item1.PositionStart;
 
             if (elseCase != null)
-                PosEnd = elseCase.Value.Item1.PosEnd;
+                PositionEnd = elseCase.Value.Item1.PositionEnd;
             else
-                PosEnd = cases[cases.Count - 1].Item2.PosEnd;
+                PositionEnd = cases[cases.Count - 1].Item2.PositionEnd;
         }
     }
 }

@@ -29,7 +29,7 @@
 
         public override RuntimeValue Copy()
         {
-            return new StringVal(Value).SetPos(PosStart, PosEnd).SetContext(Context);
+            return new StringVal(Value).SetPos(PositionStart, PositionEnd).SetContext(Context);
         }
 
         public override string ToString() => Value;

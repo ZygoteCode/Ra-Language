@@ -41,7 +41,7 @@
         {
             if (other is Number n)
             {
-                if (n.Value == 0) return (null, new RuntimeError(n.PosStart, n.PosEnd, "Division by zero", Context));
+                if (n.Value == 0) return (null, new RuntimeError(n.PositionStart, n.PositionEnd, "Division by zero", Context));
                 return (new Number(Value / n.Value).SetContext(Context), null);
             }
             return base.DivedBy(other);
@@ -108,7 +108,7 @@
 
         public override RuntimeValue Copy()
         {
-            return new Number(Value).SetPos(PosStart, PosEnd).SetContext(Context);
+            return new Number(Value).SetPos(PositionStart, PositionEnd).SetContext(Context);
         }
 
         public override bool IsTrue() => Value != 0;

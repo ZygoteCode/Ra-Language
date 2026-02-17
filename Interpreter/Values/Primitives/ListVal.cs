@@ -29,7 +29,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 }
                 catch
                 {
-                    return (null, new RuntimeError(other.PosStart, other.PosEnd, "Element at this index could not be removed from list because index is out of bounds", Context));
+                    return (null, new RuntimeError(other.PositionStart, other.PositionEnd, "Element at this index could not be removed from list because index is out of bounds", Context));
                 }
             }
             return base.SubbedBy(other);
@@ -58,7 +58,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 }
                 catch
                 {
-                    return (null, new RuntimeError(other.PosStart, other.PosEnd, "Element at this index could not be retrieved from list because index is out of bounds", Context));
+                    return (null, new RuntimeError(other.PositionStart, other.PositionEnd, "Element at this index could not be retrieved from list because index is out of bounds", Context));
                 }
             }
             return base.DivedBy(other);
@@ -66,7 +66,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override RuntimeValue Copy()
         {
-            return new ListVal(new List<RuntimeValue>(Elements)).SetPos(PosStart, PosEnd).SetContext(Context);
+            return new ListVal(new List<RuntimeValue>(Elements)).SetPos(PositionStart, PositionEnd).SetContext(Context);
         }
 
         public override string ToString() => "[" + string.Join(", ", Elements.Select(e =>

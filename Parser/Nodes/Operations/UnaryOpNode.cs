@@ -10,8 +10,8 @@ namespace RaLanguage.Parser.Nodes.Operations
         {
             OpTok = opTok;
             Node = node;
-            PosStart = opTok.PosStart;
-            PosEnd = node.PosEnd;
+            PositionStart = opTok.PositionStart;
+            PositionEnd = node.PositionEnd;
         }
         public override string ToString() => $"({OpTok}, {Node})";
     }

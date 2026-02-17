@@ -11,8 +11,8 @@
             ConditionNode = conditionNode;
             BodyNode = bodyNode;
             ShouldReturnNull = shouldReturnNull;
-            PosStart = conditionNode.PosStart;
-            PosEnd = bodyNode.PosEnd;
+            PositionStart = conditionNode.PositionStart;
+            PositionEnd = bodyNode.PositionEnd;
         }
     }
 }

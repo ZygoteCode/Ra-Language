@@ -10,8 +10,8 @@ namespace RaLanguage.Parser.Nodes.Variables
         {
             VarNameTok = varNameTok;
             ValueNode = valueNode;
-            PosStart = varNameTok.PosStart;
-            PosEnd = valueNode.PosEnd;
+            PositionStart = varNameTok.PositionStart;
+            PositionEnd = valueNode.PositionEnd;
         }
     }
 }

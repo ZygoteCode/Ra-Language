@@ -17,9 +17,9 @@ namespace RaLanguage.Interpreter.Values.Functions
             ShouldAutoReturn = shouldAutoReturn;
         }
 
-        public override RTResult Execute(List<RuntimeValue> args)
+        public override RuntimeResult Execute(List<RuntimeValue> args)
         {
-            var res = new RTResult();
+            var res = new RuntimeResult();
             var interpreter = new Interpreter();
             var execCtx = GenerateNewContext();
 
@@ -35,7 +35,7 @@ namespace RaLanguage.Interpreter.Values.Functions
 
         public override RuntimeValue Copy()
         {
-            return new Function(Name, BodyNode, ArgNames, ShouldAutoReturn).SetContext(Context).SetPos(PosStart, PosEnd);
+            return new Function(Name, BodyNode, ArgNames, ShouldAutoReturn).SetContext(Context).SetPos(PositionStart, PositionEnd);
         }
 
         public override string ToString() => $"<function {Name}>";

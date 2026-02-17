@@ -13,19 +13,19 @@ namespace RaLanguage.Interpreter.Values.Functions
 
         public Context GenerateNewContext()
         {
-            var newCtx = new Context(Name, Context, PosStart);
+            var newCtx = new Context(Name, Context, PositionStart);
             newCtx.SymbolTable = new SymbolTable(newCtx.Parent?.SymbolTable);
             return newCtx;
         }
 
-        public RTResult CheckArgs(List<string> argNames, List<RuntimeValue> args)
+        public RuntimeResult CheckArgs(List<string> argNames, List<RuntimeValue> args)
         {
-            var res = new RTResult();
+            var res = new RuntimeResult();
             if (args.Count > argNames.Count)
-                return res.Failure(new RuntimeError(PosStart, PosEnd, $"{args.Count - argNames.Count} too many args passed into {Name}", Context));
+                return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"{args.Count - argNames.Count} too many args passed into {Name}", Context));
 
             if (args.Count < argNames.Count)
-                return res.Failure(new RuntimeError(PosStart, PosEnd, $"{argNames.Count - args.Count} too few args passed into {Name}", Context));
+                return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"{argNames.Count - args.Count} too few args passed into {Name}", Context));
 
             return res.Success(null);
         }
@@ -40,9 +40,9 @@ namespace RaLanguage.Interpreter.Values.Functions
             }
         }
 
-        public RTResult CheckAndPopulateArgs(List<string> argNames, List<RuntimeValue> args, Context execCtx)
+        public RuntimeResult CheckAndPopulateArgs(List<string> argNames, List<RuntimeValue> args, Context execCtx)
         {
-            var res = new RTResult();
+            var res = new RuntimeResult();
             res.Register(CheckArgs(argNames, args));
             if (res.ShouldReturn()) return res;
             PopulateArgs(argNames, args, execCtx);
