@@ -64,11 +64,13 @@ namespace RaLanguage
 
         public static void Main(string[] args)
         {
+            Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.RealTime;
+            Process.GetCurrentProcess().PriorityBoostEnabled = true;
             Console.WriteLine("[Ra Language] Warming up JIT...");
 
-            for (int i = 0; i < 1000; i++)
+            for (int i = 0; i < 10; i++)
             {
-                Run("<stdin>", "VAR a = 5");
+                Run("<stdin>", "VAR a = 5; VAR b = [5, 3, 2]; FUN c() -> VAR eee = 7; VAR d = c; d(); IF (5 == 5) AND (6 == 6) OR (7 == 7) THEN VAR bbb = 5 ELSE VAR bbb = 7");
             }
 
             Stopwatch stopwatch = new Stopwatch();
