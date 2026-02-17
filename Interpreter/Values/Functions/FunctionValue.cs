@@ -3,13 +3,13 @@ using RaLanguage.Parser.Nodes;
 
 namespace RaLanguage.Interpreter.Values.Functions
 {
-    public class Function : BaseFunction
+    public class FunctionValue : BaseFunctionValue
     {
         public AstNode BodyNode { get; }
         public List<string> ArgNames { get; }
         public bool ShouldAutoReturn { get; }
 
-        public Function(string name, AstNode bodyNode, List<string> argNames, bool shouldAutoReturn)
+        public FunctionValue(string name, AstNode bodyNode, List<string> argNames, bool shouldAutoReturn)
             : base(name)
         {
             BodyNode = bodyNode;
@@ -29,13 +29,13 @@ namespace RaLanguage.Interpreter.Values.Functions
             var value = res.Register(interpreter.Visit(BodyNode, execCtx));
             if (res.ShouldReturn() && res.FuncReturnValue == null) return res;
 
-            var retValue = (ShouldAutoReturn ? value : null) ?? res.FuncReturnValue ?? Number.Null;
+            var retValue = (ShouldAutoReturn ? value : null) ?? res.FuncReturnValue ?? NumberValue.Null;
             return res.Success(retValue);
         }
 
         public override RuntimeValue Copy()
         {
-            return new Function(Name, BodyNode, ArgNames, ShouldAutoReturn).SetContext(Context).SetPos(PositionStart, PositionEnd);
+            return new FunctionValue(Name, BodyNode, ArgNames, ShouldAutoReturn).SetContext(Context).SetPos(PositionStart, PositionEnd);
         }
 
         public override string ToString() => $"<function {Name}>";

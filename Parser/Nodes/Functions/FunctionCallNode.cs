@@ -1,11 +1,11 @@
 ﻿namespace RaLanguage.Parser.Nodes.Functions
 {
-    public class CallNode : AstNode
+    public class FunctionCallNode : AstNode
     {
         public AstNode NodeToCall { get; }
         public List<AstNode> ArgNodes { get; }
 
-        public CallNode(AstNode nodeToCall, List<AstNode> argNodes)
+        public FunctionCallNode(AstNode nodeToCall, List<AstNode> argNodes)
         {
             NodeToCall = nodeToCall;
             ArgNodes = argNodes;

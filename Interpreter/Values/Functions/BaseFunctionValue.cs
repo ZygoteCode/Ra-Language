@@ -3,10 +3,10 @@ using RaLanguage.Interpreter.Runtime;
 
 namespace RaLanguage.Interpreter.Values.Functions
 {
-    public abstract class BaseFunction : RuntimeValue
+    public abstract class BaseFunctionValue : RuntimeValue
     {
         public string Name { get; }
-        public BaseFunction(string name)
+        public BaseFunctionValue(string name)
         {
             Name = name ?? "<anonymous>";
         }

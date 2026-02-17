@@ -24,15 +24,15 @@ namespace RaLanguage.Interpreter
                 NumberNode n => VisitNumberNode(n, context),
                 StringNode s => VisitStringNode(s, context),
                 ListNode l => VisitListNode(l, context),
-                VarAccessNode v => VisitVarAccessNode(v, context),
-                VarAssignNode v => VisitVarAssignNode(v, context),
-                BinOpNode b => VisitBinOpNode(b, context),
-                UnaryOpNode u => VisitUnaryOpNode(u, context),
+                VariableAccessNode v => VisitVariableAccessNode(v, context),
+                VariableAssignNode v => VisitVariableAssignNode(v, context),
+                BinaryOperationNode b => VisitBinaryOperationNode(b, context),
+                UnaryOperationNode u => VisitUnaryOperationNode(u, context),
                 IfNode i => VisitIfNode(i, context),
                 ForNode f => VisitForNode(f, context),
                 WhileNode w => VisitWhileNode(w, context),
-                FuncDefNode f => VisitFuncDefNode(f, context),
-                CallNode c => VisitCallNode(c, context),
+                FunctionDefinitionNode f => VisitFunctionDefinitionNode(f, context),
+                FunctionCallNode c => VisitFunctionCallNode(c, context),
                 ReturnNode r => VisitReturnNode(r, context),
                 ContinueNode c => VisitContinueNode(c, context),
                 BreakNode b => VisitBreakNode(b, context),
@@ -43,14 +43,14 @@ namespace RaLanguage.Interpreter
         private RuntimeResult VisitNumberNode(NumberNode node, Context context)
         {
             return new RuntimeResult().Success(
-                new Number(Convert.ToDouble(node.Tok.Value)).SetContext(context).SetPos(node.PositionStart, node.PositionEnd)
+                new NumberValue(Convert.ToDouble(node.Tok.Value)).SetContext(context).SetPos(node.PositionStart, node.PositionEnd)
             );
         }
 
         private RuntimeResult VisitStringNode(StringNode node, Context context)
         {
             return new RuntimeResult().Success(
-                new StringVal(node.Tok.Value?.ToString() ?? "").SetContext(context).SetPos(node.PositionStart, node.PositionEnd)
+                new StringValue(node.Tok.Value?.ToString() ?? "").SetContext(context).SetPos(node.PositionStart, node.PositionEnd)
             );
         }
 
@@ -67,11 +67,11 @@ namespace RaLanguage.Interpreter
             }
 
             return res.Success(
-                new ListVal(elements).SetContext(context).SetPos(node.PositionStart, node.PositionEnd)
+                new ListValue(elements).SetContext(context).SetPos(node.PositionStart, node.PositionEnd)
             );
         }
 
-        private RuntimeResult VisitVarAccessNode(VarAccessNode node, Context context)
+        private RuntimeResult VisitVariableAccessNode(VariableAccessNode node, Context context)
         {
             var res = new RuntimeResult();
             var varName = node.VarNameTok.Value?.ToString();
@@ -86,7 +86,7 @@ namespace RaLanguage.Interpreter
             return res.Success(value);
         }
 
-        private RuntimeResult VisitVarAssignNode(VarAssignNode node, Context context)
+        private RuntimeResult VisitVariableAssignNode(VariableAssignNode node, Context context)
         {
             var res = new RuntimeResult();
             var varName = node.VarNameTok.Value?.ToString();
@@ -97,7 +97,7 @@ namespace RaLanguage.Interpreter
             return res.Success(value);
         }
 
-        private RuntimeResult VisitBinOpNode(BinOpNode node, Context context)
+        private RuntimeResult VisitBinaryOperationNode(BinaryOperationNode node, Context context)
         {
             var res = new RuntimeResult();
             var left = res.Register(Visit(node.LeftNode, context));
@@ -128,7 +128,7 @@ namespace RaLanguage.Interpreter
             return res.Success(result!.SetPos(node.PositionStart, node.PositionEnd));
         }
 
-        private RuntimeResult VisitUnaryOpNode(UnaryOpNode node, Context context)
+        private RuntimeResult VisitUnaryOperationNode(UnaryOperationNode node, Context context)
         {
             var res = new RuntimeResult();
             var number = res.Register(Visit(node.Node, context));
@@ -137,7 +137,7 @@ namespace RaLanguage.Interpreter
             Error? error = null;
 
             if (node.OpTok.Type == TokenType.MINUS)
-                (number, error) = number.MultedBy(new Number(-1));
+                (number, error) = number.MultedBy(new NumberValue(-1));
             else if (node.OpTok.Matches(TokenType.KEYWORD, "NOT"))
                 (number, error) = number.Notted();
 
@@ -158,7 +158,7 @@ namespace RaLanguage.Interpreter
                 {
                     var exprValue = res.Register(Visit(expr, context));
                     if (res.ShouldReturn()) return res;
-                    return res.Success(shouldReturnNull ? Number.Null : exprValue);
+                    return res.Success(shouldReturnNull ? NumberValue.Null : exprValue);
                 }
             }
 
@@ -167,10 +167,10 @@ namespace RaLanguage.Interpreter
                 var (expr, shouldReturnNull) = node.ElseCase.Value;
                 var exprValue = res.Register(Visit(expr, context));
                 if (res.ShouldReturn()) return res;
-                return res.Success(shouldReturnNull ? Number.Null : exprValue);
+                return res.Success(shouldReturnNull ? NumberValue.Null : exprValue);
             }
 
-            return res.Success(Number.Null);
+            return res.Success(NumberValue.Null);
         }
 
         private RuntimeResult VisitForNode(ForNode node, Context context)
@@ -192,18 +192,18 @@ namespace RaLanguage.Interpreter
             }
             else
             {
-                stepValue = new Number(1);
+                stepValue = new NumberValue(1);
             }
 
-            double i = ((Number)startValue).Value;
-            double end = ((Number)endValue).Value;
-            double step = ((Number)stepValue).Value;
+            double i = ((NumberValue)startValue).Value;
+            double end = ((NumberValue)endValue).Value;
+            double step = ((NumberValue)stepValue).Value;
 
             Func<bool> condition = (step >= 0) ? () => i < end : () => i > end;
 
             while (condition())
             {
-                context.SymbolTable.Set(node.VarNameTok.Value.ToString(), new Number(i));
+                context.SymbolTable.Set(node.VarNameTok.Value.ToString(), new NumberValue(i));
                 i += step;
 
                 var value = res.Register(Visit(node.BodyNode, context));
@@ -216,7 +216,7 @@ namespace RaLanguage.Interpreter
             }
 
             return res.Success(
-                node.ShouldReturnNull ? Number.Null : new ListVal(elements).SetContext(context).SetPos(node.PositionStart, node.PositionEnd)
+                node.ShouldReturnNull ? NumberValue.Null : new ListValue(elements).SetContext(context).SetPos(node.PositionStart, node.PositionEnd)
             );
         }
 
@@ -242,17 +242,17 @@ namespace RaLanguage.Interpreter
             }
 
             return res.Success(
-               node.ShouldReturnNull ? Number.Null : new ListVal(elements).SetContext(context).SetPos(node.PositionStart, node.PositionEnd)
+               node.ShouldReturnNull ? NumberValue.Null : new ListValue(elements).SetContext(context).SetPos(node.PositionStart, node.PositionEnd)
            );
         }
 
-        private RuntimeResult VisitFuncDefNode(FuncDefNode node, Context context)
+        private RuntimeResult VisitFunctionDefinitionNode(FunctionDefinitionNode node, Context context)
         {
             var res = new RuntimeResult();
 
             string funcName = node.VarNameTok != null ? node.VarNameTok.Value.ToString() : null;
             var argNames = node.ArgNameToks.Select(t => t.Value.ToString()).ToList();
-            var funcValue = new Function(funcName, node.BodyNode, argNames, node.ShouldAutoReturn)
+            var funcValue = new FunctionValue(funcName, node.BodyNode, argNames, node.ShouldAutoReturn)
                 .SetContext(context)
                 .SetPos(node.PositionStart, node.PositionEnd);
 
@@ -264,7 +264,7 @@ namespace RaLanguage.Interpreter
             return res.Success(funcValue);
         }
 
-        private RuntimeResult VisitCallNode(CallNode node, Context context)
+        private RuntimeResult VisitFunctionCallNode(FunctionCallNode node, Context context)
         {
             var res = new RuntimeResult();
             var args = new List<RuntimeValue>();
@@ -289,7 +289,7 @@ namespace RaLanguage.Interpreter
         private RuntimeResult VisitReturnNode(ReturnNode node, Context context)
         {
             var res = new RuntimeResult();
-            RuntimeValue value = Number.Null;
+            RuntimeValue value = NumberValue.Null;
 
             if (node.NodeToReturn != null)
             {

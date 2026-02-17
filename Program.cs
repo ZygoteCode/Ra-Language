@@ -3,6 +3,8 @@ using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Functions;
 using RaLanguage.Interpreter.Values.Primitives;
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
 
 namespace RaLanguage
 {
@@ -13,25 +15,25 @@ namespace RaLanguage
         static Program()
         {
             GlobalSymbolTable = new SymbolTable();
-            GlobalSymbolTable.Set("NULL", Number.Null);
-            GlobalSymbolTable.Set("FALSE", Number.False);
-            GlobalSymbolTable.Set("TRUE", Number.True);
-            GlobalSymbolTable.Set("MATH_PI", Number.MathPI);
-            GlobalSymbolTable.Set("PRINT", new BuiltInFunction("print"));
-            GlobalSymbolTable.Set("PRINT_RET", new BuiltInFunction("print_ret"));
-            GlobalSymbolTable.Set("INPUT", new BuiltInFunction("input"));
-            GlobalSymbolTable.Set("INPUT_INT", new BuiltInFunction("input_int"));
-            GlobalSymbolTable.Set("CLEAR", new BuiltInFunction("clear"));
-            GlobalSymbolTable.Set("CLS", new BuiltInFunction("clear"));
-            GlobalSymbolTable.Set("IS_NUM", new BuiltInFunction("is_number"));
-            GlobalSymbolTable.Set("IS_STR", new BuiltInFunction("is_string"));
-            GlobalSymbolTable.Set("IS_LIST", new BuiltInFunction("is_list"));
-            GlobalSymbolTable.Set("IS_FUN", new BuiltInFunction("is_function"));
-            GlobalSymbolTable.Set("APPEND", new BuiltInFunction("append"));
-            GlobalSymbolTable.Set("POP", new BuiltInFunction("pop"));
-            GlobalSymbolTable.Set("EXTEND", new BuiltInFunction("extend"));
-            GlobalSymbolTable.Set("LEN", new BuiltInFunction("len"));
-            GlobalSymbolTable.Set("RUN", new BuiltInFunction("run"));
+            GlobalSymbolTable.Set("NULL", NumberValue.Null);
+            GlobalSymbolTable.Set("FALSE", NumberValue.False);
+            GlobalSymbolTable.Set("TRUE", NumberValue.True);
+            GlobalSymbolTable.Set("MATH_PI", NumberValue.MathPI);
+            GlobalSymbolTable.Set("PRINT", new BuiltInFunctionValue("print"));
+            GlobalSymbolTable.Set("PRINT_RET", new BuiltInFunctionValue("print_ret"));
+            GlobalSymbolTable.Set("INPUT", new BuiltInFunctionValue("input"));
+            GlobalSymbolTable.Set("INPUT_INT", new BuiltInFunctionValue("input_int"));
+            GlobalSymbolTable.Set("CLEAR", new BuiltInFunctionValue("clear"));
+            GlobalSymbolTable.Set("CLS", new BuiltInFunctionValue("clear"));
+            GlobalSymbolTable.Set("IS_NUM", new BuiltInFunctionValue("is_number"));
+            GlobalSymbolTable.Set("IS_STR", new BuiltInFunctionValue("is_string"));
+            GlobalSymbolTable.Set("IS_LIST", new BuiltInFunctionValue("is_list"));
+            GlobalSymbolTable.Set("IS_FUN", new BuiltInFunctionValue("is_function"));
+            GlobalSymbolTable.Set("APPEND", new BuiltInFunctionValue("append"));
+            GlobalSymbolTable.Set("POP", new BuiltInFunctionValue("pop"));
+            GlobalSymbolTable.Set("EXTEND", new BuiltInFunctionValue("extend"));
+            GlobalSymbolTable.Set("LEN", new BuiltInFunctionValue("len"));
+            GlobalSymbolTable.Set("RUN", new BuiltInFunctionValue("run"));
         }
 
         public static (RuntimeValue?, Error?) Run(string fn, string text)
@@ -62,6 +64,16 @@ namespace RaLanguage
 
         public static void Main(string[] args)
         {
+            Console.WriteLine("[Ra Language] Warming up JIT...");
+
+            for (int i = 0; i < 1000; i++)
+            {
+                Run("<stdin>", "VAR a = 5");
+            }
+
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
+
             Console.Title = "Ra Language | Made by https://github.com/ZygoteCode/";
             string text = File.ReadAllText("main.ra");
             var (result, error) = Run("<stdin>", text);
@@ -72,7 +84,7 @@ namespace RaLanguage
             }
             else if (result != null)
             {
-                if (result is ListVal l && l.Elements.Count == 1)
+                if (result is ListValue l && l.Elements.Count == 1)
                 {
                     Console.WriteLine(l.Elements[0]);
                 }
@@ -81,6 +93,9 @@ namespace RaLanguage
                     Console.WriteLine(result);
                 }
             }
+
+            Console.WriteLine($"[Ra Language] Execution of \"main.ra\" took {stopwatch.ElapsedMilliseconds}ms.");
+            Console.ReadLine();
         }
     }
 }

@@ -167,7 +167,7 @@ namespace RaLanguage.Parser
                 Advance();
                 var expr = res.Register(ParseExpression());
                 if (res.Error != null) return res;
-                return res.Success(new VarAssignNode(varName, expr));
+                return res.Success(new VariableAssignNode(varName, expr));
             }
 
             var node = res.Register(ParseBinaryOperation(ParseComparisonExpression, new List<(TokenType, string?)> { (TokenType.KEYWORD, "AND"), (TokenType.KEYWORD, "OR") }));
@@ -195,7 +195,7 @@ namespace RaLanguage.Parser
 
                 var node = res.Register(ParseComparisonExpression());
                 if (res.Error != null) return res;
-                return res.Success(new UnaryOpNode(opTok, node));
+                return res.Success(new UnaryOperationNode(opTok, node));
             }
 
             var b_node = res.Register(ParseBinaryOperation(ParseArithmeticExpression, new List<(TokenType, string?)>
@@ -235,7 +235,7 @@ namespace RaLanguage.Parser
                 Advance();
                 var factor = res.Register(ParseFactor());
                 if (res.Error != null) return res;
-                return res.Success(new UnaryOpNode(tok, factor));
+                return res.Success(new UnaryOperationNode(tok, factor));
             }
 
             return ParsePower();
@@ -283,7 +283,7 @@ namespace RaLanguage.Parser
                     res.RegisterAdvancement();
                     Advance();
                 }
-                return res.Success(new CallNode(atom, argNodes));
+                return res.Success(new FunctionCallNode(atom, argNodes));
             }
             return res.Success(atom);
         }
@@ -309,7 +309,7 @@ namespace RaLanguage.Parser
             {
                 res.RegisterAdvancement();
                 Advance();
-                return res.Success(new VarAccessNode(tok));
+                return res.Success(new VariableAccessNode(tok));
             }
             else if (tok.Type == TokenType.LPAREN)
             {
@@ -717,7 +717,7 @@ namespace RaLanguage.Parser
                 Advance();
                 var body = res.Register(ParseExpression());
                 if (res.Error != null) return res;
-                return res.Success(new FuncDefNode(varNameTok, argNameToks, body, true));
+                return res.Success(new FunctionDefinitionNode(varNameTok, argNameToks, body, true));
             }
 
             if (_currentToken.Type != TokenType.NEWLINE)
@@ -734,7 +734,7 @@ namespace RaLanguage.Parser
 
             res.RegisterAdvancement();
             Advance();
-            return res.Success(new FuncDefNode(varNameTok, argNameToks, bodyStmts, false));
+            return res.Success(new FunctionDefinitionNode(varNameTok, argNameToks, bodyStmts, false));
         }
 
         private ParserResult ParseBinaryOperation(Func<ParserResult> funcA, List<(TokenType, string?)> ops, Func<ParserResult>? funcB = null)
@@ -751,7 +751,7 @@ namespace RaLanguage.Parser
                 Advance();
                 var right = res.Register(funcB());
                 if (res.Error != null) return res;
-                left = new BinOpNode(left, opTok, right);
+                left = new BinaryOperationNode(left, opTok, right);
             }
             return res.Success(left);
         }

@@ -4,9 +4,9 @@ using RaLanguage.Interpreter.Values.Primitives;
 
 namespace RaLanguage.Interpreter.Values.Functions
 {
-    public class BuiltInFunction : BaseFunction
+    public class BuiltInFunctionValue : BaseFunctionValue
     {
-        public BuiltInFunction(string name) : base(name) { }
+        public BuiltInFunctionValue(string name) : base(name) { }
 
         public override RuntimeResult Execute(List<RuntimeValue> args)
         {
@@ -49,61 +49,61 @@ namespace RaLanguage.Interpreter.Values.Functions
 
         private RuntimeResult ExecutePrint(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
             Console.WriteLine(c.SymbolTable.Get("value"));
-            return new RuntimeResult().Success(Number.Null);
+            return new RuntimeResult().Success(NumberValue.Null);
         });
 
         private RuntimeResult ExecutePrintRet(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
-            return new RuntimeResult().Success(new StringVal(c.SymbolTable.Get("value").ToString()));
+            return new RuntimeResult().Success(new StringValue(c.SymbolTable.Get("value").ToString()));
         });
 
         private RuntimeResult ExecuteInput(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
             string text = Console.ReadLine() ?? "";
-            return new RuntimeResult().Success(new StringVal(text));
+            return new RuntimeResult().Success(new StringValue(text));
         });
 
         private RuntimeResult ExecuteInputInt(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
             while (true)
             {
                 string text = Console.ReadLine() ?? "";
-                if (int.TryParse(text, out int val)) return new RuntimeResult().Success(new Number(val));
+                if (int.TryParse(text, out int val)) return new RuntimeResult().Success(new NumberValue(val));
                 Console.WriteLine($"'{text}' must be an integer. Try again!");
             }
         });
 
         private RuntimeResult ExecuteClear(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
             Console.Clear();
-            return new RuntimeResult().Success(Number.Null);
+            return new RuntimeResult().Success(NumberValue.Null);
         });
 
         private RuntimeResult ExecuteIsNumber(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
-            return new RuntimeResult().Success(c.SymbolTable.Get("value") is Number ? Number.True : Number.False);
+            return new RuntimeResult().Success(c.SymbolTable.Get("value") is NumberValue ? NumberValue.True : NumberValue.False);
         });
 
         private RuntimeResult ExecuteIsString(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
-            return new RuntimeResult().Success(c.SymbolTable.Get("value") is StringVal ? Number.True : Number.False);
+            return new RuntimeResult().Success(c.SymbolTable.Get("value") is StringValue ? NumberValue.True : NumberValue.False);
         });
 
         private RuntimeResult ExecuteIsList(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
-            return new RuntimeResult().Success(c.SymbolTable.Get("value") is ListVal ? Number.True : Number.False);
+            return new RuntimeResult().Success(c.SymbolTable.Get("value") is ListValue ? NumberValue.True : NumberValue.False);
         });
 
         private RuntimeResult ExecuteIsFunction(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
-            return new RuntimeResult().Success(c.SymbolTable.Get("value") is BaseFunction ? Number.True : Number.False);
+            return new RuntimeResult().Success(c.SymbolTable.Get("value") is BaseFunctionValue ? NumberValue.True : NumberValue.False);
         });
 
         private RuntimeResult ExecuteAppend(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
             var list = c.SymbolTable.Get("list");
             var value = c.SymbolTable.Get("value");
-            if (list is not ListVal l) return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, "First argument must be list", c));
+            if (list is not ListValue l) return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, "First argument must be list", c));
             l.Elements.Add(value);
-            return new RuntimeResult().Success(Number.Null);
+            return new RuntimeResult().Success(NumberValue.Null);
         });
 
         private RuntimeResult ExecutePop(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
             var list = c.SymbolTable.Get("list");
             var index = c.SymbolTable.Get("index");
-            if (list is not ListVal l) return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, "First argument must be list", c));
-            if (index is not Number n) return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, "Second argument must be number", c));
+            if (list is not ListValue l) return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, "First argument must be list", c));
+            if (index is not NumberValue n) return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, "Second argument must be number", c));
 
             try
             {
@@ -120,21 +120,21 @@ namespace RaLanguage.Interpreter.Values.Functions
         private RuntimeResult ExecuteExtend(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
             var listA = c.SymbolTable.Get("listA");
             var listB = c.SymbolTable.Get("listB");
-            if (listA is not ListVal lA) return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, "First argument must be list", c));
-            if (listB is not ListVal lB) return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, "Second argument must be list", c));
+            if (listA is not ListValue lA) return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, "First argument must be list", c));
+            if (listB is not ListValue lB) return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, "Second argument must be list", c));
             lA.Elements.AddRange(lB.Elements);
-            return new RuntimeResult().Success(Number.Null);
+            return new RuntimeResult().Success(NumberValue.Null);
         });
 
         private RuntimeResult ExecuteLen(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
             var list = c.SymbolTable.Get("list");
-            if (list is not ListVal l) return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, "Argument must be list", c));
-            return new RuntimeResult().Success(new Number(l.Elements.Count));
+            if (list is not ListValue l) return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, "Argument must be list", c));
+            return new RuntimeResult().Success(new NumberValue(l.Elements.Count));
         });
 
         private RuntimeResult ExecuteRun(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
             var fn = c.SymbolTable.Get("fn");
-            if (fn is not StringVal s) return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, "Argument must be string", c));
+            if (fn is not StringValue s) return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, "Argument must be string", c));
 
             try
             {
@@ -142,7 +142,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                 string script = System.IO.File.ReadAllText(s.Value);
                 var (val, err) = Program.Run(s.Value, script);
                 if (err != null) return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, $"Failed to finish executing script \"{s.Value}\"\n" + err.AsString(), c));
-                return new RuntimeResult().Success(Number.Null);
+                return new RuntimeResult().Success(NumberValue.Null);
             }
             catch (Exception ex)
             {
@@ -152,7 +152,7 @@ namespace RaLanguage.Interpreter.Values.Functions
 
         public override RuntimeValue Copy()
         {
-            return new BuiltInFunction(Name).SetContext(Context).SetPos(PositionStart, PositionEnd);
+            return new BuiltInFunctionValue(Name).SetContext(Context).SetPos(PositionStart, PositionEnd);
         }
 
         public override string ToString() => $"<built-in function {Name}>";

@@ -2,14 +2,14 @@
 
 namespace RaLanguage.Parser.Nodes.Functions
 {
-    public class FuncDefNode : AstNode
+    public class FunctionDefinitionNode : AstNode
     {
         public Token? VarNameTok { get; }
         public List<Token> ArgNameToks { get; }
         public AstNode BodyNode { get; }
         public bool ShouldAutoReturn { get; }
 
-        public FuncDefNode(Token? varNameTok, List<Token> argNameToks, AstNode bodyNode, bool shouldAutoReturn)
+        public FunctionDefinitionNode(Token? varNameTok, List<Token> argNameToks, AstNode bodyNode, bool shouldAutoReturn)
         {
             VarNameTok = varNameTok;
             ArgNameToks = argNameToks;
