@@ -116,7 +116,7 @@ namespace RaLanguage
                             }
                         }
 
-                        Console.WriteLine($"[Ra Language] Execution of \"main.ra\" took {stopwatch.ElapsedMilliseconds}ms.");
+                        Console.WriteLine($"[Ra Language] Execution of \"main.ra\" took {stopwatch.ElapsedMilliseconds}ms / {stopwatch.ElapsedTicks} ticks / {stopwatch.Elapsed.TotalNanoseconds} nanoseconds.");
                         Console.ReadLine();
                         Console.Clear();
                         continue;
@@ -143,7 +143,7 @@ namespace RaLanguage
                             }
                         }
 
-                        Console.WriteLine($"[Ra Language] Execution of \"main.ra\" took {stopwatch1.ElapsedMilliseconds}ms.");
+                        Console.WriteLine($"[Ra Language] Execution of \"main.ra\" took {stopwatch1.ElapsedMilliseconds}ms / {stopwatch1.ElapsedTicks} ticks / {stopwatch1.Elapsed.TotalNanoseconds} nanoseconds.");
                         Console.WriteLine("[Ra Language] Press ENTER to execute again.");
                         Console.ReadLine();
                         Console.Clear();
@@ -189,6 +189,8 @@ namespace RaLanguage
                                         Console.WriteLine(result2);
                                     }
                                 }
+
+                                Console.WriteLine($"[Ra Language] Execution of \"main.ra\" took {stopwatch2.ElapsedMilliseconds}ms / {stopwatch2.ElapsedTicks} ticks / {stopwatch2.Elapsed.TotalNanoseconds} nanoseconds.");
                             }
                             catch
                             {
