@@ -4,7 +4,6 @@ using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Functions;
 using RaLanguage.Interpreter.Values.Primitives;
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
 
 namespace RaLanguage
 {
@@ -66,6 +65,7 @@ namespace RaLanguage
         {
             Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.RealTime;
             Process.GetCurrentProcess().PriorityBoostEnabled = true;
+
             Console.WriteLine("[Ra Language] Warming up JIT...");
 
             for (int i = 0; i < 10; i++)
@@ -73,31 +73,133 @@ namespace RaLanguage
                 Run("<stdin>", "VAR a = 5; VAR b = [5, 3, 2]; FUN c() -> VAR eee = 7; VAR d = c; d(); IF (5 == 5) AND (6 == 6) OR (7 == 7) THEN VAR bbb = 5 ELSE VAR bbb = 7");
             }
 
-            Stopwatch stopwatch = new Stopwatch();
-            stopwatch.Start();
-
             Console.Title = "Ra Language | Made by https://github.com/ZygoteCode/";
-            string text = File.ReadAllText("main.ra");
-            var (result, error) = Run("<stdin>", text);
 
-            if (error != null)
+            while (true)
             {
-                Console.WriteLine(error.AsString());
-            }
-            else if (result != null)
-            {
-                if (result is ListValue l && l.Elements.Count == 1)
-                {
-                    Console.WriteLine(l.Elements[0]);
-                }
-                else
-                {
-                    Console.WriteLine(result);
-                }
-            }
+                Console.WriteLine("Please, choose from the following execution methods:\r\n" +
+                     "\r\n[1] Execute one time" +
+                     "\r\n[2] Execute every time you press ENTER" +
+                     "\r\n[3] Hot restart execution");
 
-            Console.WriteLine($"[Ra Language] Execution of \"main.ra\" took {stopwatch.ElapsedMilliseconds}ms.");
-            Console.ReadLine();
+                string input = Console.ReadLine();
+
+                if (input != "1" && input != "2" && input != "3")
+                {
+                    continue;
+                }
+
+                Console.Clear();
+
+                switch (input)
+                {
+                    case "1":
+                        string text = File.ReadAllText("main.ra");
+                        Stopwatch stopwatch = new Stopwatch();
+                        stopwatch.Start();
+
+                        var (result, error) = Run("<stdin>", text);
+
+                        if (error != null)
+                        {
+                            Console.WriteLine(error.AsString());
+                        }
+                        else
+                        {
+                            if (result is ListValue l && l.Elements.Count == 1)
+                            {
+                                Console.WriteLine(l.Elements[0]);
+                            }
+                            else
+                            {
+                                Console.WriteLine(result);
+                            }
+                        }
+
+                        Console.WriteLine($"[Ra Language] Execution of \"main.ra\" took {stopwatch.ElapsedMilliseconds}ms.");
+                        Console.ReadLine();
+                        Console.Clear();
+                        continue;
+                    case "2":
+                        repeat: string text1 = File.ReadAllText("main.ra");
+                        Stopwatch stopwatch1 = new Stopwatch();
+                        stopwatch1.Start();
+
+                        var (result1, error1) = Run("<stdin>", text1);
+
+                        if (error1 != null)
+                        {
+                            Console.WriteLine(error1.AsString());
+                        }
+                        else
+                        {
+                            if (result1 is ListValue l && l.Elements.Count == 1)
+                            {
+                                Console.WriteLine(l.Elements[0]);
+                            }
+                            else
+                            {
+                                Console.WriteLine(result1);
+                            }
+                        }
+
+                        Console.WriteLine($"[Ra Language] Execution of \"main.ra\" took {stopwatch1.ElapsedMilliseconds}ms.");
+                        Console.WriteLine("[Ra Language] Press ENTER to execute again.");
+                        Console.ReadLine();
+                        Console.Clear();
+                        goto repeat;
+                    case "3":
+                        string originalText = "";
+
+                        while (true)
+                        {
+                            Thread.Sleep(1);
+
+                            try
+                            {
+                                string newText = File.ReadAllText("main.ra");
+
+                                if (newText != originalText)
+                                {
+                                    originalText = newText;
+                                }
+                                else
+                                {
+                                    continue;
+                                }
+
+                                Console.Clear();
+                                Stopwatch stopwatch2 = new Stopwatch();
+                                stopwatch2.Start();
+
+                                var (result2, error2) = Run("<stdin>", originalText);
+
+                                if (error2 != null)
+                                {
+                                    Console.WriteLine(error2.AsString());
+                                }
+                                else
+                                {
+                                    if (result2 is ListValue l && l.Elements.Count == 1)
+                                    {
+                                        Console.WriteLine(l.Elements[0]);
+                                    }
+                                    else
+                                    {
+                                        Console.WriteLine(result2);
+                                    }
+                                }
+                            }
+                            catch
+                            {
+
+                            }
+                        }
+                    default:
+                        Process.GetCurrentProcess().Kill();
+                        break;
+                }
+            }
         }
     }
 }

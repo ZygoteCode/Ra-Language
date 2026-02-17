@@ -29,3 +29,13 @@ PRINT("Greetings universe!")
 FOR i = 0 TO 5 THEN
 	PRINT(join(map(["l", "sp"], oopify), ", "))
 END
+
+VAR a = 7
+
+IF a == 5 THEN
+	PRINT("Yes!")
+ELSE IF a == 7 THEN
+	PRINT("Far away")
+ELSE
+	PRINT("Oh yeah")
+END
