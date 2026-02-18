@@ -1,4 +1,4 @@
-## TODOs
+## TODOs for BETA 1.0
   
   - [ ] Add bitwise operations (&, |, ~, <<, >>) + mod operator (%).
   - [ ] Add normal variable assignment => Example: I declare a variable "var a = 5", and I can do "a = 7" directly.
