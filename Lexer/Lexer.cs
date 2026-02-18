@@ -11,8 +11,8 @@ namespace RaLanguage.Lexer
     {
         private readonly string _fn;
         private readonly string _text;
-        private Position _pos;
-        private char? _currentChar;
+        private Position _position;
+        private char? _currentCharacter;
 
         private static readonly HashSet<string> Keywords = new()
         {
@@ -24,124 +24,124 @@ namespace RaLanguage.Lexer
         {
             _fn = fn;
             _text = text;
-            _pos = new Position(-1, 0, -1, fn, text);
+            _position = new Position(-1, 0, -1, fn, text);
             Advance();
         }
 
         private void Advance()
         {
-            _pos.Advance(_currentChar);
-            _currentChar = _pos.Idx < _text.Length ? _text[_pos.Idx] : null;
+            _position.Advance(_currentCharacter);
+            _currentCharacter = _position.Idx < _text.Length ? _text[_position.Idx] : null;
         }
 
         public (List<Token> Tokens, Error? Error) MakeTokens()
         {
             var tokens = new List<Token>();
 
-            while (_currentChar != null)
+            while (_currentCharacter != null)
             {
-                if (" \t\r".Contains(_currentChar.Value))
+                if (" \t\r".Contains(_currentCharacter.Value))
                 {
                     Advance();
                 }
-                else if (_currentChar == '#')
+                else if (_currentCharacter == '#')
                 {
                     SkipComment();
                 }
-                else if (";\n".Contains(_currentChar.Value))
+                else if (";\n".Contains(_currentCharacter.Value))
                 {
-                    tokens.Add(new Token(TokenType.NEWLINE, null, _pos));
+                    tokens.Add(new Token(TokenType.NEWLINE, null, _position));
                     Advance();
                 }
-                else if (Constants.DIGITS.Contains(_currentChar.Value))
+                else if (Constants.DIGITS.Contains(_currentCharacter.Value))
                 {
                     tokens.Add(MakeNumber());
                 }
-                else if (Constants.LETTERS.Contains(_currentChar.Value))
+                else if (Constants.LETTERS.Contains(_currentCharacter.Value))
                 {
                     tokens.Add(MakeIdentifier());
                 }
-                else if (_currentChar == '"')
+                else if (_currentCharacter == '"')
                 {
                     tokens.Add(MakeString());
                 }
-                else if (_currentChar == '+')
+                else if (_currentCharacter == '+')
                 {
-                    tokens.Add(new Token(TokenType.PLUS, null, _pos));
+                    tokens.Add(new Token(TokenType.PLUS, null, _position));
                     Advance();
                 }
-                else if (_currentChar == '-')
+                else if (_currentCharacter == '-')
                 {
                     tokens.Add(MakeMinusOrArrow());
                 }
-                else if (_currentChar == '*')
+                else if (_currentCharacter == '*')
                 {
-                    tokens.Add(new Token(TokenType.MUL, null, _pos));
+                    tokens.Add(new Token(TokenType.MUL, null, _position));
                     Advance();
                 }
-                else if (_currentChar == '/')
+                else if (_currentCharacter == '/')
                 {
-                    tokens.Add(new Token(TokenType.DIV, null, _pos));
+                    tokens.Add(new Token(TokenType.DIV, null, _position));
                     Advance();
                 }
-                else if (_currentChar == '^')
+                else if (_currentCharacter == '^')
                 {
-                    tokens.Add(new Token(TokenType.POW, null, _pos));
+                    tokens.Add(new Token(TokenType.POW, null, _position));
                     Advance();
                 }
-                else if (_currentChar == '(')
+                else if (_currentCharacter == '(')
                 {
-                    tokens.Add(new Token(TokenType.LPAREN, null, _pos));
+                    tokens.Add(new Token(TokenType.LPAREN, null, _position));
                     Advance();
                 }
-                else if (_currentChar == ')')
+                else if (_currentCharacter == ')')
                 {
-                    tokens.Add(new Token(TokenType.RPAREN, null, _pos));
+                    tokens.Add(new Token(TokenType.RPAREN, null, _position));
                     Advance();
                 }
-                else if (_currentChar == '[')
+                else if (_currentCharacter == '[')
                 {
-                    tokens.Add(new Token(TokenType.LSQUARE, null, _pos));
+                    tokens.Add(new Token(TokenType.LSQUARE, null, _position));
                     Advance();
                 }
-                else if (_currentChar == ']')
+                else if (_currentCharacter == ']')
                 {
-                    tokens.Add(new Token(TokenType.RSQUARE, null, _pos));
+                    tokens.Add(new Token(TokenType.RSQUARE, null, _position));
                     Advance();
                 }
-                else if (_currentChar == '!')
+                else if (_currentCharacter == '!')
                 {
                     var (token, error) = MakeNotEquals();
                     if (error != null) return (new List<Token>(), error);
                     tokens.Add(token!);
                 }
-                else if (_currentChar == '=')
+                else if (_currentCharacter == '=')
                 {
                     tokens.Add(MakeEquals());
                 }
-                else if (_currentChar == '<')
+                else if (_currentCharacter == '<')
                 {
                     tokens.Add(MakeLessThan());
                 }
-                else if (_currentChar == '>')
+                else if (_currentCharacter == '>')
                 {
                     tokens.Add(MakeGreaterThan());
                 }
-                else if (_currentChar == ',')
+                else if (_currentCharacter == ',')
                 {
-                    tokens.Add(new Token(TokenType.COMMA, null, _pos));
+                    tokens.Add(new Token(TokenType.COMMA, null, _position));
                     Advance();
                 }
                 else
                 {
-                    var positionStart = _pos.Copy();
-                    char charErr = _currentChar.Value;
+                    var positionStart = _position.Copy();
+                    char charErr = _currentCharacter.Value;
                     Advance();
-                    return (new List<Token>(), new IllegalCharacterError(positionStart, _pos, $"'{charErr}'"));
+                    return (new List<Token>(), new IllegalCharacterError(positionStart, _position, $"'{charErr}'"));
                 }
             }
 
-            tokens.Add(new Token(TokenType.EOF, null, _pos));
+            tokens.Add(new Token(TokenType.EOF, null, _position));
             return (tokens, null);
         }
 
@@ -149,146 +149,146 @@ namespace RaLanguage.Lexer
         {
             var numStr = new StringBuilder();
             int dotCount = 0;
-            var positionStart = _pos.Copy();
+            var positionStart = _position.Copy();
 
-            while (_currentChar != null && (Constants.DIGITS.Contains(_currentChar.Value) || _currentChar == '.'))
+            while (_currentCharacter != null && (Constants.DIGITS.Contains(_currentCharacter.Value) || _currentCharacter == '.'))
             {
-                if (_currentChar == '.')
+                if (_currentCharacter == '.')
                 {
                     if (dotCount == 1) break;
                     dotCount++;
                 }
-                numStr.Append(_currentChar);
+                numStr.Append(_currentCharacter);
                 Advance();
             }
 
             if (dotCount == 0)
-                return new Token(TokenType.INT, int.Parse(numStr.ToString()), positionStart, _pos);
+                return new Token(TokenType.INT, int.Parse(numStr.ToString()), positionStart, _position);
             else
-                return new Token(TokenType.FLOAT, double.Parse(numStr.ToString(), CultureInfo.InvariantCulture), positionStart, _pos);
+                return new Token(TokenType.FLOAT, double.Parse(numStr.ToString(), CultureInfo.InvariantCulture), positionStart, _position);
         }
 
         private Token MakeString()
         {
             var str = new StringBuilder();
-            var positionStart = _pos.Copy();
+            var positionStart = _position.Copy();
             bool escapeChar = false;
             Advance();
 
             var escapeCharacters = new Dictionary<char, char> { { 'n', '\n' }, { 't', '\t' } };
 
-            while (_currentChar != null && (_currentChar != '"' || escapeChar))
+            while (_currentCharacter != null && (_currentCharacter != '"' || escapeChar))
             {
                 if (escapeChar)
                 {
-                    str.Append(escapeCharacters.ContainsKey(_currentChar.Value) ? escapeCharacters[_currentChar.Value] : _currentChar.Value);
+                    str.Append(escapeCharacters.ContainsKey(_currentCharacter.Value) ? escapeCharacters[_currentCharacter.Value] : _currentCharacter.Value);
                     escapeChar = false;
                 }
                 else
                 {
-                    if (_currentChar == '\\')
+                    if (_currentCharacter == '\\')
                         escapeChar = true;
                     else
-                        str.Append(_currentChar);
+                        str.Append(_currentCharacter);
                 }
                 Advance();
             }
             Advance();
-            return new Token(TokenType.STRING, str.ToString(), positionStart, _pos);
+            return new Token(TokenType.STRING, str.ToString(), positionStart, _position);
         }
 
         private Token MakeIdentifier()
         {
             var idStr = new StringBuilder();
-            var positionStart = _pos.Copy();
+            var positionStart = _position.Copy();
 
-            while (_currentChar != null && (Constants.LETTERS_DIGITS.Contains(_currentChar.Value) || _currentChar == '_'))
+            while (_currentCharacter != null && (Constants.LETTERS_DIGITS.Contains(_currentCharacter.Value) || _currentCharacter == '_'))
             {
-                idStr.Append(_currentChar);
+                idStr.Append(_currentCharacter);
                 Advance();
             }
 
             string idString = idStr.ToString();
             TokenType type = Keywords.Contains(idString) ? TokenType.KEYWORD : TokenType.IDENTIFIER;
-            return new Token(type, idString, positionStart, _pos);
+            return new Token(type, idString, positionStart, _position);
         }
 
         private Token MakeMinusOrArrow()
         {
             TokenType type = TokenType.MINUS;
-            var positionStart = _pos.Copy();
+            var positionStart = _position.Copy();
             Advance();
 
-            if (_currentChar == '>')
+            if (_currentCharacter == '>')
             {
                 Advance();
                 type = TokenType.ARROW;
             }
 
-            return new Token(type, null, positionStart, _pos);
+            return new Token(type, null, positionStart, _position);
         }
 
         private (Token?, Error?) MakeNotEquals()
         {
-            var positionStart = _pos.Copy();
+            var positionStart = _position.Copy();
             Advance();
 
-            if (_currentChar == '=')
+            if (_currentCharacter == '=')
             {
                 Advance();
-                return (new Token(TokenType.NE, null, positionStart, _pos), null);
+                return (new Token(TokenType.NE, null, positionStart, _position), null);
             }
 
             Advance();
-            return (null, new ExpectedCharacterError(positionStart, _pos, "'=' (after '!')"));
+            return (null, new ExpectedCharacterError(positionStart, _position, "'=' (after '!')"));
         }
 
         private Token MakeEquals()
         {
             TokenType type = TokenType.EQ;
-            var positionStart = _pos.Copy();
+            var positionStart = _position.Copy();
             Advance();
 
-            if (_currentChar == '=')
+            if (_currentCharacter == '=')
             {
                 Advance();
                 type = TokenType.EE;
             }
-            return new Token(type, null, positionStart, _pos);
+            return new Token(type, null, positionStart, _position);
         }
 
         private Token MakeLessThan()
         {
             TokenType type = TokenType.LT;
-            var positionStart = _pos.Copy();
+            var positionStart = _position.Copy();
             Advance();
 
-            if (_currentChar == '=')
+            if (_currentCharacter == '=')
             {
                 Advance();
                 type = TokenType.LTE;
             }
-            return new Token(type, null, positionStart, _pos);
+            return new Token(type, null, positionStart, _position);
         }
 
         private Token MakeGreaterThan()
         {
             TokenType type = TokenType.GT;
-            var positionStart = _pos.Copy();
+            var positionStart = _position.Copy();
             Advance();
 
-            if (_currentChar == '=')
+            if (_currentCharacter == '=')
             {
                 Advance();
                 type = TokenType.GTE;
             }
-            return new Token(type, null, positionStart, _pos);
+            return new Token(type, null, positionStart, _position);
         }
 
         private void SkipComment()
         {
             Advance();
-            while (_currentChar != null && _currentChar != '\n')
+            while (_currentCharacter != null && _currentCharacter != '\n')
             {
                 Advance();
             }
