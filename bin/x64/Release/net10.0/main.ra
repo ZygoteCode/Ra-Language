@@ -33,7 +33,7 @@ END
 VAR a = 5
 
 IF a == 5 THEN
-	PRINT("Yes!")
+	PRINT("Yes!"
 ELSE IF a == 7 THEN
 	PRINT("Far away")
 ELSE
