@@ -77,7 +77,7 @@ namespace RaLanguage.Lexer
                 }
                 else if (_currentCharacter == '-')
                 {
-                    Token? tok = MakeMinusOrArrowOrComment();
+                    Token? tok = MakeMinusOrComment();
                     if (tok != null) tokens.Add(tok);
                 }
                 else if (_currentCharacter == '*')
@@ -279,18 +279,13 @@ namespace RaLanguage.Lexer
             return new Token(type, idString, positionStart, _position);
         }
 
-        private Token? MakeMinusOrArrowOrComment()
+        private Token? MakeMinusOrComment()
         {
             TokenType type = TokenType.MINUS;
             var positionStart = _position.Copy();
             Advance();
 
-            if (_currentCharacter == '>')
-            {
-                Advance();
-                type = TokenType.ARROW;
-            }
-            else if (_currentCharacter == '-')
+            if (_currentCharacter == '-')
             {
                 Advance();
 
@@ -331,6 +326,12 @@ namespace RaLanguage.Lexer
                 Advance();
                 type = TokenType.EE;
             }
+            else if (_currentCharacter == '>')
+            {
+                Advance();
+                type = TokenType.ARROW;
+            }
+
             return new Token(type, null, positionStart, _position);
         }
 

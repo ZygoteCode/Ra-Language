@@ -734,7 +734,7 @@ namespace RaLanguage.Parser
             }
 
             if (_currentToken.Type != TokenType.LBRACKET)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '->' or '{'"));
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '=>' or '{'"));
 
             res.RegisterAdvancement();
             Advance();
