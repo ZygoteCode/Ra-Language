@@ -9,20 +9,18 @@ namespace RaLanguage.Lexer
 {
     public class Lexer
     {
-        private readonly string _fn;
         private readonly string _text;
         private Position _position;
         private char? _currentCharacter;
 
         private static readonly HashSet<string> Keywords = new()
         {
-            "VAR", "AND", "OR", "NOT", "IF", "ELIF", "ELSE", "FOR",
-            "TO", "STEP", "WHILE", "FUN", "THEN", "END", "RETURN", "CONTINUE", "BREAK"
+            "var", "and", "or", "not", "if", "elif", "else", "for",
+            "to", "step", "while", "fn", "then", "end", "return", "continue", "break"
         };
 
         public Lexer(string fn, string text)
         {
-            _fn = fn;
             _text = text;
             _position = new Position(-1, 0, -1, fn, text);
             Advance();
