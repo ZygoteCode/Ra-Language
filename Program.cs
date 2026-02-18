@@ -14,25 +14,25 @@ namespace RaLanguage
         static Program()
         {
             GlobalSymbolTable = new SymbolTable();
-            GlobalSymbolTable.Set("NULL", NumberValue.Null);
-            GlobalSymbolTable.Set("FALSE", NumberValue.False);
-            GlobalSymbolTable.Set("TRUE", NumberValue.True);
-            GlobalSymbolTable.Set("MATH_PI", NumberValue.MathPI);
-            GlobalSymbolTable.Set("PRINT", new BuiltInFunctionValue("print"));
-            GlobalSymbolTable.Set("PRINT_RET", new BuiltInFunctionValue("print_ret"));
-            GlobalSymbolTable.Set("INPUT", new BuiltInFunctionValue("input"));
-            GlobalSymbolTable.Set("INPUT_INT", new BuiltInFunctionValue("input_int"));
-            GlobalSymbolTable.Set("CLEAR", new BuiltInFunctionValue("clear"));
-            GlobalSymbolTable.Set("CLS", new BuiltInFunctionValue("clear"));
-            GlobalSymbolTable.Set("IS_NUM", new BuiltInFunctionValue("is_number"));
-            GlobalSymbolTable.Set("IS_STR", new BuiltInFunctionValue("is_string"));
-            GlobalSymbolTable.Set("IS_LIST", new BuiltInFunctionValue("is_list"));
-            GlobalSymbolTable.Set("IS_FUN", new BuiltInFunctionValue("is_function"));
-            GlobalSymbolTable.Set("APPEND", new BuiltInFunctionValue("append"));
-            GlobalSymbolTable.Set("POP", new BuiltInFunctionValue("pop"));
-            GlobalSymbolTable.Set("EXTEND", new BuiltInFunctionValue("extend"));
-            GlobalSymbolTable.Set("LEN", new BuiltInFunctionValue("len"));
-            GlobalSymbolTable.Set("RUN", new BuiltInFunctionValue("run"));
+            GlobalSymbolTable.Set("null", NumberValue.Null);
+            GlobalSymbolTable.Set("false", NumberValue.False);
+            GlobalSymbolTable.Set("true", NumberValue.True);
+            GlobalSymbolTable.Set("math_pi", NumberValue.MathPI);
+            GlobalSymbolTable.Set("print", new BuiltInFunctionValue("print"));
+            GlobalSymbolTable.Set("print_ret", new BuiltInFunctionValue("print_ret"));
+            GlobalSymbolTable.Set("input", new BuiltInFunctionValue("input"));
+            GlobalSymbolTable.Set("input_int", new BuiltInFunctionValue("input_int"));
+            GlobalSymbolTable.Set("clear", new BuiltInFunctionValue("clear"));
+            GlobalSymbolTable.Set("cls", new BuiltInFunctionValue("clear"));
+            GlobalSymbolTable.Set("is_num", new BuiltInFunctionValue("is_number"));
+            GlobalSymbolTable.Set("is_str", new BuiltInFunctionValue("is_string"));
+            GlobalSymbolTable.Set("is_list", new BuiltInFunctionValue("is_list"));
+            GlobalSymbolTable.Set("is_fn", new BuiltInFunctionValue("is_function"));
+            GlobalSymbolTable.Set("append", new BuiltInFunctionValue("append"));
+            GlobalSymbolTable.Set("pop", new BuiltInFunctionValue("pop"));
+            GlobalSymbolTable.Set("extend", new BuiltInFunctionValue("extend"));
+            GlobalSymbolTable.Set("len", new BuiltInFunctionValue("len"));
+            GlobalSymbolTable.Set("run", new BuiltInFunctionValue("run"));
         }
 
         public static (RuntimeValue?, Error?) Run(string fn, string text)
@@ -77,10 +77,10 @@ namespace RaLanguage
 
             while (true)
             {
-                Console.WriteLine("Please, choose from the following execution methods:\r\n" +
-                     "\r\n[1] Execute one time" +
-                     "\r\n[2] Execute every time you press ENTER" +
-                     "\r\n[3] Hot restart execution");
+                start: Console.WriteLine("Please, choose from the following execution methods:\r\n" +
+                 "\r\n[1] Execute one time" +
+                 "\r\n[2] Execute every time you press ENTER" +
+                 "\r\n[3] Hot restart execution");
 
                 string input = Console.ReadLine();
 
@@ -144,10 +144,21 @@ namespace RaLanguage
                         }
 
                         Console.WriteLine($"[Ra Language] Execution of \"main.ra\" took {stopwatch1.ElapsedMilliseconds}ms / {stopwatch1.ElapsedTicks} ticks / {stopwatch1.Elapsed.TotalNanoseconds} nanoseconds.");
-                        Console.WriteLine("[Ra Language] Press ENTER to execute again.");
-                        Console.ReadLine();
-                        Console.Clear();
-                        goto repeat;
+                        Console.WriteLine("[Ra Language] Press ENTER to execute again, or DEL/BACKSPACE to go back.");
+                        console:  ConsoleKey readKey = Console.ReadKey().Key;
+                        
+                        if (readKey.Equals(ConsoleKey.Enter))
+                        {
+                            Console.Clear();
+                            goto repeat;
+                        }
+                        else if (readKey.Equals(ConsoleKey.Delete) || readKey.Equals(ConsoleKey.Backspace))
+                        {
+                            Console.Clear();
+                            goto start;
+                        }
+
+                        goto console;
                     case "3":
                         string originalText = "";
 
