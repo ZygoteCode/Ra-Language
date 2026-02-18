@@ -26,10 +26,13 @@ namespace RaLanguage.Lexer
             Advance();
         }
 
-        private void Advance()
+        private void Advance(int times = 1)
         {
-            _position.Advance(_currentCharacter);
-            _currentCharacter = _position.Idx < _text.Length ? _text[_position.Idx] : null;
+            for (int i = 0; i < times; i++)
+            {
+                _position.Advance(_currentCharacter);
+                _currentCharacter = _position.Idx < _text.Length ? _text[_position.Idx] : null;
+            }
         }
 
         public (List<Token> Tokens, Error? Error) MakeTokens()
@@ -74,7 +77,8 @@ namespace RaLanguage.Lexer
                 }
                 else if (_currentCharacter == '-')
                 {
-                    tokens.Add(MakeMinusOrArrow());
+                    Token? tok = MakeMinusOrArrowOrComment();
+                    if (tok != null) tokens.Add(tok);
                 }
                 else if (_currentCharacter == '*')
                 {
@@ -83,8 +87,8 @@ namespace RaLanguage.Lexer
                 }
                 else if (_currentCharacter == '/')
                 {
-                    tokens.Add(new Token(TokenType.DIV, null, _position));
-                    Advance();
+                    Token? tok = MakeDivOrComment();
+                    if (tok != null) tokens.Add(tok);
                 }
                 else if (_currentCharacter == '^')
                 {
@@ -123,7 +127,17 @@ namespace RaLanguage.Lexer
                 }
                 else if (_currentCharacter == '<')
                 {
-                    tokens.Add(MakeLessThan());
+                    (Token?, Error?) result = MakeLessThanOrComment();
+
+                    if (result.Item2 != null)
+                    {
+                        return (new List<Token>(), result.Item2);
+                    }
+
+                    if (result.Item1 != null)
+                    {
+                        tokens.Add(result.Item1);
+                    }
                 }
                 else if (_currentCharacter == '>')
                 {
@@ -145,6 +159,41 @@ namespace RaLanguage.Lexer
 
             tokens.Add(new Token(TokenType.EOF, null, _position));
             return (tokens, null);
+        }
+
+        private Token? MakeDivOrComment()
+        {
+            var positionStart = _position.Copy();
+            Advance();
+
+            if (_currentCharacter == '/')
+            {
+                Advance();
+
+                while (_currentCharacter != null && _currentCharacter != '\n')
+                {
+                    Advance();
+                }
+
+                Advance();
+                return null;
+            }
+            else if (_currentCharacter == '*')
+            {
+                Advance();
+
+                while (_currentCharacter != null && _text[_position.Idx] != '/' && _text[_position.Idx + 1] != '*')
+                {
+                    Advance();
+                }
+
+                Advance(3);
+                return null;
+            }
+            else
+            {
+                return new Token(TokenType.DIV, null, positionStart, _position);
+            }
         }
 
         private Token MakeNumber()
@@ -215,7 +264,7 @@ namespace RaLanguage.Lexer
             return new Token(type, idString, positionStart, _position);
         }
 
-        private Token MakeMinusOrArrow()
+        private Token? MakeMinusOrArrowOrComment()
         {
             TokenType type = TokenType.MINUS;
             var positionStart = _position.Copy();
@@ -225,6 +274,17 @@ namespace RaLanguage.Lexer
             {
                 Advance();
                 type = TokenType.ARROW;
+            }
+            else if (_currentCharacter == '-')
+            {
+                Advance();
+
+                while (_currentCharacter != null && _currentCharacter != '\n')
+                {
+                    Advance();
+                }
+                Advance();
+                return null;
             }
 
             return new Token(type, null, positionStart, _position);
@@ -259,7 +319,7 @@ namespace RaLanguage.Lexer
             return new Token(type, null, positionStart, _position);
         }
 
-        private Token MakeLessThan()
+        private (Token?, Error?) MakeLessThanOrComment()
         {
             TokenType type = TokenType.LT;
             var positionStart = _position.Copy();
@@ -270,7 +330,34 @@ namespace RaLanguage.Lexer
                 Advance();
                 type = TokenType.LTE;
             }
-            return new Token(type, null, positionStart, _position);
+            else if (_currentCharacter == '!')
+            {
+                Advance();
+
+                if (_currentCharacter != '-')
+                {
+                    return (null, new InvalidSyntaxError(positionStart, _position, "Missing '-' character."));
+                }
+
+                Advance();
+
+                if (_currentCharacter != '-')
+                {
+                    return (null, new InvalidSyntaxError(positionStart, _position, "Missing '-' character."));
+                }
+
+                Advance();
+
+                while (_currentCharacter != null && !(_text[_position.Idx] == '-' && _text[_position.Idx + 1] == '-' && _text[_position.Idx + 2] == '>'))
+                {
+                    Advance();
+                }
+
+                Advance(3);
+                return (null, null);
+            }
+
+            return (new Token(type, null, positionStart, _position), null);
         }
 
         private Token MakeGreaterThan()

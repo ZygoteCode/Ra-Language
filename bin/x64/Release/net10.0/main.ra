@@ -1,5 +1,21 @@
 # This is a very useful piece of software
 
+// Another example of comment
+
+/*
+This is what I call comments.
+
+And what I call members lines in comments.
+
+*/
+
+-- Rapid comments like you do in Lua so.
+
+<!--
+	<p>Look at this cool image:</p>
+	<img border="0" src="pic_trulli.jpg" alt="Trulli">
+--->
+
 fn oopify(prefix) -> prefix + "oop"
 
 fn join(elements, separator)
