@@ -15,8 +15,9 @@ namespace RaLanguage.Lexer
 
         private static readonly HashSet<string> Keywords = new()
         {
-            "var", "and", "or", "not", "if", "elif", "else", "for",
-            "to", "step", "while", "fn", "then", "end", "ret", "continue", "break", "pass"
+            "var", "and", "or", "not", "if", "elif", "else",
+            "for", "to", "step", "while", "fn", "ret", "is",
+            "continue", "break", "pass",
         };
 
         public Lexer(string fn, string text)
@@ -275,6 +276,18 @@ namespace RaLanguage.Lexer
             }
 
             string idString = idStr.ToString();
+
+            if (idString == "is")
+            {
+                if (_text[_position.Idx] == ' ' && _text[_position.Idx + 1] == 'n' && _text[_position.Idx + 2] == 'o' && _text[_position.Idx + 3] == 't')
+                {
+                    Advance(4);
+                    return new Token(TokenType.NE, null, positionStart, _position);
+                }
+
+                return new Token(TokenType.EE, null, positionStart, _position);
+            }
+
             TokenType type = Keywords.Contains(idString) ? TokenType.KEYWORD : TokenType.IDENTIFIER;
             return new Token(type, idString, positionStart, _position);
         }
