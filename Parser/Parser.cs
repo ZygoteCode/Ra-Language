@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors.Types;
+using RaLanguage.Lexer;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes;
 using RaLanguage.Parser.Nodes.Functions;
@@ -77,6 +78,7 @@ namespace RaLanguage.Parser
             while (true)
             {
                 int newlineCount = 0;
+
                 while (_currentToken.Type == TokenType.NEWLINE)
                 {
                     res.RegisterAdvancement();
@@ -84,16 +86,68 @@ namespace RaLanguage.Parser
                     newlineCount++;
                 }
 
-                if (newlineCount == 0) moreStatements = false;
-                if (!moreStatements) break;
+                if (newlineCount == 0)
+                {
+                    moreStatements = false;
+                }
 
-                var stmt = res.TryRegister(ParseStatement());
+                if (!moreStatements)
+                {
+                    break;
+                }
+
+                AstNode? stmt = null;
+
+                if (_currentToken.Type == TokenType.LBRACKET)
+                {
+                    Position _positionStart = _currentToken.PositionStart.Copy();
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    List<AstNode?> scopeStatements = new List<AstNode?>();
+
+                    while (true)
+                    {
+                        int _newLineCount = 0;
+
+                        while (_currentToken.Type == TokenType.NEWLINE)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                            _newLineCount++;
+                        }
+
+                        if (_newLineCount == 0)
+                        {
+                            break;
+                        }
+
+                        scopeStatements.Add(res.TryRegister(ParseStatements()));
+
+                        if (_currentToken.Type == TokenType.RBRACKET)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+
+                            break;
+                        }
+                    }
+
+                    statements.AddRange(new ListNode(scopeStatements, _positionStart, _currentToken.PositionStart.Copy()));
+                    continue;
+                }
+                else
+                {
+                    stmt = res.TryRegister(ParseStatement());
+                }
+
                 if (stmt == null)
                 {
                     Reverse(res.ToReverseCount);
                     moreStatements = false;
                     continue;
                 }
+
                 statements.Add(stmt);
             }
 

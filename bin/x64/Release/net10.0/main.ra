@@ -37,8 +37,14 @@ fn map(elements, func) {
         var new_elements = new_elements + func(elements/i)
 	}
 
+	{
+		var i = 7
+		var i = i + 7
+	}
+
 	ret new_elements
 }
+
 
 print("Greetings universe!")
 
@@ -67,3 +73,18 @@ if x == 7 {
 } else {
 	print("ciao")
 }
+
+
+{
+	var y = 5 + 5
+	print(y)
+
+	{
+		var z = 10 + 10
+		print(z)
+	}
+
+	print("continue other scope")
+}
+
+print("finished scope")
