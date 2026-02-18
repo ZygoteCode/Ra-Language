@@ -16,46 +16,54 @@ And what I call members lines in comments.
 	<img border="0" src="pic_trulli.jpg" alt="Trulli">
 --->
 
-{}
-
 fn oopify(prefix) -> prefix + "oop"
 
-fn join(elements, separator)
+fn join(elements, separator) {
 	var result = ""
 	var length = len(elements)
 
-	for i = 0 to length then
+	for i = 0 to length {
 		var result = result + elements/i
-		if i != length - 1 then var result = result + separator
-	end
+		if i != length - 1: var result = result + separator
+	}
 
-	return result
-end
+	ret result
+}
 
-fn map(elements, func)
+fn map(elements, func) {
 	var new_elements = []
 
-	for i = 0 to len(elements) then
+	for i = 0 to len(elements) {
         var new_elements = new_elements + func(elements/i)
-	end
+	}
 
-	return new_elements
-end
+	ret new_elements
+}
 
 print("Greetings universe!")
 
-for i = 0 to 5 then
-	print(join(map(["l", "sp"], oopify), ", "))
-end
-
+for i = 0 to 5: print(join(map(["l", "sp"], oopify), ", "))
 var a = 5
 
-if a == 5 then
+if a == 5 {
 	print("Yes!")
-elif a == 7 then
+} elif a == 7 {
 	print("Far away")
-else
+} else {
 	print("Oh yeah")
-end
+}
 
-print('test')
+var x = 7
+
+while x > 0 {
+	var x = x - 1
+	print(x)
+}
+
+var x = 6;
+
+if x == 7 {
+	pass
+} else {
+	print("ciao")
+}

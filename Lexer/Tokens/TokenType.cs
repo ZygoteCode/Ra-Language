@@ -33,6 +33,7 @@
         COMMA,
         ARROW,
         NEWLINE,
+        COLON,
         EOF
     }
 }

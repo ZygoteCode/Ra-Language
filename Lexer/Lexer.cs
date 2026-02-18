@@ -16,7 +16,7 @@ namespace RaLanguage.Lexer
         private static readonly HashSet<string> Keywords = new()
         {
             "var", "and", "or", "not", "if", "elif", "else", "for",
-            "to", "step", "while", "fn", "then", "end", "return", "continue", "break"
+            "to", "step", "while", "fn", "then", "end", "ret", "continue", "break", "pass"
         };
 
         public Lexer(string fn, string text)
@@ -113,6 +113,11 @@ namespace RaLanguage.Lexer
                 else if (_currentCharacter == ']')
                 {
                     tokens.Add(new Token(TokenType.RSQUARE, null, _position));
+                    Advance();
+                }
+                else if (_currentCharacter == ':')
+                {
+                    tokens.Add(new Token(TokenType.COLON, null, _position));
                     Advance();
                 }
                 else if (_currentCharacter == '{')

@@ -36,8 +36,14 @@ namespace RaLanguage.Interpreter
                 ReturnNode r => VisitReturnNode(r, context),
                 ContinueNode c => VisitContinueNode(c, context),
                 BreakNode b => VisitBreakNode(b, context),
+                PassNode p => VisitPassNode(p, context),
                 _ => throw new Exception($"No visit method for {node.GetType().Name}")
             };
+        }
+
+        private RuntimeResult VisitPassNode(PassNode node, Context context)
+        {
+            return new RuntimeResult().Success(NumberValue.Null);
         }
 
         private RuntimeResult VisitNumberNode(NumberNode node, Context context)
