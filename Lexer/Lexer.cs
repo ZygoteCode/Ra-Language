@@ -115,6 +115,16 @@ namespace RaLanguage.Lexer
                     tokens.Add(new Token(TokenType.RSQUARE, null, _position));
                     Advance();
                 }
+                else if (_currentCharacter == '{')
+                {
+                    tokens.Add(new Token(TokenType.LBRACKET, null, _position));
+                    Advance();
+                }
+                else if (_currentCharacter == '}')
+                {
+                    tokens.Add(new Token(TokenType.RBRACKET, null, _position));
+                    Advance();
+                }
                 else if (_currentCharacter == '!')
                 {
                     var (token, error) = MakeNotEquals();
@@ -336,14 +346,14 @@ namespace RaLanguage.Lexer
 
                 if (_currentCharacter != '-')
                 {
-                    return (null, new InvalidSyntaxError(positionStart, _position, "Missing '-' character."));
+                    return (null, new ExpectedCharacterError(positionStart, _position, "Expected '-' character."));
                 }
 
                 Advance();
 
                 if (_currentCharacter != '-')
                 {
-                    return (null, new InvalidSyntaxError(positionStart, _position, "Missing '-' character."));
+                    return (null, new ExpectedCharacterError(positionStart, _position, "Expected '-' character."));
                 }
 
                 Advance();
