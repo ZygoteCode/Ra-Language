@@ -39,3 +39,5 @@ elif a == 7 then
 else
 	print("Oh yeah")
 end
+
+print('test')

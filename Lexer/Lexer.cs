@@ -61,7 +61,11 @@ namespace RaLanguage.Lexer
                 }
                 else if (_currentCharacter == '"')
                 {
-                    tokens.Add(MakeString());
+                    tokens.Add(MakeString('"'));
+                }
+                else if (_currentCharacter == '\'')
+                {
+                    tokens.Add(MakeString('\''));
                 }
                 else if (_currentCharacter == '+')
                 {
@@ -166,7 +170,7 @@ namespace RaLanguage.Lexer
                 return new Token(TokenType.FLOAT, double.Parse(numStr.ToString(), CultureInfo.InvariantCulture), positionStart, _position);
         }
 
-        private Token MakeString()
+        private Token MakeString(char stringCharacter)
         {
             var str = new StringBuilder();
             var positionStart = _position.Copy();
@@ -175,7 +179,7 @@ namespace RaLanguage.Lexer
 
             var escapeCharacters = new Dictionary<char, char> { { 'n', '\n' }, { 't', '\t' } };
 
-            while (_currentCharacter != null && (_currentCharacter != '"' || escapeChar))
+            while (_currentCharacter != null && (_currentCharacter != stringCharacter || escapeChar))
             {
                 if (escapeChar)
                 {
