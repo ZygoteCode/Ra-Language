@@ -64,6 +64,7 @@ namespace RaLanguage.Interpreter
         {
             var res = new RuntimeResult();
             var elements = new List<RuntimeValue>();
+            var newContext = context.Copy();
 
             foreach (var elementNode in node.ElementNodes)
             {
@@ -126,8 +127,8 @@ namespace RaLanguage.Interpreter
                 case TokenType.GT: (result, error) = left.GetComparisonGt(right); break;
                 case TokenType.LTE: (result, error) = left.GetComparisonLte(right); break;
                 case TokenType.GTE: (result, error) = left.GetComparisonGte(right); break;
-                case TokenType.KEYWORD when node.OpTok.Value?.ToString() == "AND": (result, error) = left.AndedBy(right); break;
-                case TokenType.KEYWORD when node.OpTok.Value?.ToString() == "OR": (result, error) = left.OredBy(right); break;
+                case TokenType.KEYWORD when node.OpTok.Value?.ToString() == "and": (result, error) = left.AndedBy(right); break;
+                case TokenType.KEYWORD when node.OpTok.Value?.ToString() == "or": (result, error) = left.OredBy(right); break;
             }
 
             if (error != null) return res.Failure(error);
@@ -144,7 +145,7 @@ namespace RaLanguage.Interpreter
 
             if (node.OpTok.Type == TokenType.MINUS)
                 (number, error) = number.MultedBy(new NumberValue(-1));
-            else if (node.OpTok.Matches(TokenType.KEYWORD, "NOT"))
+            else if (node.OpTok.Matches(TokenType.KEYWORD, "not"))
                 (number, error) = number.Notted();
 
             if (error != null) return res.Failure(error);
@@ -154,24 +155,34 @@ namespace RaLanguage.Interpreter
         private RuntimeResult VisitIfNode(IfNode node, Context context)
         {
             var res = new RuntimeResult();
+            var newContext = context.Copy();
 
             foreach (var (condition, expr, shouldReturnNull) in node.Cases)
             {
-                var conditionValue = res.Register(Visit(condition, context));
+                Context caseContext = newContext.Copy();
+                var conditionValue = res.Register(Visit(condition, caseContext));
                 if (res.ShouldReturn()) return res;
 
                 if (conditionValue.IsTrue())
                 {
-                    var exprValue = res.Register(Visit(expr, context));
+                    Context realCaseContext = caseContext.Copy();
+                    var exprValue = res.Register(Visit(expr, realCaseContext));
+                    context.ApplyChangesFrom(realCaseContext);
                     if (res.ShouldReturn()) return res;
                     return res.Success(shouldReturnNull ? NumberValue.Null : exprValue);
+                }
+                else
+                {
+                    context.ApplyChangesFrom(caseContext);
                 }
             }
 
             if (node.ElseCase != null)
             {
+                Context elseCaseContext = newContext.Copy();
                 var (expr, shouldReturnNull) = node.ElseCase.Value;
-                var exprValue = res.Register(Visit(expr, context));
+                var exprValue = res.Register(Visit(expr, elseCaseContext));
+                context.ApplyChangesFrom(elseCaseContext);
                 if (res.ShouldReturn()) return res;
                 return res.Success(shouldReturnNull ? NumberValue.Null : exprValue);
             }

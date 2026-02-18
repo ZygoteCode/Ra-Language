@@ -27,5 +27,27 @@ namespace RaLanguage.Interpreter.Runtime
         {
             _symbols.Remove(name);
         }
+
+        public void ApplyChangesFrom(SymbolTable? symbolTable)
+        {
+            if (symbolTable == null)
+            {
+                return;
+            }
+
+            foreach (KeyValuePair<string, RuntimeValue> keyValuePair in _symbols)
+            {
+                RuntimeValue? value = symbolTable.Get(keyValuePair.Key);
+
+                if (value == null)
+                {
+                    continue;
+                }
+
+                Set(keyValuePair.Key, value);
+            }
+
+            ApplyChangesFrom(symbolTable.Parent);
+        }
     }
 }

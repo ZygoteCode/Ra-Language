@@ -88,3 +88,28 @@ if x == 7 {
 }
 
 print("finished scope")
+
+var yyy = 8;
+
+if (5 == 5 and 6 == 7) or (3 == 2) {
+	var kkk = 3;
+	print(kkk + yyy)
+	var yyy = 3;
+} elif 5 == 6 {
+	var kkk = 8;
+} else {
+	var kkk = 9;
+	print(kkk);
+	var yyy = 4;
+}
+
+print(yyy);
+-- print(kkk)
+
+if 5 is 5 {
+	print("5 is 5")
+}
+
+if 4 is not 5 {
+	print("4 is not 5")
+}

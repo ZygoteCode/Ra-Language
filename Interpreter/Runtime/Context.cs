@@ -15,5 +15,17 @@ namespace RaLanguage.Interpreter.Runtime
             Parent = parent;
             ParentEntryPos = parentEntryPos;
         }
+
+        public Context Copy()
+        {
+            Context newContext = new Context(DisplayName, this);
+            newContext.SymbolTable = new SymbolTable(SymbolTable);
+            return newContext;
+        }
+
+        public void ApplyChangesFrom(Context context)
+        {
+            SymbolTable.ApplyChangesFrom(context.SymbolTable);
+        }
     }
 }
