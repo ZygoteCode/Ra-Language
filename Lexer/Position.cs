@@ -2,7 +2,7 @@
 {
     public class Position
     {
-        public int Idx { get; private set; }
+        public int Idx { get; set; }
         public int Ln { get; private set; }
         public int Col { get; private set; }
         public string Fn { get; }
