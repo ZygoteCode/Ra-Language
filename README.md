@@ -3,7 +3,7 @@
   - [ ] Add bitwise operations (&, |, ~, <<, >>) + mod operator (%).
   - [ ] Add normal variable assignment => Example: I declare a variable "var a = 5", and I can do "a = 7" directly.
   - [ ] Add assignment operators: += , -= , *= , /= , %= , &= , |= , ~= , <<=, >>=.
-  - [ ] Fix context in all remaining statements (for, while, fn).
+  - [x] Fix context in all remaining statements (for, while, fn).
   - [ ] Add static typing with strict checking: int, float, double, decimal, bigint, char, str, list.
   - [ ] Add strict checking operator for comparing not only the value, but also the type: '==='.
   - [ ] Add 'typeof' operator.

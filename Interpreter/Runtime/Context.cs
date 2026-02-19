@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Lexer;
+using System.Xml.Linq;
 
 namespace RaLanguage.Interpreter.Runtime
 {
@@ -18,9 +19,9 @@ namespace RaLanguage.Interpreter.Runtime
 
         public Context Copy()
         {
-            Context newContext = new Context(DisplayName, this);
-            newContext.SymbolTable = new SymbolTable(SymbolTable);
-            return newContext;
+            var newCtx = new Context(DisplayName, this);
+            newCtx.SymbolTable = new SymbolTable(newCtx.Parent?.SymbolTable);
+            return newCtx;
         }
 
         public void ApplyChangesFrom(Context context)

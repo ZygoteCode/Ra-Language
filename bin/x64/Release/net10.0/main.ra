@@ -25,6 +25,7 @@ fn join(elements, separator) {
 	for i = 0 to length {
 		var result = result + elements/i
 		if i != length - 1: var result = result + separator
+		var kkk = 5
 	}
 
 	ret result
@@ -64,7 +65,11 @@ var x = 7
 while x > 0 {
 	var x = x - 1
 	print(x)
+	var ppppp = 5;
 }
+
+print("Actual value of x:")
+print(x)
 
 var x = 6;
 
@@ -73,7 +78,6 @@ if x == 7 {
 } else {
 	print("ciao")
 }
-
 
 {
 	var y = 5 + 5
@@ -112,4 +116,8 @@ if 5 is 5 {
 
 if 4 is not 5 {
 	print("4 is not 5")
+}
+
+if not false {
+	print("not false")
 }

@@ -161,14 +161,24 @@ namespace RaLanguage.Interpreter
             {
                 Context caseContext = newContext.Copy();
                 var conditionValue = res.Register(Visit(condition, caseContext));
-                if (res.ShouldReturn()) return res;
+
+                if (res.ShouldReturn())
+                {
+                    context.ApplyChangesFrom(caseContext);
+                    return res;
+                }
 
                 if (conditionValue.IsTrue())
                 {
                     Context realCaseContext = caseContext.Copy();
                     var exprValue = res.Register(Visit(expr, realCaseContext));
                     context.ApplyChangesFrom(realCaseContext);
-                    if (res.ShouldReturn()) return res;
+
+                    if (res.ShouldReturn())
+                    {
+                        return res;
+                    }
+
                     return res.Success(shouldReturnNull ? NumberValue.Null : exprValue);
                 }
                 else
@@ -194,18 +204,34 @@ namespace RaLanguage.Interpreter
         {
             var res = new RuntimeResult();
             var elements = new List<RuntimeValue>();
+            var initializationContext = context.Copy();
+            var startValue = res.Register(Visit(node.StartValueNode, initializationContext));
+            context.ApplyChangesFrom(initializationContext);
 
-            var startValue = res.Register(Visit(node.StartValueNode, context));
-            if (res.ShouldReturn()) return res;
+            if (res.ShouldReturn())
+            {
+                return res;
+            }
 
-            var endValue = res.Register(Visit(node.EndValueNode, context));
-            if (res.ShouldReturn()) return res;
+            var endValue = res.Register(Visit(node.EndValueNode, initializationContext));
+            context.ApplyChangesFrom(initializationContext);
+
+            if (res.ShouldReturn())
+            {
+                return res;
+            }
 
             RuntimeValue stepValue;
+
             if (node.StepValueNode != null)
             {
-                stepValue = res.Register(Visit(node.StepValueNode, context));
-                if (res.ShouldReturn()) return res;
+                stepValue = res.Register(Visit(node.StepValueNode, initializationContext));
+                context.ApplyChangesFrom(initializationContext);
+
+                if (res.ShouldReturn())
+                {
+                    return res;
+                }
             }
             else
             {
@@ -217,17 +243,29 @@ namespace RaLanguage.Interpreter
             double step = ((NumberValue)stepValue).Value;
 
             Func<bool> condition = (step >= 0) ? () => i < end : () => i > end;
+            var newContext = initializationContext.Copy();
 
             while (condition())
             {
-                context.SymbolTable.Set(node.VarNameTok.Value.ToString(), new NumberValue(i));
+                newContext.SymbolTable.Set(node.VarNameTok.Value.ToString(), new NumberValue(i));
                 i += step;
+                var value = res.Register(Visit(node.BodyNode, newContext));
+                context.ApplyChangesFrom(newContext);
 
-                var value = res.Register(Visit(node.BodyNode, context));
-                if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak) return res;
+                if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak)
+                {
+                    return res;
+                }
 
-                if (res.LoopShouldContinue) continue;
-                if (res.LoopShouldBreak) break;
+                if (res.LoopShouldContinue)
+                {
+                    continue;
+                }
+
+                if (res.LoopShouldBreak)
+                {
+                    break;
+                }
 
                 elements.Add(value);
             }
@@ -241,19 +279,39 @@ namespace RaLanguage.Interpreter
         {
             var res = new RuntimeResult();
             var elements = new List<RuntimeValue>();
+            Context newContext = context.Copy();
 
             while (true)
             {
-                var condition = res.Register(Visit(node.ConditionNode, context));
-                if (res.ShouldReturn()) return res;
+                var condition = res.Register(Visit(node.ConditionNode, newContext));
 
-                if (!condition.IsTrue()) break;
+                if (res.ShouldReturn())
+                {
+                    return res;
+                }
 
-                var value = res.Register(Visit(node.BodyNode, context));
-                if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak) return res;
+                if (!condition.IsTrue())
+                {
+                    break;
+                }
 
-                if (res.LoopShouldContinue) continue;
-                if (res.LoopShouldBreak) break;
+                var value = res.Register(Visit(node.BodyNode, newContext));
+                context.ApplyChangesFrom(newContext);
+
+                if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak)
+                {
+                    return res;
+                }
+
+                if (res.LoopShouldContinue)
+                {
+                    continue;
+                }
+
+                if (res.LoopShouldBreak)
+                {
+                    break;
+                }
 
                 elements.Add(value);
             }
@@ -287,17 +345,30 @@ namespace RaLanguage.Interpreter
             var args = new List<RuntimeValue>();
 
             var valueToCall = res.Register(Visit(node.NodeToCall, context));
-            if (res.ShouldReturn()) return res;
+
+            if (res.ShouldReturn())
+            {
+                return res;
+            }
+
             valueToCall = valueToCall.Copy().SetPos(node.PositionStart, node.PositionEnd);
 
             foreach (var argNode in node.ArgNodes)
             {
                 args.Add(res.Register(Visit(argNode, context)));
-                if (res.ShouldReturn()) return res;
+
+                if (res.ShouldReturn())
+                {
+                    return res;
+                }
             }
 
             var returnValue = res.Register(valueToCall.Execute(args));
-            if (res.ShouldReturn()) return res;
+
+            if (res.ShouldReturn())
+            {
+                return res;
+            }
 
             returnValue = returnValue.Copy().SetPos(node.PositionStart, node.PositionEnd).SetContext(context);
             return res.Success(returnValue);

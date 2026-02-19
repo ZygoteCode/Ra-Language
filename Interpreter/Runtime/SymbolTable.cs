@@ -14,17 +14,51 @@ namespace RaLanguage.Interpreter.Runtime
 
         public RuntimeValue? Get(string name)
         {
-            if (_symbols.TryGetValue(name, out var val)) return val;
+            if (_symbols.TryGetValue(name, out var val))
+            {
+                return val;
+            }
+
             return Parent?.Get(name);
         }
 
         public void Set(string name, RuntimeValue value)
         {
+            SymbolTable? theSymbolTable = Parent;
+
+            while (theSymbolTable != null)
+            {
+                RuntimeValue? obtainedValue = theSymbolTable.Get(name);
+
+                if (obtainedValue != null)
+                {
+                    theSymbolTable.Set(name, value);
+                    return;
+                }
+
+                theSymbolTable = theSymbolTable.Parent;
+            }
+
             _symbols[name] = value;
         }
 
         public void Remove(string name)
         {
+            SymbolTable? theSymbolTable = Parent;
+
+            while (theSymbolTable != null)
+            {
+                RuntimeValue? obtainedValue = theSymbolTable.Get(name);
+
+                if (obtainedValue != null)
+                {
+                    theSymbolTable.Remove(name);
+                    return;
+                }
+
+                theSymbolTable = theSymbolTable.Parent;
+            }
+
             _symbols.Remove(name);
         }
 
