@@ -274,12 +274,17 @@ namespace RaLanguage.Lexer
                 else
                 {
                     if (_currentCharacter == '\\')
+                    {
                         escapeChar = true;
+                    }
                     else
+                    {
                         str.Append(_currentCharacter);
+                    }
                 }
                 Advance();
             }
+
             Advance();
             return new Token(TokenType.STRING, str.ToString(), positionStart, _position);
         }

@@ -1,8 +1,9 @@
 ## TODOs for BETA 1.0
   
+  - [ ] Add "~" operator to NOT a value.
   - [ ] Add bitwise operations (&, |, ~, <<, >>) + mod operator (%).
   - [ ] Add normal variable assignment => Example: I declare a variable "var a = 5", and I can do "a = 7" directly.
-  - [ ] Add assignment operators: += , -= , *= , /= , %= , &= , |= , ~= , <<=, >>=.
+  - [ ] Add assignment operators: += , -= , *= , /= , %= , &= , |= , <<=, >>=.
   - [x] Fix context in all remaining statements (for, while, fn).
   - [ ] Add static typing with strict checking: int, float, double, decimal, bigint, char, str, list.
   - [ ] Add strict checking operator for comparing not only the value, but also the type: '==='.
@@ -13,7 +14,6 @@
   - [ ] I was thinking of adding something similar to Rust, like a "let" variable declaration - exit from context means you cannot use it anymore in actual context.
   - [ ] Add static return type to functions.
   - [x] Add comparison operators && , || , ! additionally to actual "is", "and", "or", "is not", "not".
-  - [ ] Add "~" operator to NOT a value.
   - [ ] Make "null" a real type of value, which can be easily used in comparisons, as different from numbers and others - After that, functions can have type "void" as return type (can not return values).
   - [ ] Add "bool" type value, which will finally replace "true" and "false" numeric values - after that, comparisons will get better and have effective sense. But "0" as "false" and "1" as "true" will be a concept.
   - [ ] Add "do while" statement.
