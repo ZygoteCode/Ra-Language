@@ -134,6 +134,11 @@ namespace RaLanguage.Lexer
                 {
                     tokens.Add(MakeNot());
                 }
+                else if (_currentCharacter == '~')
+                {
+                    tokens.Add(new Token(TokenType.BITWISE_NOT, null, _position));
+                    Advance();
+                }
                 else if (_currentCharacter == '=')
                 {
                     tokens.Add(MakeEquals());

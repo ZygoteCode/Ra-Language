@@ -105,6 +105,11 @@
             return (new NumberValue(Value == 0 ? 1 : 0).SetContext(Context), null);
         }
 
+        public override (RuntimeValue?, Error?) BitwiseNotted()
+        {
+            return (new NumberValue(~(int)Value).SetContext(Context), null);
+        }
+
         public override RuntimeValue Copy()
         {
             return new NumberValue(Value).SetPos(PositionStart, PositionEnd).SetContext(Context);

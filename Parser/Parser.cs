@@ -248,7 +248,7 @@ namespace RaLanguage.Parser
         {
             var res = new ParserResult();
 
-            if (_currentToken.Matches(TokenType.KEYWORD, "not"))
+            if (_currentToken.Matches(TokenType.KEYWORD, "not") || _currentToken.Type == TokenType.BITWISE_NOT)
             {
                 var opTok = _currentToken;
                 res.RegisterAdvancement();

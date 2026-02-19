@@ -32,6 +32,7 @@
 
         BITWISE_AND,
         BITWISE_OR,
+        BITWISE_NOT,
 
         COMMA,
         ARROW,

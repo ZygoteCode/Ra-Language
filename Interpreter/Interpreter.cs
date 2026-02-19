@@ -147,6 +147,8 @@ namespace RaLanguage.Interpreter
                 (number, error) = number.MultedBy(new NumberValue(-1));
             else if (node.OpTok.Matches(TokenType.KEYWORD, "not"))
                 (number, error) = number.Notted();
+            else if (node.OpTok.Type == TokenType.BITWISE_NOT)
+                (number, error) = number.BitwiseNotted();
 
             if (error != null) return res.Failure(error);
             return res.Success(number!.SetPos(node.PositionStart, node.PositionEnd));
