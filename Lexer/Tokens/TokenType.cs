@@ -30,6 +30,9 @@
         LTE,
         GTE,
 
+        BITWISE_AND,
+        BITWISE_OR,
+
         COMMA,
         ARROW,
         NEWLINE,

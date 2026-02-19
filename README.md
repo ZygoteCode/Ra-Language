@@ -12,7 +12,7 @@
   - [ ] Add "final" variable declaration, similar to "const" but can be declared with values at runtime, nextly immediately protected in-memory and in-code.
   - [ ] I was thinking of adding something similar to Rust, like a "let" variable declaration - exit from context means you cannot use it anymore in actual context.
   - [ ] Add static return type to functions.
-  - [ ] Add comparison operators && , || , ! additionally to actual "is", "and", "or", "is not", "not".
+  - [x] Add comparison operators && , || , ! additionally to actual "is", "and", "or", "is not", "not".
   - [ ] Add "~" operator to NOT a value.
   - [ ] Make "null" a real type of value, which can be easily used in comparisons, as different from numbers and others - After that, functions can have type "void" as return type (can not return values).
   - [ ] Add "bool" type value, which will finally replace "true" and "false" numeric values - after that, comparisons will get better and have effective sense. But "0" as "false" and "1" as "true" will be a concept.

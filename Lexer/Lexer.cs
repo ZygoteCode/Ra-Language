@@ -84,8 +84,6 @@ namespace RaLanguage.Lexer
                 else if (_currentCharacter == '*')
                 {
                     tokens.Add(MakeMul());
-                    //tokens.Add(new Token(TokenType.MUL, null, _position));
-                    //Advance();
                 }
                 else if (_currentCharacter == '/')
                 {
@@ -134,9 +132,7 @@ namespace RaLanguage.Lexer
                 }
                 else if (_currentCharacter == '!')
                 {
-                    var (token, error) = MakeNotEquals();
-                    if (error != null) return (new List<Token>(), error);
-                    tokens.Add(token!);
+                    tokens.Add(MakeNot());
                 }
                 else if (_currentCharacter == '=')
                 {
@@ -164,6 +160,14 @@ namespace RaLanguage.Lexer
                 {
                     tokens.Add(new Token(TokenType.COMMA, null, _position));
                     Advance();
+                }
+                else if (_currentCharacter == '&')
+                {
+                    tokens.Add(MakeAnd());
+                }
+                else if (_currentCharacter == '|')
+                {
+                    tokens.Add(MakeOr());
                 }
                 else
                 {
@@ -329,7 +333,7 @@ namespace RaLanguage.Lexer
             return new Token(type, null, positionStart, _position);
         }
 
-        private (Token?, Error?) MakeNotEquals()
+        private Token MakeNot()
         {
             var positionStart = _position.Copy();
             Advance();
@@ -337,11 +341,10 @@ namespace RaLanguage.Lexer
             if (_currentCharacter == '=')
             {
                 Advance();
-                return (new Token(TokenType.NE, null, positionStart, _position), null);
+                return new Token(TokenType.NE, null, positionStart, _position);
             }
 
-            Advance();
-            return (null, new ExpectedCharacterError(positionStart, _position, "'=' (after '!')"));
+            return new Token(TokenType.KEYWORD, "not", positionStart, _position);
         }
 
         private Token MakeEquals()
@@ -362,6 +365,34 @@ namespace RaLanguage.Lexer
             }
 
             return new Token(type, null, positionStart, _position);
+        }
+
+        private Token MakeAnd()
+        {
+            var positionStart = _position.Copy();
+            Advance();
+
+            if (_currentCharacter == '&')
+            {
+                Advance();
+                return new Token(TokenType.KEYWORD, "and", positionStart, _position);
+            }
+
+            return new Token(TokenType.BITWISE_AND, null, positionStart, _position);
+        }
+
+        private Token MakeOr()
+        {
+            var positionStart = _position.Copy();
+            Advance();
+
+            if (_currentCharacter == '|')
+            {
+                Advance();
+                return new Token(TokenType.KEYWORD, "or", positionStart, _position);
+            }
+
+            return new Token(TokenType.BITWISE_OR, null, positionStart, _position);
         }
 
         private (Token?, Error?) MakeLessThanOrComment()
