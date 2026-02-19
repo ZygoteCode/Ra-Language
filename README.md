@@ -1,10 +1,12 @@
 ## TODOs for BETA 1.0
   
+  - [x] Fix context in all remaining statements (for, while, fn).
+  - [x] Add comparison operators && , || , ! additionally to actual "is", "and", "or", "is not", "not".
+  - [x] Add exponent operator "**" which will be an alias of actual pow "^"
   - [ ] Add "~" operator to NOT a value.
   - [ ] Add bitwise operations (&, |, ~, <<, >>) + mod operator (%).
   - [ ] Add normal variable assignment => Example: I declare a variable "var a = 5", and I can do "a = 7" directly.
   - [ ] Add assignment operators: += , -= , *= , /= , %= , &= , |= , <<=, >>=.
-  - [x] Fix context in all remaining statements (for, while, fn).
   - [ ] Add static typing with strict checking: int, float, double, decimal, bigint, char, str, list.
   - [ ] Add strict checking operator for comparing not only the value, but also the type: '==='.
   - [ ] Add 'typeof' operator.
@@ -13,7 +15,6 @@
   - [ ] Add "final" variable declaration, similar to "const" but can be declared with values at runtime, nextly immediately protected in-memory and in-code.
   - [ ] I was thinking of adding something similar to Rust, like a "let" variable declaration - exit from context means you cannot use it anymore in actual context.
   - [ ] Add static return type to functions.
-  - [x] Add comparison operators && , || , ! additionally to actual "is", "and", "or", "is not", "not".
   - [ ] Make "null" a real type of value, which can be easily used in comparisons, as different from numbers and others - After that, functions can have type "void" as return type (can not return values).
   - [ ] Add "bool" type value, which will finally replace "true" and "false" numeric values - after that, comparisons will get better and have effective sense. But "0" as "false" and "1" as "true" will be a concept.
   - [ ] Add "do while" statement.
@@ -23,7 +24,6 @@
   - [ ] Add a operator like "&" to function parameters to pass reference instead of copying only the value.
   - [ ] Function parameters can be statically typed -> fn test(a: int, b: int): int => print(a + b);
   - [ ] Add foreach statement, which will be easily "for item in list" instead of "for i = 0 to 10 step 1".
-  - [x] Add exponent operator "**" which will be an alias of actual pow "^"
   - [ ] Add "match" (Rust-like) and "switch" (Java + C-like versions) statements.
   - [ ] Access easily to list values using the following operation => "var a = [1, 2, 3]; print(a[1]); // will output 2".
   - [ ] Access to portions of list using ranges, like for example a[1..3].
