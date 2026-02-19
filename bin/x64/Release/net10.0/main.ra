@@ -16,6 +16,9 @@ And what I call members lines in comments.
 	<img border="0" src="pic_trulli.jpg" alt="Trulli">
 --->
 
+print(5 * 2)
+print(5 ** 2)
+
 fn oopify(prefix) => prefix + "oop"
 
 fn join(elements, separator) {

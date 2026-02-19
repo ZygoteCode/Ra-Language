@@ -83,8 +83,9 @@ namespace RaLanguage.Lexer
                 }
                 else if (_currentCharacter == '*')
                 {
-                    tokens.Add(new Token(TokenType.MUL, null, _position));
-                    Advance();
+                    tokens.Add(MakeMul());
+                    //tokens.Add(new Token(TokenType.MUL, null, _position));
+                    //Advance();
                 }
                 else if (_currentCharacter == '/')
                 {
@@ -175,6 +176,21 @@ namespace RaLanguage.Lexer
 
             tokens.Add(new Token(TokenType.EOF, null, _position));
             return (tokens, null);
+        }
+
+        private Token MakeMul()
+        {
+            TokenType type = TokenType.MUL;
+            var positionStart = _position.Copy();
+            Advance();
+
+            if (_currentCharacter == '*')
+            {
+                Advance();
+                type = TokenType.POW;
+            }
+
+            return new Token(type, null, positionStart, _position);
         }
 
         private Token? MakeDivOrComment()

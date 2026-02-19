@@ -23,7 +23,7 @@
   - [ ] Add a operator like "&" to function parameters to pass reference instead of copying only the value.
   - [ ] Function parameters can be statically typed -> fn test(a: int, b: int): int => print(a + b);
   - [ ] Add foreach statement, which will be easily "for item in list" instead of "for i = 0 to 10 step 1".
-  - [ ] Add exponent operator "**" which will be an alias of actual pow "^"
+  - [x] Add exponent operator "**" which will be an alias of actual pow "^"
   - [ ] Add "match" (Rust-like) and "switch" (Java + C-like versions) statements.
   - [ ] Access easily to list values using the following operation => "var a = [1, 2, 3]; print(a[1]); // will output 2".
   - [ ] Access to portions of list using ranges, like for example a[1..3].
