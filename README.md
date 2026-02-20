@@ -32,3 +32,4 @@
   - [ ] Idea: List comprehensions, like [x*2 for x in a if x>1] to create lists in a compact way.
   - [ ] Add "in" operator for lists that can check if an element is in list => Example: "if 5 in a" or also "if [1, 2, 3] in a"
   - [ ] Add sets with the {} brackets, similar to list but with unique values.
+  - [ ] Add template literals with backtick (`) for making strings easily with multi-lines.
