@@ -26,6 +26,7 @@ namespace RaLanguage.Interpreter
                 ListNode l => VisitListNode(l, context),
                 VariableAccessNode v => VisitVariableAccessNode(v, context),
                 VariableDeclarationNode v => VisitVariableDeclarationNode(v, context),
+                VariableAssignmentNode v => VisitVariableAssignmentNode(v, context),
                 BinaryOperationNode b => VisitBinaryOperationNode(b, context),
                 UnaryOperationNode u => VisitUnaryOperationNode(u, context),
                 IfNode i => VisitIfNode(i, context),
@@ -105,6 +106,26 @@ namespace RaLanguage.Interpreter
             }
 
             context.SymbolTable.Set(varName, value);
+            return res.Success(value);
+        }
+
+        private RuntimeResult VisitVariableAssignmentNode(VariableAssignmentNode node, Context context)
+        {
+            var res = new RuntimeResult();
+            var varName = node.VarNameTok.Value?.ToString();
+            var operation = node.AssignmentToken;
+            var value = res.Register(Visit(node.ValueNode, context));
+
+            if (res.ShouldReturn())
+            {
+                return res;
+            }
+
+            switch (operation.Type)
+            {
+                case TokenType.EQ: context.SymbolTable.Set(varName, value); break;
+            }
+
             return res.Success(value);
         }
 

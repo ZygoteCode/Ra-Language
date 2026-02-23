@@ -16,6 +16,15 @@ And what I call members lines in comments.
 	<img border="0" src="pic_trulli.jpg" alt="Trulli">
 --->
 
+var a = 5;
+print(a);
+a = 7;
+print(a);
+a = a + 5;
+print(a);
+print(a = a + 3);
+print(a);
+
 print(5 ^ 2)
 print(6 << 3)
 print(10 % 3)

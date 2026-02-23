@@ -5,7 +5,7 @@
   - [x] Add exponent operator "**" which will be an alias of actual pow "^"
   - [x] Add "~" operator to NOT a value.
   - [x] Add bitwise operations (&, |, <<, >>) + mod operator (%).
-  - [ ] Add normal variable assignment => Example: I declare a variable "var a = 5", and I can do "a = 7" directly.
+  - [x] Add normal variable assignment => Example: I declare a variable "var a = 5", and I can do "a = 7" directly.
   - [ ] Add assignment operators: += , -= , *= , /= , %= , &= , |= , <<=, >>=.
   - [ ] Add static typing with strict checking: int, float, double, decimal, bigint, char, str, list.
   - [ ] Add strict checking operator for comparing not only the value, but also the type: '==='.
@@ -33,3 +33,5 @@
   - [ ] Add "in" operator for lists that can check if an element is in list => Example: "if 5 in a" or also "if [1, 2, 3] in a"
   - [ ] Add sets with the {} brackets, similar to list but with unique values.
   - [ ] Add template literals with backtick (`) for making strings easily with multi-lines.
+  - [ ] Add "++" and "--" operators (left + right both applicable).
+  - [ ] Add ternary operation (for ex. "a == 5 ? 7 : 3")

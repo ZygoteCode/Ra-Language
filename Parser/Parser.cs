@@ -230,6 +230,25 @@ namespace RaLanguage.Parser
                 if (res.Error != null) return res;
                 return res.Success(new VariableDeclarationNode(varName, expr));
             }
+            else if (_currentToken.Type.Equals(TokenType.IDENTIFIER) && _tokens[_tokenIndex + 1].Type == TokenType.EQ)
+            {
+                Token varName = _currentToken;
+                res.RegisterAdvancement();
+                Advance();
+
+                Token assignment = _currentToken;
+                if (assignment.Type != TokenType.EQ)
+                {
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '=', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '<<=' or '>>='"));
+                }
+
+                res.RegisterAdvancement();
+                Advance();
+
+                var expr = res.Register(ParseExpression());
+                if (res.Error != null) return res;
+                return res.Success(new VariableAssignmentNode(varName, assignment, expr));
+            }
 
             var node = res.Register(ParseBinaryOperation(ParseBitwiseOrExpression, new List<(TokenType, string?)> { (TokenType.KEYWORD, "and"), (TokenType.KEYWORD, "or") }));
 
