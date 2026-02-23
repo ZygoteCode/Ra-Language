@@ -119,8 +119,9 @@ namespace RaLanguage.Interpreter
         {
             var res = new RuntimeResult();
             var varName = node.VarNameTok.Value?.ToString();
+            var currentValue = context.SymbolTable.Get(varName);
 
-            if (context.SymbolTable.Get(varName) == null)
+            if (currentValue == null)
             {
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is not defined", context));
             }
@@ -133,12 +134,32 @@ namespace RaLanguage.Interpreter
                 return res;
             }
 
+            (RuntimeValue? result, Error? error) = (null, null);
+
             switch (operation.Type)
             {
-                case TokenType.EQ: context.SymbolTable.Set(varName, value); break;
+                case TokenType.EQ: (result, error) = (value, null); break;
+                case TokenType.PLUS_EQ: (result, error) = currentValue.AddedTo(value); break;
+                case TokenType.MINUS_EQ: (result, error) = currentValue.SubbedBy(value); break;
+                case TokenType.MUL_EQ: (result, error) = currentValue.MultedBy(value); break;
+                case TokenType.DIV_EQ: (result, error) = currentValue.DivedBy(value); break;
+                case TokenType.MODULO_EQ: (result, error) = currentValue.ModuledBy(value); break;
+                case TokenType.BITWISE_AND_EQ: (result, error) = currentValue.BitwiseAndedBy(value); break;
+                case TokenType.BITWISE_OR_EQ: (result, error) = currentValue.BitwiseOredBy(value); break;
+                case TokenType.BITWISE_LEFT_SHIFT_EQ: (result, error) = currentValue.BitwiseLeftShiftedBy(value); break;
+                case TokenType.BITWISE_RIGHT_SHIFT_EQ: (result, error) = currentValue.BitwiseRightShiftedBy(value); break;
+                case TokenType.POW_EQ: (result, error) = currentValue.PowedBy(value); break;
+                case TokenType.AND_EQ: (result, error) = currentValue.AndedBy(value); break;
+                case TokenType.OR_EQ: (result, error) = currentValue.OredBy(value); break;
             }
 
-            return res.Success(value);
+            if (error != null)
+            {
+                return res.Failure(error);
+            }
+
+            context.SymbolTable.Set(varName, result);
+            return res.Success(result!.SetPos(node.PositionStart, node.PositionEnd));
         }
 
         private RuntimeResult VisitBinaryOperationNode(BinaryOperationNode node, Context context)

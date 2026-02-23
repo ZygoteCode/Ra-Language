@@ -17,6 +17,23 @@ namespace RaLanguage.Parser
         private int _tokenIndex;
         private Token _currentToken;
 
+        private static readonly HashSet<TokenType> AssignmentTokens = new()
+        {
+            TokenType.EQ,
+            TokenType.PLUS_EQ,
+            TokenType.MINUS_EQ,
+            TokenType.MUL_EQ,
+            TokenType.DIV_EQ,
+            TokenType.MODULO_EQ,
+            TokenType.BITWISE_AND_EQ,
+            TokenType.BITWISE_OR_EQ,
+            TokenType.BITWISE_LEFT_SHIFT_EQ,
+            TokenType.BITWISE_RIGHT_SHIFT_EQ,
+            TokenType.POW_EQ,
+            TokenType.AND_EQ,
+            TokenType.OR_EQ
+        };
+
         public Parser(List<Token> tokens)
         {
             _tokens = tokens;
@@ -205,6 +222,11 @@ namespace RaLanguage.Parser
             return res.Success(expression);
         }
 
+        private bool IsAssignmentToken(TokenType type)
+        {
+            return AssignmentTokens.Contains(type);
+        }
+
         private ParserResult ParseExpression()
         {
             var res = new ParserResult();
@@ -230,14 +252,14 @@ namespace RaLanguage.Parser
                 if (res.Error != null) return res;
                 return res.Success(new VariableDeclarationNode(varName, expr));
             }
-            else if (_currentToken.Type.Equals(TokenType.IDENTIFIER) && _tokens[_tokenIndex + 1].Type == TokenType.EQ)
+            else if (_currentToken.Type.Equals(TokenType.IDENTIFIER) && IsAssignmentToken(_tokens[_tokenIndex + 1].Type))
             {
                 Token varName = _currentToken;
                 res.RegisterAdvancement();
                 Advance();
 
                 Token assignment = _currentToken;
-                if (assignment.Type != TokenType.EQ)
+                if (!IsAssignmentToken(assignment.Type))
                 {
                     return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '=', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '<<=' or '>>='"));
                 }

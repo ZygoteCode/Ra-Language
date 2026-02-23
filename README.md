@@ -13,7 +13,7 @@ Every programming language has its learning curve… but with Ra Language, there
   - [x] Add "~" operator to NOT a value.
   - [x] Add bitwise operations (&, |, <<, >>) + mod operator (%).
   - [x] Add normal variable assignment => Example: I declare a variable "var a = 5", and I can do "a = 7" directly.
-  - [ ] Add assignment operators: += , -= , *= , /= , %= , &= , |= , <<=, >>=, ^=, **=.
+  - [x] Add assignment operators: += , -= , *= , /= , %= , &= , |= , <<=, >>=, ^=, **=, &&=, ||=.
   - [ ] Add static typing with strict checking: int, float, double, decimal, bigint, char, str, list.
   - [ ] Add strict checking operator for comparing not only the value, but also the type: '==='.
   - [ ] Add 'typeof' operator.
@@ -42,4 +42,4 @@ Every programming language has its learning curve… but with Ra Language, there
   - [ ] Add template literals with backtick (`) for making strings easily with multi-lines.
   - [ ] Add "++" and "--" operators (left + right both applicable).
   - [ ] Add ternary operation (for ex. "a == 5 ? 7 : 3").
-  - [ ] Add more assignment operators: '&&=', '||=', '??='.
+  - [ ] Add more assignment operators: '??='.
