@@ -56,9 +56,8 @@ fn join(elements, separator) {
 	var length = len(elements)
 
 	for i = 0 to length {
-		var result = result + elements/i
-		if i != length - 1: var result = result + separator
-		var kkk = 5
+		result = result + elements/i
+		if i != length - 1: result = result + separator
 	}
 
 	ret result
@@ -68,12 +67,12 @@ fn map(elements, func) {
 	var new_elements = []
 
 	for i = 0 to len(elements) {
-        var new_elements = new_elements + func(elements/i)
+    	new_elements = new_elements + func(elements/i)
 	}
 
 	{
-		var i = 7
-		var i = i + 7
+		i = 7
+		i = i + 7
 	}
 
 	ret new_elements
@@ -83,7 +82,7 @@ fn map(elements, func) {
 print("Greetings universe!")
 
 for i = 0 to 5: print(join(map(["l", "sp"], oopify), ", "))
-var a = 5
+a = 5
 
 if a == 5 {
 	print("Yes!")
@@ -96,15 +95,15 @@ if a == 5 {
 var x = 7
 
 while x > 0 {
-	var x = x - 1
+ 	x = x - 1
 	print(x)
-	var ppppp = 5;
+	var pppp = 5
 }
 
 print("Actual value of x:")
 print(x)
 
-var x = 6;
+x = 6;
 
 if x == 7 {
 	pass
@@ -137,7 +136,7 @@ if (5 == 5 and 6 == 7) or (3 == 2) {
 } else {
 	var kkk = 9;
 	print(kkk);
-	var yyy = 4;
+	yyy = 4;
 }
 
 print(yyy);

@@ -13,6 +13,11 @@ namespace RaLanguage
 
         static Program()
         {
+            InitializeSymbolTable();
+        }
+
+        private static void InitializeSymbolTable()
+        {
             GlobalSymbolTable = new SymbolTable();
             GlobalSymbolTable.Set("null", NumberValue.Null);
             GlobalSymbolTable.Set("false", NumberValue.False);
@@ -94,6 +99,7 @@ namespace RaLanguage
                 switch (input)
                 {
                     case "1":
+                        InitializeSymbolTable();
                         string text = File.ReadAllText("main.ra");
                         Stopwatch stopwatch = new Stopwatch();
                         stopwatch.Start();
@@ -121,7 +127,8 @@ namespace RaLanguage
                         Console.Clear();
                         continue;
                     case "2":
-                        repeat: string text1 = File.ReadAllText("main.ra");
+                        repeat: InitializeSymbolTable();
+                        string text1 = File.ReadAllText("main.ra");
                         Stopwatch stopwatch1 = new Stopwatch();
                         stopwatch1.Start();
 
@@ -180,6 +187,7 @@ namespace RaLanguage
                                 }
 
                                 Console.Clear();
+                                InitializeSymbolTable();
                                 Stopwatch stopwatch2 = new Stopwatch();
                                 stopwatch2.Start();
 

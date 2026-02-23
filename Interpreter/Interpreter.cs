@@ -98,6 +98,12 @@ namespace RaLanguage.Interpreter
         {
             var res = new RuntimeResult();
             var varName = node.VarNameTok.Value?.ToString();
+
+            if (context.SymbolTable.Get(varName) != null)
+            {
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is already defined", context));
+            }
+
             var value = res.Register(Visit(node.ValueNode, context));
 
             if (res.ShouldReturn())
@@ -113,6 +119,12 @@ namespace RaLanguage.Interpreter
         {
             var res = new RuntimeResult();
             var varName = node.VarNameTok.Value?.ToString();
+
+            if (context.SymbolTable.Get(varName) == null)
+            {
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is not defined", context));
+            }
+
             var operation = node.AssignmentToken;
             var value = res.Register(Visit(node.ValueNode, context));
 
@@ -281,8 +293,9 @@ namespace RaLanguage.Interpreter
             {
                 newContext.SymbolTable.Set(node.VarNameTok.Value.ToString(), new NumberValue(i));
                 i += step;
-                var value = res.Register(Visit(node.BodyNode, newContext));
-                context.ApplyChangesFrom(newContext);
+                Context actualContext = newContext.Copy();
+                var value = res.Register(Visit(node.BodyNode, actualContext));
+                context.ApplyChangesFrom(actualContext);
 
                 if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak)
                 {
@@ -327,8 +340,9 @@ namespace RaLanguage.Interpreter
                     break;
                 }
 
-                var value = res.Register(Visit(node.BodyNode, newContext));
-                context.ApplyChangesFrom(newContext);
+                Context actualContext = newContext.Copy();
+                var value = res.Register(Visit(node.BodyNode, actualContext));
+                context.ApplyChangesFrom(actualContext);
 
                 if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak)
                 {
