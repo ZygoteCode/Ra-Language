@@ -202,6 +202,11 @@ namespace RaLanguage.Lexer
                 Advance();
                 type = TokenType.PLUS_EQ;
             }
+            else if (_currentCharacter == '+')
+            {
+                Advance();
+                type = TokenType.DOUBLE_PLUS;
+            }
 
             return new Token(type, null, positionStart, _position);
         }
@@ -427,9 +432,9 @@ namespace RaLanguage.Lexer
             var positionStart = _position.Copy();
             Advance();
 
-            if (_currentCharacter == '-')
+            if (_currentCharacter == '-' && _text[_position.Idx + 1] == '-')
             {
-                Advance();
+                Advance(2);
 
                 while (_currentCharacter != null && _currentCharacter != '\n')
                 {
@@ -438,6 +443,11 @@ namespace RaLanguage.Lexer
 
                 Advance();
                 return null;
+            }
+            else if (_currentCharacter == '-')
+            {
+                Advance();
+                type = TokenType.DOUBLE_MINUS;
             }
             else if (_currentCharacter == '=')
             {

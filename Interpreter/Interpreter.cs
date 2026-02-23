@@ -201,20 +201,60 @@ namespace RaLanguage.Interpreter
         private RuntimeResult VisitUnaryOperationNode(UnaryOperationNode node, Context context)
         {
             var res = new RuntimeResult();
-            var number = res.Register(Visit(node.Node, context));
+            var value = res.Register(Visit(node.Node, context));
             if (res.ShouldReturn()) return res;
 
             Error? error = null;
 
+            if (node.OpTok.Type == TokenType.DOUBLE_PLUS || node.OpTok.Type == TokenType.DOUBLE_MINUS)
+            {
+                if (node.Node is not VariableAccessNode varAccessNode)
+                {
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Operator ++/-- can only be applied to variables", context));
+                }
+
+                if (value is not NumberValue number)
+                {
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Operator ++/-- can only be applied to numbers", context));
+                }
+
+                RuntimeValue? newValue = null;
+                if (node.OpTok.Type == TokenType.DOUBLE_PLUS)
+                {
+                    (newValue, error) = number.AddedTo(NumberValue.True);
+                }
+                else
+                {
+                    (newValue, error) = number.SubbedBy(NumberValue.True);
+                }
+
+                if (error != null) return res.Failure(error);
+
+                newValue = newValue!.SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+
+                var varName = varAccessNode.VarNameTok.Value?.ToString() ?? throw new InvalidOperationException("Variable name missing");
+                context.SymbolTable.Set(varName, newValue);
+
+                if (node.IsLeft)
+                {
+                    return res.Success(newValue);
+                }
+                else
+                {
+                    var oldCopy = number.Copy().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    return res.Success(oldCopy);
+                }
+            }
+
             if (node.OpTok.Type == TokenType.MINUS)
-                (number, error) = number.MultedBy(new NumberValue(-1));
+                (value, error) = value.MultedBy(new NumberValue(BigNumber.Parse("-1")));
             else if (node.OpTok.Matches(TokenType.KEYWORD, "not"))
-                (number, error) = number.Notted();
+                (value, error) = value.Notted();
             else if (node.OpTok.Type == TokenType.BITWISE_NOT)
-                (number, error) = number.BitwiseNotted();
+                (value, error) = value.BitwiseNotted();
 
             if (error != null) return res.Failure(error);
-            return res.Success(number!.SetPos(node.PositionStart, node.PositionEnd));
+            return res.Success(value!.SetPos(node.PositionStart, node.PositionEnd));
         }
 
         private RuntimeResult VisitIfNode(IfNode node, Context context)

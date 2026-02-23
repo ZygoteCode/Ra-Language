@@ -355,13 +355,22 @@ namespace RaLanguage.Parser
             var res = new ParserResult();
             var tok = _currentToken;
 
+            if (tok.Type == TokenType.DOUBLE_PLUS || tok.Type == TokenType.DOUBLE_MINUS)
+            {
+                res.RegisterAdvancement();
+                Advance();
+                var factor = res.Register(ParseFactor());
+                if (res.Error != null) return res;
+                return res.Success(new UnaryOperationNode(tok, factor, isLeft: true));
+            }
+
             if (tok.Type == TokenType.PLUS || tok.Type == TokenType.MINUS)
             {
                 res.RegisterAdvancement();
                 Advance();
                 var factor = res.Register(ParseFactor());
                 if (res.Error != null) return res;
-                return res.Success(new UnaryOperationNode(tok, factor));
+                return res.Success(new UnaryOperationNode(tok, factor, isLeft: true));
             }
 
             return ParsePower();
@@ -435,7 +444,17 @@ namespace RaLanguage.Parser
             {
                 res.RegisterAdvancement();
                 Advance();
-                return res.Success(new VariableAccessNode(tok));
+                var varNode = new VariableAccessNode(tok);
+
+                if (_currentToken.Type == TokenType.DOUBLE_PLUS || _currentToken.Type == TokenType.DOUBLE_MINUS)
+                {
+                    var opTok = _currentToken;
+                    res.RegisterAdvancement();
+                    Advance();
+                    return res.Success(new UnaryOperationNode(opTok, varNode, isLeft: false));
+                }
+
+                return res.Success(varNode);
             }
             else if (tok.Type == TokenType.LPAREN)
             {

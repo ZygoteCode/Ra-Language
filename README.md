@@ -13,12 +13,13 @@ Every programming language has its learning curve… but with Ra Language, there
   - [x] Add bitwise operations (&, |, <<, >>) + mod operator (%).
   - [x] Add normal variable assignment => Example: I declare a variable "var a = 5", and I can do "a = 7" directly.
   - [x] Add assignment operators: += , -= , *= , /= , %= , &= , |= , <<=, >>=, ^=, **=, &&=, ||=.
+  - [x] Add "++" and "--" operators (left + right both applicable).
+  - [ ] Additionally to var, add "const" declaration - this is not only working by code (you cannot modify values) but will be applied protection with VirtualProtect or similar. Must be applied a constant real value like strings or numbers.
+  - [ ] Add "final" variable declaration, similar to "const" but can be declared with values at runtime, nextly immediately protected in-memory and in-code.
   - [ ] Add static typing with strict checking: int, float, double, decimal, bigint, char, str, list.
   - [ ] Add strict checking operator for comparing not only the value, but also the type: '==='.
   - [ ] Add 'typeof' operator.
   - [ ] Scope must have his own node "ScopeNode" with a own context to operate with.
-  - [ ] Additionally to var, add "const" declaration - this is not only working by code (you cannot modify values) but will be applied protection with VirtualProtect or similar. Must be applied a constant real value like strings or numbers.
-  - [ ] Add "final" variable declaration, similar to "const" but can be declared with values at runtime, nextly immediately protected in-memory and in-code.
   - [ ] I was thinking of adding something similar to Rust, like a "let" variable declaration - exit from context means you cannot use it anymore in actual context.
   - [ ] Add static return type to functions.
   - [ ] Make "null" a real type of value, which can be easily used in comparisons, as different from numbers and others - After that, functions can have type "void" as return type (can not return values).
@@ -39,6 +40,5 @@ Every programming language has its learning curve… but with Ra Language, there
   - [ ] Add "in" operator for lists that can check if an element is in list => Example: "if 5 in a" or also "if [1, 2, 3] in a"
   - [ ] Add sets with the {} brackets, similar to list but with unique values.
   - [ ] Add template literals with backtick (`) for making strings easily with multi-lines.
-  - [ ] Add "++" and "--" operators (left + right both applicable).
   - [ ] Add ternary operation (for ex. "a == 5 ? 7 : 3").
   - [ ] Add more assignment operators: '??='.

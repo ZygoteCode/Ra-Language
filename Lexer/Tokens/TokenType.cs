@@ -16,6 +16,9 @@
         POW,
         EQ,
 
+        DOUBLE_PLUS,
+        DOUBLE_MINUS,
+
         LPAREN,
         RPAREN,
         LSQUARE,
