@@ -32,6 +32,9 @@
 
         BITWISE_AND,
         BITWISE_OR,
+        BITWISE_LEFT_SHIFT,
+        BITWISE_RIGHT_SHIFT,
+        MODULO,
         BITWISE_NOT,
 
         COMMA,

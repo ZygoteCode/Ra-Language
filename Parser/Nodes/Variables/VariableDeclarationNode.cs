@@ -2,11 +2,11 @@
 
 namespace RaLanguage.Parser.Nodes.Variables
 {
-    public class VariableAssignNode : AstNode
+    public class VariableDeclarationNode : AstNode
     {
         public Token VarNameTok { get; }
         public AstNode ValueNode { get; }
-        public VariableAssignNode(Token varNameTok, AstNode valueNode)
+        public VariableDeclarationNode(Token varNameTok, AstNode valueNode)
         {
             VarNameTok = varNameTok;
             ValueNode = valueNode;

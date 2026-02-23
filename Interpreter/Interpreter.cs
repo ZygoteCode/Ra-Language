@@ -25,7 +25,7 @@ namespace RaLanguage.Interpreter
                 StringNode s => VisitStringNode(s, context),
                 ListNode l => VisitListNode(l, context),
                 VariableAccessNode v => VisitVariableAccessNode(v, context),
-                VariableAssignNode v => VisitVariableAssignNode(v, context),
+                VariableDeclarationNode v => VisitVariableDeclarationNode(v, context),
                 BinaryOperationNode b => VisitBinaryOperationNode(b, context),
                 UnaryOperationNode u => VisitUnaryOperationNode(u, context),
                 IfNode i => VisitIfNode(i, context),
@@ -93,12 +93,16 @@ namespace RaLanguage.Interpreter
             return res.Success(value);
         }
 
-        private RuntimeResult VisitVariableAssignNode(VariableAssignNode node, Context context)
+        private RuntimeResult VisitVariableDeclarationNode(VariableDeclarationNode node, Context context)
         {
             var res = new RuntimeResult();
             var varName = node.VarNameTok.Value?.ToString();
             var value = res.Register(Visit(node.ValueNode, context));
-            if (res.ShouldReturn()) return res;
+
+            if (res.ShouldReturn())
+            {
+                return res;
+            }
 
             context.SymbolTable.Set(varName, value);
             return res.Success(value);
@@ -129,6 +133,11 @@ namespace RaLanguage.Interpreter
                 case TokenType.GTE: (result, error) = left.GetComparisonGte(right); break;
                 case TokenType.KEYWORD when node.OpTok.Value?.ToString() == "and": (result, error) = left.AndedBy(right); break;
                 case TokenType.KEYWORD when node.OpTok.Value?.ToString() == "or": (result, error) = left.OredBy(right); break;
+                case TokenType.BITWISE_LEFT_SHIFT: (result, error) = left.BitwiseLeftShiftedBy(right); break;
+                case TokenType.BITWISE_RIGHT_SHIFT: (result, error) = left.BitwiseRightShiftedBy(right); break;
+                case TokenType.MODULO: (result, error) = left.ModuledBy(right); break;
+                case TokenType.BITWISE_AND: (result, error) = left.BitwiseAndedBy(right); break;
+                case TokenType.BITWISE_OR: (result, error) = left.BitwiseOredBy(right); break;
             }
 
             if (error != null) return res.Failure(error);

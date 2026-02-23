@@ -4,7 +4,7 @@
   - [x] Add comparison operators && , || , ! additionally to actual "is", "and", "or", "is not", "not".
   - [x] Add exponent operator "**" which will be an alias of actual pow "^"
   - [x] Add "~" operator to NOT a value.
-  - [ ] Add bitwise operations (&, |, ~, <<, >>) + mod operator (%).
+  - [x] Add bitwise operations (&, |, <<, >>) + mod operator (%).
   - [ ] Add normal variable assignment => Example: I declare a variable "var a = 5", and I can do "a = 7" directly.
   - [ ] Add assignment operators: += , -= , *= , /= , %= , &= , |= , <<=, >>=.
   - [ ] Add static typing with strict checking: int, float, double, decimal, bigint, char, str, list.

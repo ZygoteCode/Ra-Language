@@ -228,10 +228,10 @@ namespace RaLanguage.Parser
                 Advance();
                 var expr = res.Register(ParseExpression());
                 if (res.Error != null) return res;
-                return res.Success(new VariableAssignNode(varName, expr));
+                return res.Success(new VariableDeclarationNode(varName, expr));
             }
 
-            var node = res.Register(ParseBinaryOperation(ParseComparisonExpression, new List<(TokenType, string?)> { (TokenType.KEYWORD, "and"), (TokenType.KEYWORD, "or") }));
+            var node = res.Register(ParseBinaryOperation(ParseBitwiseOrExpression, new List<(TokenType, string?)> { (TokenType.KEYWORD, "and"), (TokenType.KEYWORD, "or") }));
 
             if (res.Error != null)
             {
@@ -242,6 +242,16 @@ namespace RaLanguage.Parser
             }
 
             return res.Success(node);
+        }
+
+        private ParserResult ParseBitwiseOrExpression()
+        {
+            return ParseBinaryOperation(ParseBitwiseAndExpression, new List<(TokenType, string?)> { (TokenType.BITWISE_OR, null) });
+        }
+
+        private ParserResult ParseBitwiseAndExpression()
+        {
+            return ParseBinaryOperation(ParseComparisonExpression, new List<(TokenType, string?)> { (TokenType.BITWISE_AND, null) });
         }
 
         private ParserResult ParseComparisonExpression()
@@ -259,7 +269,7 @@ namespace RaLanguage.Parser
                 return res.Success(new UnaryOperationNode(opTok, node));
             }
 
-            var b_node = res.Register(ParseBinaryOperation(ParseArithmeticExpression, new List<(TokenType, string?)>
+            var b_node = res.Register(ParseBinaryOperation(ParseShiftExpression, new List<(TokenType, string?)>
             {
                 (TokenType.EE, null), (TokenType.NE, null), (TokenType.LT, null),
                 (TokenType.GT, null), (TokenType.LTE, null), (TokenType.GTE, null)
@@ -275,6 +285,15 @@ namespace RaLanguage.Parser
             return res.Success(b_node);
         }
 
+        private ParserResult ParseShiftExpression()
+        {
+            return ParseBinaryOperation(ParseArithmeticExpression, new List<(TokenType, string?)>
+            {
+                (TokenType.BITWISE_LEFT_SHIFT, null),
+                (TokenType.BITWISE_RIGHT_SHIFT, null)
+            });
+        }
+
         private ParserResult ParseArithmeticExpression()
         {
             return ParseBinaryOperation(ParseTerm, new List<(TokenType, string?)> { (TokenType.PLUS, null), (TokenType.MINUS, null) });
@@ -282,7 +301,12 @@ namespace RaLanguage.Parser
 
         private ParserResult ParseTerm()
         {
-            return ParseBinaryOperation(ParseFactor, new List<(TokenType, string?)> { (TokenType.MUL, null), (TokenType.DIV, null) });
+            return ParseBinaryOperation(ParseFactor, new List<(TokenType, string?)>
+            {
+                (TokenType.MUL, null),
+                (TokenType.DIV, null),
+                (TokenType.MODULO, null)
+            });
         }
 
         private ParserResult ParseFactor()
@@ -822,7 +846,5 @@ namespace RaLanguage.Parser
             }
             return res.Success(left);
         }
-
-
     }
 }

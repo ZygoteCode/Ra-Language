@@ -90,6 +90,11 @@ namespace RaLanguage.Lexer
                     Token? tok = MakeDivOrComment();
                     if (tok != null) tokens.Add(tok);
                 }
+                else if (_currentCharacter == '%')
+                {
+                    tokens.Add(new Token(TokenType.MODULO, null, _position));
+                    Advance();
+                }
                 else if (_currentCharacter == '^')
                 {
                     tokens.Add(new Token(TokenType.POW, null, _position));
@@ -145,7 +150,7 @@ namespace RaLanguage.Lexer
                 }
                 else if (_currentCharacter == '<')
                 {
-                    (Token?, Error?) result = MakeLessThanOrComment();
+                    (Token?, Error?) result = MakeLessThan();
 
                     if (result.Item2 != null)
                     {
@@ -405,7 +410,7 @@ namespace RaLanguage.Lexer
             return new Token(TokenType.BITWISE_OR, null, positionStart, _position);
         }
 
-        private (Token?, Error?) MakeLessThanOrComment()
+        private (Token?, Error?) MakeLessThan()
         {
             TokenType type = TokenType.LT;
             var positionStart = _position.Copy();
@@ -415,6 +420,11 @@ namespace RaLanguage.Lexer
             {
                 Advance();
                 type = TokenType.LTE;
+            }
+            else if (_currentCharacter == '<')
+            {
+                Advance();
+                type = TokenType.BITWISE_LEFT_SHIFT;
             }
             else if (_currentCharacter == '!')
             {
@@ -457,6 +467,12 @@ namespace RaLanguage.Lexer
                 Advance();
                 type = TokenType.GTE;
             }
+            else if (_currentCharacter == '>')
+            {
+                Advance();
+                type = TokenType.BITWISE_RIGHT_SHIFT;
+            }    
+
             return new Token(type, null, positionStart, _position);
         }
 

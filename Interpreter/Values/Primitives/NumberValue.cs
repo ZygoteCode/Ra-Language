@@ -110,6 +110,36 @@
             return (new NumberValue(~(int)Value).SetContext(Context), null);
         }
 
+        public override (RuntimeValue?, Error?) BitwiseAndedBy(RuntimeValue other)
+        {
+            if (other is NumberValue n) return (new NumberValue((int) Value & (int) n.Value).SetContext(Context), null);
+            return base.AddedTo(other);
+        }
+
+        public override (RuntimeValue?, Error?) BitwiseOredBy(RuntimeValue other)
+        {
+            if (other is NumberValue n) return (new NumberValue((int)Value | (int)n.Value).SetContext(Context), null);
+            return base.AddedTo(other);
+        }
+
+        public override (RuntimeValue?, Error?) BitwiseLeftShiftedBy(RuntimeValue other)
+        {
+            if (other is NumberValue n) return (new NumberValue((int)Value << (int)n.Value).SetContext(Context), null);
+            return base.AddedTo(other);
+        }
+
+        public override (RuntimeValue?, Error?) BitwiseRightShiftedBy(RuntimeValue other)
+        {
+            if (other is NumberValue n) return (new NumberValue((int)Value >> (int)n.Value).SetContext(Context), null);
+            return base.AddedTo(other);
+        }
+
+        public override (RuntimeValue?, Error?) ModuledBy(RuntimeValue other)
+        {
+            if (other is NumberValue n) return (new NumberValue((int)Value % (int)n.Value).SetContext(Context), null);
+            return base.AddedTo(other);
+        }
+
         public override RuntimeValue Copy()
         {
             return new NumberValue(Value).SetPos(PositionStart, PositionEnd).SetContext(Context);
