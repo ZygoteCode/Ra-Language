@@ -4,7 +4,9 @@ _"Your knowledge will ascend with time, like Ra rising through the sky."_
 
 Every programming language has its learning curve… but with Ra Language, there’s no curve: you start at the zero point of an infinite line, and simply walking along it lets your skills evolve. You can begin with nothing and still have everything you need, or, if you’re already a pro, you can create truly extraordinary things. With Ra Language, growth is continuous, natural, and effortless.
 
-## TODOs for BETA 1.0
+## TODOs for Ra Language
+
+This is constantly updated list, I am expanding with new ideas and concepts for the language. If you feel good with the language and have new ideas & suggestions, you can open an issue with some details, or submit a pull request with interesting modifications. I'll take a look at that as soon as possible!
 
   - [x] Fix context in all remaining statements (for, while, fn).
   - [x] Add comparison operators && , || , ! additionally to actual "is", "and", "or", "is not", "not".
@@ -41,7 +43,11 @@ Every programming language has its learning curve… but with Ra Language, there
   - [ ] Add template literals with backtick (`) for making strings easily with multi-lines.
   - [ ] Add ternary operation (for ex. "a == 5 ? 7 : 3").
   - [ ] Add more assignment operators: '??='.
-  - [ ] Add a way to declare variables like "var a, b, c = 7" (multiple declarations).
+  - [ ] Add a way to declare variables like "var a, b, c = 7" or "var a = 3, b = 5, c = 7" (multiple declarations).
+  - [ ] Declare variables (only "var" + "final") also without a initial value - the first value assigned to the "final" one will be definitive in runtime. Const variables need immediately a value at parsing-time.
+  - [ ] Idea: import new files with a intelligent path system.
+  - [ ] Idea: add tuples => "var (result1, result2) = (3, 5)".
   - [ ] Idea: add list slicing with step, like a[0..5:2].
   - [ ] Idea: List comprehensions, like [x*2 for x in a if x>1] to create lists in a compact way.
   - [ ] Idea: the last operation of a function is its return value, like in V and Rust.
+  - [ ] Idea: add labels + goto keyword (you can do spaghetti code with that!)
