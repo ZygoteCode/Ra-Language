@@ -231,8 +231,19 @@ namespace RaLanguage.Parser
         {
             var res = new ParserResult();
 
-            if (_currentToken.Matches(TokenType.KEYWORD, "var"))
+            if (_currentToken.Matches(TokenType.KEYWORD, "var") || _currentToken.Matches(TokenType.KEYWORD, "const") || _currentToken.Matches(TokenType.KEYWORD, "final"))
             {
+                VariableDeclarationType variableDeclarationType = VariableDeclarationType.VARIABLE;
+
+                if (_currentToken.Matches(TokenType.KEYWORD, "const"))
+                {
+                    variableDeclarationType = VariableDeclarationType.CONST;
+                }
+                else if (_currentToken.Matches(TokenType.KEYWORD, "final"))
+                {
+                    variableDeclarationType = VariableDeclarationType.FINAL;
+                }
+
                 res.RegisterAdvancement();
                 Advance();
 
@@ -250,7 +261,8 @@ namespace RaLanguage.Parser
                 Advance();
                 var expr = res.Register(ParseExpression());
                 if (res.Error != null) return res;
-                return res.Success(new VariableDeclarationNode(varName, expr));
+
+                return res.Success(new VariableDeclarationNode(variableDeclarationType, varName, expr));
             }
             else if (_currentToken.Type.Equals(TokenType.IDENTIFIER) && IsAssignmentToken(_tokens[_tokenIndex + 1].Type))
             {

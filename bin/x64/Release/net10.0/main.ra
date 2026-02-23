@@ -1,18 +1,17 @@
-var a = 5;
-print(a);
-a++;
-print(a);
-a--;
-print(a);
-print(--a);
-print(a);
-print(a--);
-print(a);
+fn hello() {
+    ret 5;
+}
 
-a = 10;
+print(hello())
+const a = 5 + 3;
 print(a);
-print(a++);
-print(++a);
-print(++a);
+// a = a + 3;
 
---- hi this is new form of comment (like Lua), sorry for the inconvenience.
+var b = a + 3;
+print(b);
+b += 3;
+print(b);
+
+final c = (a + hello()) * 8;
+print(c);
+// c = c + 7;

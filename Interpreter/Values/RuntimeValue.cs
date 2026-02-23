@@ -2,6 +2,7 @@
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Lexer;
+using RaLanguage.Parser.Nodes.Variables;
 
 namespace RaLanguage.Interpreter.Values
 {
@@ -10,6 +11,7 @@ namespace RaLanguage.Interpreter.Values
         public Position PositionStart { get; set; }
         public Position PositionEnd { get; set; }
         public Context Context { get; set; }
+        public VariableDeclarationType VariableDeclarationType { get; set; } = VariableDeclarationType.VARIABLE;
 
         public RuntimeValue SetPos(Position positionStart, Position positionEnd)
         {

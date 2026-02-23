@@ -17,6 +17,8 @@ namespace RaLanguage.Interpreter
 {
     public class Interpreter
     {
+        private bool AreCallsBlocked { get; set; } = false;
+
         public RuntimeResult Visit(AstNode node, Context context)
         {
             return node switch
@@ -104,15 +106,48 @@ namespace RaLanguage.Interpreter
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is already defined", context));
             }
 
-            var value = res.Register(Visit(node.ValueNode, context));
-
-            if (res.ShouldReturn())
+            if (node.DeclarationType.Equals(VariableDeclarationType.VARIABLE))
             {
-                return res;
+                var value = res.Register(Visit(node.ValueNode, context));
+
+                if (res.ShouldReturn())
+                {
+                    return res;
+                }
+
+                context.SymbolTable.Set(varName, value);
+                return res.Success(value);
+            }
+            else if (node.DeclarationType.Equals(VariableDeclarationType.CONST))
+            {
+                AreCallsBlocked = true;
+                var value = res.Register(Visit(node.ValueNode, context));
+
+                if (res.ShouldReturn())
+                {
+                    return res;
+                }
+
+                value.VariableDeclarationType = VariableDeclarationType.CONST;
+                context.SymbolTable.Set(varName, value);
+                AreCallsBlocked = false;
+                return res.Success(value);
+            }
+            else if (node.DeclarationType.Equals(VariableDeclarationType.FINAL))
+            {
+                var value = res.Register(Visit(node.ValueNode, context));
+
+                if (res.ShouldReturn())
+                {
+                    return res;
+                }
+
+                value.VariableDeclarationType = VariableDeclarationType.FINAL;
+                context.SymbolTable.Set(varName, value);
+                return res.Success(value);
             }
 
-            context.SymbolTable.Set(varName, value);
-            return res.Success(value);
+            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Invalid variable declaration method", context));
         }
 
         private RuntimeResult VisitVariableAssignmentNode(VariableAssignmentNode node, Context context)
@@ -124,6 +159,12 @@ namespace RaLanguage.Interpreter
             if (currentValue == null)
             {
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is not defined", context));
+            }
+
+            if (currentValue.VariableDeclarationType.Equals(VariableDeclarationType.CONST)
+                || currentValue.VariableDeclarationType.Equals(VariableDeclarationType.FINAL))
+            {
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is a constant variable and cannot be modified at runtime", context));
             }
 
             var operation = node.AssignmentToken;
@@ -449,6 +490,12 @@ namespace RaLanguage.Interpreter
         private RuntimeResult VisitFunctionCallNode(FunctionCallNode node, Context context)
         {
             var res = new RuntimeResult();
+
+            if (AreCallsBlocked)
+            {
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Function calls are blocked in this context", context));
+            }
+
             var args = new List<RuntimeValue>();
 
             var valueToCall = res.Register(Visit(node.NodeToCall, context));

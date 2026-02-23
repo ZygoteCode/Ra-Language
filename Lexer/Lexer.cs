@@ -2,7 +2,6 @@
 using RaLanguage.Errors.Types;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Utilities;
-using System.Globalization;
 using System.Text;
 
 namespace RaLanguage.Lexer
@@ -17,7 +16,7 @@ namespace RaLanguage.Lexer
         {
             "var", "and", "or", "not", "if", "elif", "else",
             "for", "to", "step", "while", "fn", "ret", "is",
-            "continue", "break", "pass",
+            "continue", "break", "pass", "const", "final"
         };
 
         public Lexer(string fn, string text)

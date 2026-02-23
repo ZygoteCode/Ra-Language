@@ -14,8 +14,9 @@ Every programming language has its learning curve… but with Ra Language, there
   - [x] Add normal variable assignment => Example: I declare a variable "var a = 5", and I can do "a = 7" directly.
   - [x] Add assignment operators: += , -= , *= , /= , %= , &= , |= , <<=, >>=, ^=, **=, &&=, ||=.
   - [x] Add "++" and "--" operators (left + right both applicable).
-  - [ ] Additionally to var, add "const" declaration - this is not only working by code (you cannot modify values) but will be applied protection with VirtualProtect or similar. Must be applied a constant real value like strings or numbers.
-  - [ ] Add "final" variable declaration, similar to "const" but can be declared with values at runtime, nextly immediately protected in-memory and in-code.
+  - [x] Additionally to var, add "const" declaration.
+  - [x] Add "final" variable declaration, similar to "const" but can be declared with values at runtime, nextly immediately protected in-code.
+  - [ ] Add "del" operator to delete declared variables like "del a" or "del a, b, c" if you need multiple deletions at the same time.
   - [ ] Add static typing with strict checking: int, float, double, decimal, bigint, char, str, list.
   - [ ] Add strict checking operator for comparing not only the value, but also the type: '==='.
   - [ ] Add 'typeof' operator.
@@ -35,10 +36,12 @@ Every programming language has its learning curve… but with Ra Language, there
   - [ ] Access easily to list values using the following operation => "var a = [1, 2, 3]; print(a[1]); // will output 2".
   - [ ] Access to portions of list using ranges, like for example a[1..3].
   - [ ] Access to last element of a list using for example a[-1].
-  - [ ] Idea: add list slicing with step, like a[0..5:2].
-  - [ ] Idea: List comprehensions, like [x*2 for x in a if x>1] to create lists in a compact way.
   - [ ] Add "in" operator for lists that can check if an element is in list => Example: "if 5 in a" or also "if [1, 2, 3] in a"
   - [ ] Add sets with the {} brackets, similar to list but with unique values.
   - [ ] Add template literals with backtick (`) for making strings easily with multi-lines.
   - [ ] Add ternary operation (for ex. "a == 5 ? 7 : 3").
   - [ ] Add more assignment operators: '??='.
+  - [ ] Add a way to declare variables like "var a, b, c = 7" (multiple declarations).
+  - [ ] Idea: add list slicing with step, like a[0..5:2].
+  - [ ] Idea: List comprehensions, like [x*2 for x in a if x>1] to create lists in a compact way.
+  - [ ] Idea: the last operation of a function is its return value, like in V and Rust.
