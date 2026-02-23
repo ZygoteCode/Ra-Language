@@ -57,7 +57,9 @@ namespace RaLanguage.Lexer
                 }
                 else if (Constants.DIGITS.Contains(_currentCharacter.Value))
                 {
-                    tokens.Add(MakeNumber());
+                    Token? tok = MakeNumber();
+                    if (tok == null) return new(new List<Token>(), new InvalidSyntaxError(_position.Copy(), _position, "Invalid number format"));
+                    tokens.Add(tok);
                 }
                 else if (Constants.LETTERS.Contains(_currentCharacter.Value))
                 {
@@ -300,27 +302,61 @@ namespace RaLanguage.Lexer
             }
         }
 
-        private Token MakeNumber()
+        private Token? MakeNumber()
         {
             var numStr = new StringBuilder();
             int dotCount = 0;
             var positionStart = _position.Copy();
 
-            while (_currentCharacter != null && (Constants.DIGITS.Contains(_currentCharacter.Value) || _currentCharacter == '.'))
+            while (_currentCharacter != null &&
+                   (Constants.DIGITS.Contains(_currentCharacter.Value) || _currentCharacter == '.' || _currentCharacter == '_' || _currentCharacter == 'e' || _currentCharacter == 'E'))
             {
+                if (_currentCharacter == '_')
+                {
+                    Advance();
+                    continue;
+                }
+
                 if (_currentCharacter == '.')
                 {
                     if (dotCount == 1) break;
                     dotCount++;
                 }
-                numStr.Append(_currentCharacter);
-                Advance();
+
+                if (_currentCharacter == 'e' || _currentCharacter == 'E')
+                {
+                    numStr.Append(_currentCharacter);
+                    Advance();
+
+                    if (_currentCharacter == '+' || _currentCharacter == '-')
+                    {
+                        numStr.Append(_currentCharacter);
+                        Advance();
+                    }
+
+                    if (_currentCharacter == null || !Constants.DIGITS.Contains(_currentCharacter.Value))
+                        return null;
+
+                    while (_currentCharacter != null && Constants.DIGITS.Contains(_currentCharacter.Value))
+                    {
+                        numStr.Append(_currentCharacter);
+                        Advance();
+                    }
+                    break;
+                }
+                else
+                {
+                    numStr.Append(_currentCharacter);
+                    Advance();
+                }
             }
 
-            if (dotCount == 0)
-                return new Token(TokenType.INT, int.Parse(numStr.ToString()), positionStart, _position);
+            string finalNum = numStr.ToString();
+
+            if (dotCount == 0 && !finalNum.Contains('e') && !finalNum.Contains('E'))
+                return new Token(TokenType.INT, finalNum, positionStart, _position);
             else
-                return new Token(TokenType.FLOAT, double.Parse(numStr.ToString(), CultureInfo.InvariantCulture), positionStart, _position);
+                return new Token(TokenType.FLOAT, finalNum, positionStart, _position);
         }
 
         private Token MakeString(char stringCharacter)

@@ -50,7 +50,7 @@ namespace RaLanguage.Interpreter
         private RuntimeResult VisitNumberNode(NumberNode node, Context context)
         {
             return new RuntimeResult().Success(
-                new NumberValue(Convert.ToDouble(node.Tok.Value)).SetContext(context).SetPos(node.PositionStart, node.PositionEnd)
+                new NumberValue(BigNumber.Parse(node.Tok.Value.ToString())).SetContext(context).SetPos(node.PositionStart, node.PositionEnd)
             );
         }
 
@@ -303,9 +303,9 @@ namespace RaLanguage.Interpreter
                 stepValue = new NumberValue(1);
             }
 
-            double i = ((NumberValue)startValue).Value;
-            double end = ((NumberValue)endValue).Value;
-            double step = ((NumberValue)stepValue).Value;
+            BigNumber i = ((NumberValue)startValue).Value;
+            BigNumber end = ((NumberValue)endValue).Value;
+            BigNumber step = ((NumberValue)stepValue).Value;
 
             Func<bool> condition = (step >= 0) ? () => i < end : () => i > end;
             var newContext = initializationContext.Copy();
