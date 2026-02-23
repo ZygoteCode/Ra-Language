@@ -1,12 +1,19 @@
+# Ra Language
+
+_"Your knowledge will ascend with time, like Ra rising through the sky."_
+
+Every programming language has its learning curve… but with Ra Language, there’s no curve: you start at the zero point of an infinite line, and simply walking along it lets your skills evolve. You can begin with nothing and still have everything you need, or, if you’re already a pro, you can create truly extraordinary things. With Ra Language, growth is continuous, natural, and effortless.
+
 ## TODOs for BETA 1.0
   
+
   - [x] Fix context in all remaining statements (for, while, fn).
   - [x] Add comparison operators && , || , ! additionally to actual "is", "and", "or", "is not", "not".
   - [x] Add exponent operator "**" which will be an alias of actual pow "^"
   - [x] Add "~" operator to NOT a value.
   - [x] Add bitwise operations (&, |, <<, >>) + mod operator (%).
   - [x] Add normal variable assignment => Example: I declare a variable "var a = 5", and I can do "a = 7" directly.
-  - [ ] Add assignment operators: += , -= , *= , /= , %= , &= , |= , <<=, >>=.
+  - [ ] Add assignment operators: += , -= , *= , /= , %= , &= , |= , <<=, >>=, ^=, **=.
   - [ ] Add static typing with strict checking: int, float, double, decimal, bigint, char, str, list.
   - [ ] Add strict checking operator for comparing not only the value, but also the type: '==='.
   - [ ] Add 'typeof' operator.
@@ -34,4 +41,5 @@
   - [ ] Add sets with the {} brackets, similar to list but with unique values.
   - [ ] Add template literals with backtick (`) for making strings easily with multi-lines.
   - [ ] Add "++" and "--" operators (left + right both applicable).
-  - [ ] Add ternary operation (for ex. "a == 5 ? 7 : 3")
+  - [ ] Add ternary operation (for ex. "a == 5 ? 7 : 3").
+  - [ ] Add more assignment operators: '&&=', '||=', '??='.
