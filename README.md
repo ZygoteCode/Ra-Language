@@ -4,9 +4,9 @@ _"Your knowledge will ascend with time, like Ra rising through the sky."_
 
 Every programming language has its learning curve… but with Ra Language, there’s no curve: you start at the zero point of an infinite line, and simply walking along it lets your skills evolve. You can begin with nothing and still have everything you need, or, if you’re already a pro, you can create truly extraordinary things. With Ra Language, growth is continuous, natural, and effortless.
 
-## TODOs for Ra Language
+## Work-in-progress tasks or already done features
 
-This is constantly updated list, I am expanding with new ideas and concepts for the language. If you feel good with the language and have new ideas & suggestions, you can open an issue with some details, or submit a pull request with interesting modifications. I'll take a look at that as soon as possible!
+This list contains what I have already added after the first commit (done features, they'll obviously get updates) and what I am doing right now to improve the language.
 
   - [x] Fix context in all remaining statements (for, while, fn).
   - [x] Add comparison operators && , || , ! additionally to actual "is", "and", "or", "is not", "not".
@@ -19,6 +19,15 @@ This is constantly updated list, I am expanding with new ideas and concepts for 
   - [x] Additionally to var, add "const" declaration.
   - [x] Add "final" variable declaration, similar to "const" but can be declared with values at runtime, nextly immediately protected in-code.
   - [ ] Add "del" operator to delete declared variables like "del a" or "del a, b, c" if you need multiple deletions at the same time.
+  - [ ] Declare variables also with hexadecimal notation like "0xF8 - 0xC173" - "0x0031".
+  - [ ] Add "do while" statement.
+
+## TODOs for Ra Language (the near future)
+
+This is constantly updated list, I am expanding with new ideas and concepts for the language. If you feel good with the language and have new ideas & suggestions, you can open an issue with some details, or submit a pull request with interesting modifications.
+
+I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
+
   - [ ] Add static typing with strict checking: int, float, double, decimal, bigint, char, str, list.
   - [ ] Add strict checking operator for comparing not only the value, but also the type: '==='.
   - [ ] Add 'typeof' operator.
@@ -27,7 +36,6 @@ This is constantly updated list, I am expanding with new ideas and concepts for 
   - [ ] Add static return type to functions.
   - [ ] Make "null" a real type of value, which can be easily used in comparisons, as different from numbers and others - After that, functions can have type "void" as return type (can not return values).
   - [ ] Add "bool" type value, which will finally replace "true" and "false" numeric values - after that, comparisons will get better and have effective sense. But "0" as "false" and "1" as "true" will be a concept.
-  - [ ] Add "do while" statement.
   - [ ] Add in-place ranges => For example 1..5 (1, 2, 3, 4) or 1..=5 (1, 2, 3, 4, 5), will return a list of numbers
   - [ ] Add "??" operator to apply a different value if the current inspected value is null => Example: a = b ?? 3;
   - [ ] Add cast to other types with classic C-like notation => var a: int = 5; var b: float = (float) a; <= For example, don't care about syntax.
