@@ -18,10 +18,10 @@ This list contains what I have already added after the first commit (done featur
   - [x] Add "++" and "--" operators (left + right both applicable).
   - [x] Additionally to var, add "const" declaration.
   - [x] Add "final" variable declaration, similar to "const" but can be declared with values at runtime, nextly immediately protected in-code.
+  - [x] Can declare a new context using "{}" brackets normally like in every C-like language.,
   - [ ] Add "del" operator to delete declared variables like "del a" or "del a, b, c" if you need multiple deletions at the same time.
   - [ ] Declare variables also with hexadecimal notation like "0xF8 - 0xC173" - "0x0031".
   - [ ] Add "do while" statement.
-
 ## TODOs for Ra Language (the near future)
 
 This is constantly updated list, I am expanding with new ideas and concepts for the language. If you feel good with the language and have new ideas & suggestions, you can open an issue with some details, or submit a pull request with interesting modifications.
@@ -31,7 +31,6 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [ ] Add static typing with strict checking: int, float, double, decimal, bigint, char, str, list.
   - [ ] Add strict checking operator for comparing not only the value, but also the type: '==='.
   - [ ] Add 'typeof' operator.
-  - [ ] Scope must have his own node "ScopeNode" with a own context to operate with.
   - [ ] I was thinking of adding something similar to Rust, like a "let" variable declaration - exit from context means you cannot use it anymore in actual context.
   - [ ] Add static return type to functions.
   - [ ] Make "null" a real type of value, which can be easily used in comparisons, as different from numbers and others - After that, functions can have type "void" as return type (can not return values).

@@ -67,13 +67,28 @@ namespace RaLanguage.Interpreter
         {
             var res = new RuntimeResult();
             var elements = new List<RuntimeValue>();
-            var newContext = context.Copy();
 
-            foreach (var elementNode in node.ElementNodes)
+            if (node.IsNewContext)
             {
-                var val = res.Register(Visit(elementNode, context));
-                if (res.ShouldReturn()) return res;
-                elements.Add(val);
+                Context newContext = context.Copy();
+
+                foreach (var elementNode in node.ElementNodes)
+                {
+                    var val = res.Register(Visit(elementNode, newContext));
+                    if (res.ShouldReturn()) return res;
+                    elements.Add(val);
+                }
+
+                context.ApplyChangesFrom(newContext);
+            }
+            else
+            {
+                foreach (var elementNode in node.ElementNodes)
+                {
+                    var val = res.Register(Visit(elementNode, context));
+                    if (res.ShouldReturn()) return res;
+                    elements.Add(val);
+                }
             }
 
             return res.Success(

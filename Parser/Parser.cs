@@ -150,7 +150,7 @@ namespace RaLanguage.Parser
                         }
                     }
 
-                    statements.AddRange(new ListNode(scopeStatements, _positionStart, _currentToken.PositionStart.Copy()));
+                    statements.AddRange(new ListNode(scopeStatements, _positionStart, _currentToken.PositionStart.Copy(), true));
                     continue;
                 }
                 else

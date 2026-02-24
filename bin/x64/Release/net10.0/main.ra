@@ -15,3 +15,16 @@ print(b);
 final c = (a + hello()) * 8;
 print(c);
 // c = c + 7;
+
+{
+    var ddd = 8;
+    print(ddd);
+
+    {
+        var kkk = 9;
+    }
+
+    // print(kkk);
+}
+
+// print(ddd);
