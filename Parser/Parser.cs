@@ -288,13 +288,15 @@ namespace RaLanguage.Parser
                 res.RegisterAdvancement();
                 Advance();
 
-                if (_currentToken.Type != TokenType.EQ)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '='"));
+                AstNode? expr = null;
 
-                res.RegisterAdvancement();
-                Advance();
-                var expr = res.Register(ParseExpression());
-                if (res.Error != null) return res;
+                if (_currentToken.Type.Equals(TokenType.EQ))
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                    expr = res.Register(ParseExpression());
+                    if (res.Error != null) return res;
+                }
 
                 return res.Success(new VariableDeclarationNode(variableDeclarationType, varName, expr));
             }

@@ -26,6 +26,12 @@ namespace RaLanguage.Interpreter.Values
             return this;
         }
 
+        public RuntimeValue SetDeclarationType(VariableDeclarationType declarationType)
+        {
+            VariableDeclarationType = declarationType;
+            return this;
+        }
+
         public virtual (RuntimeValue?, Error?) AddedTo(RuntimeValue other) => (null, IllegalOperation(other));
         public virtual (RuntimeValue?, Error?) SubbedBy(RuntimeValue other) => (null, IllegalOperation(other));
         public virtual (RuntimeValue?, Error?) MultedBy(RuntimeValue other) => (null, IllegalOperation(other));

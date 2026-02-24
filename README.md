@@ -24,6 +24,7 @@ This list contains what I have already added after the first commit (done featur
   - [x] Add "do while" statement.
   - [x] Add 'typeof' operator.
   - [x] Add 'nameof' operator.
+  - [x] Declare variables (only "var" + "final") also without a initial value - the first value assigned to the "final" one will be definitive in runtime. Const variables need immediately a value at parsing-time.
   - [ ] Add real support to multi-line statements & expressions.
   
 ## TODOs for Ra Language (the near future)
@@ -54,7 +55,6 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [ ] Add ternary operation (for ex. "a == 5 ? 7 : 3").
   - [ ] Add more assignment operators: '??='.
   - [ ] Add a way to declare variables like "var a, b, c = 7" or "var a = 3, b = 5, c = 7" (multiple declarations).
-  - [ ] Declare variables (only "var" + "final") also without a initial value - the first value assigned to the "final" one will be definitive in runtime. Const variables need immediately a value at parsing-time.
   - [ ] Idea: import new files with a intelligent path system.
   - [ ] Idea: add tuples => "var (result1, result2) = (3, 5)".
   - [ ] Idea: add list slicing with step, like a[0..5:2].

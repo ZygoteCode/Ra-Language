@@ -6,14 +6,14 @@ namespace RaLanguage.Parser.Nodes.Variables
     {
         public VariableDeclarationType DeclarationType { get; }
         public Token VarNameTok { get; }
-        public AstNode ValueNode { get; }
-        public VariableDeclarationNode(VariableDeclarationType declarationType, Token varNameTok, AstNode valueNode)
+        public AstNode? ValueNode { get; }
+        public VariableDeclarationNode(VariableDeclarationType declarationType, Token varNameTok, AstNode? valueNode)
         {
             DeclarationType = declarationType;
             VarNameTok = varNameTok;
             ValueNode = valueNode;
             PositionStart = varNameTok.PositionStart;
-            PositionEnd = valueNode.PositionEnd;
+            PositionEnd = valueNode != null ? valueNode.PositionEnd : varNameTok.PositionEnd;
         }
     }
 

@@ -58,3 +58,14 @@ do {
 do {
     print("hello!")
 } while (x > 66666);
+
+final test;
+print(test);
+test = 5;
+print(test);
+// test = 7;
+
+var test2;
+print(test2);
+test2 = 999;
+print(test2);

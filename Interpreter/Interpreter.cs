@@ -227,11 +227,16 @@ namespace RaLanguage.Interpreter
 
             if (node.DeclarationType.Equals(VariableDeclarationType.VARIABLE))
             {
-                var value = res.Register(Visit(node.ValueNode, context));
+                RuntimeValue value = NumberValue.Null;
 
-                if (res.ShouldReturn())
+                if (node.ValueNode != null)
                 {
-                    return res;
+                    value = res.Register(Visit(node.ValueNode, context));
+
+                    if (res.ShouldReturn())
+                    {
+                        return res;
+                    }
                 }
 
                 context.SymbolTable.Set(varName, value);
@@ -239,8 +244,13 @@ namespace RaLanguage.Interpreter
             }
             else if (node.DeclarationType.Equals(VariableDeclarationType.CONST))
             {
+                if (node.ValueNode == null)
+                {
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Value should be a constant value", context));
+                }
+
                 AreCallsBlocked = true;
-                var value = res.Register(Visit(node.ValueNode, context));
+                RuntimeValue value = res.Register(Visit(node.ValueNode, context));
 
                 if (res.ShouldReturn())
                 {
@@ -254,11 +264,16 @@ namespace RaLanguage.Interpreter
             }
             else if (node.DeclarationType.Equals(VariableDeclarationType.FINAL))
             {
-                var value = res.Register(Visit(node.ValueNode, context));
+                RuntimeValue value = NumberValue.Null;
 
-                if (res.ShouldReturn())
+                if (node.ValueNode != null)
                 {
-                    return res;
+                    value = res.Register(Visit(node.ValueNode, context));
+
+                    if (res.ShouldReturn())
+                    {
+                        return res;
+                    }
                 }
 
                 value.VariableDeclarationType = VariableDeclarationType.FINAL;
@@ -280,10 +295,28 @@ namespace RaLanguage.Interpreter
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is not defined", context));
             }
 
-            if (currentValue.VariableDeclarationType.Equals(VariableDeclarationType.CONST)
-                || currentValue.VariableDeclarationType.Equals(VariableDeclarationType.FINAL))
+            if (currentValue.VariableDeclarationType.Equals(VariableDeclarationType.CONST))
             {
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is a constant variable and cannot be modified at runtime", context));
+            }
+            else if (currentValue.VariableDeclarationType.Equals(VariableDeclarationType.FINAL))
+            {
+                bool valid = false;
+
+                if (currentValue.GetType() == typeof(NumberValue))
+                {
+                    NumberValue theValue = (NumberValue) currentValue;
+
+                    if (theValue.Value == 0)
+                    {
+                        valid = true;
+                    }
+                }
+
+                if (!valid)
+                {
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is a final variable and cannot be modified at runtime", context));
+                }
             }
 
             var operation = node.AssignmentToken;
@@ -318,8 +351,8 @@ namespace RaLanguage.Interpreter
                 return res.Failure(error);
             }
 
-            context.SymbolTable.Set(varName, result);
-            return res.Success(result!.SetPos(node.PositionStart, node.PositionEnd));
+            context.SymbolTable.Set(varName, result.SetDeclarationType(currentValue.VariableDeclarationType));
+            return res.Success(result!.SetPos(node.PositionStart, node.PositionEnd).SetDeclarationType(currentValue.VariableDeclarationType));
         }
 
         private RuntimeResult VisitVariableDeleteNode(VariableDeleteNode node, Context context)
