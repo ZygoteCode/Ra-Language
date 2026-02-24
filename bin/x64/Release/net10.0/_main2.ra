@@ -142,7 +142,7 @@ if (5 == 5 and 6 == 7) or (3 == 2) {
 }
 
 print(yyy);
--- print(kkk)
+--- print(kkk)
 
 if 5 is 5 {
 	print("5 is 5")

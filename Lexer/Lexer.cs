@@ -312,8 +312,32 @@ namespace RaLanguage.Lexer
             int dotCount = 0;
             var positionStart = _position.Copy();
 
-            while (_currentCharacter != null &&
-                   (Constants.DIGITS.Contains(_currentCharacter.Value) || _currentCharacter == '.' || _currentCharacter == '_' || _currentCharacter == 'e' || _currentCharacter == 'E'))
+            if (_currentCharacter == '0' && _text[_position.Idx + 1] is char p && (p == 'x' || p == 'X'))
+            {
+                numStr.Append(_currentCharacter);
+                Advance();
+
+                numStr.Append(_currentCharacter);
+                Advance();
+
+                bool anyHexDigit = false;
+                while (_currentCharacter != null && (IsHexDigit(_currentCharacter.Value) || _currentCharacter == '_'))
+                {
+                    if (_currentCharacter == '_') { Advance(); continue; }
+                    numStr.Append(_currentCharacter);
+                    anyHexDigit = true;
+                    Advance();
+                }
+
+                if (!anyHexDigit)
+                {
+                    return null;
+                }
+
+                return new Token(TokenType.INT, numStr.ToString(), positionStart, _position);
+            }
+
+            while (_currentCharacter != null && (Constants.DIGITS.Contains(_currentCharacter.Value) || _currentCharacter == '.' || _currentCharacter == '_' || _currentCharacter == 'e' || _currentCharacter == 'E'))
             {
                 if (_currentCharacter == '_')
                 {
@@ -325,6 +349,9 @@ namespace RaLanguage.Lexer
                 {
                     if (dotCount == 1) break;
                     dotCount++;
+                    numStr.Append('.');
+                    Advance();
+                    continue;
                 }
 
                 if (_currentCharacter == 'e' || _currentCharacter == 'E')
@@ -362,6 +389,11 @@ namespace RaLanguage.Lexer
             else
                 return new Token(TokenType.FLOAT, finalNum, positionStart, _position);
         }
+
+        private static bool IsHexDigit(char c) =>
+            (c >= '0' && c <= '9') ||
+            (c >= 'a' && c <= 'f') ||
+            (c >= 'A' && c <= 'F');
 
         private Token MakeString(char stringCharacter)
         {

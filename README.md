@@ -19,9 +19,10 @@ This list contains what I have already added after the first commit (done featur
   - [x] Additionally to var, add "const" declaration.
   - [x] Add "final" variable declaration, similar to "const" but can be declared with values at runtime, nextly immediately protected in-code.
   - [x] Can declare a new context using "{}" brackets normally like in every C-like language.,
+  - [x] Declare variables also with hexadecimal notation like "0xF8 - 0xC173" - "0x0031".
   - [ ] Add "del" operator to delete declared variables like "del a" or "del a, b, c" if you need multiple deletions at the same time.
-  - [ ] Declare variables also with hexadecimal notation like "0xF8 - 0xC173" - "0x0031".
   - [ ] Add "do while" statement.
+  
 ## TODOs for Ra Language (the near future)
 
 This is constantly updated list, I am expanding with new ideas and concepts for the language. If you feel good with the language and have new ideas & suggestions, you can open an issue with some details, or submit a pull request with interesting modifications.

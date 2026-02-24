@@ -28,3 +28,9 @@ print(c);
 }
 
 // print(ddd);
+
+var test1 = 0xF8_DE;
+print(test1);
+
+test1 = 0xC183D;
+print(test1);
