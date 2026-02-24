@@ -47,3 +47,7 @@ do {
     print(x);
     x--;
 } while (x > 0);
+
+do {
+    print("hello!")
+} while (x > 66666);
