@@ -57,9 +57,10 @@ namespace RaLanguage.Lexer
                 }
                 else if (Constants.DIGITS.Contains(_currentCharacter.Value))
                 {
-                    Token? tok = MakeNumber();
-                    if (tok == null) return new(new List<Token>(), new InvalidSyntaxError(_position.Copy(), _position, "Invalid number format"));
-                    tokens.Add(tok);
+                    (Token?, Error?) result = MakeNumber();
+                    if (result.Item2 != null) return (new List<Token>(), result.Item2);
+                    if (result.Item1 == null) return (new List<Token>(), new InvalidSyntaxError(_position.Copy(), _position, "Invalid number format"));
+                    tokens.Add(result.Item1!);
                 }
                 else if (Constants.LETTERS.Contains(_currentCharacter.Value))
                 {
@@ -307,13 +308,13 @@ namespace RaLanguage.Lexer
             }
         }
 
-        private Token? MakeNumber()
+        private (Token?, Error?) MakeNumber()
         {
             var numStr = new StringBuilder();
             int dotCount = 0;
             var positionStart = _position.Copy();
 
-            if (_currentCharacter == '0' && _text[_position.Idx + 1] is char p && (p == 'x' || p == 'X'))
+            if (_currentCharacter == '0' && _text[_position.Idx + 1] is char p && (p == 'x' || p == 'X' || p == 'b' || p == 'B' || p == 'o' || p == 'O'))
             {
                 numStr.Append(_currentCharacter);
                 Advance();
@@ -321,30 +322,40 @@ namespace RaLanguage.Lexer
                 numStr.Append(_currentCharacter);
                 Advance();
 
-                bool anyHexDigit = false;
-                while (_currentCharacter != null && (IsHexDigit(_currentCharacter.Value) || _currentCharacter == '_'))
+                bool anyDigit = false;
+                char prefix = char.ToLower(numStr[1]);
+                while (_currentCharacter != null)
                 {
                     if (_currentCharacter == '_') { Advance(); continue; }
-                    numStr.Append(_currentCharacter);
-                    anyHexDigit = true;
+
+                    if (prefix == 'x' && Utils.IsHexDigit(_currentCharacter.Value))
+                    {
+                        numStr.Append(_currentCharacter);
+                        anyDigit = true;
+                    }
+                    else if (prefix == 'b' && Utils.IsBinaryDigit(_currentCharacter.Value))
+                    {
+                        numStr.Append(_currentCharacter);
+                        anyDigit = true;
+                    }
+                    else if (prefix == 'o' && Utils.IsOctalDigit(_currentCharacter.Value))
+                    {
+                        numStr.Append(_currentCharacter);
+                        anyDigit = true;
+                    }
+                    else break;
+
                     Advance();
                 }
 
-                if (!anyHexDigit)
-                {
-                    return null;
-                }
+                if (!anyDigit) return (null, new InvalidSyntaxError(positionStart, _position, "Invalid prefixed integer literal"));
 
-                return new Token(TokenType.INT, numStr.ToString(), positionStart, _position);
+                return (new Token(TokenType.INT, numStr.ToString(), positionStart, _position), null);
             }
 
             while (_currentCharacter != null && (Constants.DIGITS.Contains(_currentCharacter.Value) || _currentCharacter == '.' || _currentCharacter == '_' || _currentCharacter == 'e' || _currentCharacter == 'E'))
             {
-                if (_currentCharacter == '_')
-                {
-                    Advance();
-                    continue;
-                }
+                if (_currentCharacter == '_') { Advance(); continue; }
 
                 if (_currentCharacter == '.')
                 {
@@ -367,7 +378,7 @@ namespace RaLanguage.Lexer
                     }
 
                     if (_currentCharacter == null || !Constants.DIGITS.Contains(_currentCharacter.Value))
-                        return null;
+                        return (null, new InvalidSyntaxError(positionStart, _position, "Expected digits after exponent"));
 
                     while (_currentCharacter != null && Constants.DIGITS.Contains(_currentCharacter.Value))
                     {
@@ -376,25 +387,17 @@ namespace RaLanguage.Lexer
                     }
                     break;
                 }
-                else
-                {
-                    numStr.Append(_currentCharacter);
-                    Advance();
-                }
+
+                numStr.Append(_currentCharacter);
+                Advance();
             }
 
             string finalNum = numStr.ToString();
-
             if (dotCount == 0 && !finalNum.Contains('e') && !finalNum.Contains('E'))
-                return new Token(TokenType.INT, finalNum, positionStart, _position);
+                return (new Token(TokenType.INT, finalNum, positionStart, _position), null);
             else
-                return new Token(TokenType.FLOAT, finalNum, positionStart, _position);
+                return (new Token(TokenType.FLOAT, finalNum, positionStart, _position), null);
         }
-
-        private static bool IsHexDigit(char c) =>
-            (c >= '0' && c <= '9') ||
-            (c >= 'a' && c <= 'f') ||
-            (c >= 'A' && c <= 'F');
 
         private Token MakeString(char stringCharacter)
         {

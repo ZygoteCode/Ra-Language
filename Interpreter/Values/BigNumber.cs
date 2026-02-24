@@ -1,4 +1,5 @@
-﻿using System.Collections.Concurrent;
+﻿using RaLanguage.Utilities;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Numerics;
 using System.Text;
@@ -97,33 +98,51 @@ namespace RaLanguage.Interpreter.Values
                 exponent = BigInteger.Parse(sbExp.ToString(), CultureInfo.InvariantCulture) * esign;
             }
 
-            if (!string.IsNullOrEmpty(mantissaStr) && mantissaStr.Length >= 2 &&
-                mantissaStr[0] == '0' && (mantissaStr[1] == 'x' || mantissaStr[1] == 'X'))
+            if (!string.IsNullOrEmpty(mantissaStr) && mantissaStr.Length >= 2 && mantissaStr[0] == '0')
             {
-                if (!string.IsNullOrEmpty(exponentStr))
-                    throw new FormatException("Hex literals with exponent are not supported (use decimal exponent notation).");
-
-                string hexPart = mantissaStr.Substring(2);
-                if (hexPart.Length == 0) throw new FormatException("Invalid hex literal (no digits after 0x)");
-
-                BigInteger _unscaled = BigInteger.Zero;
-                bool any = false;
-                foreach (char ch in hexPart)
+                char p = char.ToLower(mantissaStr[1]);
+                if (p == 'x' || p == 'b' || p == 'o')
                 {
-                    if (ch == '_') continue;
-                    int val;
-                    if (ch >= '0' && ch <= '9') val = ch - '0';
-                    else if (ch >= 'a' && ch <= 'f') val = 10 + (ch - 'a');
-                    else if (ch >= 'A' && ch <= 'F') val = 10 + (ch - 'A');
-                    else throw new FormatException($"Invalid hex digit '{ch}' in hex literal");
-                    _unscaled = (_unscaled << 4) + val;
-                    any = true;
+                    if (!string.IsNullOrEmpty(exponentStr))
+                        throw new FormatException("Prefixed integer literals (0x/0b/0o) do not support decimal exponent notation");
+
+                    string body = mantissaStr.Substring(2);
+                    if (string.IsNullOrWhiteSpace(body)) throw new FormatException("Invalid prefixed literal (no digits)");
+
+                    BigInteger _unscaled = BigInteger.Zero;
+                    bool any = false;
+                    foreach (char ch in body)
+                    {
+                        if (ch == '_') continue;
+                        int val;
+                        if (p == 'x')
+                        {
+                            if (ch >= '0' && ch <= '9') val = ch - '0';
+                            else if (ch >= 'a' && ch <= 'f') val = 10 + (ch - 'a');
+                            else if (ch >= 'A' && ch <= 'F') val = 10 + (ch - 'A');
+                            else throw new FormatException($"Invalid hex digit '{ch}'");
+                            _unscaled = (_unscaled << 4) + val;
+                        }
+                        else if (p == 'b')
+                        {
+                            if (!Utils.IsBinaryDigit(ch)) throw new FormatException($"Invalid binary digit '{ch}'");
+                            val = ch - '0';
+                            _unscaled = (_unscaled << 1) + val;
+                        }
+                        else
+                        {
+                            if (!Utils.IsOctalDigit(ch)) throw new FormatException($"Invalid octal digit '{ch}'");
+                            val = ch - '0';
+                            _unscaled = (_unscaled << 3) + val;
+                        }
+                        any = true;
+                    }
+
+                    if (!any) throw new FormatException("Invalid prefixed literal (no digits)");
+
+                    if (sign < 0) _unscaled = BigInteger.Negate(_unscaled);
+                    return new BigNumber(_unscaled, BigInteger.Zero).Normalize();
                 }
-                if (!any) throw new FormatException("Invalid hex literal (no hex digits)");
-
-                if (sign < 0) _unscaled = BigInteger.Negate(_unscaled);
-
-                return new BigNumber(_unscaled, BigInteger.Zero);
             }
 
             var sbDigits = new StringBuilder();

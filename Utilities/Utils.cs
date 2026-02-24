@@ -61,5 +61,9 @@ namespace RaLanguage.Utilities
 
             return result.ToString().Replace("\t", "");
         }
+
+        public static bool IsHexDigit(char c) => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+        public static bool IsBinaryDigit(char c) => c == '0' || c == '1';
+        public static bool IsOctalDigit(char c) => c >= '0' && c <= '7';
     }
 }
