@@ -12,7 +12,6 @@ using RaLanguage.Parser.Nodes.Operations;
 using RaLanguage.Parser.Nodes.Primitives;
 using RaLanguage.Parser.Nodes.Statements;
 using RaLanguage.Parser.Nodes.Variables;
-using System.Xml.Linq;
 
 namespace RaLanguage.Interpreter
 {

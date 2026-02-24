@@ -22,6 +22,7 @@ This list contains what I have already added after the first commit (done featur
   - [x] Declare variables also with hexadecimal notation like "0xF8 - 0xC173" - "0x0031".
   - [x] Add "del" operator to delete declared variables like "del a" or "del a, b, c" if you need multiple deletions at the same time.
   - [x] Add "do while" statement.
+  - [ ] Add 'typeof' operator.
   - [ ] Add real support to multi-line statements & expressions.
   
 ## TODOs for Ra Language (the near future)
@@ -32,7 +33,6 @@ I'll take a look at that as soon as possible! These are the things that I want t
 
   - [ ] Add static typing with strict checking: int, float, double, decimal, bigint, char, str, list.
   - [ ] Add strict checking operator for comparing not only the value, but also the type: '==='.
-  - [ ] Add 'typeof' operator.
   - [ ] I was thinking of adding something similar to Rust, like a "let" variable declaration - exit from context means you cannot use it anymore in actual context.
   - [ ] Add static return type to functions.
   - [ ] Make "null" a real type of value, which can be easily used in comparisons, as different from numbers and others - After that, functions can have type "void" as return type (can not return values).
@@ -42,7 +42,7 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [ ] Add cast to other types with classic C-like notation => var a: int = 5; var b: float = (float) a; <= For example, don't care about syntax.
   - [ ] Add a operator like "&" to function parameters to pass reference instead of copying only the value.
   - [ ] Function parameters can be statically typed -> fn test(a: int, b: int): int => print(a + b);
-  - [ ] Add foreach statement, which will be easily "for item in list" instead of "for i = 0 to 10 step 1".
+  - [ ] Add foreach statement, which will be easily "for item in list" instead of "for i = 0 to 10 step 1". The "in" keyword could be used also as a condition semantic, like "if 5 in list"
   - [ ] Add "match" (Rust-like) and "switch" (Java + C-like versions) statements.
   - [ ] Access easily to list values using the following operation => "var a = [1, 2, 3]; print(a[1]); // will output 2".
   - [ ] Access to portions of list using ranges, like for example a[1..3].
