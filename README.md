@@ -23,6 +23,7 @@ This list contains what I have already added after the first commit (done featur
   - [x] Add "del" operator to delete declared variables like "del a" or "del a, b, c" if you need multiple deletions at the same time.
   - [x] Add "do while" statement.
   - [ ] Add 'typeof' operator.
+  - [ ] Add 'nameof' operator.
   - [ ] Add real support to multi-line statements & expressions.
   
 ## TODOs for Ra Language (the near future)
