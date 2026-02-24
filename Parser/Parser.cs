@@ -6,6 +6,7 @@ using RaLanguage.Parser.Nodes.Functions;
 using RaLanguage.Parser.Nodes.Iterations;
 using RaLanguage.Parser.Nodes.Operations;
 using RaLanguage.Parser.Nodes.Primitives;
+using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Statements;
 using RaLanguage.Parser.Nodes.Variables;
 
@@ -296,6 +297,63 @@ namespace RaLanguage.Parser
                 if (res.Error != null) return res;
 
                 return res.Success(new VariableDeclarationNode(variableDeclarationType, varName, expr));
+            }
+            else if (_currentToken.Matches(TokenType.KEYWORD, "typeof"))
+            {
+                res.RegisterAdvancement();
+                Advance();
+                var expr = res.Register(ParseExpression());
+
+                if (res.Error != null)
+                {
+                    return res;
+                }
+
+                return res.Success(new TypeofNode(expr));
+            }
+            else if (_currentToken.Matches(TokenType.KEYWORD, "nameof"))
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                if (_currentToken.Type.Equals(TokenType.LPAREN))
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    if (!_currentToken.Type.Equals(TokenType.IDENTIFIER))
+                    {
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier"));
+                    }
+
+                    Token tok = _currentToken;
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    if (!_currentToken.Type.Equals(TokenType.RPAREN))
+                    {
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ')'"));
+                    }
+
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    return res.Success(new NameofNode(tok));
+                }
+                else
+                {
+                    if (!_currentToken.Type.Equals(TokenType.IDENTIFIER))
+                    {
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier"));
+                    }
+
+                    Token tok = _currentToken;
+
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    return res.Success(new NameofNode(tok));
+                }
             }
             else if (_currentToken.Type.Equals(TokenType.IDENTIFIER) && IsAssignmentToken(_tokens[_tokenIndex + 1].Type))
             {

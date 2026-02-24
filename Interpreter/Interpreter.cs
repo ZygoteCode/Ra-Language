@@ -10,6 +10,7 @@ using RaLanguage.Parser.Nodes.Functions;
 using RaLanguage.Parser.Nodes.Iterations;
 using RaLanguage.Parser.Nodes.Operations;
 using RaLanguage.Parser.Nodes.Primitives;
+using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Statements;
 using RaLanguage.Parser.Nodes.Variables;
 
@@ -42,8 +43,56 @@ namespace RaLanguage.Interpreter
                 BreakNode b => VisitBreakNode(b, context),
                 PassNode p => VisitPassNode(p, context),
                 DoWhileNode d => VisitDoWhileNode(d, context),
+                TypeofNode t => VisitTypeofNode(t, context),
+                NameofNode n => VisitNameofNode(n, context),
                 _ => throw new Exception($"No visit method for {node.GetType().Name}")
             };
+        }
+
+        private RuntimeResult VisitNameofNode(NameofNode node, Context context)
+        {
+            var res = new RuntimeResult();
+            string varName = node.Token.Value.ToString();
+            var value = context.SymbolTable.Get(varName);
+
+            if (value == null)
+            {
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Variable {varName} not defined", context));
+            }
+
+            return res.Success(new StringValue(varName).SetPos(node.PositionStart, node.PositionEnd).SetContext(context));
+        }
+
+        private RuntimeResult VisitTypeofNode(TypeofNode node, Context context)
+        {
+            var res = new RuntimeResult();
+            var value = res.Register(Visit(node.Node, context));
+
+            if (res.Error != null)
+            {
+                return res;
+            }
+
+            string type = "";
+
+            if (value.GetType() == typeof(NumberValue))
+            {
+                type = "number";
+            }
+            else if (value.GetType() == typeof(StringValue))
+            {
+                type = "string";
+            }
+            else if (value.GetType() == typeof(ListValue))
+            {
+                type = "list";
+            }
+            else if (value.GetType() == typeof(FunctionValue))
+            {
+                type = "function";
+            }
+
+            return res.Success(new StringValue(type).SetPos(node.PositionStart, node.PositionEnd).SetContext(context));
         }
 
         private RuntimeResult VisitDoWhileNode(DoWhileNode node, Context context)

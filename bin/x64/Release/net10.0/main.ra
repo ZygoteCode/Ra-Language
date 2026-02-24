@@ -2,10 +2,17 @@ fn hello() {
     ret 5;
 }
 
+print(typeof 5)
+print(typeof("ciao"))
+print(typeof([1, 2, 3]))
+
 print(hello())
 const a = 5 + 3;
 print(a);
 // a = a + 3;
+
+print(nameof(hello))
+print(nameof a)
 
 var b = a + 3;
 print(b);
