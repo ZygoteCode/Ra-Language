@@ -1,0 +1,17 @@
+﻿namespace RaLanguage.Parser.Nodes.Statements
+{
+    public class DoWhileNode : AstNode
+    {
+        public AstNode ConditionNode, BodyNode;
+        public bool ShouldReturnNull;
+
+        public DoWhileNode(AstNode conditionNode, AstNode bodyNode, bool shouldReturnNull)
+        {
+            ConditionNode = conditionNode;
+            BodyNode = bodyNode;
+            ShouldReturnNull = shouldReturnNull;
+            PositionStart = bodyNode.PositionStart;
+            PositionEnd = conditionNode.PositionEnd;
+        }
+    }
+}

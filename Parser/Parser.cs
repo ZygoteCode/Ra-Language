@@ -48,6 +48,17 @@ namespace RaLanguage.Parser
             return _currentToken;
         }
 
+        private Token SkipMultiLines(ParserResult result)
+        {
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                result.RegisterAdvancement();
+                Advance();
+            }
+
+            return _currentToken;
+        }
+
         private Token Reverse(int amount = 1)
         {
             _tokenIndex -= amount;
@@ -534,8 +545,88 @@ namespace RaLanguage.Parser
                 if (res.Error != null) return res;
                 return res.Success(funcDef);
             }
+            else if (tok.Matches(TokenType.KEYWORD, "do"))
+            {
+                var doWhileExpr = res.Register(ParseDoWhileExpression());
+                if (res.Error != null) return res;
+                return res.Success(doWhileExpr);
+            }
 
             return res.Failure(new InvalidSyntaxError(tok.PositionStart, tok.PositionEnd, "Expected int, float, identifier, '+', '-', '(', '[', 'if', 'for', 'while', 'fn'"));
+        }
+
+        private ParserResult ParseDoWhileExpression()
+        {
+            var res = new ParserResult();
+            var positionStart = _currentToken.PositionStart.Copy();
+
+            res.RegisterAdvancement();
+            Advance();
+
+            if (_currentToken.Type.Equals(TokenType.LBRACKET))
+            {
+                res.RegisterAdvancement();
+                Advance();
+                var bodyNode = res.Register(ParseStatements());
+
+                if (res.Error != null)
+                {
+                    return res;
+                }
+
+                if (!_currentToken.Type.Equals(TokenType.RBRACKET))
+                {
+                    return res.Failure(new InvalidSyntaxError(positionStart, _currentToken.PositionStart, "Expected '}'"));
+                }
+
+                res.RegisterAdvancement();
+                Advance();
+
+                if (!_currentToken.Matches(TokenType.KEYWORD, "while"))
+                {
+                    return res.Failure(new InvalidSyntaxError(positionStart, _currentToken.PositionStart, "Expected 'while' keyword"));
+                }
+
+                res.RegisterAdvancement();
+                Advance();
+                var conditionExpr = res.Register(ParseExpression());
+
+                if (res.Error != null)
+                {
+                    return res;
+                }
+
+                return res.Success(new DoWhileNode(conditionExpr, bodyNode, true));
+            }
+            else if (_currentToken.Type.Equals(TokenType.COLON))
+            {
+                res.RegisterAdvancement();
+                Advance();
+                var bodyNode = res.Register(ParseStatement());
+
+                if (res.Error != null)
+                {
+                    return res;
+                }
+
+                if (!_currentToken.Matches(TokenType.KEYWORD, "while"))
+                {
+                    return res.Failure(new InvalidSyntaxError(positionStart, _currentToken.PositionStart, "Expected 'while' keyword"));
+                }
+
+                res.RegisterAdvancement();
+                Advance();
+                var conditionExpr = res.Register(ParseExpression());
+
+                if (res.Error != null)
+                {
+                    return res;
+                }
+
+                return res.Success(new DoWhileNode(conditionExpr, bodyNode, false));
+            }
+
+            return res.Failure(new InvalidSyntaxError(positionStart, _currentToken.PositionStart, "Expected ':' or '{'"));
         }
 
         private ParserResult ParseListExpression()

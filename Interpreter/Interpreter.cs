@@ -12,6 +12,7 @@ using RaLanguage.Parser.Nodes.Operations;
 using RaLanguage.Parser.Nodes.Primitives;
 using RaLanguage.Parser.Nodes.Statements;
 using RaLanguage.Parser.Nodes.Variables;
+using System.Xml.Linq;
 
 namespace RaLanguage.Interpreter
 {
@@ -41,8 +42,62 @@ namespace RaLanguage.Interpreter
                 ContinueNode c => VisitContinueNode(c, context),
                 BreakNode b => VisitBreakNode(b, context),
                 PassNode p => VisitPassNode(p, context),
+                DoWhileNode d => VisitDoWhileNode(d, context),
                 _ => throw new Exception($"No visit method for {node.GetType().Name}")
             };
+        }
+
+        private RuntimeResult VisitDoWhileNode(DoWhileNode node, Context context)
+        {
+            var res = new RuntimeResult();
+            bool firstTime = true;
+            List<RuntimeValue> elements = new List<RuntimeValue>();
+            Context newContext = context.Copy();
+
+            while (true)
+            {
+                var condition = res.Register(Visit(node.ConditionNode, newContext));
+
+                if (res.ShouldReturn())
+                {
+                    return res;
+                }
+
+                if (!firstTime && !condition.IsTrue())
+                {
+                    break;
+                }
+                else
+                {
+                    firstTime = false;
+                }
+
+                Context iterationContext = newContext.Copy();
+                var value = res.Register(Visit(node.BodyNode, iterationContext));
+                newContext.ApplyChangesFrom(iterationContext);
+                context.ApplyChangesFrom(newContext);
+
+                if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak)
+                {
+                    return res;
+                }
+
+                if (res.LoopShouldContinue)
+                {
+                    continue;
+                }
+
+                if (res.LoopShouldBreak)
+                {
+                    break;
+                }
+
+                elements.Add(value);
+            }
+
+            return res.Success(
+                node.ShouldReturnNull ? NumberValue.Null : new ListValue(elements).SetContext(context).SetPos(node.PositionStart, node.PositionEnd)
+            );
         }
 
         private RuntimeResult VisitPassNode(PassNode node, Context context)
