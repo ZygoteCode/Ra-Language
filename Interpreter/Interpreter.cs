@@ -29,6 +29,7 @@ namespace RaLanguage.Interpreter
                 VariableAccessNode v => VisitVariableAccessNode(v, context),
                 VariableDeclarationNode v => VisitVariableDeclarationNode(v, context),
                 VariableAssignmentNode v => VisitVariableAssignmentNode(v, context),
+                VariableDeleteNode v => VisitVariableDeleteNode(v, context),
                 BinaryOperationNode b => VisitBinaryOperationNode(b, context),
                 UnaryOperationNode u => VisitUnaryOperationNode(u, context),
                 IfNode i => VisitIfNode(i, context),
@@ -216,6 +217,26 @@ namespace RaLanguage.Interpreter
 
             context.SymbolTable.Set(varName, result);
             return res.Success(result!.SetPos(node.PositionStart, node.PositionEnd));
+        }
+
+        private RuntimeResult VisitVariableDeleteNode(VariableDeleteNode node, Context context)
+        {
+            var res = new RuntimeResult();
+
+            foreach (Token token in node.Tokens)
+            {
+                string varName = token.Value.ToString();
+                var value = context.SymbolTable.Get(varName);
+
+                if (value == null)
+                {
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' variable does not exist", context));
+                }
+
+                context.SymbolTable.Remove(varName);
+            }
+
+            return res.Success(NumberValue.Null);
         }
 
         private RuntimeResult VisitBinaryOperationNode(BinaryOperationNode node, Context context)

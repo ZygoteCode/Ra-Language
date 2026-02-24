@@ -20,7 +20,7 @@ This list contains what I have already added after the first commit (done featur
   - [x] Add "final" variable declaration, similar to "const" but can be declared with values at runtime, nextly immediately protected in-code.
   - [x] Can declare a new context using "{}" brackets normally like in every C-like language.,
   - [x] Declare variables also with hexadecimal notation like "0xF8 - 0xC173" - "0x0031".
-  - [ ] Add "del" operator to delete declared variables like "del a" or "del a, b, c" if you need multiple deletions at the same time.
+  - [x] Add "del" operator to delete declared variables like "del a" or "del a, b, c" if you need multiple deletions at the same time.
   - [ ] Add "do while" statement.
   
 ## TODOs for Ra Language (the near future)

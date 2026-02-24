@@ -211,6 +211,28 @@ namespace RaLanguage.Parser
                 return res.Success(new PassNode(positionStart, _currentToken.PositionStart.Copy()));
             }
 
+            if (_currentToken.Matches(TokenType.KEYWORD, "del"))
+            {
+                res.RegisterAdvancement();
+                Advance();
+                List<Token> tokens = new List<Token>();
+
+                while (_currentToken.Type.Equals(TokenType.IDENTIFIER))
+                {
+                    tokens.Add(_currentToken);
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    if (_currentToken.Type.Equals(TokenType.COMMA))
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                }
+
+                return res.Success(new VariableDeleteNode(tokens));
+            }
+
             var expression = res.Register(ParseExpression());
             if (res.Error != null)
             {
