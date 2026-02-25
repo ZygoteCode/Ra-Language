@@ -26,7 +26,6 @@ This list contains what I have already added after the first commit (done featur
   - [x] Add 'nameof' operator.
   - [x] Declare variables (only "var" + "final") also without a initial value - the first value assigned to the "final" one will be definitive in runtime. Const variables need immediately a value at parsing-time.
   - [x] Make "null" a real type of value, which can be easily used in comparisons, as different from numbers and others.
-  - [ ] Add real support to multi-line statements & expressions.
   
 ## TODOs for Ra Language (the near future)
 
@@ -34,6 +33,7 @@ This is constantly updated list, I am expanding with new ideas and concepts for 
 
 I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
 
+  - [ ] Add real support to multi-line statements & expressions.
   - [ ] Add static typing with strict checking: int, float, double, decimal, bigint, char, str, list.
   - [ ] Add strict checking operator for comparing not only the value, but also the type: '==='.
   - [ ] I was thinking of adding something similar to Rust, like a "let" variable declaration - exit from context means you cannot use it anymore in actual context.
