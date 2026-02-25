@@ -52,8 +52,7 @@ namespace RaLanguage.Interpreter
 
         private RuntimeResult VisitNullNode(NullNode node, Context context)
         {
-            var res = new RuntimeResult();
-            return res.Success(new NullValue().SetPos(node.PositionStart, node.PositionEnd).SetContext(context));
+            return new RuntimeResult().Success(new NullValue().SetPos(node.PositionStart, node.PositionEnd).SetContext(context));
         }
 
         private RuntimeResult VisitNameofNode(NameofNode node, Context context)
