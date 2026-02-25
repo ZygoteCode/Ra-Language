@@ -42,149 +42,124 @@ namespace RaLanguage.Lexer
 
             while (_currentCharacter != null)
             {
-                if (" \t\r".Contains(_currentCharacter.Value))
+                switch (_currentCharacter.Value)
                 {
-                    Advance();
-                }
-                else if (_currentCharacter == '#')
-                {
-                    SkipComment();
-                }
-                else if (";\n".Contains(_currentCharacter.Value))
-                {
-                    tokens.Add(new Token(TokenType.NEWLINE, null, _position));
-                    Advance();
-                }
-                else if (Constants.DIGITS.Contains(_currentCharacter.Value))
-                {
-                    (Token?, Error?) result = MakeNumber();
-                    if (result.Item2 != null) return (new List<Token>(), result.Item2);
-                    if (result.Item1 == null) return (new List<Token>(), new InvalidSyntaxError(_position.Copy(), _position, "Invalid number format"));
-                    tokens.Add(result.Item1!);
-                }
-                else if (Constants.LETTERS.Contains(_currentCharacter.Value))
-                {
-                    tokens.Add(MakeIdentifier());
-                }
-                else if (_currentCharacter == '"')
-                {
-                    tokens.Add(MakeString('"'));
-                }
-                else if (_currentCharacter == '\'')
-                {
-                    tokens.Add(MakeString('\''));
-                }
-                else if (_currentCharacter == '+')
-                {
-                    tokens.Add(MakePlus());
-                }
-                else if (_currentCharacter == '-')
-                {
-                    Token? tok = MakeMinus();
-                    if (tok != null) tokens.Add(tok);
-                }
-                else if (_currentCharacter == '*')
-                {
-                    tokens.Add(MakeMul());
-                }
-                else if (_currentCharacter == '/')
-                {
-                    Token? tok = MakeDiv();
-                    if (tok != null) tokens.Add(tok);
-                }
-                else if (_currentCharacter == '%')
-                {
-                    tokens.Add(MakeModulo());
-                }
-                else if (_currentCharacter == '^')
-                {
-                    tokens.Add(MakePow());
-                }
-                else if (_currentCharacter == '(')
-                {
-                    tokens.Add(new Token(TokenType.LPAREN, null, _position));
-                    Advance();
-                }
-                else if (_currentCharacter == ')')
-                {
-                    tokens.Add(new Token(TokenType.RPAREN, null, _position));
-                    Advance();
-                }
-                else if (_currentCharacter == '[')
-                {
-                    tokens.Add(new Token(TokenType.LSQUARE, null, _position));
-                    Advance();
-                }
-                else if (_currentCharacter == ']')
-                {
-                    tokens.Add(new Token(TokenType.RSQUARE, null, _position));
-                    Advance();
-                }
-                else if (_currentCharacter == ':')
-                {
-                    tokens.Add(new Token(TokenType.COLON, null, _position));
-                    Advance();
-                }
-                else if (_currentCharacter == '{')
-                {
-                    tokens.Add(new Token(TokenType.LBRACKET, null, _position));
-                    Advance();
-                }
-                else if (_currentCharacter == '}')
-                {
-                    tokens.Add(new Token(TokenType.RBRACKET, null, _position));
-                    Advance();
-                }
-                else if (_currentCharacter == '!')
-                {
-                    tokens.Add(MakeNot());
-                }
-                else if (_currentCharacter == '~')
-                {
-                    tokens.Add(new Token(TokenType.BITWISE_NOT, null, _position));
-                    Advance();
-                }
-                else if (_currentCharacter == '=')
-                {
-                    tokens.Add(MakeEquals());
-                }
-                else if (_currentCharacter == '<')
-                {
-                    (Token?, Error?) result = MakeLessThan();
+                    case ' ':
+                    case '\r':
+                    case '\t':
+                        Advance();
+                        break;
+                    case '#':
+                        SkipComment();
+                        break;
+                    case ';':
+                    case '\n':
+                        tokens.Add(new Token(TokenType.NEWLINE, null, _position));
+                        Advance();
+                        break;
+                    case '"':
+                        tokens.Add(MakeString('"'));
+                        break;
+                    case '\'':
+                        tokens.Add(MakeString('\''));
+                        break;
+                    case '+':
+                        tokens.Add(MakePlus());
+                        break;
+                    case '-':
+                        Token? tok = MakeMinus();
+                        if (tok != null) tokens.Add(tok);
+                        break;
+                    case '*':
+                        tokens.Add(MakeMul());
+                        break;
+                    case '/':
+                        Token? tok1 = MakeDiv();
+                        if (tok1 != null) tokens.Add(tok1);
+                        break;
+                    case '%':
+                        tokens.Add(MakeModulo());
+                        break;
+                    case '^':
+                        tokens.Add(MakePow());
+                        break;
+                    case '(':
+                        tokens.Add(new Token(TokenType.LPAREN, null, _position));
+                        Advance();
+                        break;
+                    case ')':
+                        tokens.Add(new Token(TokenType.RPAREN, null, _position));
+                        Advance();
+                        break;
+                    case '[':
+                        tokens.Add(new Token(TokenType.LSQUARE, null, _position));
+                        Advance();
+                        break;
+                    case ']':
+                        tokens.Add(new Token(TokenType.RSQUARE, null, _position));
+                        Advance();
+                        break;
+                    case ':':
+                        tokens.Add(new Token(TokenType.COLON, null, _position));
+                        Advance();
+                        break;
+                    case '{':
+                        tokens.Add(new Token(TokenType.LBRACKET, null, _position));
+                        Advance();
+                        break;
+                    case '}':
+                        tokens.Add(new Token(TokenType.RBRACKET, null, _position));
+                        Advance();
+                        break;
+                    case '!':
+                        tokens.Add(MakeNot());
+                        break;
+                    case '~':
+                        tokens.Add(new Token(TokenType.BITWISE_NOT, null, _position));
+                        Advance();
+                        break;
+                    case '=':
+                        tokens.Add(MakeEquals());
+                        break;
+                    case '<':
+                        (Token?, Error?) result = MakeLessThan();
+                        if (result.Item2 != null) return (new List<Token>(), result.Item2);
+                        if (result.Item1 != null) tokens.Add(result.Item1);
+                        break;
+                    case '>':
+                        tokens.Add(MakeGreaterThan());
+                        break;
+                    case ',':
+                        tokens.Add(new Token(TokenType.COMMA, null, _position));
+                        Advance();
+                        break;
+                    case '&':
+                        tokens.Add(MakeAnd());
+                        break;
+                    case '|':
+                        tokens.Add(MakeOr());
+                        break;
+                    default:
+                        if (Constants.DIGITS.Contains(_currentCharacter.Value))
+                        {
+                            (Token?, Error?) result1 = MakeNumber();
+                            if (result1.Item2 != null) return (new List<Token>(), result1.Item2);
+                            if (result1.Item1 == null) return (new List<Token>(), new InvalidSyntaxError(_position.Copy(), _position, "Invalid number format"));
+                            tokens.Add(result1.Item1!);
+                        }
+                        else if (Constants.LETTERS.Contains(_currentCharacter.Value))
+                        {
+                            tokens.Add(MakeIdentifier());
+                        }
+                        else
+                        {
+                            var positionStart = _position.Copy();
+                            char charErr = _currentCharacter.Value;
+                            Advance();
+                            return (new List<Token>(), new IllegalCharacterError(positionStart, _position, $"'{charErr}'"));
+                        }
 
-                    if (result.Item2 != null)
-                    {
-                        return (new List<Token>(), result.Item2);
-                    }
-
-                    if (result.Item1 != null)
-                    {
-                        tokens.Add(result.Item1);
-                    }
-                }
-                else if (_currentCharacter == '>')
-                {
-                    tokens.Add(MakeGreaterThan());
-                }
-                else if (_currentCharacter == ',')
-                {
-                    tokens.Add(new Token(TokenType.COMMA, null, _position));
-                    Advance();
-                }
-                else if (_currentCharacter == '&')
-                {
-                    tokens.Add(MakeAnd());
-                }
-                else if (_currentCharacter == '|')
-                {
-                    tokens.Add(MakeOr());
-                }
-                else
-                {
-                    var positionStart = _position.Copy();
-                    char charErr = _currentCharacter.Value;
-                    Advance();
-                    return (new List<Token>(), new IllegalCharacterError(positionStart, _position, $"'{charErr}'"));
+                        break;
                 }
             }
 

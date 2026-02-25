@@ -1,5 +1,6 @@
 ﻿using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
+using System.Globalization;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
@@ -7,6 +8,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
     {
         public List<RuntimeValue> Elements { get; }
         public ListValue(List<RuntimeValue> elements) { Elements = elements; }
+        public override RuntimeValueType Type => RuntimeValueType.List;
 
         public override (RuntimeValue?, Error?) AddedTo(RuntimeValue other)
         {
@@ -17,8 +19,9 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) SubbedBy(RuntimeValue other)
         {
-            if (other is NumberValue n)
+            if (other.Type == RuntimeValueType.Number)
             {
+                NumberValue n = (NumberValue)other;
                 var newList = (ListValue)Copy();
                 try
                 {
@@ -37,8 +40,9 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) MultedBy(RuntimeValue other)
         {
-            if (other is ListValue l)
+            if (other.Type == RuntimeValueType.List)
             {
+                ListValue l = (ListValue)other;
                 var newList = (ListValue)Copy();
                 newList.Elements.AddRange(l.Elements);
                 return (newList, null);
@@ -48,8 +52,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) DivedBy(RuntimeValue other)
         {
-            if (other is NumberValue n)
+            if (other.Type == RuntimeValueType.Number)
             {
+                NumberValue n = (NumberValue)other;
+
                 try
                 {
                     int idx = (int)n.Value;

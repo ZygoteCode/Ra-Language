@@ -4,6 +4,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 {
     public class NullValue : RuntimeValue
     {
+        public override RuntimeValueType Type => RuntimeValueType.Null;
+
         public override RuntimeValue Copy()
         {
             return new NullValue().SetPos(PositionStart, PositionEnd).SetContext(Context);

@@ -1,13 +1,14 @@
 ﻿using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
-using System.Xml.Linq;
 
 namespace RaLanguage.Interpreter.Values.Functions
 {
     public class BuiltInFunctionValue : BaseFunctionValue
     {
+        public override RuntimeValueType Type => RuntimeValueType.Function;
         public BuiltInFunctionValue(string name) : base(name) { }
+
 
         public override RuntimeResult Execute(List<RuntimeValue> args)
         {

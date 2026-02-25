@@ -8,6 +8,7 @@ namespace RaLanguage.Interpreter.Values.Functions
         public AstNode BodyNode { get; }
         public List<string> ArgNames { get; }
         public bool ShouldAutoReturn { get; }
+        public override RuntimeValueType Type => RuntimeValueType.Function;
 
         public FunctionValue(string name, AstNode bodyNode, List<string> argNames, bool shouldAutoReturn)
             : base(name)

@@ -26,3 +26,12 @@ a = 7;
 print(null == a);
 a = null;
 print(null == a)
+
+print(typeof(null))
+print(typeof(5))
+
+final b;
+print(b);
+b = 7;
+print(b);
+// b = 8;

@@ -79,28 +79,15 @@ namespace RaLanguage.Interpreter
                 return res;
             }
 
-            string type = "";
-
-            if (value.GetType() == typeof(NumberValue))
+            string type = value.Type switch
             {
-                type = "number";
-            }
-            else if (value.GetType() == typeof(StringValue))
-            {
-                type = "string";
-            }
-            else if (value.GetType() == typeof(ListValue))
-            {
-                type = "list";
-            }
-            else if (value.GetType() == typeof(FunctionValue))
-            {
-                type = "function";
-            }
-            else if (value.GetType() == typeof(NullValue))
-            {
-                type = "null";
-            }
+                RuntimeValueType.Number => "number",
+                RuntimeValueType.String => "string",
+                RuntimeValueType.List => "list",
+                RuntimeValueType.Function => "function",
+                RuntimeValueType.Null => "null",
+                _ => ""
+            };
 
             return res.Success(new StringValue(type).SetPos(node.PositionStart, node.PositionEnd).SetContext(context));
         }
@@ -235,7 +222,7 @@ namespace RaLanguage.Interpreter
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is already defined", context));
             }
 
-            if (node.DeclarationType.Equals(VariableDeclarationType.VARIABLE))
+            if (node.DeclarationType == VariableDeclarationType.VARIABLE)
             {
                 RuntimeValue value = new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
 
@@ -252,7 +239,7 @@ namespace RaLanguage.Interpreter
                 context.SymbolTable.Set(varName, value);
                 return res.Success(value);
             }
-            else if (node.DeclarationType.Equals(VariableDeclarationType.CONST))
+            else if (node.DeclarationType == VariableDeclarationType.CONST)
             {
                 if (node.ValueNode == null)
                 {
@@ -272,7 +259,7 @@ namespace RaLanguage.Interpreter
                 AreCallsBlocked = false;
                 return res.Success(value);
             }
-            else if (node.DeclarationType.Equals(VariableDeclarationType.FINAL))
+            else if (node.DeclarationType == VariableDeclarationType.FINAL)
             {
                 RuntimeValue value = new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
 
@@ -305,28 +292,13 @@ namespace RaLanguage.Interpreter
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is not defined", context));
             }
 
-            if (currentValue.VariableDeclarationType.Equals(VariableDeclarationType.CONST))
+            if (currentValue.VariableDeclarationType == VariableDeclarationType.CONST)
             {
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is a constant variable and cannot be modified at runtime", context));
             }
-            else if (currentValue.VariableDeclarationType.Equals(VariableDeclarationType.FINAL))
+            else if (currentValue.VariableDeclarationType == VariableDeclarationType.FINAL && currentValue.Type != RuntimeValueType.Null)
             {
-                bool valid = false;
-
-                if (currentValue.GetType() == typeof(NumberValue))
-                {
-                    NumberValue theValue = (NumberValue) currentValue;
-
-                    if (theValue.Value == 0)
-                    {
-                        valid = true;
-                    }
-                }
-
-                if (!valid)
-                {
-                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is a final variable and cannot be modified at runtime", context));
-                }
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is a final variable and cannot be modified at runtime", context));
             }
 
             var operation = node.AssignmentToken;

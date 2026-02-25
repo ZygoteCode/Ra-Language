@@ -13,6 +13,7 @@ namespace RaLanguage.Interpreter.Values
         public Position PositionEnd { get; set; }
         public Context Context { get; set; }
         public VariableDeclarationType VariableDeclarationType { get; set; } = VariableDeclarationType.VARIABLE;
+        public abstract RuntimeValueType Type { get; }
 
         public RuntimeValue SetPos(Position positionStart, Position positionEnd)
         {
@@ -46,7 +47,7 @@ namespace RaLanguage.Interpreter.Values
 
         public virtual (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
         {
-            if (this is NullValue && other is NullValue)
+            if (Type == RuntimeValueType.Null && other.Type == RuntimeValueType.Null)
             {
                 return (new NumberValue(BigNumber.One).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
             }
@@ -56,9 +57,9 @@ namespace RaLanguage.Interpreter.Values
 
         public virtual (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
         {
-            if (this is NullValue || other is NullValue)
+            if (Type == RuntimeValueType.Null || other.Type == RuntimeValueType.Null)
             {
-                if (this is NullValue && other is NullValue)
+                if (Type == RuntimeValueType.Null && other.Type == RuntimeValueType.Null)
                 {
                     return (new NumberValue(BigNumber.Zero).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
                 }

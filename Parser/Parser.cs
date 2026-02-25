@@ -229,13 +229,13 @@ namespace RaLanguage.Parser
                 Advance();
                 List<Token> tokens = new List<Token>();
 
-                while (_currentToken.Type.Equals(TokenType.IDENTIFIER))
+                while (_currentToken.Type == TokenType.IDENTIFIER)
                 {
                     tokens.Add(_currentToken);
                     res.RegisterAdvancement();
                     Advance();
 
-                    if (_currentToken.Type.Equals(TokenType.COMMA))
+                    if (_currentToken.Type == TokenType.COMMA)
                     {
                         res.RegisterAdvancement();
                         Advance();
@@ -290,7 +290,7 @@ namespace RaLanguage.Parser
 
                 AstNode? expr = null;
 
-                if (_currentToken.Type.Equals(TokenType.EQ))
+                if (_currentToken.Type == TokenType.EQ)
                 {
                     res.RegisterAdvancement();
                     Advance();
@@ -318,12 +318,12 @@ namespace RaLanguage.Parser
                 res.RegisterAdvancement();
                 Advance();
 
-                if (_currentToken.Type.Equals(TokenType.LPAREN))
+                if (_currentToken.Type == TokenType.LPAREN)
                 {
                     res.RegisterAdvancement();
                     Advance();
 
-                    if (!_currentToken.Type.Equals(TokenType.IDENTIFIER))
+                    if (_currentToken.Type != TokenType.IDENTIFIER)
                     {
                         return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier"));
                     }
@@ -332,7 +332,7 @@ namespace RaLanguage.Parser
                     res.RegisterAdvancement();
                     Advance();
 
-                    if (!_currentToken.Type.Equals(TokenType.RPAREN))
+                    if (_currentToken.Type != TokenType.RPAREN)
                     {
                         return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ')'"));
                     }
@@ -344,7 +344,7 @@ namespace RaLanguage.Parser
                 }
                 else
                 {
-                    if (!_currentToken.Type.Equals(TokenType.IDENTIFIER))
+                    if (_currentToken.Type != TokenType.IDENTIFIER)
                     {
                         return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier"));
                     }
@@ -357,7 +357,7 @@ namespace RaLanguage.Parser
                     return res.Success(new NameofNode(tok));
                 }
             }
-            else if (_currentToken.Type.Equals(TokenType.IDENTIFIER) && IsAssignmentToken(_tokens[_tokenIndex + 1].Type))
+            else if (_currentToken.Type == TokenType.IDENTIFIER && IsAssignmentToken(_tokens[_tokenIndex + 1].Type))
             {
                 Token varName = _currentToken;
                 res.RegisterAdvancement();
@@ -629,7 +629,7 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            if (_currentToken.Type.Equals(TokenType.LBRACKET))
+            if (_currentToken.Type == TokenType.LBRACKET)
             {
                 res.RegisterAdvancement();
                 Advance();
@@ -640,7 +640,7 @@ namespace RaLanguage.Parser
                     return res;
                 }
 
-                if (!_currentToken.Type.Equals(TokenType.RBRACKET))
+                if (_currentToken.Type != TokenType.RBRACKET)
                 {
                     return res.Failure(new InvalidSyntaxError(positionStart, _currentToken.PositionStart, "Expected '}'"));
                 }
@@ -664,7 +664,7 @@ namespace RaLanguage.Parser
 
                 return res.Success(new DoWhileNode(conditionExpr, bodyNode, true));
             }
-            else if (_currentToken.Type.Equals(TokenType.COLON))
+            else if (_currentToken.Type == TokenType.COLON)
             {
                 res.RegisterAdvancement();
                 Advance();
@@ -762,7 +762,7 @@ namespace RaLanguage.Parser
             var condition = res.Register(ParseExpression());
             if (res.Error != null) return res;
 
-            if (_currentToken.Type.Equals(TokenType.LBRACKET))
+            if (_currentToken.Type == TokenType.LBRACKET)
             {
                 res.RegisterAdvancement();
                 Advance();
@@ -789,7 +789,7 @@ namespace RaLanguage.Parser
 
                 return res.Success(new IfCasesWrapperNode(cases, elseCase));
             }
-            else if (_currentToken.Type.Equals(TokenType.COLON))
+            else if (_currentToken.Type == TokenType.COLON)
             {
                 res.RegisterAdvancement();
                 Advance();
@@ -849,7 +849,7 @@ namespace RaLanguage.Parser
                 res.RegisterAdvancement();
                 Advance();
 
-                if (_currentToken.Type.Equals(TokenType.LBRACKET))
+                if (_currentToken.Type == TokenType.LBRACKET)
                 {
                     res.RegisterAdvancement();
                     Advance();
@@ -868,7 +868,7 @@ namespace RaLanguage.Parser
                         return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}'"));
                     }
                 }
-                else if (_currentToken.Type.Equals(TokenType.COLON))
+                else if (_currentToken.Type == TokenType.COLON)
                 {
                     res.RegisterAdvancement();
                     Advance();
@@ -926,7 +926,7 @@ namespace RaLanguage.Parser
                 if (res.Error != null) return res;
             }
 
-            if (_currentToken.Type.Equals(TokenType.COLON))
+            if (_currentToken.Type == TokenType.COLON)
             {
                 res.RegisterAdvancement();
                 Advance();
@@ -935,7 +935,7 @@ namespace RaLanguage.Parser
                 if (res.Error != null) return res;
                 return res.Success(new ForNode(varName, startValue, endValue, stepValue, bodyInline, false));
             }
-            else if (_currentToken.Type.Equals(TokenType.LBRACKET))
+            else if (_currentToken.Type == TokenType.LBRACKET)
             {
                 res.RegisterAdvancement();
                 Advance();
@@ -966,7 +966,7 @@ namespace RaLanguage.Parser
             var condition = res.Register(ParseExpression());
             if (res.Error != null) return res;
 
-            if (_currentToken.Type.Equals(TokenType.LBRACKET))
+            if (_currentToken.Type == TokenType.LBRACKET)
             {
                 res.RegisterAdvancement();
                 Advance();
@@ -974,14 +974,14 @@ namespace RaLanguage.Parser
                 var body = res.Register(ParseStatements());
                 if (res.Error != null) return res;
 
-                if (!_currentToken.Type.Equals(TokenType.RBRACKET))
+                if (_currentToken.Type != TokenType.RBRACKET)
                     return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}'"));
 
                 res.RegisterAdvancement();
                 Advance();
                 return res.Success(new WhileNode(condition, body, true));
             }
-            else if (_currentToken.Type.Equals(TokenType.COLON))
+            else if (_currentToken.Type == TokenType.COLON)
             {
                 res.RegisterAdvancement();
                 Advance();
