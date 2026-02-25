@@ -25,6 +25,7 @@ This list contains what I have already added after the first commit (done featur
   - [x] Add 'typeof' operator.
   - [x] Add 'nameof' operator.
   - [x] Declare variables (only "var" + "final") also without a initial value - the first value assigned to the "final" one will be definitive in runtime. Const variables need immediately a value at parsing-time.
+  - [x] Make "null" a real type of value, which can be easily used in comparisons, as different from numbers and others.
   - [ ] Add real support to multi-line statements & expressions.
   
 ## TODOs for Ra Language (the near future)
@@ -37,7 +38,6 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [ ] Add strict checking operator for comparing not only the value, but also the type: '==='.
   - [ ] I was thinking of adding something similar to Rust, like a "let" variable declaration - exit from context means you cannot use it anymore in actual context.
   - [ ] Add static return type to functions.
-  - [ ] Make "null" a real type of value, which can be easily used in comparisons, as different from numbers and others - After that, functions can have type "void" as return type (can not return values).
   - [ ] Add "bool" type value, which will finally replace "true" and "false" numeric values - after that, comparisons will get better and have effective sense. But "0" as "false" and "1" as "true" will be a concept.
   - [ ] Add in-place ranges => For example 1..5 (1, 2, 3, 4) or 1..=5 (1, 2, 3, 4, 5), will return a list of numbers
   - [ ] Add "??" operator to apply a different value if the current inspected value is null => Example: a = b ?? 3;

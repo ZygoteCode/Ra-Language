@@ -545,6 +545,12 @@ namespace RaLanguage.Parser
                 Advance();
                 return res.Success(new StringNode(tok));
             }
+            else if (tok.Matches(TokenType.KEYWORD, "null"))
+            {
+                res.RegisterAdvancement();
+                Advance();
+                return res.Success(new NullNode(tok));
+            }
             else if (tok.Type == TokenType.IDENTIFIER)
             {
                 res.RegisterAdvancement();

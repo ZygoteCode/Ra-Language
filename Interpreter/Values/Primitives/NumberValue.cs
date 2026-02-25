@@ -13,7 +13,6 @@
             Value = value;
         }
 
-        public static NumberValue Null => new NumberValue(BigNumber.Zero);
         public static NumberValue False => new NumberValue(BigNumber.Zero);
         public static NumberValue True => new NumberValue(BigNumber.One);
         public static NumberValue MathPI => new NumberValue(BigNumber.Parse(Math.PI.ToString("R", CultureInfo.InvariantCulture)));

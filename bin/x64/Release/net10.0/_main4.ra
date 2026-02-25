@@ -1,0 +1,71 @@
+fn hello() {
+    ret 5;
+}
+
+print(typeof 5)
+print(typeof("ciao"))
+print(typeof([1, 2, 3]))
+
+print(hello())
+const a = 5 + 3;
+print(a);
+// a = a + 3;
+
+print(nameof(hello))
+print(nameof a)
+
+var b = a + 3;
+print(b);
+b += 3;
+print(b);
+
+final c = (a + hello()) * 8;
+print(c);
+// c = c + 7;
+
+{
+    var ddd = 8;
+    print(ddd);
+
+    {
+        var kkk = 9;
+    }
+
+    // print(kkk);
+}
+
+// print(ddd);
+
+var test1 = 0xF8_DE;
+print(test1);
+
+test1 = 0xC183D;
+print(test1);
+
+print(0b110001010)
+print(0o755)
+print(0xC321)
+print(0x00F8)
+print(0O7_0_1)
+
+var x = 5;
+
+do {
+    print(x);
+    x--;
+} while (x > 0);
+
+do {
+    print("hello!")
+} while (x > 66666);
+
+final test;
+print(test);
+test = 5;
+print(test);
+// test = 7;
+
+var test2;
+print(test2);
+test2 = 999;
+print(test2);

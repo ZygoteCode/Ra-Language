@@ -1,6 +1,7 @@
 ﻿using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer;
 using RaLanguage.Parser.Nodes.Variables;
 
@@ -42,8 +43,32 @@ namespace RaLanguage.Interpreter.Values
         public virtual (RuntimeValue?, Error?) BitwiseRightShiftedBy(RuntimeValue other) => (null, IllegalOperation(other));
         public virtual (RuntimeValue?, Error?) BitwiseAndedBy(RuntimeValue other) => (null, IllegalOperation(other));
         public virtual (RuntimeValue?, Error?) BitwiseOredBy(RuntimeValue other) => (null, IllegalOperation(other));
-        public virtual (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other) => (null, IllegalOperation(other));
-        public virtual (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other) => (null, IllegalOperation(other));
+
+        public virtual (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
+        {
+            if (this is NullValue && other is NullValue)
+            {
+                return (new NumberValue(BigNumber.One).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
+            }
+
+            return (null, IllegalOperation(other));
+        }
+
+        public virtual (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
+        {
+            if (this is NullValue || other is NullValue)
+            {
+                if (this is NullValue && other is NullValue)
+                {
+                    return (new NumberValue(BigNumber.Zero).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
+                }
+
+                return (new NumberValue(BigNumber.One).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
+            }
+
+            return (null, IllegalOperation(other));
+        }
+
         public virtual (RuntimeValue?, Error?) GetComparisonLt(RuntimeValue other) => (null, IllegalOperation(other));
         public virtual (RuntimeValue?, Error?) GetComparisonGt(RuntimeValue other) => (null, IllegalOperation(other));
         public virtual (RuntimeValue?, Error?) GetComparisonLte(RuntimeValue other) => (null, IllegalOperation(other));

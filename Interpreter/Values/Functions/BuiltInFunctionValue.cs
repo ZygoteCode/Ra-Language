@@ -1,6 +1,7 @@
 ﻿using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
+using System.Xml.Linq;
 
 namespace RaLanguage.Interpreter.Values.Functions
 {
@@ -49,7 +50,7 @@ namespace RaLanguage.Interpreter.Values.Functions
 
         private RuntimeResult ExecutePrint(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
             Console.WriteLine(c.SymbolTable.Get("value"));
-            return new RuntimeResult().Success(NumberValue.Null);
+            return new RuntimeResult().Success(new NullValue().SetContext(ctx).SetPos(PositionStart, PositionEnd));
         });
 
         private RuntimeResult ExecutePrintRet(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
@@ -72,7 +73,7 @@ namespace RaLanguage.Interpreter.Values.Functions
 
         private RuntimeResult ExecuteClear(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
             Console.Clear();
-            return new RuntimeResult().Success(NumberValue.Null);
+            return new RuntimeResult().Success(new NullValue().SetContext(ctx).SetPos(PositionStart, PositionEnd));
         });
 
         private RuntimeResult ExecuteIsNumber(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
@@ -96,7 +97,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             var value = c.SymbolTable.Get("value");
             if (list is not ListValue l) return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, "First argument must be list", c));
             l.Elements.Add(value);
-            return new RuntimeResult().Success(NumberValue.Null);
+            return new RuntimeResult().Success(new NullValue().SetContext(ctx).SetPos(PositionStart, PositionEnd));
         });
 
         private RuntimeResult ExecutePop(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
@@ -123,7 +124,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             if (listA is not ListValue lA) return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, "First argument must be list", c));
             if (listB is not ListValue lB) return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, "Second argument must be list", c));
             lA.Elements.AddRange(lB.Elements);
-            return new RuntimeResult().Success(NumberValue.Null);
+            return new RuntimeResult().Success(new NullValue().SetContext(ctx).SetPos(PositionStart, PositionEnd));
         });
 
         private RuntimeResult ExecuteLen(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
@@ -142,7 +143,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                 string script = System.IO.File.ReadAllText(s.Value);
                 var (val, err) = Program.Run(s.Value, script);
                 if (err != null) return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, $"Failed to finish executing script \"{s.Value}\"\n" + err.AsString(), c));
-                return new RuntimeResult().Success(NumberValue.Null);
+                return new RuntimeResult().Success(new NullValue().SetContext(ctx).SetPos(PositionStart, PositionEnd));
             }
             catch (Exception ex)
             {

@@ -29,7 +29,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             var value = res.Register(interpreter.Visit(BodyNode, execCtx));
             if (res.ShouldReturn() && res.FuncReturnValue == null) return res;
 
-            var retValue = (ShouldAutoReturn ? value : null) ?? res.FuncReturnValue ?? NumberValue.Null;
+            var retValue = (ShouldAutoReturn ? value : null) ?? res.FuncReturnValue ?? new NullValue().SetContext(Context).SetPos(PositionStart, PositionEnd);
             return res.Success(retValue);
         }
 
