@@ -6,6 +6,7 @@
         String,
         List,
         Function,
-        Null
+        Null,
+        Boolean
     }
 }

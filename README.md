@@ -26,7 +26,7 @@ This list contains what I have already added after the first commit (done featur
   - [x] Add 'nameof' operator.
   - [x] Declare variables (only "var" + "final") also without a initial value - the first value assigned to the "final" one will be definitive in runtime. Const variables need immediately a value at parsing-time.
   - [x] Make "null" a real type of value, which can be easily used in comparisons, as different from numbers and others.
-  - [ ] Add "bool" type value, which will finally replace "true" and "false" numeric values - after that, comparisons will get better and have effective sense. But "0" as "false" and "1" as "true" will be a concept.
+  - [x] Add "bool" type value, which will finally replace "true" and "false" numeric values - after that, comparisons will get better and have effective sense. But "0" as "false" and "1" as "true" will be a concept.
 
 ## TODOs for Ra Language (the near future)
 

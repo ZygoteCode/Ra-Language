@@ -1,1 +1,7 @@
-print("test")
+var a = true;
+print(a);
+print(true || true);
+
+if (!false && true) && (1 && 1) {
+    print("i can print")
+}

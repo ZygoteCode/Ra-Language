@@ -7,6 +7,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
     public class NumberValue : RuntimeValue
     {
         public BigNumber Value { get; }
+        public static NumberValue One => new NumberValue(1);
+        public static NumberValue Zero => new NumberValue(0);
         public override RuntimeValueType Type => RuntimeValueType.Number;
 
         public NumberValue(BigNumber value)
@@ -14,8 +16,6 @@ namespace RaLanguage.Interpreter.Values.Primitives
             Value = value;
         }
 
-        public static NumberValue False => new NumberValue(BigNumber.Zero);
-        public static NumberValue True => new NumberValue(BigNumber.One);
         public static NumberValue MathPI => new NumberValue(BigNumber.Parse(Math.PI.ToString("R", CultureInfo.InvariantCulture)));
 
         public override (RuntimeValue?, Error?) AddedTo(RuntimeValue other)
@@ -86,7 +86,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Number)
             {
                 NumberValue n = (NumberValue)other;
-                return (new NumberValue(Value == n.Value ? BigNumber.One : BigNumber.Zero).SetContext(Context), null);
+                return (new BooleanValue(Value == n.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonEq(other);
@@ -97,7 +97,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Number)
             {
                 NumberValue n = (NumberValue)other;
-                return (new NumberValue(Value != n.Value ? BigNumber.One : BigNumber.Zero).SetContext(Context), null);
+                return (new BooleanValue(Value != n.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonNe(other);
@@ -108,7 +108,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Number)
             {
                 NumberValue n = (NumberValue)other;
-                return (new NumberValue(Value < n.Value ? BigNumber.One : BigNumber.Zero).SetContext(Context), null);
+                return (new BooleanValue(Value < n.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonLt(other);
@@ -119,7 +119,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Number)
             {
                 NumberValue n = (NumberValue)other;
-                return (new NumberValue(Value > n.Value ? BigNumber.One : BigNumber.Zero).SetContext(Context), null);
+                return (new BooleanValue(Value > n.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonGt(other);
@@ -130,7 +130,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Number)
             {
                 NumberValue n = (NumberValue)other;
-                return (new NumberValue(Value <= n.Value ? BigNumber.One : BigNumber.Zero).SetContext(Context), null);
+                return (new BooleanValue(Value <= n.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonLte(other);
@@ -141,7 +141,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Number)
             {
                 NumberValue n = (NumberValue)other;
-                return (new NumberValue(Value >= n.Value ? BigNumber.One : BigNumber.Zero).SetContext(Context), null);
+                return (new BooleanValue(Value >= n.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonGte(other);
@@ -152,7 +152,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Number)
             {
                 NumberValue n = (NumberValue)other;
-                return (new NumberValue((!Value.IsZero() && !n.Value.IsZero()) ? BigNumber.One : BigNumber.Zero).SetContext(Context), null);
+                return (new BooleanValue(!Value.IsZero() && !n.Value.IsZero()).SetContext(Context), null);
+            }
+            else if (other.Type == RuntimeValueType.Boolean)
+            {
+                BooleanValue b = (BooleanValue)other;
+                return (new BooleanValue(!Value.IsZero() && b.Value).SetContext(Context), null);
             }
 
             return base.AndedBy(other);
@@ -163,7 +168,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Number)
             {
                 NumberValue n = (NumberValue)other;
-                return (new NumberValue((!Value.IsZero() || !n.Value.IsZero()) ? BigNumber.One : BigNumber.Zero).SetContext(Context), null);
+                return (new BooleanValue(!Value.IsZero() || !n.Value.IsZero()).SetContext(Context), null);
+            }
+            else if (other.Type == RuntimeValueType.Boolean)
+            {
+                BooleanValue b = (BooleanValue)other;
+                return (new BooleanValue(!Value.IsZero() || b.Value).SetContext(Context), null);
             }
 
             return base.OredBy(other);

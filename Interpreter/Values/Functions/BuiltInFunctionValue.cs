@@ -78,19 +78,19 @@ namespace RaLanguage.Interpreter.Values.Functions
         });
 
         private RuntimeResult ExecuteIsNumber(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
-            return new RuntimeResult().Success(c.SymbolTable.Get("value") is NumberValue ? NumberValue.True : NumberValue.False);
+            return new RuntimeResult().Success(c.SymbolTable.Get("value") is NumberValue ? BooleanValue.True : BooleanValue.False);
         });
 
         private RuntimeResult ExecuteIsString(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
-            return new RuntimeResult().Success(c.SymbolTable.Get("value") is StringValue ? NumberValue.True : NumberValue.False);
+            return new RuntimeResult().Success(c.SymbolTable.Get("value") is StringValue ? BooleanValue.True : BooleanValue.False);
         });
 
         private RuntimeResult ExecuteIsList(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
-            return new RuntimeResult().Success(c.SymbolTable.Get("value") is ListValue ? NumberValue.True : NumberValue.False);
+            return new RuntimeResult().Success(c.SymbolTable.Get("value") is ListValue ? BooleanValue.True : BooleanValue.False);
         });
 
         private RuntimeResult ExecuteIsFunction(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
-            return new RuntimeResult().Success(c.SymbolTable.Get("value") is BaseFunctionValue ? NumberValue.True : NumberValue.False);
+            return new RuntimeResult().Success(c.SymbolTable.Get("value") is BaseFunctionValue ? BooleanValue.True : BooleanValue.False);
         });
 
         private RuntimeResult ExecuteAppend(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {

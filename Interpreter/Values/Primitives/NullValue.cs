@@ -5,6 +5,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
     public class NullValue : RuntimeValue
     {
         public override RuntimeValueType Type => RuntimeValueType.Null;
+        public static NullValue Null => new NullValue();
 
         public override RuntimeValue Copy()
         {
@@ -13,24 +14,25 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
         {
-            if (other is NullValue)
+            if (other.Type == RuntimeValueType.Null)
             {
-                return (new NumberValue(BigNumber.One).SetContext(Context), null);
+                return (new BooleanValue(true).SetContext(Context), null);
             }
 
-            return (new NumberValue(BigNumber.Zero).SetContext(Context), null);
+            return (new BooleanValue(true).SetContext(Context), null);
         }
 
         public override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
         {
-            if (other is not NullValue)
+            if (other.Type != RuntimeValueType.Null)
             {
-                return (new NumberValue(BigNumber.One).SetContext(Context), null);
+                return (new BooleanValue(true).SetContext(Context), null);
             }
 
-            return (new NumberValue(BigNumber.Zero).SetContext(Context), null);
+            return (new BooleanValue(false).SetContext(Context), null);
         }
 
+        public override bool IsTrue() => false;
         public override string ToString() => "null";
     }
 }

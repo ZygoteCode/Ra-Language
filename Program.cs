@@ -19,8 +19,6 @@ namespace RaLanguage
         private static void InitializeSymbolTable()
         {
             GlobalSymbolTable = new SymbolTable();
-            GlobalSymbolTable.Set("false", NumberValue.False);
-            GlobalSymbolTable.Set("true", NumberValue.True);
             GlobalSymbolTable.Set("math_pi", NumberValue.MathPI);
             GlobalSymbolTable.Set("print", new BuiltInFunctionValue("print"));
             GlobalSymbolTable.Set("print_ret", new BuiltInFunctionValue("print_ret"));

@@ -17,7 +17,8 @@ namespace RaLanguage.Lexer
             "var", "and", "or", "not", "if", "elif", "else",
             "for", "to", "step", "while", "fn", "ret", "is",
             "continue", "break", "pass", "const", "final",
-            "del", "do", "typeof", "nameof", "null"
+            "del", "do", "typeof", "nameof", "null", "true",
+            "false"
         };
 
         public Lexer(string fn, string text)

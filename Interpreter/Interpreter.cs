@@ -46,8 +46,25 @@ namespace RaLanguage.Interpreter
                 TypeofNode t => VisitTypeofNode(t, context),
                 NameofNode n => VisitNameofNode(n, context),
                 NullNode n => VisitNullNode(n, context),
+                BooleanNode b => VisitBooleanNode(b, context),
                 _ => throw new Exception($"No visit method for {node.GetType().Name}")
             };
+        }
+
+        private RuntimeResult VisitBooleanNode(BooleanNode node, Context context)
+        {
+            var res = new RuntimeResult();
+
+            if (node.Token.Value.ToString() == "true")
+            {
+                return res.Success(new BooleanValue(true).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+            }
+            else if (node.Token.Value.ToString() == "false")
+            {
+                return res.Success(new BooleanValue(false).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+            }
+
+            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Invalid boolean value", context));
         }
 
         private RuntimeResult VisitNullNode(NullNode node, Context context)
@@ -86,6 +103,7 @@ namespace RaLanguage.Interpreter
                 RuntimeValueType.List => "list",
                 RuntimeValueType.Function => "function",
                 RuntimeValueType.Null => "null",
+                RuntimeValueType.Boolean => "boolean",
                 _ => ""
             };
 
@@ -416,11 +434,11 @@ namespace RaLanguage.Interpreter
                 RuntimeValue? newValue = null;
                 if (node.OpTok.Type == TokenType.DOUBLE_PLUS)
                 {
-                    (newValue, error) = number.AddedTo(NumberValue.True);
+                    (newValue, error) = number.AddedTo(NumberValue.One);
                 }
                 else
                 {
-                    (newValue, error) = number.SubbedBy(NumberValue.True);
+                    (newValue, error) = number.SubbedBy(NumberValue.One);
                 }
 
                 if (error != null) return res.Failure(error);

@@ -1,6 +1,5 @@
 ﻿using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
-using System.Globalization;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
