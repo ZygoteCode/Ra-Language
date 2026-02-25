@@ -74,9 +74,9 @@ namespace RaLanguage
             Console.WriteLine("[Ra Language] Support the project on GitHub: https://github.com/ZygoteCode/RaLanguage/");
             Console.WriteLine("[Ra Language] Warming up JIT...");
 
-            for (int i = 0; i < 10; i++)
+            for (int i = 0; i < 1000; i++)
             {
-                Run("<stdin>", "VAR a = 5; VAR b = [5, 3, 2]; FUN c() -> VAR eee = 7; VAR d = c; d(); IF (5 == 5) AND (6 == 6) OR (7 == 7) THEN VAR bbb = 5 ELSE VAR bbb = 7");
+                Run("<stdin>", "var a = 5; var b = [5, 3, 2]; fn c() => var eee = 7; var d = c; d(); if 5 == 5 && 6 == 6 or 7 == 7: var bbb = 5 else: var bbb = 7; typeof null; nameof a; var aaa = \"testing\"; const nevertouch = 7; final bbbbbbb;");
             }
 
             while (true)
