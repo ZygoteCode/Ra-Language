@@ -34,6 +34,7 @@ This is constantly updated list, I am expanding with new ideas and concepts for 
 
 I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
 
+  - [ ] Add "..." operator to insert all-in the elements of a list/set in another list/set. Example: "var list = [1, 2, ...otherList]"
   - [ ] Add real support to multi-line statements & expressions.
   - [ ] Add static typing with strict checking: int, float, double, decimal, bigint, char, str, list.
   - [ ] Add strict checking operator for comparing not only the value, but also the type: '==='.
