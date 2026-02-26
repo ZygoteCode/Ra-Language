@@ -28,7 +28,7 @@ This list contains what I have already added after the first commit (done featur
   - [x] Make "null" a real type of value, which can be easily used in comparisons, as different from numbers and others.
   - [x] Add "bool" type value, which will finally replace "true" and "false" numeric values - after that, comparisons will get better and have effective sense. But "0" as "false" and "1" as "true" will be a concept.
   - [x] Add a way to declare variables like "var a, b, c = 7" or "var a = 3, b = 5, c = 7" (multiple declarations).
-  - [ ] Add sets with the {} brackets, similar to list but with unique values.
+  - [ ] Add sets with the {} brackets, similar to list but with unique values, like '{1, 2, 3, 4, "str"}'.
   - [ ] I was thinking of adding something similar to Rust, like a "let" variable declaration - exit from context means you cannot use it anymore in actual context.
 
 ## TODOs for Ra Language (the near future)
@@ -37,6 +37,7 @@ This is constantly updated list, I am expanding with new ideas and concepts for 
 
 I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
 
+  - [ ] Add maps with the "{}" brackets, like '{"float": 3.2, "int": 1, "string": "astring", "bool": true}'.
   - [ ] Add "..." operator to insert all-in the elements of a list/set in another list/set. Example: "var list = [1, 2, ...otherList]"
   - [ ] Add real support to multi-line statements & expressions.
   - [ ] Add static typing with strict checking: int, float, double, decimal, bigint, char, str, list.
