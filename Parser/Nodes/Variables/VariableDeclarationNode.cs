@@ -5,15 +5,15 @@ namespace RaLanguage.Parser.Nodes.Variables
     public class VariableDeclarationNode : AstNode
     {
         public VariableDeclarationType DeclarationType { get; }
-        public Token VarNameTok { get; }
-        public AstNode? ValueNode { get; }
-        public VariableDeclarationNode(VariableDeclarationType declarationType, Token varNameTok, AstNode? valueNode)
+        public List<(Token, AstNode?)> Declarations { get; }
+
+        public VariableDeclarationNode(VariableDeclarationType declarationType, List<(Token, AstNode?)> declarations)
         {
             DeclarationType = declarationType;
-            VarNameTok = varNameTok;
-            ValueNode = valueNode;
-            PositionStart = varNameTok.PositionStart;
-            PositionEnd = valueNode != null ? valueNode.PositionEnd : varNameTok.PositionEnd;
+            Declarations = declarations;
+
+            PositionStart = Declarations[0].Item1.PositionStart;
+            PositionEnd = Declarations[Declarations.Count - 1].Item1.PositionEnd;
         }
     }
 

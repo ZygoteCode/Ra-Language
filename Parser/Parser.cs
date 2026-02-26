@@ -281,24 +281,41 @@ namespace RaLanguage.Parser
                 res.RegisterAdvancement();
                 Advance();
 
+                List<(Token, AstNode?)> declarations = new List<(Token, AstNode?)>();
+
                 if (_currentToken.Type != TokenType.IDENTIFIER)
                     return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier"));
 
-                var varName = _currentToken;
-                res.RegisterAdvancement();
-                Advance();
-
-                AstNode? expr = null;
-
-                if (_currentToken.Type == TokenType.EQ)
+                while (_currentToken.Type == TokenType.IDENTIFIER)
                 {
+                    var varName = _currentToken;
                     res.RegisterAdvancement();
                     Advance();
-                    expr = res.Register(ParseExpression());
-                    if (res.Error != null) return res;
+
+                    AstNode? expr = null;
+
+                    if (_currentToken.Type == TokenType.EQ)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                        expr = res.Register(ParseExpression());
+
+                        if (res.Error != null)
+                        {
+                            return res;
+                        }
+                    }
+
+                    declarations.Add((varName, expr));
+
+                    if (_currentToken.Type == TokenType.COMMA)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
                 }
 
-                return res.Success(new VariableDeclarationNode(variableDeclarationType, varName, expr));
+                return res.Success(new VariableDeclarationNode(variableDeclarationType, declarations));
             }
             else if (_currentToken.Matches(TokenType.KEYWORD, "typeof"))
             {

@@ -233,70 +233,75 @@ namespace RaLanguage.Interpreter
         private RuntimeResult VisitVariableDeclarationNode(VariableDeclarationNode node, Context context)
         {
             var res = new RuntimeResult();
-            var varName = node.VarNameTok.Value?.ToString();
+            var values = new List<RuntimeValue>();
 
-            if (context.SymbolTable.Get(varName) != null)
+            foreach ((Token, AstNode?) declaration in node.Declarations)
             {
-                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is already defined", context));
-            }
+                var varName = declaration.Item1.Value?.ToString();
 
-            if (node.DeclarationType == VariableDeclarationType.VARIABLE)
-            {
-                RuntimeValue value = new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
-
-                if (node.ValueNode != null)
+                if (context.SymbolTable.Get(varName) != null)
                 {
-                    value = res.Register(Visit(node.ValueNode, context));
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is already defined", context));
+                }
+
+                if (node.DeclarationType == VariableDeclarationType.VARIABLE)
+                {
+                    RuntimeValue value = new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+
+                    if (declaration.Item2 != null)
+                    {
+                        value = res.Register(Visit(declaration.Item2, context));
+
+                        if (res.ShouldReturn())
+                        {
+                            continue;
+                        }
+                    }
+
+                    context.SymbolTable.Set(varName, value);
+                    values.Add(value);
+                }
+                else if (node.DeclarationType == VariableDeclarationType.CONST)
+                {
+                    if (declaration.Item2 == null)
+                    {
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Value should be a constant value", context));
+                    }
+
+                    AreCallsBlocked = true;
+                    RuntimeValue value = res.Register(Visit(declaration.Item2, context));
 
                     if (res.ShouldReturn())
                     {
-                        return res;
+                        continue;
                     }
+
+                    value.VariableDeclarationType = VariableDeclarationType.CONST;
+                    context.SymbolTable.Set(varName, value);
+                    AreCallsBlocked = false;
+                    values.Add(value);
                 }
-
-                context.SymbolTable.Set(varName, value);
-                return res.Success(value);
-            }
-            else if (node.DeclarationType == VariableDeclarationType.CONST)
-            {
-                if (node.ValueNode == null)
+                else if (node.DeclarationType == VariableDeclarationType.FINAL)
                 {
-                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Value should be a constant value", context));
-                }
+                    RuntimeValue value = new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
 
-                AreCallsBlocked = true;
-                RuntimeValue value = res.Register(Visit(node.ValueNode, context));
-
-                if (res.ShouldReturn())
-                {
-                    return res;
-                }
-
-                value.VariableDeclarationType = VariableDeclarationType.CONST;
-                context.SymbolTable.Set(varName, value);
-                AreCallsBlocked = false;
-                return res.Success(value);
-            }
-            else if (node.DeclarationType == VariableDeclarationType.FINAL)
-            {
-                RuntimeValue value = new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
-
-                if (node.ValueNode != null)
-                {
-                    value = res.Register(Visit(node.ValueNode, context));
-
-                    if (res.ShouldReturn())
+                    if (declaration.Item2 != null)
                     {
-                        return res;
-                    }
-                }
+                        value = res.Register(Visit(declaration.Item2, context));
 
-                value.VariableDeclarationType = VariableDeclarationType.FINAL;
-                context.SymbolTable.Set(varName, value);
-                return res.Success(value);
+                        if (res.ShouldReturn())
+                        {
+                            continue;
+                        }
+                    }
+
+                    value.VariableDeclarationType = VariableDeclarationType.FINAL;
+                    context.SymbolTable.Set(varName, value);
+                    values.Add(value);
+                }
             }
 
-            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Invalid variable declaration method", context));
+            return res.Success(new ListValue(values).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
 
         private RuntimeResult VisitVariableAssignmentNode(VariableAssignmentNode node, Context context)

@@ -27,6 +27,9 @@ This list contains what I have already added after the first commit (done featur
   - [x] Declare variables (only "var" + "final") also without a initial value - the first value assigned to the "final" one will be definitive in runtime. Const variables need immediately a value at parsing-time.
   - [x] Make "null" a real type of value, which can be easily used in comparisons, as different from numbers and others.
   - [x] Add "bool" type value, which will finally replace "true" and "false" numeric values - after that, comparisons will get better and have effective sense. But "0" as "false" and "1" as "true" will be a concept.
+  - [x] Add a way to declare variables like "var a, b, c = 7" or "var a = 3, b = 5, c = 7" (multiple declarations).
+  - [ ] Add sets with the {} brackets, similar to list but with unique values.
+  - [ ] I was thinking of adding something similar to Rust, like a "let" variable declaration - exit from context means you cannot use it anymore in actual context.
 
 ## TODOs for Ra Language (the near future)
 
@@ -38,7 +41,6 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [ ] Add real support to multi-line statements & expressions.
   - [ ] Add static typing with strict checking: int, float, double, decimal, bigint, char, str, list.
   - [ ] Add strict checking operator for comparing not only the value, but also the type: '==='.
-  - [ ] I was thinking of adding something similar to Rust, like a "let" variable declaration - exit from context means you cannot use it anymore in actual context.
   - [ ] Add static return type to functions.
   - [ ] Add in-place ranges => For example 1..5 (1, 2, 3, 4) or 1..=5 (1, 2, 3, 4, 5), will return a list of numbers
   - [ ] Add "??" operator to apply a different value if the current inspected value is null => Example: a = b ?? 3;
@@ -51,11 +53,9 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [ ] Access to portions of list using ranges, like for example a[1..3].
   - [ ] Access to last element of a list using for example a[-1].
   - [ ] Add "in" operator for lists that can check if an element is in list => Example: "if 5 in a" or also "if [1, 2, 3] in a"
-  - [ ] Add sets with the {} brackets, similar to list but with unique values.
   - [ ] Add template literals with backtick (`) for making strings easily with multi-lines.
   - [ ] Add ternary operation (for ex. "a == 5 ? 7 : 3").
   - [ ] Add more assignment operators: '??='.
-  - [ ] Add a way to declare variables like "var a, b, c = 7" or "var a = 3, b = 5, c = 7" (multiple declarations).
   - [ ] Idea: import new files with a intelligent path system.
   - [ ] Idea: add tuples => "var (result1, result2) = (3, 5)".
   - [ ] Idea: add list slicing with step, like a[0..5:2].
