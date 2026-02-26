@@ -13,3 +13,14 @@ var k, l, m;
 var p = 7, q, s = 99;
 
 print(s + p);
+print(~"hello")
+print("hello" == "hello")
+print("Hello!" != "hello!")
+print(1 == "1")
+print(1 == true)
+print(0 == false)
+
+print(1 != false);
+print(0 != true);
+
+print(5 == "5")

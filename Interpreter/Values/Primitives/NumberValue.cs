@@ -88,6 +88,16 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 NumberValue n = (NumberValue)other;
                 return (new BooleanValue(Value == n.Value).SetContext(Context), null);
             }
+            else if (other.Type == RuntimeValueType.Boolean)
+            {
+                BooleanValue b = (BooleanValue)other;
+                return (new BooleanValue((b.Value && Value == 1) || (!b.Value && Value == 0)).SetContext(Context), null);
+            }
+            else if (other.Type == RuntimeValueType.String)
+            {
+                StringValue s = (StringValue)other;
+                return (new BooleanValue(Value.ToString() == s.Value).SetContext(Context), null);
+            }
 
             return base.GetComparisonEq(other);
         }
@@ -98,6 +108,16 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 NumberValue n = (NumberValue)other;
                 return (new BooleanValue(Value != n.Value).SetContext(Context), null);
+            }
+            else if (other.Type == RuntimeValueType.Boolean)
+            {
+                BooleanValue b = (BooleanValue)other;
+                return (new BooleanValue(!(b.Value && Value == 1) & !(!b.Value && Value == 0)).SetContext(Context), null);
+            }
+            else if (other.Type == RuntimeValueType.String)
+            {
+                StringValue s = (StringValue)other;
+                return (new BooleanValue(Value.ToString() != s.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonNe(other);
@@ -159,6 +179,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 BooleanValue b = (BooleanValue)other;
                 return (new BooleanValue(!Value.IsZero() && b.Value).SetContext(Context), null);
             }
+            else if (other.Type == RuntimeValueType.Boolean)
+            {
+                StringValue s = (StringValue)other;
+                return (new BooleanValue(!Value.IsZero() && s.Value == "true").SetContext(Context), null);
+            }
 
             return base.AndedBy(other);
         }
@@ -174,6 +199,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 BooleanValue b = (BooleanValue)other;
                 return (new BooleanValue(!Value.IsZero() || b.Value).SetContext(Context), null);
+            }
+            else if (other.Type == RuntimeValueType.Boolean)
+            {
+                StringValue s = (StringValue)other;
+                return (new BooleanValue(!Value.IsZero() || s.Value == "true").SetContext(Context), null);
             }
 
             return base.OredBy(other);

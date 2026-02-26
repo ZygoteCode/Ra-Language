@@ -18,6 +18,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 return (new BooleanValue(true).SetContext(Context), null);
             }
+            else if (other.Type == RuntimeValueType.String)
+            {
+                StringValue s = (StringValue)other;
+                return (new BooleanValue(s.Value == "null").SetContext(Context), null);
+            }
 
             return (new BooleanValue(true).SetContext(Context), null);
         }
@@ -27,6 +32,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type != RuntimeValueType.Null)
             {
                 return (new BooleanValue(true).SetContext(Context), null);
+            }
+            else if (other.Type == RuntimeValueType.String)
+            {
+                StringValue s = (StringValue)other;
+                return (new BooleanValue(s.Value != "null").SetContext(Context), null);
             }
 
             return (new BooleanValue(false).SetContext(Context), null);
