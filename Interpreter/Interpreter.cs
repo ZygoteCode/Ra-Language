@@ -48,8 +48,47 @@ namespace RaLanguage.Interpreter
                 NullNode n => VisitNullNode(n, context),
                 BooleanNode b => VisitBooleanNode(b, context),
                 ListAccessNode l => VisitListAccessNode(l, context),
+                SetNode s => VisitSetNode(s, context),
                 _ => throw new Exception($"No visit method for {node.GetType().Name}")
             };
+        }
+
+        private RuntimeResult VisitSetNode(SetNode node, Context context)
+        {
+            var res = new RuntimeResult();
+            var elements = new HashSet<RuntimeValue>();
+
+            foreach (var elementNode in node.ElementNodes)
+            {
+                var val = res.Register(Visit(elementNode, context));
+
+                if (res.ShouldReturn())
+                {
+                    return res;
+                }
+
+                bool exists = false;
+
+                foreach (var value in elements)
+                {
+                    if (val.Equals(value))
+                    {
+                        exists = true;
+                        break;
+                    }
+                }
+
+                if (exists)
+                {
+                    continue;
+                }
+
+                elements.Add(val);
+            }
+
+            return res.Success(
+                new SetValue(elements).SetContext(context).SetPos(node.PositionStart, node.PositionEnd)
+            );
         }
 
         private RuntimeResult VisitListAccessNode(ListAccessNode node, Context context)
@@ -132,6 +171,7 @@ namespace RaLanguage.Interpreter
                 RuntimeValueType.Function => "function",
                 RuntimeValueType.Null => "null",
                 RuntimeValueType.Boolean => "boolean",
+                RuntimeValueType.Set => "set",
                 _ => ""
             };
 

@@ -30,7 +30,11 @@ This list contains what I have already added after the first commit (done featur
   - [x] Add a way to declare variables like "var a, b, c = 7" or "var a = 3, b = 5, c = 7" (multiple declarations).
   - [x] Add strict checking operator for comparing not only the value, but also the type: '===' + '!=='.
   - [x] Access easily to list values using the following operation => "var a = [1, 2, 3]; print(a[1]); // will output 2".
-  - [ ] Add sets with the {} brackets, similar to list but with unique values, like '{1, 2, 3, 4, "str"}'.
+  - [x] Add sets with the {} brackets, similar to list but with unique values, like '{1, 2, 3, 4, "str"}'.
+  - [ ] Add "in" operator for lists that can check if an element is in list => Example: "if 5 in a" or also "if [1, 2, 3] in a"
+  - [ ] Add factorial operator with "!" as suffix (or "!!" as prefix+suffix).
+  - [ ] Add new operations to String + List + Set primitive values with the remaining operators.
+  - [ ] Assign values to list via indexes, like "list[0] = 5".
 
 ## TODOs for Ra Language (the near future)
 
@@ -38,9 +42,8 @@ This is constantly updated list, I am expanding with new ideas and concepts for 
 
 I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
   
-  - [ ] Add factorial operator with "!"  as suffix (or "!!" as prefix+suffix).
-  - [ ] Add new operations to String & List primitive values with the remaining operators.
-  - [ ] Assign values to list via indexes, like "list[0] = 5".
+  - [ ] Add template literals with backtick (`) for making strings easily with multi-lines.
+  - [ ] Add string interpolation - to decide the syntax, like "${variable}", or "%d %s", or "$1 $2".
   - [ ] Add maps with the "{}" brackets, like '{"float": 3.2, "int": 1, "string": "astring", "bool": true}'.
   - [ ] Add "..." operator to insert all-in the elements of a list/set in another list/set. Example: "var list = [1, 2, ...otherList]"
   - [ ] I was thinking of adding something similar to Rust, like a "let" variable declaration - exit from context means you cannot use it anymore in actual context.
@@ -56,8 +59,6 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [ ] Add "match" (Rust-like) and "switch" (Java + C-like versions) statements.
   - [ ] Access to portions of list using ranges, like for example a[1..3].
   - [ ] Access to last element of a list using for example a[-1].
-  - [ ] Add "in" operator for lists that can check if an element is in list => Example: "if 5 in a" or also "if [1, 2, 3] in a"
-  - [ ] Add template literals with backtick (`) for making strings easily with multi-lines.
   - [ ] Add ternary operation (for ex. "a == 5 ? 7 : 3").
   - [ ] Add more assignment operators: '??='.
   - [ ] Idea: import new files with a intelligent path system.

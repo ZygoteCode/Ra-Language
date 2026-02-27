@@ -95,6 +95,35 @@ namespace RaLanguage.Interpreter.Values
             return new RuntimeResult().Failure(IllegalOperation());
         }
 
+        public override bool Equals(object? obj)
+        {
+            if (obj == null)
+            {
+                return false;
+            }
+
+            if (obj is RuntimeValue)
+            {
+                RuntimeValue value = (RuntimeValue)obj;
+                RuntimeValue? result = GetComparisonStrictEq(value).Item1;
+
+                if (result == null)
+                {
+                    return false;
+                }
+
+                if (result.Type != RuntimeValueType.Boolean)
+                {
+                    return false;
+                }
+
+                BooleanValue b = (BooleanValue)result;
+                return b.Value;
+            }
+
+            return base.Equals(obj);
+        }
+
         public abstract RuntimeValue Copy();
 
         public virtual bool IsTrue() => false;

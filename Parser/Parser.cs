@@ -636,6 +636,12 @@ namespace RaLanguage.Parser
                 if (res.Error != null) return res;
                 return res.Success(listExpr);
             }
+            else if (tok.Type == TokenType.LBRACKET)
+            {
+                var setExpr = res.Register(ParseSetExpression());
+                if (res.Error != null) return res;
+                return res.Success(setExpr);
+            }
             else if (tok.Matches(TokenType.KEYWORD, "if"))
             {
                 var ifExpr = res.Register(ParseIfExpression());
@@ -742,6 +748,47 @@ namespace RaLanguage.Parser
             }
 
             return res.Failure(new InvalidSyntaxError(positionStart, _currentToken.PositionStart, "Expected ':' or '{'"));
+        }
+
+        private ParserResult ParseSetExpression()
+        {
+            var res = new ParserResult();
+            var elementNodes = new List<AstNode>();
+            var positionStart = _currentToken.PositionStart.Copy();
+
+            if (_currentToken.Type != TokenType.LBRACKET)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{'"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            if (_currentToken.Type == TokenType.RBRACKET)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+            else
+            {
+                elementNodes.Add(res.Register(ParseExpression()));
+                if (res.Error != null)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}', 'var', 'if', 'for', 'while', 'fn', int, float, identifier, '+', '-', '(', '[' or 'not'"));
+
+                while (_currentToken.Type == TokenType.COMMA)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                    elementNodes.Add(res.Register(ParseExpression()));
+                    if (res.Error != null) return res;
+                }
+
+                if (_currentToken.Type != TokenType.RBRACKET)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ',' or '}'"));
+
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            return res.Success(new SetNode(elementNodes, positionStart, _currentToken.PositionEnd.Copy()));
         }
 
         private ParserResult ParseListExpression()

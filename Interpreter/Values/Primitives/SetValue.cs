@@ -4,76 +4,41 @@ using RaLanguage.Lexer.Tokens;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
-    public class ListValue : RuntimeValue
+    public class SetValue : RuntimeValue
     {
-        // TODO: https://chatgpt.com/c/69a1416f-1a40-8327-9137-21565e2941a0
+        // TODO: https://chatgpt.com/c/69a1d8ce-24dc-832e-9fa3-d5975ecf09b2
 
-        public List<RuntimeValue> Elements { get; }
-        public ListValue(List<RuntimeValue> elements) { Elements = elements; }
-        public override RuntimeValueType Type => RuntimeValueType.List;
+        public HashSet<RuntimeValue> Elements { get; }
+        public SetValue(HashSet<RuntimeValue> elements) { Elements = elements; }
+        public override RuntimeValueType Type => RuntimeValueType.Set;
 
         public override (RuntimeValue?, Error?) AddedTo(RuntimeValue other)
         {
-            var newList = (ListValue)Copy();
-            newList.Elements.Add(other);
-            return (newList, null);
-        }
+            var newSet = (SetValue)Copy();
+            bool exists = false;
 
-        public override (RuntimeValue?, Error?) SubbedBy(RuntimeValue other)
-        {
-            if (other.Type == RuntimeValueType.Number)
+            foreach (var value in Elements)
             {
-                NumberValue n = (NumberValue)other;
-                var newList = (ListValue)Copy();
-                try
+                if (other.Equals(value))
                 {
-                    int idx = (int)n.Value;
-                    if (idx < 0 || idx >= newList.Elements.Count) throw new IndexOutOfRangeException();
-                    newList.Elements.RemoveAt(idx);
-                    return (newList, null);
-                }
-                catch
-                {
-                    return (null, new RuntimeError(other.PositionStart, other.PositionEnd, "Element at this index could not be removed from list because index is out of bounds", Context));
+                    exists = true;
+                    break;
                 }
             }
-            return base.SubbedBy(other);
-        }
 
-        public override (RuntimeValue?, Error?) MultedBy(RuntimeValue other)
-        {
-            if (other.Type == RuntimeValueType.List)
+            if (exists)
             {
-                ListValue l = (ListValue)other;
-                var newList = (ListValue)Copy();
-                newList.Elements.AddRange(l.Elements);
-                return (newList, null);
+                return (this, null);
             }
-            return base.MultedBy(other);
-        }
 
-        public override (RuntimeValue?, Error?) DivedBy(RuntimeValue other)
-        {
-            if (other.Type == RuntimeValueType.Number)
-            {
-                NumberValue n = (NumberValue)other;
-
-                try
-                {
-                    int idx = (int)n.Value;
-                    if (idx < 0 || idx >= Elements.Count) throw new IndexOutOfRangeException();
-                    return (Elements[idx], null);
-                }
-                catch
-                {
-                    return (null, new RuntimeError(other.PositionStart, other.PositionEnd, "Element at this index could not be retrieved from list because index is out of bounds", Context));
-                }
-            }
-            return base.DivedBy(other);
+            newSet.Elements.Add(other);
+            return (newSet, null);
         }
 
         private (RuntimeValue?, Error?) EvaluateComparison(RuntimeValue other, TokenType tokenType)
         {
+            List<RuntimeValue> AllElements = Elements.ToList();
+
             if (other.Type == RuntimeValueType.List)
             {
                 ListValue l = (ListValue)other;
@@ -86,9 +51,9 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
                 for (var i = 0; i < elementsCount; i++)
                 {
-                    RuntimeValue v1 = Elements[i], v2 = l.Elements[i];
+                    RuntimeValue v1 = AllElements[i], v2 = l.Elements[i];
                     RuntimeValue? comparisonResult = null;
-                    
+
                     switch (tokenType)
                     {
                         case TokenType.EE: comparisonResult = v1.GetComparisonEq(v2).Item1; break;
@@ -127,11 +92,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
                     return (new BooleanValue(false).SetContext(Context), null);
                 }
 
-                List<RuntimeValue> theList = s.Elements.ToList();
+                List<RuntimeValue> otherList = s.Elements.ToList();
 
                 for (var i = 0; i < elementsCount; i++)
                 {
-                    RuntimeValue v1 = Elements[i], v2 = theList[i];
+                    RuntimeValue v1 = AllElements[i], v2 = otherList[i];
                     RuntimeValue? comparisonResult = null;
 
                     switch (tokenType)
@@ -171,8 +136,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
                 switch (tokenType)
                 {
-                    case TokenType.EE: comparisonResult = Elements[0].GetComparisonEq(n).Item1; break;
-                    case TokenType.NE: comparisonResult = Elements[0].GetComparisonNe(n).Item1; break;
+                    case TokenType.EE: comparisonResult = AllElements[0].GetComparisonEq(n).Item1; break;
+                    case TokenType.NE: comparisonResult = AllElements[0].GetComparisonNe(n).Item1; break;
                 }
 
                 if (comparisonResult == null)
@@ -191,8 +156,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
                 switch (tokenType)
                 {
-                    case TokenType.EE: comparisonResult = Elements[0].GetComparisonEq(s).Item1; break;
-                    case TokenType.NE: comparisonResult = Elements[0].GetComparisonNe(s).Item1; break;
+                    case TokenType.EE: comparisonResult = AllElements[0].GetComparisonEq(s).Item1; break;
+                    case TokenType.NE: comparisonResult = AllElements[0].GetComparisonNe(s).Item1; break;
                 }
 
                 if (comparisonResult == null)
@@ -211,8 +176,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
                 switch (tokenType)
                 {
-                    case TokenType.EE: comparisonResult = Elements[0].GetComparisonEq(b).Item1; break;
-                    case TokenType.NE: comparisonResult = Elements[0].GetComparisonNe(b).Item1; break;
+                    case TokenType.EE: comparisonResult = AllElements[0].GetComparisonEq(b).Item1; break;
+                    case TokenType.NE: comparisonResult = AllElements[0].GetComparisonNe(b).Item1; break;
                 }
 
                 if (comparisonResult == null)
@@ -231,8 +196,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
                 switch (tokenType)
                 {
-                    case TokenType.EE: comparisonResult = Elements[0].GetComparisonEq(n).Item1; break;
-                    case TokenType.NE: comparisonResult = Elements[0].GetComparisonNe(n).Item1; break;
+                    case TokenType.EE: comparisonResult = AllElements[0].GetComparisonEq(n).Item1; break;
+                    case TokenType.NE: comparisonResult = AllElements[0].GetComparisonNe(n).Item1; break;
                 }
 
                 if (comparisonResult == null)
@@ -286,17 +251,17 @@ namespace RaLanguage.Interpreter.Values.Primitives
                         return (null, new RuntimeError(other.PositionStart, other.PositionEnd, "Index out of bounds", Context));
                     }
 
-                    return (Elements[index], null);
+                    return (Elements.ToList()[index], null);
                 }
             }
-            catch {}
+            catch { }
 
             return base.ListAccess(other);
         }
 
         public override RuntimeValue Copy()
         {
-            return new ListValue(new List<RuntimeValue>(Elements)).SetPos(PositionStart, PositionEnd).SetContext(Context);
+            return new SetValue(new HashSet<RuntimeValue>(Elements)).SetPos(PositionStart, PositionEnd).SetContext(Context);
         }
 
         public override bool IsTrue()
@@ -312,7 +277,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return true;
         }
 
-        public override string ToString() => "[" + string.Join(", ", Elements.Select(e =>
-            e is StringValue s ? s.ToRepr() : e.ToString())) + "]";
+        public override string ToString() => "{" + string.Join(", ", Elements.Select(e =>
+            e is StringValue s ? s.ToRepr() : e.ToString())) + "}";
     }
 }

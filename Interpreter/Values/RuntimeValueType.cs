@@ -7,6 +7,7 @@
         List,
         Function,
         Null,
-        Boolean
+        Boolean,
+        Set
     }
 }
