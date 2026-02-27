@@ -477,6 +477,13 @@ namespace RaLanguage.Lexer
             if (_currentCharacter == '=')
             {
                 Advance();
+                
+                if (_currentCharacter == '=')
+                {
+                    Advance();
+                    return new Token(TokenType.STRICT_NE, null, positionStart, _position);
+                }
+
                 return new Token(TokenType.NE, null, positionStart, _position);
             }
 
@@ -493,6 +500,12 @@ namespace RaLanguage.Lexer
             {
                 Advance();
                 type = TokenType.EE;
+
+                if (_currentCharacter == '=')
+                {
+                    Advance();
+                    type = TokenType.STRICT_EE;
+                }
             }
             else if (_currentCharacter == '>')
             {

@@ -33,7 +33,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.MultedBy(other);
         }
 
-        public override bool IsTrue() => Value.Length > 0;
+        public override bool IsTrue() => Value.Length > 0 && (Value == "true" || Value == "1");
 
         public override RuntimeValue Copy()
         {
@@ -97,47 +97,37 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) AndedBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.String)
-            {
-                StringValue s = (StringValue)other;
-                return (new BooleanValue(s.Value == "true" && Value == "true").SetContext(Context), null);
-            }
-            else if (other.Type == RuntimeValueType.Number)
-            {
-                NumberValue n = (NumberValue)other;
-                return (new BooleanValue(n.IsTrue() && Value == "true").SetContext(Context), null);
-            }
-            else if (other.Type == RuntimeValueType.Boolean)
-            {
-                BooleanValue b = (BooleanValue)other;
-                return (new BooleanValue(b.Value && Value == "true").SetContext(Context), null);
-            }
-
-            return base.AndedBy(other);
+            return (new BooleanValue(IsTrue() && other.IsTrue()).SetContext(Context), null);
         }
 
         public override (RuntimeValue?, Error?) OredBy(RuntimeValue other)
         {
+            return (new BooleanValue(IsTrue() || other.IsTrue()).SetContext(Context), null);
+        }
+
+        public override (RuntimeValue?, Error?) GetComparisonStrictEq(RuntimeValue other)
+        {
             if (other.Type == RuntimeValueType.String)
             {
                 StringValue s = (StringValue)other;
-                return (new BooleanValue(s.Value == "true" || Value == "true").SetContext(Context), null);
-            }
-            else if (other.Type == RuntimeValueType.Number)
-            {
-                NumberValue n = (NumberValue)other;
-                return (new BooleanValue(n.IsTrue() || Value == "true").SetContext(Context), null);
-            }
-            else if (other.Type == RuntimeValueType.Boolean)
-            {
-                BooleanValue b = (BooleanValue)other;
-                return (new BooleanValue(b.Value || Value == "true").SetContext(Context), null);
+                return (new BooleanValue(s.Value == Value).SetContext(Context), null);
             }
 
-            return base.OredBy(other);
+            return (new BooleanValue(false).SetContext(Context), null);
+        }
+
+        public override (RuntimeValue?, Error?) GetComparisonStrictNe(RuntimeValue other)
+        {
+            if (other.Type == RuntimeValueType.String)
+            {
+                StringValue s = (StringValue)other;
+                return (new BooleanValue(s.Value != Value).SetContext(Context), null);
+            }
+
+            return (new BooleanValue(true).SetContext(Context), null);
         }
 
         public override string ToString() => Value;
-        public string ToRepr() => $"\"{Value}\""; // for debug repr
+        public string ToRepr() => $"\"{Value}\"";
     }
 }

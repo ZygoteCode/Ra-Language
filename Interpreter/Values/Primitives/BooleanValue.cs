@@ -51,46 +51,26 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.GetComparisonNe(other);
         }
 
-        public override (RuntimeValue?, Error?) AndedBy(RuntimeValue other)
+        public override (RuntimeValue?, Error?) GetComparisonStrictEq(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Number)
-            {
-                NumberValue n = (NumberValue)other;
-                return (new BooleanValue(Value && !n.Value.IsZero()).SetContext(Context), null);
-            }
-            else if (other.Type == RuntimeValueType.Boolean)
+            if (other.Type == RuntimeValueType.Boolean)
             {
                 BooleanValue b = (BooleanValue)other;
-                return (new BooleanValue(Value && b.Value).SetContext(Context), null);
-            }
-            else if (other.Type == RuntimeValueType.String)
-            {
-                StringValue s = (StringValue)other;
-                return (new BooleanValue(Value && s.Value == "true").SetContext(Context), null);
+                return (new BooleanValue(b.Value == Value).SetContext(Context), null);
             }
 
-            return base.AndedBy(other);
+            return (new BooleanValue(false).SetContext(Context), null);
         }
 
-        public override (RuntimeValue?, Error?) OredBy(RuntimeValue other)
+        public override (RuntimeValue?, Error?) GetComparisonStrictNe(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Number)
-            {
-                NumberValue n = (NumberValue)other;
-                return (new BooleanValue(Value || !n.Value.IsZero()).SetContext(Context), null);
-            }
-            else if (other.Type == RuntimeValueType.Boolean)
+            if (other.Type == RuntimeValueType.Boolean)
             {
                 BooleanValue b = (BooleanValue)other;
-                return (new BooleanValue(Value || b.Value).SetContext(Context), null);
-            }
-            else if (other.Type == RuntimeValueType.String)
-            {
-                StringValue s = (StringValue)other;
-                return (new BooleanValue(Value || s.Value == "true").SetContext(Context), null);
+                return (new BooleanValue(b.Value != Value).SetContext(Context), null);
             }
 
-            return base.OredBy(other);
+            return (new BooleanValue(true).SetContext(Context), null);
         }
 
         public override (RuntimeValue?, Error?) Notted()

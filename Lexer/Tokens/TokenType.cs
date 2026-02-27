@@ -33,6 +33,9 @@
         LTE,
         GTE,
 
+        STRICT_EE,
+        STRICT_NE,
+
         BITWISE_AND,
         BITWISE_OR,
         BITWISE_LEFT_SHIFT,

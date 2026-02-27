@@ -167,48 +167,6 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.GetComparisonGte(other);
         }
 
-        public override (RuntimeValue?, Error?) AndedBy(RuntimeValue other)
-        {
-            if (other.Type == RuntimeValueType.Number)
-            {
-                NumberValue n = (NumberValue)other;
-                return (new BooleanValue(!Value.IsZero() && !n.Value.IsZero()).SetContext(Context), null);
-            }
-            else if (other.Type == RuntimeValueType.Boolean)
-            {
-                BooleanValue b = (BooleanValue)other;
-                return (new BooleanValue(!Value.IsZero() && b.Value).SetContext(Context), null);
-            }
-            else if (other.Type == RuntimeValueType.Boolean)
-            {
-                StringValue s = (StringValue)other;
-                return (new BooleanValue(!Value.IsZero() && s.Value == "true").SetContext(Context), null);
-            }
-
-            return base.AndedBy(other);
-        }
-
-        public override (RuntimeValue?, Error?) OredBy(RuntimeValue other)
-        {
-            if (other.Type == RuntimeValueType.Number)
-            {
-                NumberValue n = (NumberValue)other;
-                return (new BooleanValue(!Value.IsZero() || !n.Value.IsZero()).SetContext(Context), null);
-            }
-            else if (other.Type == RuntimeValueType.Boolean)
-            {
-                BooleanValue b = (BooleanValue)other;
-                return (new BooleanValue(!Value.IsZero() || b.Value).SetContext(Context), null);
-            }
-            else if (other.Type == RuntimeValueType.Boolean)
-            {
-                StringValue s = (StringValue)other;
-                return (new BooleanValue(!Value.IsZero() || s.Value == "true").SetContext(Context), null);
-            }
-
-            return base.OredBy(other);
-        }
-
         public override (RuntimeValue?, Error?) Notted()
         {
             return (new NumberValue(Value.IsZero() ? BigNumber.One : BigNumber.Zero).SetContext(Context), null);
@@ -274,12 +232,34 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.AddedTo(other);
         }
 
+        public override (RuntimeValue?, Error?) GetComparisonStrictEq(RuntimeValue other)
+        {
+            if (other.Type == RuntimeValueType.Number)
+            {
+                NumberValue n = (NumberValue)other;
+                return (new BooleanValue(n.Value == Value).SetContext(Context), null);
+            }
+
+            return (new BooleanValue(false).SetContext(Context), null);
+        }
+
+        public override (RuntimeValue?, Error?) GetComparisonStrictNe(RuntimeValue other)
+        {
+            if (other.Type == RuntimeValueType.Number)
+            {
+                NumberValue n = (NumberValue)other;
+                return (new BooleanValue(n.Value != Value).SetContext(Context), null);
+            }
+
+            return (new BooleanValue(true).SetContext(Context), null);
+        }
+
         public override RuntimeValue Copy()
         {
             return new NumberValue(Value).SetPos(PositionStart, PositionEnd).SetContext(Context);
         }
 
-        public override bool IsTrue() => !Value.IsZero();
+        public override bool IsTrue() => Value == 1;
 
         public override string ToString() => Value.ToString();
     }

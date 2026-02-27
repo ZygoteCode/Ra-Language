@@ -42,6 +42,16 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return (new BooleanValue(false).SetContext(Context), null);
         }
 
+        public override (RuntimeValue?, Error?) GetComparisonStrictEq(RuntimeValue other)
+        {
+            return (new BooleanValue(other.Type == RuntimeValueType.Null).SetContext(Context), null);
+        }
+
+        public override (RuntimeValue?, Error?) GetComparisonStrictNe(RuntimeValue other)
+        {
+            return (new BooleanValue(other.Type != RuntimeValueType.Null).SetContext(Context), null);
+        }
+
         public override bool IsTrue() => false;
         public override string ToString() => "null";
     }

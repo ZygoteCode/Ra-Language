@@ -47,8 +47,36 @@ namespace RaLanguage.Interpreter
                 NameofNode n => VisitNameofNode(n, context),
                 NullNode n => VisitNullNode(n, context),
                 BooleanNode b => VisitBooleanNode(b, context),
+                ListAccessNode l => VisitListAccessNode(l, context),
                 _ => throw new Exception($"No visit method for {node.GetType().Name}")
             };
+        }
+
+        private RuntimeResult VisitListAccessNode(ListAccessNode node, Context context)
+        {
+            var res = new RuntimeResult();
+            var target = res.Register(Visit(node.Target, context));
+
+            if (res.Error != null)
+            {
+                return res;
+            }
+
+            var index = res.Register(Visit(node.Index, context));
+
+            if (res.Error != null)
+            {
+                return res;
+            }
+
+            (RuntimeValue?, Error?) result = target.ListAccess(index);
+
+            if (result.Item2 != null)
+            {
+                return res.Failure(result.Item2);
+            }
+
+            return res.Success(result.Item1!.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
 
         private RuntimeResult VisitBooleanNode(BooleanNode node, Context context)
@@ -410,6 +438,8 @@ namespace RaLanguage.Interpreter
                 case TokenType.MODULO: (result, error) = left.ModuledBy(right); break;
                 case TokenType.BITWISE_AND: (result, error) = left.BitwiseAndedBy(right); break;
                 case TokenType.BITWISE_OR: (result, error) = left.BitwiseOredBy(right); break;
+                case TokenType.STRICT_EE: (result, error) = left.GetComparisonStrictEq(right); break;
+                case TokenType.STRICT_NE: (result, error) = left.GetComparisonStrictNe(right); break;
             }
 
             if (error != null) return res.Failure(error);

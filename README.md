@@ -28,20 +28,24 @@ This list contains what I have already added after the first commit (done featur
   - [x] Make "null" a real type of value, which can be easily used in comparisons, as different from numbers and others.
   - [x] Add "bool" type value, which will finally replace "true" and "false" numeric values - after that, comparisons will get better and have effective sense. But "0" as "false" and "1" as "true" will be a concept.
   - [x] Add a way to declare variables like "var a, b, c = 7" or "var a = 3, b = 5, c = 7" (multiple declarations).
+  - [x] Add strict checking operator for comparing not only the value, but also the type: '===' + '!=='.
+  - [x] Access easily to list values using the following operation => "var a = [1, 2, 3]; print(a[1]); // will output 2".
   - [ ] Add sets with the {} brackets, similar to list but with unique values, like '{1, 2, 3, 4, "str"}'.
-  - [ ] I was thinking of adding something similar to Rust, like a "let" variable declaration - exit from context means you cannot use it anymore in actual context.
 
 ## TODOs for Ra Language (the near future)
 
 This is constantly updated list, I am expanding with new ideas and concepts for the language. If you feel good with the language and have new ideas & suggestions, you can open an issue with some details, or submit a pull request with interesting modifications.
 
 I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
-
+  
+  - [ ] Add factorial operator with "!"  as suffix (or "!!" as prefix+suffix).
+  - [ ] Add new operations to String & List primitive values with the remaining operators.
+  - [ ] Assign values to list via indexes, like "list[0] = 5".
   - [ ] Add maps with the "{}" brackets, like '{"float": 3.2, "int": 1, "string": "astring", "bool": true}'.
   - [ ] Add "..." operator to insert all-in the elements of a list/set in another list/set. Example: "var list = [1, 2, ...otherList]"
+  - [ ] I was thinking of adding something similar to Rust, like a "let" variable declaration - exit from context means you cannot use it anymore in actual context.
   - [ ] Add real support to multi-line statements & expressions.
   - [ ] Add static typing with strict checking: int, float, double, decimal, bigint, char, str, list.
-  - [ ] Add strict checking operator for comparing not only the value, but also the type: '==='.
   - [ ] Add static return type to functions.
   - [ ] Add in-place ranges => For example 1..5 (1, 2, 3, 4) or 1..=5 (1, 2, 3, 4, 5), will return a list of numbers
   - [ ] Add "??" operator to apply a different value if the current inspected value is null => Example: a = b ?? 3;
@@ -50,7 +54,6 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [ ] Function parameters can be statically typed -> fn test(a: int, b: int): int => print(a + b);
   - [ ] Add foreach statement, which will be easily "for item in list" instead of "for i = 0 to 10 step 1". The "in" keyword could be used also as a condition semantic, like "if 5 in list"
   - [ ] Add "match" (Rust-like) and "switch" (Java + C-like versions) statements.
-  - [ ] Access easily to list values using the following operation => "var a = [1, 2, 3]; print(a[1]); // will output 2".
   - [ ] Access to portions of list using ranges, like for example a[1..3].
   - [ ] Access to last element of a list using for example a[-1].
   - [ ] Add "in" operator for lists that can check if an element is in list => Example: "if 5 in a" or also "if [1, 2, 3] in a"

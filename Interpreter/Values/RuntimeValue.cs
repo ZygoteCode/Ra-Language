@@ -44,6 +44,7 @@ namespace RaLanguage.Interpreter.Values
         public virtual (RuntimeValue?, Error?) BitwiseRightShiftedBy(RuntimeValue other) => (null, IllegalOperation(other));
         public virtual (RuntimeValue?, Error?) BitwiseAndedBy(RuntimeValue other) => (null, IllegalOperation(other));
         public virtual (RuntimeValue?, Error?) BitwiseOredBy(RuntimeValue other) => (null, IllegalOperation(other));
+        public virtual (RuntimeValue?, Error?) ListAccess(RuntimeValue other) => (null, IllegalOperation(other));
 
         public virtual (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
         {
@@ -70,14 +71,24 @@ namespace RaLanguage.Interpreter.Values
             return (null, IllegalOperation(other));
         }
 
+        public virtual (RuntimeValue?, Error?) GetComparisonStrictEq(RuntimeValue other) => (null, IllegalOperation(other));
+        public virtual (RuntimeValue?, Error?) GetComparisonStrictNe(RuntimeValue other) => (null, IllegalOperation(other));
         public virtual (RuntimeValue?, Error?) GetComparisonLt(RuntimeValue other) => (null, IllegalOperation(other));
         public virtual (RuntimeValue?, Error?) GetComparisonGt(RuntimeValue other) => (null, IllegalOperation(other));
         public virtual (RuntimeValue?, Error?) GetComparisonLte(RuntimeValue other) => (null, IllegalOperation(other));
         public virtual (RuntimeValue?, Error?) GetComparisonGte(RuntimeValue other) => (null, IllegalOperation(other));
-        public virtual (RuntimeValue?, Error?) AndedBy(RuntimeValue other) => (null, IllegalOperation(other));
-        public virtual (RuntimeValue?, Error?) OredBy(RuntimeValue other) => (null, IllegalOperation(other));
         public virtual (RuntimeValue?, Error?) Notted() => (null, IllegalOperation(this));
         public virtual (RuntimeValue?, Error?) BitwiseNotted() => (null, IllegalOperation(this));
+
+        public virtual (RuntimeValue?, Error?) AndedBy(RuntimeValue other)
+        {
+            return (new BooleanValue(IsTrue() && other.IsTrue()), null);
+        }
+
+        public virtual (RuntimeValue?, Error?) OredBy(RuntimeValue other)
+        {
+            return (new BooleanValue(IsTrue() || other.IsTrue()), null);
+        }
 
         public virtual RuntimeResult Execute(List<RuntimeValue> args)
         {
