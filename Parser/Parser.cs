@@ -508,13 +508,11 @@ namespace RaLanguage.Parser
         {
             var res = new ParserResult();
 
-            // Partiamo da un atomo base (un identificatore, un numero, una lista inline, ecc.)
             var atom = res.Register(ParseAtom());
             if (res.Error != null) return res;
 
             var resultNode = atom;
 
-            // Cicliamo finché troviamo chiamate di funzione '(' o accessi a lista '['
             while (_currentToken.Type == TokenType.LPAREN || _currentToken.Type == TokenType.LSQUARE)
             {
                 if (_currentToken.Type == TokenType.LPAREN)
@@ -549,7 +547,6 @@ namespace RaLanguage.Parser
                         Advance();
                     }
 
-                    // Impacchettiamo il nodo corrente in un FunctionCallNode
                     resultNode = new FunctionCallNode(resultNode, argNodes);
                 }
                 else if (_currentToken.Type == TokenType.LSQUARE)
@@ -557,19 +554,16 @@ namespace RaLanguage.Parser
                     res.RegisterAdvancement();
                     Advance();
 
-                    // Valutiamo l'espressione dell'indice (può essere a sua volta una chiamata, un'operazione matematica, ecc.)
                     var indexNode = res.Register(ParseExpression());
                     if (res.Error != null) return res;
 
                     if (_currentToken.Type != TokenType.RSQUARE)
                         return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ']'"));
 
-                    // Salviamo la posizione finale della parentesi quadra per il nodo
                     var rBracketEndPos = _currentToken.PositionEnd.Copy();
                     res.RegisterAdvancement();
                     Advance();
 
-                    // Impacchettiamo il nodo corrente in un ListAccessNode
                     resultNode = new ListAccessNode(resultNode, indexNode, resultNode.PositionStart, rBracketEndPos);
                 }
             }
