@@ -13,6 +13,7 @@ using RaLanguage.Parser.Nodes.Primitives;
 using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Statements;
 using RaLanguage.Parser.Nodes.Variables;
+using System.Collections;
 
 namespace RaLanguage.Interpreter
 {
@@ -55,6 +56,8 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.ListAssignment] = (node, ctx) => VisitListAssignmentNode((ListAssignmentNode)node, ctx);
             _visitors[(int)AstNodeType.ForEach] = (node, ctx) => VisitForEachNode((ForEachNode)node, ctx);
             _visitors[(int)AstNodeType.Range] = (node, ctx) => VisitRangeNode((RangeNode)node, ctx);
+            _visitors[(int)AstNodeType.NullCoalescing] = (node, ctx) => VisitNullCoalescingNode((NullCoalescingNode)node, ctx);
+            _visitors[(int)AstNodeType.Ternary] = (node, ctx) => VisitTernaryNode((TernaryNode)node, ctx);
         }
 
         public RuntimeResult Visit(AstNode node, Context context)
@@ -64,6 +67,64 @@ namespace RaLanguage.Interpreter
                 throw new Exception($"No visit method for {node.NodeType}");
 
             return _visitors[index](node, context);
+        }
+
+        private RuntimeResult VisitTernaryNode(TernaryNode node, Context context)
+        {
+            var res = new RuntimeResult();
+
+            var condVal = res.Register(Visit(node.Condition, context));
+            if (res.ShouldReturn()) return res;
+
+            bool condIsTrue;
+            if (condVal is BooleanValue bv)
+                condIsTrue = bv.Value;
+            else
+                condIsTrue = condVal.IsTrue();
+
+            if (condIsTrue)
+            {
+                var trueVal = res.Register(Visit(node.TrueExpression, context));
+                if (res.ShouldReturn()) return res;
+                return res.Success(trueVal);
+            }
+            else
+            {
+                var falseVal = res.Register(Visit(node.FalseExpression, context));
+                if (res.ShouldReturn()) return res;
+                return res.Success(falseVal);
+            }
+        }
+
+        private RuntimeResult VisitNullCoalescingNode(NullCoalescingNode node, Context context)
+        {
+            var res = new RuntimeResult();
+            
+            if (node.Operator.Type != TokenType.NULL_COALESCE)
+            {
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Expected '??' operator", context));
+            }
+
+            var left = res.Register(Visit(node.Left, context));
+
+            if (res.Error != null)
+            {
+                return res;
+            }
+
+            var right = res.Register(Visit(node.Right, context));
+
+            if (res.Error != null)
+            {
+                return res;
+            }
+
+            if (left.Type == RuntimeValueType.Null)
+            {
+                return res.Success(right.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+            }
+
+            return res.Success(left.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
 
         private RuntimeResult VisitRangeNode(RangeNode node, Context context)
@@ -257,6 +318,10 @@ namespace RaLanguage.Interpreter
                     case TokenType.POW_EQ: (result, error) = currentValue.PowedBy(valueToAssign); break;
                     case TokenType.AND_EQ: (result, error) = currentValue.AndedBy(valueToAssign); break;
                     case TokenType.OR_EQ: (result, error) = currentValue.OredBy(valueToAssign); break;
+                    case TokenType.NULL_COALESCE_EQ:
+                        if (currentValue.Type == RuntimeValueType.Null) (result, error) = (valueToAssign.SetContext(context).SetPos(node.PositionStart, node.PositionEnd), null);
+                        else (result, error) = (currentValue.SetContext(context).SetPos(node.PositionStart, node.PositionEnd), null);
+                        break;
                 }
 
                 if (error != null)
@@ -485,9 +550,29 @@ namespace RaLanguage.Interpreter
 
                 foreach (var elementNode in node.ElementNodes)
                 {
-                    var val = res.Register(Visit(elementNode, newContext));
-                    if (res.ShouldReturn()) return res;
-                    elements.Add(val);
+                    if (elementNode is SpreadNode spread)
+                    {
+                        var val = res.Register(Visit(spread.Expression, newContext));
+                        if (res.ShouldReturn()) return res;
+
+                        if (val.Type != RuntimeValueType.List)
+                        {
+                            return res.Failure(new RuntimeError(
+                                spread.PositionStart,
+                                spread.PositionEnd,
+                                "Spread target must be an iterable (e.g. list)",
+                                context));
+                        }
+
+                        ListValue l = (ListValue)val;
+                        elements.AddRange(l.Elements);
+                    }
+                    else
+                    {
+                        var val = res.Register(Visit(elementNode, newContext));
+                        if (res.ShouldReturn()) return res;
+                        elements.Add(val);
+                    }
                 }
 
                 context.ApplyChangesFrom(newContext);
@@ -496,9 +581,29 @@ namespace RaLanguage.Interpreter
             {
                 foreach (var elementNode in node.ElementNodes)
                 {
-                    var val = res.Register(Visit(elementNode, context));
-                    if (res.ShouldReturn()) return res;
-                    elements.Add(val);
+                    if (elementNode is SpreadNode spread)
+                    {
+                        var val = res.Register(Visit(spread.Expression, context));
+                        if (res.ShouldReturn()) return res;
+
+                        if (val.Type != RuntimeValueType.List)
+                        {
+                            return res.Failure(new RuntimeError(
+                                spread.PositionStart,
+                                spread.PositionEnd,
+                                "Spread target must be an iterable (e.g. list)",
+                                context));
+                        }
+
+                        ListValue l = (ListValue)val;
+                        elements.AddRange(l.Elements);
+                    }
+                    else
+                    {
+                        var val = res.Register(Visit(elementNode, context));
+                        if (res.ShouldReturn()) return res;
+                        elements.Add(val);
+                    }
                 }
             }
 
@@ -641,6 +746,17 @@ namespace RaLanguage.Interpreter
                 case TokenType.POW_EQ: (result, error) = currentValue.PowedBy(value); break;
                 case TokenType.AND_EQ: (result, error) = currentValue.AndedBy(value); break;
                 case TokenType.OR_EQ: (result, error) = currentValue.OredBy(value); break;
+                case TokenType.NULL_COALESCE_EQ:
+                    if (currentValue.Type == RuntimeValueType.Null)
+                    {
+                        (result, error) = (value.SetContext(context).SetPos(node.PositionStart, node.PositionEnd), null);
+                    }
+                    else
+                    {
+                        (result, error) = (currentValue.SetContext(context).SetPos(node.PositionStart, node.PositionEnd), null);
+                    }
+
+                    break;
             }
 
             if (error != null)

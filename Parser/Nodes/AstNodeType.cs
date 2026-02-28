@@ -30,6 +30,9 @@
         Set,
         ListAssignment,
         ForEach,
-        Range
+        Range,
+        NullCoalescing,
+        Spread,
+        Ternary
     }
 }

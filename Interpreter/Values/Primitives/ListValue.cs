@@ -1,6 +1,7 @@
 ﻿using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Lexer.Tokens;
+using System.Xml.Linq;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
@@ -293,6 +294,44 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
                     return (Elements[index], null);
                 }
+                else if (other.Type == RuntimeValueType.List || other.Type == RuntimeValueType.Set)
+                {
+                    List<RuntimeValue> actualElements = new List<RuntimeValue>();
+
+                    if (other.Type == RuntimeValueType.List)
+                    {
+                        ListValue l = (ListValue)other;
+                        actualElements = l.Elements;
+                    }
+                    else
+                    {
+                        SetValue s = (SetValue)other;
+                        actualElements = s.Elements.ToList();
+                    }
+
+                    List<RuntimeValue> elements = new List<RuntimeValue>();
+
+                    for (int i = 0; i < actualElements.Count; i++)
+                    {
+                        RuntimeValue v = actualElements[i];
+
+                        if (v.Type != RuntimeValueType.Number)
+                        {
+                            return (null, new RuntimeError(other.PositionStart, other.PositionEnd, $"Value at index {i} should be a number", Context));
+                        }
+
+                        int index = (int)((NumberValue)v).Value;
+
+                        if (index > Elements.Count - 1)
+                        {
+                            return (null, new RuntimeError(other.PositionStart, other.PositionEnd, "Index out of bounds", Context));
+                        }
+
+                        elements.Add(Elements[index]);
+                    }
+
+                    return (new ListValue(elements).SetContext(Context), null);
+                }
             }
             catch {}
 
@@ -301,21 +340,47 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) ListSet(RuntimeValue indexValue, RuntimeValue value)
         {
-            if (indexValue.Type != RuntimeValueType.Number)
+            if (indexValue.Type == RuntimeValueType.Number)
             {
-                return (null, new RuntimeError(indexValue.PositionStart, indexValue.PositionEnd, "Index must be a number", Context));
+                NumberValue number = (NumberValue)indexValue;
+                int index = (int)number.Value;
+
+                if (index < 0 || index >= Elements.Count)
+                {
+                    return (null, new RuntimeError(indexValue.PositionStart, indexValue.PositionEnd, "Index out of bounds", Context));
+                }
+
+                Elements[index] = value;
+                return (value.SetContext(Context), null);
+            }
+            else if (indexValue.Type == RuntimeValueType.List)
+            {
+                ListValue list = (ListValue)indexValue;
+                List<RuntimeValue> elements = new List<RuntimeValue>();
+
+                for (int i = 0; i < list.Elements.Count; i++)
+                {
+                    RuntimeValue v = list.Elements[i];
+
+                    if (v.Type != RuntimeValueType.Number)
+                    {
+                        return (null, new RuntimeError(indexValue.PositionStart, indexValue.PositionEnd, $"Value at index {i} should be a number", Context));
+                    }
+
+                    int index = (int)((NumberValue)v).Value;
+
+                    if (index > Elements.Count - 1)
+                    {
+                        return (null, new RuntimeError(indexValue.PositionStart, indexValue.PositionEnd, "Index out of bounds", Context));
+                    }
+
+                    Elements[index] = value;
+                }
+
+                return (this, null);
             }
 
-            NumberValue number = (NumberValue)indexValue;
-            int index = (int)number.Value;
-
-            if (index < 0 || index >= Elements.Count)
-            {
-                return (null, new RuntimeError(indexValue.PositionStart, indexValue.PositionEnd, "Index out of bounds", Context));
-            }
-
-            Elements[index] = value;
-            return (value.SetContext(Context), null);
+            return (null, new RuntimeError(indexValue.PositionStart, indexValue.PositionEnd, "Index must be a number or a list", Context));
         }
 
         public override RuntimeValue Copy()

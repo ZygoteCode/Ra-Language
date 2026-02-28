@@ -109,6 +109,9 @@ namespace RaLanguage.Lexer
                     case '.':
                         tokens.Add(MakeDot());
                         break;
+                    case '?':
+                        tokens.Add(MakeQuestionMark());
+                        break;
                     case '{':
                         tokens.Add(new Token(TokenType.LBRACKET, null, _position));
                         Advance();
@@ -173,6 +176,27 @@ namespace RaLanguage.Lexer
             return (tokens, null);
         }
 
+        private Token MakeQuestionMark()
+        {
+            TokenType type = TokenType.QUESTION_MARK;
+            var positionStart = _position.Copy();
+            Advance();
+
+            if (_currentCharacter == '?')
+            {
+                Advance();
+                type = TokenType.NULL_COALESCE;
+
+                if (_currentCharacter == '=')
+                {
+                    Advance();
+                    type = TokenType.NULL_COALESCE_EQ;
+                }
+            }
+
+            return new Token(type, null, positionStart, _position);
+        }
+
         private Token MakeColon()
         {
             TokenType type = TokenType.COLON;
@@ -203,6 +227,11 @@ namespace RaLanguage.Lexer
                 {
                     Advance();
                     type = TokenType.DOUBLE_DOT_EQ;
+                }
+                else if (_currentCharacter == '.')
+                {
+                    Advance();
+                    type = TokenType.SPREAD;
                 }
             }
 

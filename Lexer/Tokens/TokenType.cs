@@ -33,12 +33,17 @@
         LTE,
         GTE,
 
-        DOT, // TODO
-        DOUBLE_DOT, // TODO
-        DOUBLE_DOT_EQ, // TODO
+        DOT,
+        DOUBLE_DOT,
+        DOUBLE_DOT_EQ,
+        SPREAD,
 
         COLON,
-        DOUBLE_COLON, // TODO
+        DOUBLE_COLON,
+
+        QUESTION_MARK,
+        NULL_COALESCE,
+        NULL_COALESCE_EQ,
 
         STRICT_EE,
         STRICT_NE,

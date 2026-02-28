@@ -44,6 +44,12 @@ This list contains what I have already added after the first commit (done featur
   - [x] Add foreach statement, which will be easily "for item in list" instead of "for i = 0 to 10 step 1". The "in" keyword could be used also as a condition semantic, like "if 5 in list".
   - [x] Access to last element of a list using for example a[-1]. Also can access to element in a bottom-up approach, so can use for example: "var list = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];" can use "print(list[-1])" (output 10), "print(list[-2])" (output 9) and so on.
   - [x] Add in-place ranges => For example 1..5 (1, 2, 3, 4) or 1..=5 (1, 2, 3, 4, 5), will return a list of numbers.
+  - [x] Access to portions of list using ranges, like for example a[1..3].
+  - [x] Add list slicing with step, like a[0..5:2].
+  - [x] Add "??" operator to apply a different value if the current inspected value is null => Example: a = b ?? 3;
+  - [x] Add "..." operator to insert all-in the elements of a list/set in another list/set. Example: "var list = [1, 2, ...otherList]".
+  - [x] Add more assignment operators: '??='.
+  - [x] Add ternary operation (for ex. "a == 5 ? 7 : 3").
 
 ## TODOs for Ra Language (the near future)
 
@@ -51,28 +57,22 @@ This is constantly updated list, I am expanding with new ideas and concepts for 
 
 I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
   
+  - [ ] Add "match" (Rust-like) and "switch" (Java + C-like versions) statements.
   - [ ] In functions, add "..." operator to make array unlimited parameters.
   - [ ] In functions, allow specific default values to parameters.
   - [ ] Allow function calling with named parameters.
   - [ ] Add new operations to String + List + Set primitive values with the remaining operators.
   - [ ] Add string interpolation - to decide the syntax, like "${variable}", or "%d %s", or "$1 $2".
   - [ ] Add maps with the "{}" brackets, like '{"float": 3.2, "int": 1, "string": "astring", "bool": true}'.
-  - [ ] Add "..." operator to insert all-in the elements of a list/set in another list/set. Example: "var list = [1, 2, ...otherList]"
   - [ ] I was thinking of adding something similar to Rust, like a "let" variable declaration - exit from context means you cannot use it anymore in actual context.
   - [ ] Add real support to multi-line statements & expressions.
-  - [ ] Add static typing with strict checking: int, float, double, decimal, bigint, char, str, list.
+  - [ ] Add static typing with strict type checking.
   - [ ] Add static return type to functions.
-  - [ ] Add "??" operator to apply a different value if the current inspected value is null => Example: a = b ?? 3;
   - [ ] Add cast to other types with classic C-like notation => var a: int = 5; var b: float = (float) a; <= For example, don't care about syntax.
   - [ ] Add a operator like "&" to function parameters to pass reference instead of copying only the value.
   - [ ] Function parameters can be statically typed -> fn test(a: int, b: int): int => print(a + b);
-  - [ ] Add "match" (Rust-like) and "switch" (Java + C-like versions) statements.
-  - [ ] Access to portions of list using ranges, like for example a[1..3].
-  - [ ] Add ternary operation (for ex. "a == 5 ? 7 : 3").
-  - [ ] Add more assignment operators: '??='.
   - [ ] Idea: import new files with a intelligent path system.
   - [ ] Idea: add tuples => "var (result1, result2) = (3, 5)".
-  - [ ] Idea: add list slicing with step, like a[0..5:2].
   - [ ] Idea: List comprehensions, like [x*2 for x in a if x>1] to create lists in a compact way.
   - [ ] Idea: the last operation of a function is its return value, like in V and Rust.
   - [ ] Idea: add labels + goto keyword (you can do spaghetti code with that!)

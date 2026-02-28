@@ -33,7 +33,8 @@ namespace RaLanguage.Parser
             TokenType.BITWISE_RIGHT_SHIFT_EQ,
             TokenType.POW_EQ,
             TokenType.AND_EQ,
-            TokenType.OR_EQ
+            TokenType.OR_EQ,
+            TokenType.NULL_COALESCE_EQ,
         };
 
         public Parser(List<Token> tokens)
@@ -392,6 +393,32 @@ namespace RaLanguage.Parser
                 ));
             }
 
+            if (_currentToken.Type == TokenType.QUESTION_MARK)
+            {
+                var qTok = _currentToken;
+                res.RegisterAdvancement();
+                Advance();
+
+                var trueExpr = res.Register(ParseExpression());
+                if (res.Error != null) return res;
+
+                if (_currentToken.Type != TokenType.COLON)
+                {
+                    return res.Failure(new InvalidSyntaxError(
+                        _currentToken.PositionStart, _currentToken.PositionEnd,
+                        "Expected ':' after expression in ternary operator"
+                    ));
+                }
+
+                res.RegisterAdvancement();
+                Advance();
+
+                var falseExpr = res.Register(ParseExpression());
+                if (res.Error != null) return res;
+
+                leftNode = new TernaryNode(leftNode, trueExpr, falseExpr, qTok);
+            }
+
             if (IsAssignmentToken(_currentToken.Type))
             {
                 Token assignmentToken = _currentToken;
@@ -408,7 +435,7 @@ namespace RaLanguage.Parser
                 }
                 else if (leftNode.NodeType == AstNodeType.ListAccess)
                 {
-                    ListAccessNode listAccess = (ListAccessNode) leftNode;
+                    ListAccessNode listAccess = (ListAccessNode)leftNode;
                     return res.Success(new ListAssignmentNode(listAccess, assignmentToken, rightNode));
                 }
                 else
@@ -437,24 +464,20 @@ namespace RaLanguage.Parser
         {
             var res = new ParserResult();
 
-            // prima risolviamo il "start" della range (es. 1 in 1..5)
             var start = res.Register(ParseArithmeticExpression());
             if (res.Error != null) return res;
 
-            // controlliamo se c'è '..' o '..='
             if (_currentToken.Type == TokenType.DOUBLE_DOT || _currentToken.Type == TokenType.DOUBLE_DOT_EQ)
             {
-                var opTok = _currentToken; // salva '..' o '..='
+                var opTok = _currentToken;
                 res.RegisterAdvancement();
                 Advance();
 
-                // end della range
                 var end = res.Register(ParseArithmeticExpression());
                 if (res.Error != null) return res;
 
                 AstNode? step = null;
 
-                // step opzionale tipo ':2'
                 if (_currentToken.Type == TokenType.COLON)
                 {
                     res.RegisterAdvancement();
@@ -467,8 +490,28 @@ namespace RaLanguage.Parser
                 return res.Success(new RangeNode(start, end, opTok, step));
             }
 
-            // se non c'è '..', ritorna solo il start
             return res.Success(start);
+        }
+
+        private ParserResult ParseNullCoalescing()
+        {
+            var res = new ParserResult();
+            var left = res.Register(ParseShiftExpression());
+            if (res.Error != null) return res;
+
+            while (_currentToken.Type == TokenType.NULL_COALESCE)
+            {
+                var opTok = _currentToken;
+                res.RegisterAdvancement();
+                Advance();
+
+                var right = res.Register(ParseShiftExpression());
+                if (res.Error != null) return res;
+
+                left = new NullCoalescingNode(left, right, opTok);
+            }
+
+            return res.Success(left);
         }
 
         private ParserResult ParseComparisonExpression()
@@ -487,7 +530,7 @@ namespace RaLanguage.Parser
             }
 
             var b_node = res.Register(ParseBinaryOperation(
-                ParseShiftExpression,
+                ParseNullCoalescing,
                 new List<(TokenType, string?)>
                 {
                     (TokenType.EE, null), (TokenType.NE, null), (TokenType.LT, null),
@@ -879,16 +922,50 @@ namespace RaLanguage.Parser
             }
             else
             {
-                elementNodes.Add(res.Register(ParseExpression()));
-                if (res.Error != null)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ']', 'var', 'if', 'for', 'while', 'fn', int, float, identifier, '+', '-', '(', '[' or 'not'"));
+                if (_currentToken.Type == TokenType.SPREAD)
+                {
+                    var spreadTok = _currentToken;
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    var spreadExpr = res.Register(ParseExpression());
+                    if (res.Error != null)
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd,
+                            "Expected expression after '...' in list"));
+
+                    elementNodes.Add(new SpreadNode(spreadTok, spreadExpr));
+                }
+                else
+                {
+                    var first = res.Register(ParseExpression());
+                    if (res.Error != null)
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd,
+                            "Expected ']', 'var', 'if', 'for', 'while', 'fn', int, float, identifier, '+', '-', '(', '[' or 'not'"));
+
+                    elementNodes.Add(first);
+                }
 
                 while (_currentToken.Type == TokenType.COMMA)
                 {
                     res.RegisterAdvancement();
                     Advance();
-                    elementNodes.Add(res.Register(ParseExpression()));
-                    if (res.Error != null) return res;
+
+                    if (_currentToken.Type == TokenType.SPREAD)
+                    {
+                        var spreadTok = _currentToken;
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        var spreadExpr = res.Register(ParseExpression());
+                        if (res.Error != null) return res;
+                        elementNodes.Add(new SpreadNode(spreadTok, spreadExpr));
+                    }
+                    else
+                    {
+                        var elem = res.Register(ParseExpression());
+                        if (res.Error != null) return res;
+                        elementNodes.Add(elem);
+                    }
                 }
 
                 if (_currentToken.Type != TokenType.RSQUARE)
