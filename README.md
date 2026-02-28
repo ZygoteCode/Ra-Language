@@ -43,6 +43,7 @@ This list contains what I have already added after the first commit (done featur
   - [x] Add template literals with backtick (`) for making strings easily with multi-lines.
   - [x] Add foreach statement, which will be easily "for item in list" instead of "for i = 0 to 10 step 1". The "in" keyword could be used also as a condition semantic, like "if 5 in list".
   - [x] Access to last element of a list using for example a[-1]. Also can access to element in a bottom-up approach, so can use for example: "var list = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];" can use "print(list[-1])" (output 10), "print(list[-2])" (output 9) and so on.
+  - [x] Add in-place ranges => For example 1..5 (1, 2, 3, 4) or 1..=5 (1, 2, 3, 4, 5), will return a list of numbers.
 
 ## TODOs for Ra Language (the near future)
 
@@ -61,7 +62,6 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [ ] Add real support to multi-line statements & expressions.
   - [ ] Add static typing with strict checking: int, float, double, decimal, bigint, char, str, list.
   - [ ] Add static return type to functions.
-  - [ ] Add in-place ranges => For example 1..5 (1, 2, 3, 4) or 1..=5 (1, 2, 3, 4, 5), will return a list of numbers
   - [ ] Add "??" operator to apply a different value if the current inspected value is null => Example: a = b ?? 3;
   - [ ] Add cast to other types with classic C-like notation => var a: int = 5; var b: float = (float) a; <= For example, don't care about syntax.
   - [ ] Add a operator like "&" to function parameters to pass reference instead of copying only the value.

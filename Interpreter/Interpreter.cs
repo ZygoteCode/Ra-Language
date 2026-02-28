@@ -54,6 +54,7 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.Set] = (node, ctx) => VisitSetNode((SetNode)node, ctx);
             _visitors[(int)AstNodeType.ListAssignment] = (node, ctx) => VisitListAssignmentNode((ListAssignmentNode)node, ctx);
             _visitors[(int)AstNodeType.ForEach] = (node, ctx) => VisitForEachNode((ForEachNode)node, ctx);
+            _visitors[(int)AstNodeType.Range] = (node, ctx) => VisitRangeNode((RangeNode)node, ctx);
         }
 
         public RuntimeResult Visit(AstNode node, Context context)
@@ -63,6 +64,78 @@ namespace RaLanguage.Interpreter
                 throw new Exception($"No visit method for {node.NodeType}");
 
             return _visitors[index](node, context);
+        }
+
+        private RuntimeResult VisitRangeNode(RangeNode node, Context context)
+        {
+            var res = new RuntimeResult();
+            var start = res.Register(Visit(node.Start, context));
+
+            if (res.Error != null)
+            {
+                return res;
+            }
+
+            if (start.Type != RuntimeValueType.Number)
+            {
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Start value should be a number", context));
+            }
+
+            var end = res.Register(Visit(node.End, context));
+
+            if (res.Error != null)
+            {
+                return res;
+            }
+
+            if (end.Type != RuntimeValueType.Number)
+            {
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "End value should be a number", context));
+            }
+
+            RuntimeValue? step = null;
+            
+            if (node.Step != null)
+            {
+                step = res.Register(Visit(node.Step, context));
+
+                if (res.Error != null)
+                {
+                    return res;
+                }
+
+                if (step.Type != RuntimeValueType.Number)
+                {
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Step value should be a number", context));
+                }
+            }
+
+            NumberValue startValue = (NumberValue)start, endValue = (NumberValue)end;
+            NumberValue stepValue = step != null ? (NumberValue)step : NumberValue.One;
+
+            if (startValue.Value > endValue.Value)
+            {
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Start value should not be higher than the end value", context));
+            }
+
+            List<RuntimeValue> values = new List<RuntimeValue>();
+
+            if (node.Operator.Type == TokenType.DOUBLE_DOT)
+            {
+                for (BigNumber i = startValue.Value; i < endValue.Value; i += stepValue.Value)
+                {
+                    values.Add(new NumberValue(i).SetContext(context));
+                }
+            }
+            else if (node.Operator.Type == TokenType.DOUBLE_DOT_EQ)
+            {
+                for (BigNumber i = startValue.Value; i <= endValue.Value; i += stepValue.Value)
+                {
+                    values.Add(new NumberValue(i).SetContext(context));
+                }
+            }
+
+            return res.Success(new ListValue(values).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
 
         private RuntimeResult VisitForEachNode(ForEachNode node, Context context)

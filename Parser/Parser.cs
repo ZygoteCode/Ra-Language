@@ -433,6 +433,44 @@ namespace RaLanguage.Parser
             return ParseBinaryOperation(ParseComparisonExpression, new List<(TokenType, string?)> { (TokenType.BITWISE_AND, null) });
         }
 
+        private ParserResult ParseRangeExpression()
+        {
+            var res = new ParserResult();
+
+            // prima risolviamo il "start" della range (es. 1 in 1..5)
+            var start = res.Register(ParseArithmeticExpression());
+            if (res.Error != null) return res;
+
+            // controlliamo se c'è '..' o '..='
+            if (_currentToken.Type == TokenType.DOUBLE_DOT || _currentToken.Type == TokenType.DOUBLE_DOT_EQ)
+            {
+                var opTok = _currentToken; // salva '..' o '..='
+                res.RegisterAdvancement();
+                Advance();
+
+                // end della range
+                var end = res.Register(ParseArithmeticExpression());
+                if (res.Error != null) return res;
+
+                AstNode? step = null;
+
+                // step opzionale tipo ':2'
+                if (_currentToken.Type == TokenType.COLON)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    step = res.Register(ParseArithmeticExpression());
+                    if (res.Error != null) return res;
+                }
+
+                return res.Success(new RangeNode(start, end, opTok, step));
+            }
+
+            // se non c'è '..', ritorna solo il start
+            return res.Success(start);
+        }
+
         private ParserResult ParseComparisonExpression()
         {
             var res = new ParserResult();
@@ -448,12 +486,15 @@ namespace RaLanguage.Parser
                 return res.Success(new UnaryOperationNode(opTok, node));
             }
 
-            var b_node = res.Register(ParseBinaryOperation(ParseShiftExpression, new List<(TokenType, string?)>
-            {
-                (TokenType.EE, null), (TokenType.NE, null), (TokenType.LT, null),
-                (TokenType.GT, null), (TokenType.LTE, null), (TokenType.GTE, null),
-                (TokenType.STRICT_EE, null), (TokenType.STRICT_NE, null), (TokenType.KEYWORD, "in")
-            }));
+            var b_node = res.Register(ParseBinaryOperation(
+                ParseShiftExpression,
+                new List<(TokenType, string?)>
+                {
+                    (TokenType.EE, null), (TokenType.NE, null), (TokenType.LT, null),
+                    (TokenType.GT, null), (TokenType.LTE, null), (TokenType.GTE, null),
+                    (TokenType.STRICT_EE, null), (TokenType.STRICT_NE, null), (TokenType.KEYWORD, "in")
+                }
+            ));
 
             if (res.Error != null)
             {
@@ -462,12 +503,13 @@ namespace RaLanguage.Parser
                    "Expected int, float, identifier, '+', '-', '(', '[', 'if', 'for', 'while', 'fn' or 'not'"
                ));
             }
+            
             return res.Success(b_node);
         }
 
         private ParserResult ParseShiftExpression()
         {
-            return ParseBinaryOperation(ParseArithmeticExpression, new List<(TokenType, string?)>
+            return ParseBinaryOperation(ParseRangeExpression, new List<(TokenType, string?)>
             {
                 (TokenType.BITWISE_LEFT_SHIFT, null),
                 (TokenType.BITWISE_RIGHT_SHIFT, null)

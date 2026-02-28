@@ -29,6 +29,7 @@
         ListAccess,
         Set,
         ListAssignment,
-        ForEach
+        ForEach,
+        Range
     }
 }

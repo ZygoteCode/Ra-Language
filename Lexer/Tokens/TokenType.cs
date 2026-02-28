@@ -33,6 +33,13 @@
         LTE,
         GTE,
 
+        DOT, // TODO
+        DOUBLE_DOT, // TODO
+        DOUBLE_DOT_EQ, // TODO
+
+        COLON,
+        DOUBLE_COLON, // TODO
+
         STRICT_EE,
         STRICT_NE,
 
@@ -59,7 +66,6 @@
         COMMA,
         ARROW,
         NEWLINE,
-        COLON,
         EOF
     }
 }

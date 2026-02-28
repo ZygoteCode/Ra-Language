@@ -104,8 +104,10 @@ namespace RaLanguage.Lexer
                         Advance();
                         break;
                     case ':':
-                        tokens.Add(new Token(TokenType.COLON, null, _position));
-                        Advance();
+                        tokens.Add(MakeColon());
+                        break;
+                    case '.':
+                        tokens.Add(MakeDot());
                         break;
                     case '{':
                         tokens.Add(new Token(TokenType.LBRACKET, null, _position));
@@ -169,6 +171,42 @@ namespace RaLanguage.Lexer
 
             tokens.Add(new Token(TokenType.EOF, null, _position));
             return (tokens, null);
+        }
+
+        private Token MakeColon()
+        {
+            TokenType type = TokenType.COLON;
+            var positionStart = _position.Copy();
+            Advance();
+
+            if (_currentCharacter == ':')
+            {
+                Advance();
+                type = TokenType.DOUBLE_COLON;
+            }
+
+            return new Token(type, null, positionStart, _position);
+        }
+
+        private Token MakeDot()
+        {
+            TokenType type = TokenType.DOT;
+            var positionStart = _position.Copy();
+            Advance();
+
+            if (_currentCharacter == '.')
+            {
+                Advance();
+                type = TokenType.DOUBLE_DOT;
+
+                if (_currentCharacter == '=')
+                {
+                    Advance();
+                    type = TokenType.DOUBLE_DOT_EQ;
+                }
+            }
+
+            return new Token(type, null, positionStart, _position);
         }
 
         private Token MakePlus()
@@ -338,6 +376,11 @@ namespace RaLanguage.Lexer
 
                 if (_currentCharacter == '.')
                 {
+                    if (_position.Idx + 1 < _text.Length && _text[_position.Idx + 1] == '.')
+                    {
+                        break;
+                    }
+
                     if (dotCount == 1) break;
                     dotCount++;
                     numStr.Append('.');
