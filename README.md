@@ -48,6 +48,9 @@ This is constantly updated list, I am expanding with new ideas and concepts for 
 
 I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
   
+  - [ ] In functions, add "..." operator to make array unlimited parameters.
+  - [ ] In functions, allow specific default values to parameters.
+  - [ ] Allow function calling with named parameters.
   - [ ] Add new operations to String + List + Set primitive values with the remaining operators.
   - [ ] Add string interpolation - to decide the syntax, like "${variable}", or "%d %s", or "$1 $2".
   - [ ] Add maps with the "{}" brackets, like '{"float": 3.2, "int": 1, "string": "astring", "bool": true}'.

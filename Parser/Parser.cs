@@ -49,6 +49,11 @@ namespace RaLanguage.Parser
             return _currentToken;
         }
 
+        private Token Peek(int index = 1)
+        {
+            return _tokens[_tokenIndex + index];
+        }
+
         private Token SkipMultiLines(ParserResult result)
         {
             while (_currentToken.Type == TokenType.NEWLINE)
@@ -153,6 +158,11 @@ namespace RaLanguage.Parser
 
                         scopeStatements.Add(res.TryRegister(ParseStatements()));
 
+                        if (res.Error != null)
+                        {
+                            return res;
+                        }
+
                         if (_currentToken.Type == TokenType.RBRACKET)
                         {
                             res.RegisterAdvancement();
@@ -168,6 +178,11 @@ namespace RaLanguage.Parser
                 else
                 {
                     stmt = res.TryRegister(ParseStatement());
+
+                    if (res.Error != null)
+                    {
+                        return res;
+                    }
                 }
 
                 if (stmt == null)
