@@ -7,7 +7,7 @@ namespace RaLanguage.Parser.Nodes.Variables
         public VariableDeclarationType DeclarationType { get; }
         public List<(Token, AstNode?)> Declarations { get; }
 
-        public VariableDeclarationNode(VariableDeclarationType declarationType, List<(Token, AstNode?)> declarations)
+        public VariableDeclarationNode(VariableDeclarationType declarationType, List<(Token, AstNode?)> declarations) : base(AstNodeType.VariableDeclaration)
         {
             DeclarationType = declarationType;
             Declarations = declarations;

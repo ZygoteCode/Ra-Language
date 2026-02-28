@@ -8,7 +8,7 @@ namespace RaLanguage.Parser.Nodes.Variables
         public Token AssignmentToken { get; }
         public AstNode ValueNode { get; }
 
-        public VariableAssignmentNode(Token varNameTok, Token assignmentToken, AstNode valueNode)
+        public VariableAssignmentNode(Token varNameTok, Token assignmentToken, AstNode valueNode) : base(AstNodeType.VariableAssignment)
         {
             VarNameTok = varNameTok;
             AssignmentToken = assignmentToken;

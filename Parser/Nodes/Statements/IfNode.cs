@@ -5,7 +5,7 @@
         public List<(AstNode Condition, AstNode Expr, bool ShouldReturnNull)> Cases { get; }
         public (AstNode Expr, bool ShouldReturnNull)? ElseCase { get; }
 
-        public IfNode(List<(AstNode, AstNode, bool)> cases, (AstNode, bool)? elseCase)
+        public IfNode(List<(AstNode, AstNode, bool)> cases, (AstNode, bool)? elseCase) : base(AstNodeType.If)
         {
             Cases = cases;
             ElseCase = elseCase;

@@ -6,7 +6,7 @@ namespace RaLanguage.Parser.Nodes.Special
     {
         public Token Token { get; }
 
-        public NameofNode(Token token)
+        public NameofNode(Token token) : base(AstNodeType.Nameof)
         {
             Token = token;
             PositionStart = token.PositionStart;

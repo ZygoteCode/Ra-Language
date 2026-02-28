@@ -4,7 +4,7 @@
     {
         public AstNode Node { get; }
 
-        public TypeofNode(AstNode node)
+        public TypeofNode(AstNode node) : base(AstNodeType.Typeof)
         {
             Node = node;
             PositionStart = node.PositionStart;

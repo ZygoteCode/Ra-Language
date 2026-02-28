@@ -5,7 +5,7 @@
         public AstNode ConditionNode, BodyNode;
         public bool ShouldReturnNull;
 
-        public DoWhileNode(AstNode conditionNode, AstNode bodyNode, bool shouldReturnNull)
+        public DoWhileNode(AstNode conditionNode, AstNode bodyNode, bool shouldReturnNull) : base(AstNodeType.DoWhile)
         {
             ConditionNode = conditionNode;
             BodyNode = bodyNode;

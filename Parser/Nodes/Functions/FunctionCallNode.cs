@@ -5,7 +5,7 @@
         public AstNode NodeToCall { get; }
         public List<AstNode> ArgNodes { get; }
 
-        public FunctionCallNode(AstNode nodeToCall, List<AstNode> argNodes)
+        public FunctionCallNode(AstNode nodeToCall, List<AstNode> argNodes) : base(AstNodeType.FunctionCall)
         {
             NodeToCall = nodeToCall;
             ArgNodes = argNodes;

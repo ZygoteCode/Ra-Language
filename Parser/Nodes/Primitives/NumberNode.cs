@@ -5,7 +5,7 @@ namespace RaLanguage.Parser.Nodes.Primitives
     public class NumberNode : AstNode
     {
         public Token Tok { get; }
-        public NumberNode(Token tok)
+        public NumberNode(Token tok) : base(AstNodeType.Number)
         {
             Tok = tok;
             PositionStart = tok.PositionStart;

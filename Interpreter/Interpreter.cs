@@ -20,37 +20,47 @@ namespace RaLanguage.Interpreter
     {
         private bool AreCallsBlocked { get; set; } = false;
 
+        private readonly Func<AstNode, Context, RuntimeResult>[] _visitors;
+
+        public Interpreter()
+        {
+            var typesCount = Enum.GetValues(typeof(AstNodeType)).Length;
+            _visitors = new Func<AstNode, Context, RuntimeResult>[typesCount];
+
+            _visitors[(int)AstNodeType.Number] = (node, ctx) => VisitNumberNode((NumberNode)node, ctx);
+            _visitors[(int)AstNodeType.String] = (node, ctx) => VisitStringNode((StringNode)node, ctx);
+            _visitors[(int)AstNodeType.List] = (node, ctx) => VisitListNode((ListNode)node, ctx);
+            _visitors[(int)AstNodeType.VariableAccess] = (node, ctx) => VisitVariableAccessNode((VariableAccessNode)node, ctx);
+            _visitors[(int)AstNodeType.VariableDeclaration] = (node, ctx) => VisitVariableDeclarationNode((VariableDeclarationNode)node, ctx);
+            _visitors[(int)AstNodeType.VariableAssignment] = (node, ctx) => VisitVariableAssignmentNode((VariableAssignmentNode)node, ctx);
+            _visitors[(int)AstNodeType.VariableDelete] = (node, ctx) => VisitVariableDeleteNode((VariableDeleteNode)node, ctx);
+            _visitors[(int)AstNodeType.BinaryOperation] = (node, ctx) => VisitBinaryOperationNode((BinaryOperationNode)node, ctx);
+            _visitors[(int)AstNodeType.UnaryOperation] = (node, ctx) => VisitUnaryOperationNode((UnaryOperationNode)node, ctx);
+            _visitors[(int)AstNodeType.If] = (node, ctx) => VisitIfNode((IfNode)node, ctx);
+            _visitors[(int)AstNodeType.For] = (node, ctx) => VisitForNode((ForNode)node, ctx);
+            _visitors[(int)AstNodeType.While] = (node, ctx) => VisitWhileNode((WhileNode)node, ctx);
+            _visitors[(int)AstNodeType.FunctionDefinition] = (node, ctx) => VisitFunctionDefinitionNode((FunctionDefinitionNode)node, ctx);
+            _visitors[(int)AstNodeType.FunctionCall] = (node, ctx) => VisitFunctionCallNode((FunctionCallNode)node, ctx);
+            _visitors[(int)AstNodeType.Return] = (node, ctx) => VisitReturnNode((ReturnNode)node, ctx);
+            _visitors[(int)AstNodeType.Continue] = (node, ctx) => VisitContinueNode((ContinueNode)node, ctx);
+            _visitors[(int)AstNodeType.Break] = (node, ctx) => VisitBreakNode((BreakNode)node, ctx);
+            _visitors[(int)AstNodeType.Pass] = (node, ctx) => VisitPassNode((PassNode)node, ctx);
+            _visitors[(int)AstNodeType.DoWhile] = (node, ctx) => VisitDoWhileNode((DoWhileNode)node, ctx);
+            _visitors[(int)AstNodeType.Typeof] = (node, ctx) => VisitTypeofNode((TypeofNode)node, ctx);
+            _visitors[(int)AstNodeType.Nameof] = (node, ctx) => VisitNameofNode((NameofNode)node, ctx);
+            _visitors[(int)AstNodeType.Null] = (node, ctx) => VisitNullNode((NullNode)node, ctx);
+            _visitors[(int)AstNodeType.Boolean] = (node, ctx) => VisitBooleanNode((BooleanNode)node, ctx);
+            _visitors[(int)AstNodeType.ListAccess] = (node, ctx) => VisitListAccessNode((ListAccessNode)node, ctx);
+            _visitors[(int)AstNodeType.Set] = (node, ctx) => VisitSetNode((SetNode)node, ctx);
+        }
+
         public RuntimeResult Visit(AstNode node, Context context)
         {
-            return node switch
-            {
-                NumberNode n => VisitNumberNode(n, context),
-                StringNode s => VisitStringNode(s, context),
-                ListNode l => VisitListNode(l, context),
-                VariableAccessNode v => VisitVariableAccessNode(v, context),
-                VariableDeclarationNode v => VisitVariableDeclarationNode(v, context),
-                VariableAssignmentNode v => VisitVariableAssignmentNode(v, context),
-                VariableDeleteNode v => VisitVariableDeleteNode(v, context),
-                BinaryOperationNode b => VisitBinaryOperationNode(b, context),
-                UnaryOperationNode u => VisitUnaryOperationNode(u, context),
-                IfNode i => VisitIfNode(i, context),
-                ForNode f => VisitForNode(f, context),
-                WhileNode w => VisitWhileNode(w, context),
-                FunctionDefinitionNode f => VisitFunctionDefinitionNode(f, context),
-                FunctionCallNode c => VisitFunctionCallNode(c, context),
-                ReturnNode r => VisitReturnNode(r, context),
-                ContinueNode c => VisitContinueNode(c, context),
-                BreakNode b => VisitBreakNode(b, context),
-                PassNode p => VisitPassNode(p, context),
-                DoWhileNode d => VisitDoWhileNode(d, context),
-                TypeofNode t => VisitTypeofNode(t, context),
-                NameofNode n => VisitNameofNode(n, context),
-                NullNode n => VisitNullNode(n, context),
-                BooleanNode b => VisitBooleanNode(b, context),
-                ListAccessNode l => VisitListAccessNode(l, context),
-                SetNode s => VisitSetNode(s, context),
-                _ => throw new Exception($"No visit method for {node.GetType().Name}")
-            };
+            var index = (int)node.NodeType;
+            if (index < 0 || index >= _visitors.Length || _visitors[index] == null)
+                throw new Exception($"No visit method for {node.NodeType}");
+
+            return _visitors[index](node, context);
         }
 
         private RuntimeResult VisitSetNode(SetNode node, Context context)

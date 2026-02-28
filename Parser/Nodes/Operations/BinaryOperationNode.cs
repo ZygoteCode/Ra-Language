@@ -7,7 +7,7 @@ namespace RaLanguage.Parser.Nodes.Operations
         public AstNode LeftNode { get; }
         public Token OpTok { get; }
         public AstNode RightNode { get; }
-        public BinaryOperationNode(AstNode leftNode, Token opTok, AstNode rightNode)
+        public BinaryOperationNode(AstNode leftNode, Token opTok, AstNode rightNode) : base(AstNodeType.BinaryOperation)
         {
             LeftNode = leftNode;
             OpTok = opTok;

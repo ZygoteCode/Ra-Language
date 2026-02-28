@@ -7,7 +7,7 @@ namespace RaLanguage.Parser.Nodes.Operations
         public Token OpTok { get; }
         public AstNode Node { get; }
         public bool IsLeft { get; }
-        public UnaryOperationNode(Token opTok, AstNode node, bool isLeft = true)
+        public UnaryOperationNode(Token opTok, AstNode node, bool isLeft = true) : base(AstNodeType.UnaryOperation)
         {
             OpTok = opTok;
             Node = node;

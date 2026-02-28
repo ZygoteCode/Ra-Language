@@ -7,7 +7,7 @@ namespace RaLanguage.Parser.Nodes.Variables
         public AstNode Target { get; }
         public AstNode Index { get; }
 
-        public ListAccessNode(AstNode target, AstNode index, Position positionStart, Position positionEnd)
+        public ListAccessNode(AstNode target, AstNode index, Position positionStart, Position positionEnd) : base(AstNodeType.ListAccess)
         {
             Target = target;
             Index = index;

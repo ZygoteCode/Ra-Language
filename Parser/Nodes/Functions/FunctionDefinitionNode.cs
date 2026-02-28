@@ -9,7 +9,7 @@ namespace RaLanguage.Parser.Nodes.Functions
         public AstNode BodyNode { get; }
         public bool ShouldAutoReturn { get; }
 
-        public FunctionDefinitionNode(Token? varNameTok, List<Token> argNameToks, AstNode bodyNode, bool shouldAutoReturn)
+        public FunctionDefinitionNode(Token? varNameTok, List<Token> argNameToks, AstNode bodyNode, bool shouldAutoReturn) : base(AstNodeType.FunctionDefinition)
         {
             VarNameTok = varNameTok;
             ArgNameToks = argNameToks;

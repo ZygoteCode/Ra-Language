@@ -6,7 +6,7 @@ namespace RaLanguage.Parser.Nodes.Variables
     {
         public List<Token> Tokens { get; }
         
-        public VariableDeleteNode(List<Token> tokens)
+        public VariableDeleteNode(List<Token> tokens) : base(AstNodeType.VariableDelete)
         {
             Tokens = tokens;
             PositionStart = tokens[0].PositionStart;

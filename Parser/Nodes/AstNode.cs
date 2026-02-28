@@ -6,5 +6,7 @@ namespace RaLanguage.Parser.Nodes
     {
         public Position PositionStart { get; set; }
         public Position PositionEnd { get; set; }
+        public AstNodeType NodeType { get; }
+        protected AstNode(AstNodeType nodeType) => NodeType = nodeType;
     }
 }

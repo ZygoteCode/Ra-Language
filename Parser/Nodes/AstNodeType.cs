@@ -1,0 +1,32 @@
+﻿namespace RaLanguage.Parser.Nodes
+{
+    public enum AstNodeType
+    {
+        Number,
+        String,
+        List,
+        VariableAccess,
+        VariableDeclaration,
+        VariableAssignment,
+        VariableDelete,
+        BinaryOperation,
+        UnaryOperation,
+        If,
+        IfCasesWrapper,
+        For,
+        While,
+        FunctionDefinition,
+        FunctionCall,
+        Return,
+        Continue,
+        Break,
+        Pass,
+        DoWhile,
+        Typeof,
+        Nameof,
+        Null,
+        Boolean,
+        ListAccess,
+        Set
+    }
+}

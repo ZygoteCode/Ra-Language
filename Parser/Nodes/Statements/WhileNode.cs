@@ -6,7 +6,7 @@
         public AstNode BodyNode { get; }
         public bool ShouldReturnNull { get; }
 
-        public WhileNode(AstNode conditionNode, AstNode bodyNode, bool shouldReturnNull)
+        public WhileNode(AstNode conditionNode, AstNode bodyNode, bool shouldReturnNull) : base(AstNodeType.While)
         {
             ConditionNode = conditionNode;
             BodyNode = bodyNode;

@@ -11,7 +11,7 @@ namespace RaLanguage.Parser.Nodes.Statements
         public AstNode BodyNode { get; }
         public bool ShouldReturnNull { get; }
 
-        public ForNode(Token varNameTok, AstNode startValueNode, AstNode endValueNode, AstNode? stepValueNode, AstNode bodyNode, bool shouldReturnNull)
+        public ForNode(Token varNameTok, AstNode startValueNode, AstNode endValueNode, AstNode? stepValueNode, AstNode bodyNode, bool shouldReturnNull) : base(AstNodeType.For)
         {
             VarNameTok = varNameTok;
             StartValueNode = startValueNode;
