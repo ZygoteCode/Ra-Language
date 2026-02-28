@@ -192,57 +192,48 @@ namespace RaLanguage.Parser
             var res = new ParserResult();
             var positionStart = _currentToken.PositionStart.Copy();
 
-            if (_currentToken.Matches(TokenType.KEYWORD, "ret"))
+            if (_currentToken.Type == TokenType.KEYWORD)
             {
-                res.RegisterAdvancement();
-                Advance();
-
-                var expr = res.TryRegister(ParseExpression());
-                if (expr == null) Reverse(res.ToReverseCount);
-                return res.Success(new ReturnNode(expr, positionStart, _currentToken.PositionStart.Copy()));
-            }
-
-            if (_currentToken.Matches(TokenType.KEYWORD, "continue"))
-            {
-                res.RegisterAdvancement();
-                Advance();
-                return res.Success(new ContinueNode(positionStart, _currentToken.PositionStart.Copy()));
-            }
-
-            if (_currentToken.Matches(TokenType.KEYWORD, "break"))
-            {
-                res.RegisterAdvancement();
-                Advance();
-                return res.Success(new BreakNode(positionStart, _currentToken.PositionStart.Copy()));
-            }
-
-            if (_currentToken.Matches(TokenType.KEYWORD, "pass"))
-            {
-                res.RegisterAdvancement();
-                Advance();
-                return res.Success(new PassNode(positionStart, _currentToken.PositionStart.Copy()));
-            }
-
-            if (_currentToken.Matches(TokenType.KEYWORD, "del"))
-            {
-                res.RegisterAdvancement();
-                Advance();
-                List<Token> tokens = new List<Token>();
-
-                while (_currentToken.Type == TokenType.IDENTIFIER)
+                switch (_currentToken.Value?.ToString())
                 {
-                    tokens.Add(_currentToken);
-                    res.RegisterAdvancement();
-                    Advance();
-
-                    if (_currentToken.Type == TokenType.COMMA)
-                    {
+                    case "ret":
                         res.RegisterAdvancement();
                         Advance();
-                    }
-                }
+                        var expr = res.TryRegister(ParseExpression());
+                        if (expr == null) Reverse(res.ToReverseCount);
+                        return res.Success(new ReturnNode(expr, positionStart, _currentToken.PositionStart.Copy()));
+                    case "continue":
+                        res.RegisterAdvancement();
+                        Advance();
+                        return res.Success(new ContinueNode(positionStart, _currentToken.PositionStart.Copy()));
+                    case "break":
+                        res.RegisterAdvancement();
+                        Advance();
+                        return res.Success(new BreakNode(positionStart, _currentToken.PositionStart.Copy()));
+                    case "pass":
+                        res.RegisterAdvancement();
+                        Advance();
+                        return res.Success(new PassNode(positionStart, _currentToken.PositionStart.Copy()));
+                    case "del":
+                        res.RegisterAdvancement();
+                        Advance();
+                        List<Token> tokens = new List<Token>();
 
-                return res.Success(new VariableDeleteNode(tokens));
+                        while (_currentToken.Type == TokenType.IDENTIFIER)
+                        {
+                            tokens.Add(_currentToken);
+                            res.RegisterAdvancement();
+                            Advance();
+
+                            if (_currentToken.Type == TokenType.COMMA)
+                            {
+                                res.RegisterAdvancement();
+                                Advance();
+                            }
+                        }
+
+                        return res.Success(new VariableDeleteNode(tokens));
+                }
             }
 
             var expression = res.Register(ParseExpression());

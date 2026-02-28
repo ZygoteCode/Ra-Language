@@ -21,6 +21,12 @@ print(5!!)
 print(!false);
 print(!!!!!false);
 
+fn test() {
+    ret 5;
+}
+
+print(test());
+
 {
     var b = 777;
     print("another context:");
