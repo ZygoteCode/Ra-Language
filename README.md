@@ -41,7 +41,8 @@ This list contains what I have already added after the first commit (done featur
   - [x] Add factorial operator with "!" as suffix (or "!!" as prefix+suffix).
   - [x] Assign values to list via indexes, like "list[0] = 5".
   - [x] Add template literals with backtick (`) for making strings easily with multi-lines.
-  - [x] Add foreach statement, which will be easily "for item in list" instead of "for i = 0 to 10 step 1". The "in" keyword could be used also as a condition semantic, like "if 5 in list"
+  - [x] Add foreach statement, which will be easily "for item in list" instead of "for i = 0 to 10 step 1". The "in" keyword could be used also as a condition semantic, like "if 5 in list".
+  - [x] Access to last element of a list using for example a[-1]. Also can access to element in a bottom-up approach, so can use for example: "var list = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];" can use "print(list[-1])" (output 10), "print(list[-2])" (output 9) and so on.
 
 ## TODOs for Ra Language (the near future)
 
@@ -67,7 +68,6 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [ ] Function parameters can be statically typed -> fn test(a: int, b: int): int => print(a + b);
   - [ ] Add "match" (Rust-like) and "switch" (Java + C-like versions) statements.
   - [ ] Access to portions of list using ranges, like for example a[1..3].
-  - [ ] Access to last element of a list using for example a[-1].
   - [ ] Add ternary operation (for ex. "a == 5 ? 7 : 3").
   - [ ] Add more assignment operators: '??='.
   - [ ] Idea: import new files with a intelligent path system.

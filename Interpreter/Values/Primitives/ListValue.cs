@@ -281,6 +281,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
                     NumberValue n = (NumberValue)other;
                     int index = (int)n.Value;
 
+                    if (index < 0)
+                    {
+                        index = Elements.Count + index;
+                    }
+
                     if (index > Elements.Count - 1)
                     {
                         return (null, new RuntimeError(other.PositionStart, other.PositionEnd, "Index out of bounds", Context));
