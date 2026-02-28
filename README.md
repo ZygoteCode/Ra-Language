@@ -1,8 +1,8 @@
 # Ra Language
 
+<p align="center">
 <center><i>"Your knowledge will ascend with time, like Ra rising through the sky."</i></center>
-
-<br/>
+</p>
 
 <p align="center">
   <img src="Ra-Language.png" alt="Ra Language" width="40%">
