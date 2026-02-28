@@ -1,7 +1,7 @@
 # Ra Language
 
 <p align="center">
-<center><i>"Your knowledge will ascend with time, like Ra rising through the sky."</i></center>
+  <i>"Your knowledge will ascend with time, like Ra rising through the sky."</i>
 </p>
 
 <p align="center">
