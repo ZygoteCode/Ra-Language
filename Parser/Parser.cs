@@ -436,7 +436,7 @@ namespace RaLanguage.Parser
             {
                 (TokenType.EE, null), (TokenType.NE, null), (TokenType.LT, null),
                 (TokenType.GT, null), (TokenType.LTE, null), (TokenType.GTE, null),
-                (TokenType.STRICT_EE, null), (TokenType.STRICT_NE, null),
+                (TokenType.STRICT_EE, null), (TokenType.STRICT_NE, null), (TokenType.KEYWORD, "in")
             }));
 
             if (res.Error != null)
@@ -513,9 +513,20 @@ namespace RaLanguage.Parser
 
             var resultNode = atom;
 
-            while (_currentToken.Type == TokenType.LPAREN || _currentToken.Type == TokenType.LSQUARE)
+            while (_currentToken.Type == TokenType.LPAREN
+                || _currentToken.Type == TokenType.LSQUARE
+                || _currentToken.Matches(TokenType.KEYWORD, "not"))
             {
-                if (_currentToken.Type == TokenType.LPAREN)
+                if (_currentToken.Matches(TokenType.KEYWORD, "not"))
+                {
+                    var opTok = _currentToken;
+
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    resultNode = new UnaryOperationNode(opTok, resultNode, isLeft: false);
+                }
+                else if (_currentToken.Type == TokenType.LPAREN)
                 {
                     res.RegisterAdvancement();
                     Advance();

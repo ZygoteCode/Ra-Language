@@ -10,3 +10,19 @@ print(set);
 print({1, 2, 3} == {1, 2, 3})
 print({4, 5, 6} == [4, 5, 6])
 print({4, 5, 6} === [4, 5, 6])
+
+print(5 in [1, 5, 3]);
+print(1 in [5, 6, 3]);
+
+print(3 in {1, 2, 3, 4});
+print(7 in {9, 8, 4});
+
+print(5!!)
+print(!false);
+print(!!!!!false);
+
+{
+    var b = 777;
+    print("another context:");
+    print(b);
+}

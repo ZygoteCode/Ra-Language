@@ -79,6 +79,7 @@ namespace RaLanguage.Interpreter.Values
         public virtual (RuntimeValue?, Error?) GetComparisonGte(RuntimeValue other) => (null, IllegalOperation(other));
         public virtual (RuntimeValue?, Error?) Notted() => (null, IllegalOperation(this));
         public virtual (RuntimeValue?, Error?) BitwiseNotted() => (null, IllegalOperation(this));
+        public virtual (RuntimeValue?, Error?) Factorial() => (null, IllegalOperation(this));
 
         public virtual (RuntimeValue?, Error?) AndedBy(RuntimeValue other)
         {
@@ -88,6 +89,40 @@ namespace RaLanguage.Interpreter.Values
         public virtual (RuntimeValue?, Error?) OredBy(RuntimeValue other)
         {
             return (new BooleanValue(IsTrue() || other.IsTrue()), null);
+        }
+
+        public virtual (RuntimeValue?, Error?) InCollection(RuntimeValue other)
+        {
+            if (other.Type == RuntimeValueType.List)
+            {
+                ListValue l = (ListValue)other;
+
+                foreach (var element in l.Elements)
+                {
+                    if (element.Equals(this))
+                    {
+                        return (new BooleanValue(true), null);
+                    }
+                }
+
+                return (new BooleanValue(false), null);
+            }
+            else if (other.Type == RuntimeValueType.Set)
+            {
+                SetValue s = (SetValue)other;
+
+                foreach (var element in s.Elements)
+                {
+                    if (element.Equals(this))
+                    {
+                        return (new BooleanValue(true), null);
+                    }
+                }
+
+                return (new BooleanValue(false), null);
+            }
+
+            return (null, IllegalOperation(other));
         }
 
         public virtual RuntimeResult Execute(List<RuntimeValue> args)

@@ -254,6 +254,18 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return (new BooleanValue(true).SetContext(Context), null);
         }
 
+        public override (RuntimeValue?, Error?) Factorial()
+        {
+            BigNumber factorial = 1;
+
+            for (int i = 1; i <= Value; i++)
+            {
+                factorial *= i;
+            }
+
+            return (new NumberValue(factorial).SetContext(Context), null);
+        }
+
         public override RuntimeValue Copy()
         {
             return new NumberValue(Value).SetPos(PositionStart, PositionEnd).SetContext(Context);

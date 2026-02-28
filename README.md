@@ -1,6 +1,12 @@
 # Ra Language
 
-_"Your knowledge will ascend with time, like Ra rising through the sky."_
+<center><i>"Your knowledge will ascend with time, like Ra rising through the sky."</i></center>
+
+<br/>
+
+<p align="center">
+  <img src="Ra-Language.png" alt="Ra Language" width="40%">
+</p>
 
 Every programming language has its learning curve… but with Ra Language, there’s no curve: you start at the zero point of an infinite line, and simply walking along it lets your skills evolve. You can begin with nothing and still have everything you need, or, if you’re already a pro, you can create truly extraordinary things. With Ra Language, growth is continuous, natural, and effortless.
 
@@ -31,8 +37,8 @@ This list contains what I have already added after the first commit (done featur
   - [x] Add strict checking operator for comparing not only the value, but also the type: '===' + '!=='.
   - [x] Access easily to list values using the following operation => "var a = [1, 2, 3]; print(a[1]); // will output 2".
   - [x] Add sets with the {} brackets, similar to list but with unique values, like '{1, 2, 3, 4, "str"}'.
-  - [ ] Add "in" operator for lists that can check if an element is in list => Example: "if 5 in a" or also "if [1, 2, 3] in a"
-  - [ ] Add factorial operator with "!" as suffix (or "!!" as prefix+suffix).
+  - [x] Add "in" operator for lists that can check if an element is in list => Example: "if 5 in a" or also "if [1, 2, 3] in a"
+  - [x] Add factorial operator with "!" as suffix (or "!!" as prefix+suffix).
   - [ ] Add new operations to String + List + Set primitive values with the remaining operators.
   - [ ] Assign values to list via indexes, like "list[0] = 5".
 

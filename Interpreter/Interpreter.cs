@@ -480,6 +480,7 @@ namespace RaLanguage.Interpreter
                 case TokenType.BITWISE_OR: (result, error) = left.BitwiseOredBy(right); break;
                 case TokenType.STRICT_EE: (result, error) = left.GetComparisonStrictEq(right); break;
                 case TokenType.STRICT_NE: (result, error) = left.GetComparisonStrictNe(right); break;
+                case TokenType.KEYWORD when node.OpTok.Value?.ToString() == "in": (result, error) = left.InCollection(right); break;
             }
 
             if (error != null) return res.Failure(error);
@@ -494,52 +495,42 @@ namespace RaLanguage.Interpreter
 
             Error? error = null;
 
-            if (node.OpTok.Type == TokenType.DOUBLE_PLUS || node.OpTok.Type == TokenType.DOUBLE_MINUS)
+            switch (node.OpTok.Type)
             {
-                if (node.Node is not VariableAccessNode varAccessNode)
-                {
-                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Operator ++/-- can only be applied to variables", context));
-                }
+                case TokenType.DOUBLE_PLUS:
+                case TokenType.DOUBLE_MINUS:
+                    if (node.Node is not VariableAccessNode varAccessNode) return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Operator ++/-- can only be applied to variables", context));
+                    if (value is not NumberValue number) return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Operator ++/-- can only be applied to numbers", context));
 
-                if (value is not NumberValue number)
-                {
-                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Operator ++/-- can only be applied to numbers", context));
-                }
+                    RuntimeValue? newValue = null;
+                    if (node.OpTok.Type == TokenType.DOUBLE_PLUS) (newValue, error) = number.AddedTo(NumberValue.One);
+                    else (newValue, error) = number.SubbedBy(NumberValue.One);
 
-                RuntimeValue? newValue = null;
-                if (node.OpTok.Type == TokenType.DOUBLE_PLUS)
-                {
-                    (newValue, error) = number.AddedTo(NumberValue.One);
-                }
-                else
-                {
-                    (newValue, error) = number.SubbedBy(NumberValue.One);
-                }
+                    if (error != null) return res.Failure(error);
+                    newValue = newValue!.SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    var varName = varAccessNode.VarNameTok.Value?.ToString() ?? throw new InvalidOperationException("Variable name missing");
+                    context.SymbolTable.Set(varName, newValue);
 
-                if (error != null) return res.Failure(error);
-
-                newValue = newValue!.SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
-
-                var varName = varAccessNode.VarNameTok.Value?.ToString() ?? throw new InvalidOperationException("Variable name missing");
-                context.SymbolTable.Set(varName, newValue);
-
-                if (node.IsLeft)
-                {
-                    return res.Success(newValue);
-                }
-                else
-                {
-                    var oldCopy = number.Copy().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
-                    return res.Success(oldCopy);
-                }
+                    if (node.IsLeft)
+                    {
+                        return res.Success(newValue);
+                    }
+                    else
+                    {
+                        var oldCopy = number.Copy().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                        return res.Success(oldCopy);
+                    }
+                case TokenType.MINUS:
+                    (value, error) = value.MultedBy(new NumberValue(BigNumber.Parse("-1")));
+                    break;
+                case TokenType.KEYWORD when node.OpTok.Value?.ToString() == "not":
+                    if (node.IsLeft) (value, error) = value.Notted();
+                    else (value, error) = value.Factorial();
+                    break;
+                case TokenType.BITWISE_NOT:
+                    (value, error) = value.BitwiseNotted();
+                    break;
             }
-
-            if (node.OpTok.Type == TokenType.MINUS)
-                (value, error) = value.MultedBy(new NumberValue(BigNumber.Parse("-1")));
-            else if (node.OpTok.Matches(TokenType.KEYWORD, "not"))
-                (value, error) = value.Notted();
-            else if (node.OpTok.Type == TokenType.BITWISE_NOT)
-                (value, error) = value.BitwiseNotted();
 
             if (error != null) return res.Failure(error);
             return res.Success(value!.SetPos(node.PositionStart, node.PositionEnd));
