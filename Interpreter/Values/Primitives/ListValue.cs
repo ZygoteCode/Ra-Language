@@ -1,7 +1,6 @@
 ﻿using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Lexer.Tokens;
-using System.Xml.Linq;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {

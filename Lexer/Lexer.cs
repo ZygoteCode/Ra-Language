@@ -499,10 +499,20 @@ namespace RaLanguage.Lexer
 
             if (idString == "is")
             {
-                if (_text[_position.Idx] == ' ' && _text[_position.Idx + 1] == 'n' && _text[_position.Idx + 2] == 'o' && _text[_position.Idx + 3] == 't')
+                while (_currentCharacter == ' ' || _currentCharacter == '\t')
                 {
-                    Advance(4);
+                    Advance();
+                }
+
+                if (_currentCharacter == 'n' && _text[_position.Idx + 1] == 'o' && _text[_position.Idx + 2] == 't')
+                {
+                    Advance(3);
                     return new Token(TokenType.NE, null, positionStart, _position);
+                }
+                else if (_currentCharacter == 'i' && _text[_position.Idx + 1] == 'n')
+                {
+                    Advance(2);
+                    return new Token(TokenType.KEYWORD, "in", positionStart, _position);
                 }
 
                 return new Token(TokenType.EE, null, positionStart, _position);
