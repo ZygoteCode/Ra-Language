@@ -52,6 +52,7 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.Boolean] = (node, ctx) => VisitBooleanNode((BooleanNode)node, ctx);
             _visitors[(int)AstNodeType.ListAccess] = (node, ctx) => VisitListAccessNode((ListAccessNode)node, ctx);
             _visitors[(int)AstNodeType.Set] = (node, ctx) => VisitSetNode((SetNode)node, ctx);
+            _visitors[(int)AstNodeType.ListAssignment] = (node, ctx) => VisitListAssignmentNode((ListAssignmentNode)node, ctx);
         }
 
         public RuntimeResult Visit(AstNode node, Context context)
@@ -61,6 +62,75 @@ namespace RaLanguage.Interpreter
                 throw new Exception($"No visit method for {node.NodeType}");
 
             return _visitors[index](node, context);
+        }
+
+        private RuntimeResult VisitListAssignmentNode(ListAssignmentNode node, Context context)
+        {
+            var res = new RuntimeResult();
+
+            if (node.Target.NodeType != AstNodeType.ListAccess)
+            {
+                return res.Failure(new RuntimeError(
+                    node.PositionStart, node.PositionEnd,
+                    "Invalid assignment target. Target must be a list element.", context
+                ));
+            }
+
+            ListAccessNode listAccessNode = (ListAccessNode)node.Target;
+            var targetList = res.Register(Visit(listAccessNode.Target, context));
+            if (res.ShouldReturn()) return res;
+
+            var indexValue = res.Register(Visit(listAccessNode.Index, context));
+            if (res.ShouldReturn()) return res;
+
+            var valueToAssign = res.Register(Visit(node.Value, context));
+            if (res.ShouldReturn()) return res;
+
+            RuntimeValue finalValue = valueToAssign;
+
+            if (node.AssignmentToken.Type != TokenType.EQ)
+            {
+                var accessResult = targetList.ListAccess(indexValue);
+                if (accessResult.Item2 != null)
+                {
+                    return res.Failure(accessResult.Item2);
+                }
+
+                var currentValue = accessResult.Item1!;
+                (RuntimeValue? result, Error? error) = (null, null);
+
+                switch (node.AssignmentToken.Type)
+                {
+                    case TokenType.PLUS_EQ: (result, error) = currentValue.AddedTo(valueToAssign); break;
+                    case TokenType.MINUS_EQ: (result, error) = currentValue.SubbedBy(valueToAssign); break;
+                    case TokenType.MUL_EQ: (result, error) = currentValue.MultedBy(valueToAssign); break;
+                    case TokenType.DIV_EQ: (result, error) = currentValue.DivedBy(valueToAssign); break;
+                    case TokenType.MODULO_EQ: (result, error) = currentValue.ModuledBy(valueToAssign); break;
+                    case TokenType.BITWISE_AND_EQ: (result, error) = currentValue.BitwiseAndedBy(valueToAssign); break;
+                    case TokenType.BITWISE_OR_EQ: (result, error) = currentValue.BitwiseOredBy(valueToAssign); break;
+                    case TokenType.BITWISE_LEFT_SHIFT_EQ: (result, error) = currentValue.BitwiseLeftShiftedBy(valueToAssign); break;
+                    case TokenType.BITWISE_RIGHT_SHIFT_EQ: (result, error) = currentValue.BitwiseRightShiftedBy(valueToAssign); break;
+                    case TokenType.POW_EQ: (result, error) = currentValue.PowedBy(valueToAssign); break;
+                    case TokenType.AND_EQ: (result, error) = currentValue.AndedBy(valueToAssign); break;
+                    case TokenType.OR_EQ: (result, error) = currentValue.OredBy(valueToAssign); break;
+                }
+
+                if (error != null)
+                {
+                    return res.Failure(error);
+                }
+
+                finalValue = result!;
+            }
+
+            var (result1, error1) = targetList.ListSet(indexValue, finalValue);
+
+            if (error1 != null)
+            {
+                return res.Failure(error1);
+            }
+
+            return res.Success(finalValue.SetPos(node.PositionStart, node.PositionEnd).SetContext(context));
         }
 
         private RuntimeResult VisitSetNode(SetNode node, Context context)

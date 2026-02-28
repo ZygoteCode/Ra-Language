@@ -261,7 +261,9 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override RuntimeValue Copy()
         {
-            return new SetValue(new HashSet<RuntimeValue>(Elements)).SetPos(PositionStart, PositionEnd).SetContext(Context);
+            return new SetValue(Elements)
+                .SetPos(PositionStart, PositionEnd)
+                .SetContext(Context);
         }
 
         public override bool IsTrue()

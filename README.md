@@ -39,8 +39,7 @@ This list contains what I have already added after the first commit (done featur
   - [x] Add sets with the {} brackets, similar to list but with unique values, like '{1, 2, 3, 4, "str"}'.
   - [x] Add "in" operator for lists that can check if an element is in list => Example: "if 5 in a" or also "if [1, 2, 3] in a"
   - [x] Add factorial operator with "!" as suffix (or "!!" as prefix+suffix).
-  - [ ] Add new operations to String + List + Set primitive values with the remaining operators.
-  - [ ] Assign values to list via indexes, like "list[0] = 5".
+  - [x] Assign values to list via indexes, like "list[0] = 5".
 
 ## TODOs for Ra Language (the near future)
 
@@ -48,6 +47,7 @@ This is constantly updated list, I am expanding with new ideas and concepts for 
 
 I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
   
+  - [ ] Add new operations to String + List + Set primitive values with the remaining operators.
   - [ ] Add template literals with backtick (`) for making strings easily with multi-lines.
   - [ ] Add string interpolation - to decide the syntax, like "${variable}", or "%d %s", or "$1 $2".
   - [ ] Add maps with the "{}" brackets, like '{"float": 3.2, "int": 1, "string": "astring", "bool": true}'.

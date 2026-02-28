@@ -80,6 +80,7 @@ namespace RaLanguage.Interpreter.Values
         public virtual (RuntimeValue?, Error?) Notted() => (null, IllegalOperation(this));
         public virtual (RuntimeValue?, Error?) BitwiseNotted() => (null, IllegalOperation(this));
         public virtual (RuntimeValue?, Error?) Factorial() => (null, IllegalOperation(this));
+        public virtual (RuntimeValue?, Error?) ListSet(RuntimeValue index, RuntimeValue value) => (null, IllegalOperation(this));
 
         public virtual (RuntimeValue?, Error?) AndedBy(RuntimeValue other)
         {

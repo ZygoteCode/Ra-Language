@@ -294,9 +294,30 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.ListAccess(other);
         }
 
+        public override (RuntimeValue?, Error?) ListSet(RuntimeValue indexValue, RuntimeValue value)
+        {
+            if (indexValue.Type != RuntimeValueType.Number)
+            {
+                return (null, new RuntimeError(indexValue.PositionStart, indexValue.PositionEnd, "Index must be a number", Context));
+            }
+
+            NumberValue number = (NumberValue)indexValue;
+            int index = (int)number.Value;
+
+            if (index < 0 || index >= Elements.Count)
+            {
+                return (null, new RuntimeError(indexValue.PositionStart, indexValue.PositionEnd, "Index out of bounds", Context));
+            }
+
+            Elements[index] = value;
+            return (value.SetContext(Context), null);
+        }
+
         public override RuntimeValue Copy()
         {
-            return new ListValue(new List<RuntimeValue>(Elements)).SetPos(PositionStart, PositionEnd).SetContext(Context);
+            return new ListValue(Elements)
+                .SetPos(PositionStart, PositionEnd)
+                .SetContext(Context);
         }
 
         public override bool IsTrue()

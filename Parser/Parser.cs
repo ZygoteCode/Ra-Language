@@ -365,27 +365,8 @@ namespace RaLanguage.Parser
                     return res.Success(new NameofNode(tok));
                 }
             }
-            else if (_currentToken.Type == TokenType.IDENTIFIER && IsAssignmentToken(_tokens[_tokenIndex + 1].Type))
-            {
-                Token varName = _currentToken;
-                res.RegisterAdvancement();
-                Advance();
 
-                Token assignment = _currentToken;
-                if (!IsAssignmentToken(assignment.Type))
-                {
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '=', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '<<=' or '>>='"));
-                }
-
-                res.RegisterAdvancement();
-                Advance();
-
-                var expr = res.Register(ParseExpression());
-                if (res.Error != null) return res;
-                return res.Success(new VariableAssignmentNode(varName, assignment, expr));
-            }
-
-            var node = res.Register(ParseBinaryOperation(ParseBitwiseOrExpression, new List<(TokenType, string?)> { (TokenType.KEYWORD, "and"), (TokenType.KEYWORD, "or") }));
+            var leftNode = res.Register(ParseBinaryOperation(ParseBitwiseOrExpression, new List<(TokenType, string?)> { (TokenType.KEYWORD, "and"), (TokenType.KEYWORD, "or") }));
 
             if (res.Error != null)
             {
@@ -395,7 +376,35 @@ namespace RaLanguage.Parser
                 ));
             }
 
-            return res.Success(node);
+            if (IsAssignmentToken(_currentToken.Type))
+            {
+                Token assignmentToken = _currentToken;
+                res.RegisterAdvancement();
+                Advance();
+
+                var rightNode = res.Register(ParseExpression());
+                if (res.Error != null) return res;
+
+                if (leftNode.NodeType == AstNodeType.VariableAccess)
+                {
+                    VariableAccessNode varAccess = (VariableAccessNode)leftNode;
+                    return res.Success(new VariableAssignmentNode(varAccess.VarNameTok, assignmentToken, rightNode));
+                }
+                else if (leftNode.NodeType == AstNodeType.ListAccess)
+                {
+                    ListAccessNode listAccess = (ListAccessNode) leftNode;
+                    return res.Success(new ListAssignmentNode(listAccess, assignmentToken, rightNode));
+                }
+                else
+                {
+                    return res.Failure(new InvalidSyntaxError(
+                        leftNode.PositionStart, leftNode.PositionEnd,
+                        "Invalid assignment target. You can only assign values to variables or list elements."
+                    ));
+                }
+            }
+
+            return res.Success(leftNode);
         }
 
         private ParserResult ParseBitwiseOrExpression()

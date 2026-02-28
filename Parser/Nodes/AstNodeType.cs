@@ -27,6 +27,7 @@
         Null,
         Boolean,
         ListAccess,
-        Set
+        Set,
+        ListAssignment
     }
 }
