@@ -57,6 +57,7 @@ This is constantly updated list, I am expanding with new ideas and concepts for 
 
 I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
   
+  - [ ] Add "not in" / "is not in" operation.
   - [ ] Add "match" (Rust-like) and "switch" (Java + C-like versions) statements.
   - [ ] In functions, add "..." operator to make array unlimited parameters.
   - [ ] In functions, allow specific default values to parameters.
