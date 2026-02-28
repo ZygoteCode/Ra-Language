@@ -10,3 +10,18 @@ list[1] += 3 * 2;
 print(list);
 list[trial() - 1] = 3;
 print(list);
+
+var a = `
+    try
+    to
+
+     do  
+
+        multi-line
+           
+              strings
+       - like
+        - that
+`
+
+print(a);

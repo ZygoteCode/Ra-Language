@@ -64,6 +64,9 @@ namespace RaLanguage.Lexer
                     case '\'':
                         tokens.Add(MakeString('\''));
                         break;
+                    case '`':
+                        tokens.Add(MakeString('`'));
+                        break;
                     case '+':
                         tokens.Add(MakePlus());
                         break;
