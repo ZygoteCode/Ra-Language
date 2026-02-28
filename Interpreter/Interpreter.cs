@@ -24,7 +24,7 @@ namespace RaLanguage.Interpreter
 
         public Interpreter()
         {
-            var typesCount = Enum.GetValues(typeof(AstNodeType)).Length;
+            var typesCount = Enum.GetValues<AstNodeType>().Length;
             _visitors = new Func<AstNode, Context, RuntimeResult>[typesCount];
 
             _visitors[(int)AstNodeType.Number] = (node, ctx) => VisitNumberNode((NumberNode)node, ctx);
@@ -53,6 +53,7 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.ListAccess] = (node, ctx) => VisitListAccessNode((ListAccessNode)node, ctx);
             _visitors[(int)AstNodeType.Set] = (node, ctx) => VisitSetNode((SetNode)node, ctx);
             _visitors[(int)AstNodeType.ListAssignment] = (node, ctx) => VisitListAssignmentNode((ListAssignmentNode)node, ctx);
+            _visitors[(int)AstNodeType.ForEach] = (node, ctx) => VisitForEachNode((ForEachNode)node, ctx);
         }
 
         public RuntimeResult Visit(AstNode node, Context context)
@@ -62,6 +63,76 @@ namespace RaLanguage.Interpreter
                 throw new Exception($"No visit method for {node.NodeType}");
 
             return _visitors[index](node, context);
+        }
+
+        private RuntimeResult VisitForEachNode(ForEachNode node, Context context)
+        {
+            var res = new RuntimeResult();
+            string varName = node.VarNameToken.Value?.ToString();
+
+            if (context.SymbolTable.Get(varName) != null)
+            {
+                return res.Failure(new RuntimeError(
+                    node.PositionStart, node.PositionEnd,
+                    $"Variable '{varName}' is already defined", context
+                ));
+            }
+
+            var elements = new List<RuntimeValue>();
+            var newContext = context.Copy();
+            var collection = res.Register(Visit(node.CollectionNode, newContext));
+
+            if (res.Error != null)
+            {
+                return res;
+            }
+
+            if (collection.Type != RuntimeValueType.List && collection.Type != RuntimeValueType.Set)
+            {
+                return res.Failure(new RuntimeError(
+                    node.PositionStart, node.PositionEnd,
+                    $"Must iter onto a collection", context
+                ));
+            }
+
+            List<RuntimeValue> iterElements = new List<RuntimeValue>();
+
+            if (collection.Type == RuntimeValueType.List)
+            {
+                iterElements = ((ListValue)collection).Elements;
+            }
+            else if (collection.Type == RuntimeValueType.Set)
+            {
+                iterElements = ((SetValue)collection).Elements.ToList();
+            }
+
+            foreach (RuntimeValue runtimeValue in iterElements)
+            {
+                newContext.SymbolTable.Set(varName, runtimeValue);
+                var value = res.Register(Visit(node.BodyNode, newContext));
+                context.ApplyChangesFrom(newContext);
+
+                if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak)
+                {
+                    return res;
+                }
+
+                if (res.LoopShouldContinue)
+                {
+                    continue;
+                }
+
+                if (res.LoopShouldBreak)
+                {
+                    break;
+                }
+
+                elements.Add(value);
+            }
+
+            return res.Success(
+                node.ShouldReturnNull ? new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd) : new ListValue(elements).SetContext(context).SetPos(node.PositionStart, node.PositionEnd)
+            );
         }
 
         private RuntimeResult VisitListAssignmentNode(ListAssignmentNode node, Context context)

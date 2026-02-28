@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors.Types;
+using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes;
@@ -1021,59 +1022,96 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            if (_currentToken.Type != TokenType.EQ)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '='"));
-
-            res.RegisterAdvancement();
-            Advance();
-
-            var startValue = res.Register(ParseExpression());
-            if (res.Error != null) return res;
-
-            if (!_currentToken.Matches(TokenType.KEYWORD, "to"))
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'to'"));
-
-            res.RegisterAdvancement();
-            Advance();
-
-            var endValue = res.Register(ParseExpression());
-            if (res.Error != null) return res;
-
-            AstNode? stepValue = null;
-            if (_currentToken.Matches(TokenType.KEYWORD, "step"))
-            {
-                res.RegisterAdvancement();
-                Advance();
-                stepValue = res.Register(ParseExpression());
-                if (res.Error != null) return res;
-            }
-
-            if (_currentToken.Type == TokenType.COLON)
+            if (_currentToken.Type == TokenType.EQ)
             {
                 res.RegisterAdvancement();
                 Advance();
 
-                var bodyInline = res.Register(ParseStatement());
+                var startValue = res.Register(ParseExpression());
                 if (res.Error != null) return res;
-                return res.Success(new ForNode(varName, startValue, endValue, stepValue, bodyInline, false));
+
+                if (!_currentToken.Matches(TokenType.KEYWORD, "to"))
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'to'"));
+
+                res.RegisterAdvancement();
+                Advance();
+
+                var endValue = res.Register(ParseExpression());
+                if (res.Error != null) return res;
+
+                AstNode? stepValue = null;
+                if (_currentToken.Matches(TokenType.KEYWORD, "step"))
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                    stepValue = res.Register(ParseExpression());
+                    if (res.Error != null) return res;
+                }
+
+                if (_currentToken.Type == TokenType.COLON)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    var bodyInline = res.Register(ParseStatement());
+                    if (res.Error != null) return res;
+                    return res.Success(new ForNode(varName, startValue, endValue, stepValue, bodyInline, false));
+                }
+                else if (_currentToken.Type == TokenType.LBRACKET)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    var body = res.Register(ParseStatements());
+                    if (res.Error != null) return res;
+
+                    if (_currentToken.Type != TokenType.RBRACKET)
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}'"));
+
+                    res.RegisterAdvancement();
+                    Advance();
+                    return res.Success(new ForNode(varName, startValue, endValue, stepValue, body, true));
+                }
+
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' or '{'"));
             }
-            else if (_currentToken.Type == TokenType.LBRACKET)
+            else if (_currentToken.Matches(TokenType.KEYWORD, "in"))
             {
                 res.RegisterAdvancement();
                 Advance();
 
-                var body = res.Register(ParseStatements());
+                var collectionExpr = res.Register(ParseExpression());
                 if (res.Error != null) return res;
 
-                if (_currentToken.Type != TokenType.RBRACKET)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}'"));
+                if (_currentToken.Type == TokenType.COLON)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
 
-                res.RegisterAdvancement();
-                Advance();
-                return res.Success(new ForNode(varName, startValue, endValue, stepValue, body, true));
+                    var bodyInline = res.Register(ParseStatement());
+                    if (res.Error != null) return res;
+
+                    return res.Success(new ForEachNode(varName, collectionExpr, bodyInline, false));
+                }
+                else if (_currentToken.Type == TokenType.LBRACKET)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    var body = res.Register(ParseStatements());
+                    if (res.Error != null) return res;
+
+                    if (_currentToken.Type != TokenType.RBRACKET)
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}'"));
+
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    return res.Success(new ForEachNode(varName, collectionExpr, body, true));
+                }
             }
 
-            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' or '{'"));
+            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '=' or 'in'"));
         }
 
         private ParserResult ParseWhileExpression()

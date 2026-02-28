@@ -41,6 +41,7 @@ This list contains what I have already added after the first commit (done featur
   - [x] Add factorial operator with "!" as suffix (or "!!" as prefix+suffix).
   - [x] Assign values to list via indexes, like "list[0] = 5".
   - [x] Add template literals with backtick (`) for making strings easily with multi-lines.
+  - [x] Add foreach statement, which will be easily "for item in list" instead of "for i = 0 to 10 step 1". The "in" keyword could be used also as a condition semantic, like "if 5 in list"
 
 ## TODOs for Ra Language (the near future)
 
@@ -64,7 +65,6 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [ ] Add cast to other types with classic C-like notation => var a: int = 5; var b: float = (float) a; <= For example, don't care about syntax.
   - [ ] Add a operator like "&" to function parameters to pass reference instead of copying only the value.
   - [ ] Function parameters can be statically typed -> fn test(a: int, b: int): int => print(a + b);
-  - [ ] Add foreach statement, which will be easily "for item in list" instead of "for i = 0 to 10 step 1". The "in" keyword could be used also as a condition semantic, like "if 5 in list"
   - [ ] Add "match" (Rust-like) and "switch" (Java + C-like versions) statements.
   - [ ] Access to portions of list using ranges, like for example a[1..3].
   - [ ] Access to last element of a list using for example a[-1].

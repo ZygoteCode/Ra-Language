@@ -28,6 +28,7 @@
         Boolean,
         ListAccess,
         Set,
-        ListAssignment
+        ListAssignment,
+        ForEach
     }
 }
