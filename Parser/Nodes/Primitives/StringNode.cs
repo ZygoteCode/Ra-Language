@@ -1,16 +1,15 @@
-﻿using RaLanguage.Lexer.Tokens;
+﻿using RaLanguage.Lexer;
 
 namespace RaLanguage.Parser.Nodes.Primitives
 {
     public class StringNode : AstNode
     {
-        public Token Tok { get; }
-        public StringNode(Token tok) : base(AstNodeType.String)
+        public List<AstNode> Parts { get; }
+        public StringNode(List<AstNode> parts, Position posStart, Position posEnd) : base(AstNodeType.String)
         {
-            Tok = tok;
-            PositionStart = tok.PositionStart;
-            PositionEnd = tok.PositionEnd;
+            Parts = parts;
+            PositionStart = posStart;
+            PositionEnd = posEnd;
         }
-        public override string ToString() => Tok.ToString();
     }
 }

@@ -31,3 +31,9 @@ if 5 is not in [2, 4, 6, 8, 10] {
 } else {
     print("test4");
 }
+
+var b = 888;
+print("b is ${b} and ${map}")
+var ccc = "test";
+print($"b is ${b} and ${ccc}.")
+print($"The result is ${b + 5}");

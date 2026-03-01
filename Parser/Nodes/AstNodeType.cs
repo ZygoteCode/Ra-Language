@@ -4,6 +4,7 @@
     {
         Number,
         String,
+        StringPart,
         List,
         VariableAccess,
         VariableDeclaration,

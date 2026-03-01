@@ -561,9 +561,30 @@ namespace RaLanguage.Interpreter
 
         private RuntimeResult VisitStringNode(StringNode node, Context context)
         {
-            return new RuntimeResult().Success(
-                new StringValue(node.Tok.Value?.ToString() ?? "").SetContext(context).SetPos(node.PositionStart, node.PositionEnd)
-            );
+            var res = new RuntimeResult();
+            var sb = new System.Text.StringBuilder();
+
+            foreach (var part in node.Parts)
+            {
+                if (part.NodeType == AstNodeType.StringPart)
+                {
+                    sb.Append(((StringTextNode)part).Text);
+                }
+                else
+                {
+                    var val = res.Register(Visit(part, context));
+                    if (res.ShouldReturn()) return res;
+
+                    if (val.Type == RuntimeValueType.String)
+                        sb.Append(((StringValue) val).Value ?? "");
+                    else if (val == null)
+                        sb.Append("null");
+                    else
+                        sb.Append(val.ToString() ?? "");
+                }
+            }
+
+            return res.Success(new StringValue(sb.ToString()).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
 
         private RuntimeResult VisitListNode(ListNode node, Context context)

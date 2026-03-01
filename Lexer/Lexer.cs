@@ -59,13 +59,46 @@ namespace RaLanguage.Lexer
                         Advance();
                         break;
                     case '"':
-                        tokens.Add(MakeString('"'));
-                        break;
                     case '\'':
-                        tokens.Add(MakeString('\''));
-                        break;
                     case '`':
-                        tokens.Add(MakeString('`'));
+                        var positionStart2 = _position.Copy();
+
+                        try
+                        {
+                            (List<Token>?, Error?) result2 = MakeString(_currentCharacter!.Value, false);
+                            if (result2.Item2 != null) return (new List<Token>(), result2.Item2!);
+                            tokens.AddRange(result2.Item1!);
+                        }
+                        catch
+                        {
+                            return (new List<Token>(), new InvalidSyntaxError(positionStart2, _position.Copy(), "Invalid string format"));
+                        }
+
+                        break;
+                    case '$':
+                        var positionStart1 = _position.Copy();
+
+                        if (_position.Idx + 1 < _text.Length &&
+                            (_text[_position.Idx + 1] == '"' || _text[_position.Idx + 1] == '\'' || _text[_position.Idx + 1] == '`'))
+                        {
+                            Advance();
+
+                            try
+                            {
+                                (List<Token>?, Error?) result1 = MakeString(_currentCharacter!.Value, true);
+                                if (result1.Item2 != null) return (new List<Token>(), result1.Item2!);
+                                tokens.AddRange(result1.Item1!);
+                            }
+                            catch (Exception ex)
+                            {
+                                return (new List<Token>(), new InvalidSyntaxError(positionStart1, _position.Copy(), ex.Message));
+                            }
+                        }
+                        else
+                        {
+                            Advance();
+                            return (new List<Token>(), new IllegalCharacterError(positionStart1, _position, "$"));
+                        }
                         break;
                     case '+':
                         tokens.Add(MakePlus());
@@ -450,38 +483,118 @@ namespace RaLanguage.Lexer
                 return (new Token(TokenType.FLOAT, finalNum, positionStart, _position), null);
         }
 
-        private Token MakeString(char stringCharacter)
+        private (List<Token>?, Error?) MakeString(char stringCharacter, bool allowInterpolation)
         {
-            var str = new StringBuilder();
+            var tokens = new List<Token>();
+            var sb = new StringBuilder();
             var positionStart = _position.Copy();
-            bool escapeChar = false;
+            bool escape = false;
+
             Advance();
 
-            var escapeCharacters = new Dictionary<char, char> { { 'n', '\n' }, { 't', '\t' } };
-
-            while (_currentCharacter != null && (_currentCharacter != stringCharacter || escapeChar))
+            void FlushTextBuffer(Position startPos, Position endPos)
             {
-                if (escapeChar)
+                if (sb.Length == 0) return;
+                tokens.Add(new Token(TokenType.STRING_TEXT, sb.ToString(), startPos, endPos));
+                sb.Clear();
+            }
+
+            var segStartPos = _position.Copy();
+
+            while (_currentCharacter != null && (_currentCharacter != stringCharacter || escape))
+            {
+                if (escape)
                 {
-                    str.Append(escapeCharacters.ContainsKey(_currentCharacter.Value) ? escapeCharacters[_currentCharacter.Value] : _currentCharacter.Value);
-                    escapeChar = false;
+                    if (_currentCharacter == 'n') sb.Append('\n');
+                    else if (_currentCharacter == 't') sb.Append('\t');
+                    else sb.Append(_currentCharacter);
+                    escape = false;
+                    Advance();
+                    continue;
                 }
-                else
+
+                if (_currentCharacter == '\\')
                 {
-                    if (_currentCharacter == '\\')
+                    escape = true;
+                    Advance();
+                    continue;
+                }
+
+                if (allowInterpolation && _currentCharacter == '$')
+                {
+                    if (_position.Idx + 1 < _text.Length && _text[_position.Idx + 1] == '{')
                     {
-                        escapeChar = true;
-                    }
-                    else
-                    {
-                        str.Append(_currentCharacter);
+                        var segEndPos = _position.Copy();
+                        FlushTextBuffer(segStartPos, segEndPos);
+
+                        var interpStartPos = _position.Copy();
+                        Advance(2);
+
+                        tokens.Add(new Token(TokenType.INTERP_START, null, interpStartPos, _position.Copy()));
+
+                        int innerStartIdx = _position.Idx;
+                        int scanIdx = innerStartIdx;
+                        int braceCount = 1;
+
+                        while (scanIdx < _text.Length && braceCount > 0)
+                        {
+                            char c = _text[scanIdx];
+                            if (c == '{') braceCount++;
+                            else if (c == '}') braceCount--;
+                            scanIdx++;
+                        }
+
+                        if (braceCount != 0)
+                        {
+                            throw new Exception("Unterminated interpolation in string literal");
+                        }
+
+                        int innerExprLen = (scanIdx - 1) - innerStartIdx;
+                        if (innerExprLen < 0) innerExprLen = 0;
+
+                        string innerText = _text.Substring(innerStartIdx, innerExprLen);
+
+                        var innerLexer = new Lexer(positionStart.Fn ?? "", innerText);
+                        var (innerTokens, innerErr) = innerLexer.MakeTokens();
+                        if (innerErr != null)
+                        {
+                            return (null, new InvalidSyntaxError(positionStart, _position, innerErr.Details));
+                        }
+
+                        foreach (var t in innerTokens)
+                        {
+                            if (t.Type == TokenType.EOF) continue;
+                            tokens.Add(t);
+                        }
+
+                        int advancesNeeded = scanIdx - _position.Idx;
+                        if (advancesNeeded > 0) Advance(advancesNeeded);
+
+                        var interpEndPos = _position.Copy();
+                        tokens.Add(new Token(TokenType.INTERP_END, null, interpEndPos, interpEndPos));
+
+                        segStartPos = _position.Copy();
+                        continue;
                     }
                 }
+
+                sb.Append(_currentCharacter);
                 Advance();
             }
 
-            Advance();
-            return new Token(TokenType.STRING, str.ToString(), positionStart, _position);
+            var finalSegEndPos = _position.Copy();
+            FlushTextBuffer(segStartPos, finalSegEndPos);
+
+            if (_currentCharacter == stringCharacter)
+            {
+                Advance();
+            }
+            else
+            {
+                throw new Exception("Unterminated string literal");
+            }
+
+            return (tokens, null);
         }
 
         private Token MakeIdentifier()

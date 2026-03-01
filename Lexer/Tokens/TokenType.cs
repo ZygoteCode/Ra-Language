@@ -26,6 +26,10 @@
         LBRACKET,
         RBRACKET,
 
+        STRING_TEXT,
+        INTERP_START,
+        INTERP_END,
+
         EE,
         NE,
         LT,

@@ -695,10 +695,43 @@ namespace RaLanguage.Parser
                     res.RegisterAdvancement();
                     Advance();
                     return res.Success(new NumberNode(tok));
-                case TokenType.STRING:
-                    res.RegisterAdvancement();
-                    Advance();
-                    return res.Success(new StringNode(tok));
+                case TokenType.STRING_TEXT:
+                    var parts = new List<AstNode>();
+                    var posStart = tok.PositionStart.Copy();
+                    var posEnd = tok.PositionEnd.Copy();
+
+                    while (_currentToken.Type == TokenType.STRING_TEXT || _currentToken.Type == TokenType.INTERP_START)
+                    {
+                        if (_currentToken.Type == TokenType.STRING_TEXT)
+                        {
+                            var textTok = _currentToken;
+                            res.RegisterAdvancement();
+                            Advance();
+                            parts.Add(new StringTextNode(textTok.Value?.ToString() ?? "", textTok.PositionStart.Copy(), textTok.PositionEnd.Copy()));
+                            posEnd = textTok.PositionEnd.Copy();
+                        }
+                        else if (_currentToken.Type == TokenType.INTERP_START)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+
+                            var expr2 = res.Register(ParseExpression());
+                            if (res.Error != null) return res;
+
+                            if (_currentToken.Type != TokenType.INTERP_END)
+                            {
+                                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}' to close interpolation"));
+                            }
+
+                            res.RegisterAdvancement();
+                            Advance();
+
+                            parts.Add(expr2);
+                            posEnd = expr2.PositionEnd.Copy();
+                        }
+                    }
+
+                    return res.Success(new StringNode(parts, posStart, posEnd));
                 case TokenType.KEYWORD when tok.Value?.ToString() == "null":
                     res.RegisterAdvancement();
                     Advance();
