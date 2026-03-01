@@ -1,5 +1,4 @@
 ﻿using RaLanguage.Errors.Types;
-using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes;
@@ -10,6 +9,7 @@ using RaLanguage.Parser.Nodes.Primitives;
 using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Statements;
 using RaLanguage.Parser.Nodes.Variables;
+using System.Xml.Linq;
 
 namespace RaLanguage.Parser
 {
@@ -688,101 +688,80 @@ namespace RaLanguage.Parser
             var res = new ParserResult();
             var tok = _currentToken;
 
-            if (tok.Type == TokenType.INT || tok.Type == TokenType.FLOAT)
+            switch (tok.Type)
             {
-                res.RegisterAdvancement();
-                Advance();
-                return res.Success(new NumberNode(tok));
-            }
-            else if (tok.Type == TokenType.STRING)
-            {
-                res.RegisterAdvancement();
-                Advance();
-                return res.Success(new StringNode(tok));
-            }
-            else if (tok.Matches(TokenType.KEYWORD, "null"))
-            {
-                res.RegisterAdvancement();
-                Advance();
-                return res.Success(new NullNode(tok));
-            }
-            else if (tok.Matches(TokenType.KEYWORD, "true") || tok.Matches(TokenType.KEYWORD, "false"))
-            {
-                res.RegisterAdvancement();
-                Advance();
-                return res.Success(new BooleanNode(tok));
-            }
-            else if (tok.Type == TokenType.IDENTIFIER)
-            {
-                res.RegisterAdvancement();
-                Advance();
-                var varNode = new VariableAccessNode(tok);
-
-                if (_currentToken.Type == TokenType.DOUBLE_PLUS || _currentToken.Type == TokenType.DOUBLE_MINUS)
-                {
-                    var opTok = _currentToken;
+                case TokenType.INT:
+                case TokenType.FLOAT:
                     res.RegisterAdvancement();
                     Advance();
-                    return res.Success(new UnaryOperationNode(opTok, varNode, isLeft: false));
-                }
-
-                return res.Success(varNode);
-            }
-            else if (tok.Type == TokenType.LPAREN)
-            {
-                res.RegisterAdvancement();
-                Advance();
-                var expr = res.Register(ParseExpression());
-                if (res.Error != null) return res;
-                if (_currentToken.Type == TokenType.RPAREN)
-                {
+                    return res.Success(new NumberNode(tok));
+                case TokenType.STRING:
                     res.RegisterAdvancement();
                     Advance();
-                    return res.Success(expr);
-                }
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ')'"));
-            }
-            else if (tok.Type == TokenType.LSQUARE)
-            {
-                var listExpr = res.Register(ParseListExpression());
-                if (res.Error != null) return res;
-                return res.Success(listExpr);
-            }
-            else if (tok.Type == TokenType.LBRACKET)
-            {
-                var setExpr = res.Register(ParseSetExpression());
-                if (res.Error != null) return res;
-                return res.Success(setExpr);
-            }
-            else if (tok.Matches(TokenType.KEYWORD, "if"))
-            {
-                var ifExpr = res.Register(ParseIfExpression());
-                if (res.Error != null) return res;
-                return res.Success(ifExpr);
-            }
-            else if (tok.Matches(TokenType.KEYWORD, "for"))
-            {
-                var forExpr = res.Register(ParseForExpression());
-                if (res.Error != null) return res;
-                return res.Success(forExpr);
-            }
-            else if (tok.Matches(TokenType.KEYWORD, "while"))
-            {
-                var whileExpr = res.Register(ParseWhileExpression());
-                if (res.Error != null) return res;
-                return res.Success(whileExpr);
-            }
-            else if (tok.Matches(TokenType.KEYWORD, "fn"))
-            {
-                var funcDef = res.Register(ParseFunctionDefinition());
-                if (res.Error != null) return res;
-                return res.Success(funcDef);
-            }
-            else if (tok.Matches(TokenType.KEYWORD, "do"))
-            {
-                var doWhileExpr = res.Register(ParseDoWhileExpression());
-                if (res.Error != null) return res;
-                return res.Success(doWhileExpr);
+                    return res.Success(new StringNode(tok));
+                case TokenType.KEYWORD when tok.Value?.ToString() == "null":
+                    res.RegisterAdvancement();
+                    Advance();
+                    return res.Success(new NullNode(tok));
+                case TokenType.KEYWORD when tok.Value?.ToString() == "true":
+                case TokenType.KEYWORD when tok.Value?.ToString() == "false":
+                    res.RegisterAdvancement();
+                    Advance();
+                    return res.Success(new BooleanNode(tok));
+                case TokenType.IDENTIFIER:
+                    res.RegisterAdvancement();
+                    Advance();
+                    var varNode = new VariableAccessNode(tok);
+
+                    if (_currentToken.Type == TokenType.DOUBLE_PLUS || _currentToken.Type == TokenType.DOUBLE_MINUS)
+                    {
+                        var opTok = _currentToken;
+                        res.RegisterAdvancement();
+                        Advance();
+                        return res.Success(new UnaryOperationNode(opTok, varNode, isLeft: false));
+                    }
+
+                    return res.Success(varNode);
+                case TokenType.LPAREN:
+                    res.RegisterAdvancement();
+                    Advance();
+                    var expr = res.Register(ParseExpression());
+                    if (res.Error != null) return res;
+                    if (_currentToken.Type == TokenType.RPAREN)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                        return res.Success(expr);
+                    }
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ')'"));
+                case TokenType.LSQUARE:
+                    var listExpr = res.Register(ParseListExpression());
+                    if (res.Error != null) return res;
+                    return res.Success(listExpr);
+                case TokenType.LBRACKET:
+                    var setExpr = res.Register(ParseSetExpression());
+                    if (res.Error != null) return res;
+                    return res.Success(setExpr);
+                case TokenType.KEYWORD when tok.Value?.ToString() == "if":
+                    var ifExpr = res.Register(ParseIfExpression());
+                    if (res.Error != null) return res;
+                    return res.Success(ifExpr);
+                case TokenType.KEYWORD when tok.Value?.ToString() == "for":
+                    var forExpr = res.Register(ParseForExpression());
+                    if (res.Error != null) return res;
+                    return res.Success(forExpr);
+                case TokenType.KEYWORD when tok.Value?.ToString() == "while":
+                    var whileExpr = res.Register(ParseWhileExpression());
+                    if (res.Error != null) return res;
+                    return res.Success(whileExpr);
+                case TokenType.KEYWORD when tok.Value?.ToString() == "fn":
+                    var funcDef = res.Register(ParseFunctionDefinition());
+                    if (res.Error != null) return res;
+                    return res.Success(funcDef);
+                case TokenType.KEYWORD when tok.Value?.ToString() == "fn":
+                    var doWhileExpr = res.Register(ParseDoWhileExpression());
+                    if (res.Error != null) return res;
+                    return res.Success(doWhileExpr);
             }
 
             return res.Failure(new InvalidSyntaxError(tok.PositionStart, tok.PositionEnd, "Expected int, float, identifier, '+', '-', '(', '[', 'if', 'for', 'while', 'fn'"));
