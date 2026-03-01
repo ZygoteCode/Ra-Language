@@ -13,7 +13,6 @@ using RaLanguage.Parser.Nodes.Primitives;
 using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Statements;
 using RaLanguage.Parser.Nodes.Variables;
-using System.Collections;
 
 namespace RaLanguage.Interpreter
 {
@@ -58,6 +57,7 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.Range] = (node, ctx) => VisitRangeNode((RangeNode)node, ctx);
             _visitors[(int)AstNodeType.NullCoalescing] = (node, ctx) => VisitNullCoalescingNode((NullCoalescingNode)node, ctx);
             _visitors[(int)AstNodeType.Ternary] = (node, ctx) => VisitTernaryNode((TernaryNode)node, ctx);
+            _visitors[(int)AstNodeType.Map] = (node, ctx) => VisitMapNode((MapNode)node, ctx);
         }
 
         public RuntimeResult Visit(AstNode node, Context context)
@@ -67,6 +67,32 @@ namespace RaLanguage.Interpreter
                 throw new Exception($"No visit method for {node.NodeType}");
 
             return _visitors[index](node, context);
+        }
+
+        private RuntimeResult VisitMapNode(MapNode node, Context context)
+        {
+            var res = new RuntimeResult();
+            var map = new MapValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+
+            foreach (var (keyNode, valueNode) in node.Pairs)
+            {
+                var keyVal = res.Register(Visit(keyNode, context));
+                if (res.ShouldReturn()) return res;
+
+                keyVal.SetContext(context).SetPos(keyNode.PositionStart, keyNode.PositionEnd);
+                var valueVal = res.Register(Visit(valueNode, context));
+                if (res.ShouldReturn()) return res;
+
+                valueVal.SetContext(context).SetPos(valueNode.PositionStart, valueNode.PositionEnd);
+
+                var (setResult, setError) = map.ListSet(keyVal, valueVal);
+                if (setError != null)
+                {
+                    return res.Failure(setError);
+                }
+            }
+
+            return res.Success(map);
         }
 
         private RuntimeResult VisitTernaryNode(TernaryNode node, Context context)
@@ -461,6 +487,7 @@ namespace RaLanguage.Interpreter
                 RuntimeValueType.Null => "null",
                 RuntimeValueType.Boolean => "boolean",
                 RuntimeValueType.Set => "set",
+                RuntimeValueType.Map => "map",
                 _ => ""
             };
 
@@ -623,7 +650,15 @@ namespace RaLanguage.Interpreter
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is not defined", context));
             }
 
-            value = value.Copy().SetPos(node.PositionStart, node.PositionEnd).SetContext(context);
+            if (value.Type == RuntimeValueType.Map)
+            {
+                value = value.SetPos(node.PositionStart, node.PositionEnd).SetContext(context);
+            }
+            else
+            {
+                value = value.Copy().SetPos(node.PositionStart, node.PositionEnd).SetContext(context);
+            }
+
             return res.Success(value);
         }
 

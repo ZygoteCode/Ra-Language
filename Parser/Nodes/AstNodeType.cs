@@ -33,6 +33,7 @@
         Range,
         NullCoalescing,
         Spread,
-        Ternary
+        Ternary,
+        Map
     }
 }

@@ -8,6 +8,7 @@
         Function,
         Null,
         Boolean,
-        Set
+        Set,
+        Map
     }
 }
