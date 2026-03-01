@@ -535,7 +535,7 @@ namespace RaLanguage.Parser
                     (TokenType.EE, null), (TokenType.NE, null), (TokenType.LT, null),
                     (TokenType.GT, null), (TokenType.LTE, null), (TokenType.GTE, null),
                     (TokenType.STRICT_EE, null), (TokenType.STRICT_NE, null),
-                    (TokenType.KEYWORD, "in")
+                    (TokenType.KEYWORD, "in"), (TokenType.KEYWORD, "not in")
                 }
             ));
 

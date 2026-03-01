@@ -856,6 +856,11 @@ namespace RaLanguage.Interpreter
                 case TokenType.STRICT_EE: (result, error) = left.GetComparisonStrictEq(right); break;
                 case TokenType.STRICT_NE: (result, error) = left.GetComparisonStrictNe(right); break;
                 case TokenType.KEYWORD when node.OpTok.Value?.ToString() == "in": (result, error) = left.InCollection(right); break;
+                case TokenType.KEYWORD when node.OpTok.Value?.ToString() == "not in":
+                    (result, error) = left.InCollection(right);
+                    if (error != null) return res;
+                    result = result?.Notted().Item1!;
+                    break;
             }
 
             if (error != null) return res.Failure(error);

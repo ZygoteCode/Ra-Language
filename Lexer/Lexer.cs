@@ -10,7 +10,7 @@ namespace RaLanguage.Lexer
     {
         private readonly string _text;
         private Position _position;
-        private char? _currentCharacter;
+        private char? _currentCharacter; 
 
         private static readonly HashSet<string> Keywords = new()
         {
@@ -507,6 +507,18 @@ namespace RaLanguage.Lexer
                 if (_currentCharacter == 'n' && _text[_position.Idx + 1] == 'o' && _text[_position.Idx + 2] == 't')
                 {
                     Advance(3);
+
+                    while (_currentCharacter == ' ' || _currentCharacter == '\t')
+                    {
+                        Advance();
+                    }
+
+                    if (_currentCharacter == 'i' && _text[_position.Idx + 1] == 'n')
+                    {
+                        Advance(2);
+                        return new Token(TokenType.KEYWORD, "not in", positionStart, _position);
+                    }
+
                     return new Token(TokenType.NE, null, positionStart, _position);
                 }
                 else if (_currentCharacter == 'i' && _text[_position.Idx + 1] == 'n')
@@ -516,6 +528,19 @@ namespace RaLanguage.Lexer
                 }
 
                 return new Token(TokenType.EE, null, positionStart, _position);
+            }
+            else if (idString == "not")
+            {
+                while (_currentCharacter == ' ' || _currentCharacter == '\t')
+                {
+                    Advance();
+                }
+
+                if (_currentCharacter == 'i' && _text[_position.Idx + 1] == 'n')
+                {
+                    Advance(2);
+                    return new Token(TokenType.KEYWORD, "not in", positionStart, _position);
+                }
             }
 
             TokenType type = Keywords.Contains(idString) ? TokenType.KEYWORD : TokenType.IDENTIFIER;
