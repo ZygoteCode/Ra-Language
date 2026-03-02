@@ -8,8 +8,12 @@ namespace RaLanguage.Interpreter
         public RuntimeValue? Value { get; private set; }
         public Error? Error { get; private set; }
         public RuntimeValue? FuncReturnValue { get; private set; }
+
         public bool LoopShouldContinue { get; private set; }
-        public bool LoopShouldBreak { get; private set; }
+        public bool LoopShouldBreak { get; set; }
+
+        public RuntimeValue? YieldValue { get; private set; }
+        public bool ShouldYield { get; private set; }
 
         public void Reset()
         {
@@ -18,14 +22,21 @@ namespace RaLanguage.Interpreter
             FuncReturnValue = null;
             LoopShouldContinue = false;
             LoopShouldBreak = false;
+            YieldValue = null;
+            ShouldYield = false;
         }
 
-        public RuntimeValue Register(RuntimeResult res)
+        public RuntimeValue? Register(RuntimeResult res, bool propagateLoopControl = true)
         {
             Error = res.Error;
             FuncReturnValue = res.FuncReturnValue;
-            LoopShouldContinue = res.LoopShouldContinue;
-            LoopShouldBreak = res.LoopShouldBreak;
+
+            if (propagateLoopControl)
+            {
+                LoopShouldContinue = res.LoopShouldContinue;
+                LoopShouldBreak = res.LoopShouldBreak;
+            }
+
             return res.Value;
         }
 
@@ -54,6 +65,15 @@ namespace RaLanguage.Interpreter
         {
             Reset();
             LoopShouldBreak = true;
+            return this;
+        }
+
+        public RuntimeResult SuccessYield(RuntimeValue value)
+        {
+            Reset();
+            YieldValue = value;
+            ShouldYield = true;
+            Value = value;
             return this;
         }
 

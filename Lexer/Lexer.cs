@@ -18,7 +18,7 @@ namespace RaLanguage.Lexer
             "for", "to", "step", "while", "fn", "ret", "is",
             "continue", "break", "pass", "const", "final",
             "del", "do", "typeof", "nameof", "null", "true",
-            "false", "in"
+            "false", "in", "switch", "case", "default", "yield"
         };
 
         public Lexer(string fn, string text)
@@ -687,6 +687,11 @@ namespace RaLanguage.Lexer
             {
                 Advance();
                 type = TokenType.MINUS_EQ;
+            }
+            else if (_currentCharacter == '>')
+            {
+                Advance();
+                type = TokenType.ARROW_RIGHT;
             }
 
             return new Token(type, null, positionStart, _position);

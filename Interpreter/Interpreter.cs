@@ -58,6 +58,8 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.NullCoalescing] = (node, ctx) => VisitNullCoalescingNode((NullCoalescingNode)node, ctx);
             _visitors[(int)AstNodeType.Ternary] = (node, ctx) => VisitTernaryNode((TernaryNode)node, ctx);
             _visitors[(int)AstNodeType.Map] = (node, ctx) => VisitMapNode((MapNode)node, ctx);
+            _visitors[(int)AstNodeType.Yield] = (node, ctx) => VisitYieldNode((YieldNode)node, ctx);
+            _visitors[(int)AstNodeType.Switch] = (node, ctx) => VisitSwitchNode((SwitchNode)node, ctx);
         }
 
         public RuntimeResult Visit(AstNode node, Context context)
@@ -67,6 +69,207 @@ namespace RaLanguage.Interpreter
                 throw new Exception($"No visit method for {node.NodeType}");
 
             return _visitors[index](node, context);
+        }
+
+        private RuntimeResult VisitSwitchNode(SwitchNode node, Context context)
+        {
+            var res = new RuntimeResult();
+
+            var ctrlRes = Visit(node.Expression, context);
+            var switchVal = res.Register(ctrlRes, propagateLoopControl: false);
+            if (ctrlRes.Error != null) return res.Failure(ctrlRes.Error);
+            if (ctrlRes.FuncReturnValue != null) return res.SuccessReturn(ctrlRes.FuncReturnValue);
+            if (ctrlRes.LoopShouldContinue) return res.SuccessContinue();
+            if (ctrlRes.LoopShouldBreak) return res.SuccessBreak();
+
+            bool matched = false;
+
+            for (int ci = 0; ci < node.Cases.Count; ci++)
+            {
+                var c = node.Cases[ci];
+                bool thisCaseMatches = false;
+
+                if (c.IsDefault)
+                {
+                    if (!matched) thisCaseMatches = true;
+                }
+                else
+                {
+                    foreach (var labelExpr in c.Labels)
+                    {
+                        var labelRes = Visit(labelExpr, context);
+                        var labelVal = res.Register(labelRes, propagateLoopControl: false);
+                        if (labelRes.Error != null) return res.Failure(labelRes.Error);
+                        if (labelRes.FuncReturnValue != null) return res.SuccessReturn(labelRes.FuncReturnValue);
+                        if (labelRes.LoopShouldContinue) return res.SuccessContinue();
+                        if (labelRes.LoopShouldBreak) return res.SuccessBreak();
+
+                        var (cmpResVal, cmpError) = switchVal.GetComparisonEq(labelVal);
+                        if (cmpError != null) return res.Failure(cmpError);
+                        if (cmpResVal != null && cmpResVal.IsTrue())
+                        {
+                            thisCaseMatches = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!matched && !thisCaseMatches)
+                {
+                    continue;
+                }
+                if (thisCaseMatches) matched = true;
+
+                if (c.Separator == SwitchCaseSeparator.Arrow)
+                {
+                    if (c.Body == null)
+                    {
+                        return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                    }
+
+                    if (c.Body is ListNode arrowBlock)
+                    {
+                        foreach (var stmt in arrowBlock.ElementNodes)
+                        {
+                            var childRes = Visit(stmt, context);
+                            res.Register(childRes, propagateLoopControl: false);
+
+                            if (childRes.Error != null) return res.Failure(childRes.Error);
+                            if (childRes.FuncReturnValue != null) return res.SuccessReturn(childRes.FuncReturnValue);
+
+                            if (childRes.LoopShouldBreak)
+                            {
+                                childRes.LoopShouldBreak = false;
+                                return res.Success(new NullValue().SetContext(context));
+                            }
+
+                            if (childRes.LoopShouldContinue)
+                            {
+                                return res.SuccessContinue();
+                            }
+
+                            if (childRes.ShouldYield)
+                            {
+                                return res.SuccessYield(childRes.YieldValue ?? new NullValue().SetContext(context));
+                            }
+                        }
+
+                        return res.Success(new NullValue().SetContext(context));
+                    }
+                    else
+                    {
+                        var exprRes = Visit(c.Body, context);
+                        var exprVal = res.Register(exprRes, propagateLoopControl: false);
+
+                        if (exprRes.Error != null) return res.Failure(exprRes.Error);
+                        if (exprRes.FuncReturnValue != null) return res.SuccessReturn(exprRes.FuncReturnValue);
+                        if (exprRes.LoopShouldBreak) return res.SuccessBreak();
+                        if (exprRes.LoopShouldContinue) return res.SuccessContinue();
+                        if (exprRes.ShouldYield) return res.SuccessYield(exprRes.YieldValue ?? new NullValue().SetContext(context));
+
+                        return res.Success(exprVal);
+                    }
+                }
+                else
+                {
+                    for (int k = ci; k < node.Cases.Count; k++)
+                    {
+                        var caseToExec = node.Cases[k];
+
+                        if (caseToExec.Separator == SwitchCaseSeparator.Arrow)
+                        {
+                            if (caseToExec.Body is ListNode arrowBlock2)
+                            {
+                                foreach (var stmt in arrowBlock2.ElementNodes)
+                                {
+                                    var childRes = Visit(stmt, context);
+                                    res.Register(childRes, propagateLoopControl: false);
+
+                                    if (childRes.Error != null) return res.Failure(childRes.Error);
+                                    if (childRes.FuncReturnValue != null) return res.SuccessReturn(childRes.FuncReturnValue);
+
+                                    if (childRes.LoopShouldBreak)
+                                    {
+                                        childRes.LoopShouldBreak = false;
+                                        return res.Success(new NullValue().SetContext(context));
+                                    }
+
+                                    if (childRes.LoopShouldContinue)
+                                    {
+                                        return res.SuccessContinue();
+                                    }
+
+                                    if (childRes.ShouldYield)
+                                    {
+                                        return res.SuccessYield(childRes.YieldValue ?? new NullValue().SetContext(context));
+                                    }
+                                }
+                            }
+                            else if (caseToExec.Body != null)
+                            {
+                                var exprRes = Visit(caseToExec.Body, context);
+                                var exprVal = res.Register(exprRes, propagateLoopControl: false);
+
+                                if (exprRes.Error != null) return res.Failure(exprRes.Error);
+                                if (exprRes.FuncReturnValue != null) return res.SuccessReturn(exprRes.FuncReturnValue);
+                                if (exprRes.LoopShouldBreak) return res.SuccessBreak();
+                                if (exprRes.LoopShouldContinue) return res.SuccessContinue();
+                                if (exprRes.ShouldYield) return res.SuccessYield(exprRes.YieldValue ?? new NullValue().SetContext(context));
+
+                                return res.Success(exprVal);
+                            }
+                        }
+                        else
+                        {
+                            if (caseToExec.Body is ListNode colonBlock)
+                            {
+                                foreach (var stmt in colonBlock.ElementNodes)
+                                {
+                                    var childRes = Visit(stmt, context);
+                                    res.Register(childRes, propagateLoopControl: false);
+
+                                    if (childRes.Error != null) return res.Failure(childRes.Error);
+                                    if (childRes.FuncReturnValue != null) return res.SuccessReturn(childRes.FuncReturnValue);
+
+                                    if (childRes.LoopShouldBreak)
+                                    {
+                                        childRes.LoopShouldBreak = false;
+                                        return res.Success(new NullValue().SetContext(context));
+                                    }
+
+                                    if (childRes.LoopShouldContinue)
+                                    {
+                                        return res.SuccessContinue();
+                                    }
+
+                                    if (childRes.ShouldYield)
+                                    {
+                                        return res.SuccessYield(childRes.YieldValue ?? new NullValue().SetContext(context));
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    return res.Success(new NullValue().SetContext(context));
+                }
+            }
+
+            return res.Success(new NullValue().SetContext(context));
+        }
+
+        private RuntimeResult VisitYieldNode(YieldNode node, Context context)
+        {
+            var res = new RuntimeResult();
+
+            var childRes = Visit(node.Expression, context);
+            var val = res.Register(childRes, propagateLoopControl: false);
+            if (childRes.Error != null) return res.Failure(childRes.Error);
+            if (childRes.FuncReturnValue != null) return res.SuccessReturn(childRes.FuncReturnValue);
+            if (childRes.LoopShouldContinue) return res.SuccessContinue();
+            if (childRes.LoopShouldBreak) return res.SuccessBreak();
+
+            return res.SuccessYield(val ?? new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
 
         private RuntimeResult VisitMapNode(MapNode node, Context context)

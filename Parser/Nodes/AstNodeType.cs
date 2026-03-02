@@ -35,6 +35,9 @@
         NullCoalescing,
         Spread,
         Ternary,
-        Map
+        Map,
+        Switch,
+        SwitchCase,
+        Yield
     }
 }

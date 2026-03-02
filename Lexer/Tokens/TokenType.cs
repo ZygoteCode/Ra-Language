@@ -74,6 +74,7 @@
 
         COMMA,
         ARROW,
+        ARROW_RIGHT,
         NEWLINE,
         EOF
     }

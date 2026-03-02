@@ -218,6 +218,12 @@ namespace RaLanguage.Parser
                         var expr = res.TryRegister(ParseExpression());
                         if (expr == null) Reverse(res.ToReverseCount);
                         return res.Success(new ReturnNode(expr, positionStart, _currentToken.PositionStart.Copy()));
+                    case "yield":
+                        res.RegisterAdvancement();
+                        Advance();
+                        var expr2 = res.Register(ParseExpression());
+                        if (res.Error != null) Reverse(res.ToReverseCount);
+                        return res.Success(new YieldNode(expr2, positionStart, _currentToken.PositionStart.Copy()));
                     case "continue":
                         res.RegisterAdvancement();
                         Advance();
@@ -795,6 +801,10 @@ namespace RaLanguage.Parser
                     var doWhileExpr = res.Register(ParseDoWhileExpression());
                     if (res.Error != null) return res;
                     return res.Success(doWhileExpr);
+                case TokenType.KEYWORD when tok.Value?.ToString() == "switch":
+                    var switchExpr = res.Register(ParseSwitchExpression());
+                    if (res.Error != null) return res;
+                    return res.Success(switchExpr);
             }
 
             return res.Failure(new InvalidSyntaxError(tok.PositionStart, tok.PositionEnd, "Expected int, float, identifier, '+', '-', '(', '[', 'if', 'for', 'while', 'fn'"));
@@ -1197,6 +1207,212 @@ namespace RaLanguage.Parser
             }
 
             return res.Success(new IfCasesWrapperNode(new List<(AstNode, AstNode, bool)>(), elseCase));
+        }
+
+        private ParserResult ParseSwitchExpression()
+        {
+            var res = new ParserResult();
+            var positionStart = _currentToken.PositionStart.Copy();
+
+            if (!_currentToken.Matches(TokenType.KEYWORD, "switch"))
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'switch'"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            if (_currentToken.Type != TokenType.LPAREN)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '(' after 'switch'"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            var expr = res.Register(ParseExpression());
+            if (res.Error != null) return res;
+
+            if (_currentToken.Type != TokenType.RPAREN)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ')' after switch expression"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            if (_currentToken.Type != TokenType.LBRACKET)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{' to open switch block"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            var cases = new List<SwitchCaseNode>();
+
+            while (_currentToken.Type != TokenType.RBRACKET)
+            {
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Matches(TokenType.KEYWORD, "case"))
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    var labels = new List<AstNode>();
+                    var firstLabel = res.Register(ParseExpression());
+                    if (res.Error != null) return res;
+                    labels.Add(firstLabel);
+
+                    while (_currentToken.Type == TokenType.COMMA)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        var nextLabel = res.Register(ParseExpression());
+                        if (res.Error != null) return res;
+                        labels.Add(nextLabel);
+                    }
+
+                    if (_currentToken.Type == TokenType.COLON)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        var stmtList = new List<AstNode>();
+                        while (!(_currentToken.Matches(TokenType.KEYWORD, "case") || _currentToken.Matches(TokenType.KEYWORD, "default") || _currentToken.Type == TokenType.RBRACKET))
+                        {
+                            if (_currentToken.Type == TokenType.NEWLINE)
+                            {
+                                res.RegisterAdvancement();
+                                Advance();
+                                continue;
+                            }
+
+                            var stmt = res.Register(ParseStatement());
+                            if (res.Error != null) return res;
+                            stmtList.Add(stmt);
+                        }
+
+                        var blockNode = new ListNode(stmtList, firstLabel.PositionStart.Copy(), (stmtList.Count > 0 ? stmtList.Last().PositionEnd.Copy() : _currentToken.PositionStart.Copy()));
+                        cases.Add(new SwitchCaseNode(labels, false, SwitchCaseSeparator.Colon, blockNode, firstLabel.PositionStart.Copy(), _currentToken.PositionEnd.Copy()));
+                    }
+                    else if (_currentToken.Type == TokenType.ARROW_RIGHT)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        AstNode? body = null;
+
+                        if (_currentToken.Type == TokenType.LBRACKET)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                            var stmts = res.Register(ParseStatements());
+                            if (res.Error != null) return res;
+                            if (_currentToken.Type != TokenType.RBRACKET)
+                                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}'"));
+                            res.RegisterAdvancement();
+                            Advance();
+
+                            body = stmts;
+                        }
+                        else
+                        {
+                            body = res.Register(ParseExpression());
+                            if (res.Error != null) return res;
+                        }
+
+                        cases.Add(new SwitchCaseNode(labels, false, SwitchCaseSeparator.Arrow, body, firstLabel.PositionStart.Copy(), (body ?? firstLabel).PositionEnd.Copy()));
+                        if (_currentToken.Type == TokenType.COLON)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                        }
+                    }
+                    else
+                    {
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' or '->' after case label"));
+                    }
+                }
+                else if (_currentToken.Matches(TokenType.KEYWORD, "default"))
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    if (_currentToken.Type == TokenType.COLON)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        var stmtList = new List<AstNode>();
+                        while (!(_currentToken.Matches(TokenType.KEYWORD, "case") || _currentToken.Type == TokenType.RBRACKET))
+                        {
+                            if (_currentToken.Type == TokenType.NEWLINE)
+                            {
+                                res.RegisterAdvancement();
+                                Advance();
+                                continue;
+                            }
+
+                            var stmt = res.Register(ParseStatement());
+                            if (res.Error != null) return res;
+                            stmtList.Add(stmt);
+                        }
+
+                        var blockNode = new ListNode(stmtList, positionStart.Copy(), (stmtList.Count > 0 ? stmtList.Last().PositionEnd.Copy() : _currentToken.PositionStart.Copy()));
+                        cases.Add(new SwitchCaseNode(new List<AstNode>(), true, SwitchCaseSeparator.Colon, blockNode, positionStart.Copy(), _currentToken.PositionEnd.Copy()));
+                    }
+                    else if (_currentToken.Type == TokenType.ARROW_RIGHT)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        AstNode? body = null;
+                        if (_currentToken.Type == TokenType.LBRACKET)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                            var stmts = res.Register(ParseStatements());
+                            if (res.Error != null) return res;
+                            if (_currentToken.Type != TokenType.RBRACKET)
+                                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}'"));
+                            res.RegisterAdvancement();
+                            Advance();
+                            body = stmts;
+                        }
+                        else
+                        {
+                            body = res.Register(ParseExpression());
+                            if (res.Error != null) return res;
+                        }
+
+                        cases.Add(new SwitchCaseNode(new List<AstNode>(), true, SwitchCaseSeparator.Arrow, body, positionStart.Copy(), body == null ? positionStart : body.PositionEnd.Copy()));
+                        if (_currentToken.Type == TokenType.COLON)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                        }
+                    }
+                    else
+                    {
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' or '->' after default"));
+                    }
+                }
+                else
+                {
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'case' or 'default' in switch block"));
+                }
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+            }
+
+            res.RegisterAdvancement();
+            Advance();
+
+            var switchNode = new SwitchNode(expr, cases, positionStart, _currentToken.PositionEnd.Copy());
+            return res.Success(switchNode);
         }
 
         private ParserResult ParseForExpression()

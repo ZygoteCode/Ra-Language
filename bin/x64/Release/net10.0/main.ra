@@ -1,39 +1,63 @@
-var map = {"hello": "world!"}
-print(map);
-print(map["hello"]);
+var day = 3;
 
-map["hello1"] = 5;
-print(map);
-print(map);
-
-map["hello1"] = "sup";
-print(map);
-
-map -= "hello";
-print(map);
-
-map[3.2] = 5.6;
-print(map);
-
-map -= 3.2;
-print(map);
-
-if 5 not in [1, 2, 3, 4] {
-    print("test1")
-} else {
-    print("test2")
+switch (day) {
+    case 1:
+        print("Monday");
+        break;
+    case 2:
+        print("Tuesday");
+        break;
+    case 3:
+        print("Wednesday");
+        break;
+    default:
+        print("Another day");
 }
 
-print(5 is not 6);
-
-if 5 is not in [2, 4, 6, 8, 10] {
-    print("test3");
-} else {
-    print("test4");
+switch (day) {
+    case 1 -> print("Monday");
+    case 2 -> print("Tuesday");
+    case 3 -> {
+        print("Wednesday");
+        print("Mid week!");
+    }
+    default -> print("Another day!");
 }
 
-var b = 888;
-print("b is ${b} and ${map}")
-var ccc = "test";
-print($"b is ${b} and ${ccc}.")
-print($"The result is ${b + 5}");
+day = 3;
+
+var dayName = switch (day) {
+    case 1 -> "Monday";
+    case 2 -> "Tuesday";
+    case 3 -> {
+        print("Wednesday!");
+        yield "Wednesday";
+    }
+    case 4, 5 -> "Almost weekend";
+    default -> "Weekend";
+};
+
+print(dayName);
+
+var n = 2;
+switch (n) {
+    case 1:
+        print("One");
+    case 2:
+        print("Two");
+        break;
+    case 3:
+        print("Three");
+}
+
+var x = 99;
+
+while true {
+    x--;
+
+    if (x == 1) {
+        break;
+    } else {
+        continue;
+    }
+}
