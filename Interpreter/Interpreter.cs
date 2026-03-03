@@ -640,11 +640,11 @@ namespace RaLanguage.Interpreter
         {
             var res = new RuntimeResult();
 
-            if (node.Token.Value.ToString() == "true")
+            if (((Keyword)node.Token.Value) == Keyword.True)
             {
                 return res.Success(new BooleanValue(true).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
             }
-            else if (node.Token.Value.ToString() == "false")
+            else if (((Keyword)node.Token.Value) == Keyword.False)
             {
                 return res.Success(new BooleanValue(false).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
             }
@@ -1070,8 +1070,8 @@ namespace RaLanguage.Interpreter
                 case TokenType.GT: (result, error) = left.GetComparisonGt(right); break;
                 case TokenType.LTE: (result, error) = left.GetComparisonLte(right); break;
                 case TokenType.GTE: (result, error) = left.GetComparisonGte(right); break;
-                case TokenType.KEYWORD when node.OpTok.Value?.ToString() == "and": (result, error) = left.AndedBy(right); break;
-                case TokenType.KEYWORD when node.OpTok.Value?.ToString() == "or": (result, error) = left.OredBy(right); break;
+                case TokenType.KEYWORD when ((Keyword)node.OpTok.Value) == Keyword.And: (result, error) = left.AndedBy(right); break;
+                case TokenType.KEYWORD when ((Keyword)node.OpTok.Value) == Keyword.Or: (result, error) = left.OredBy(right); break;
                 case TokenType.BITWISE_LEFT_SHIFT: (result, error) = left.BitwiseLeftShiftedBy(right); break;
                 case TokenType.BITWISE_RIGHT_SHIFT: (result, error) = left.BitwiseRightShiftedBy(right); break;
                 case TokenType.MODULO: (result, error) = left.ModuledBy(right); break;
@@ -1079,8 +1079,8 @@ namespace RaLanguage.Interpreter
                 case TokenType.BITWISE_OR: (result, error) = left.BitwiseOredBy(right); break;
                 case TokenType.STRICT_EE: (result, error) = left.GetComparisonStrictEq(right); break;
                 case TokenType.STRICT_NE: (result, error) = left.GetComparisonStrictNe(right); break;
-                case TokenType.KEYWORD when node.OpTok.Value?.ToString() == "in": (result, error) = left.InCollection(right); break;
-                case TokenType.KEYWORD when node.OpTok.Value?.ToString() == "not in":
+                case TokenType.KEYWORD when ((Keyword)node.OpTok.Value) == Keyword.In: (result, error) = left.InCollection(right); break;
+                case TokenType.KEYWORD when ((Keyword)node.OpTok.Value) == Keyword.NotIn:
                     (result, error) = left.InCollection(right);
                     if (error != null) return res;
                     result = result?.Notted().Item1!;
@@ -1127,7 +1127,7 @@ namespace RaLanguage.Interpreter
                 case TokenType.MINUS:
                     (value, error) = value.MultedBy(new NumberValue(BigNumber.Parse("-1")));
                     break;
-                case TokenType.KEYWORD when node.OpTok.Value?.ToString() == "not":
+                case TokenType.KEYWORD when ((Keyword)node.OpTok.Value) == Keyword.Not:
                     if (node.IsLeft) (value, error) = value.Notted();
                     else (value, error) = value.Factorial();
                     break;

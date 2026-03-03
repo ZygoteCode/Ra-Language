@@ -21,9 +21,9 @@
             }
         }
 
-        public bool Matches(TokenType type, string value)
+        public bool Matches(TokenType type, Keyword value)
         {
-            return Type == type && Value?.ToString() == value;
+            return Type == type && ((Keyword)Value!) == value;
         }
 
         public override string ToString()

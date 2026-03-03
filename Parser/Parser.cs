@@ -210,33 +210,33 @@ namespace RaLanguage.Parser
 
             if (_currentToken.Type == TokenType.KEYWORD)
             {
-                switch (_currentToken.Value?.ToString())
+                switch (_currentToken.Value)
                 {
-                    case "ret":
+                    case Keyword.Ret:
                         res.RegisterAdvancement();
                         Advance();
                         var expr = res.TryRegister(ParseExpression());
                         if (expr == null) Reverse(res.ToReverseCount);
                         return res.Success(new ReturnNode(expr, positionStart, _currentToken.PositionStart.Copy()));
-                    case "yield":
+                    case Keyword.Yield:
                         res.RegisterAdvancement();
                         Advance();
                         var expr2 = res.Register(ParseExpression());
                         if (res.Error != null) Reverse(res.ToReverseCount);
                         return res.Success(new YieldNode(expr2, positionStart, _currentToken.PositionStart.Copy()));
-                    case "continue":
+                    case Keyword.Continue:
                         res.RegisterAdvancement();
                         Advance();
                         return res.Success(new ContinueNode(positionStart, _currentToken.PositionStart.Copy()));
-                    case "break":
+                    case Keyword.Break:
                         res.RegisterAdvancement();
                         Advance();
                         return res.Success(new BreakNode(positionStart, _currentToken.PositionStart.Copy()));
-                    case "pass":
+                    case Keyword.Pass:
                         res.RegisterAdvancement();
                         Advance();
                         return res.Success(new PassNode(positionStart, _currentToken.PositionStart.Copy()));
-                    case "del":
+                    case Keyword.Del:
                         res.RegisterAdvancement();
                         Advance();
                         List<Token> tokens = new List<Token>();
@@ -278,15 +278,15 @@ namespace RaLanguage.Parser
         {
             var res = new ParserResult();
 
-            if (_currentToken.Matches(TokenType.KEYWORD, "var") || _currentToken.Matches(TokenType.KEYWORD, "const") || _currentToken.Matches(TokenType.KEYWORD, "final"))
+            if (_currentToken.Matches(TokenType.KEYWORD, Keyword.Var) || _currentToken.Matches(TokenType.KEYWORD, Keyword.Const) || _currentToken.Matches(TokenType.KEYWORD, Keyword.Final))
             {
                 VariableDeclarationType variableDeclarationType = VariableDeclarationType.VARIABLE;
 
-                if (_currentToken.Matches(TokenType.KEYWORD, "const"))
+                if (_currentToken.Matches(TokenType.KEYWORD, Keyword.Const))
                 {
                     variableDeclarationType = VariableDeclarationType.CONST;
                 }
-                else if (_currentToken.Matches(TokenType.KEYWORD, "final"))
+                else if (_currentToken.Matches(TokenType.KEYWORD, Keyword.Final))
                 {
                     variableDeclarationType = VariableDeclarationType.FINAL;
                 }
@@ -330,7 +330,7 @@ namespace RaLanguage.Parser
 
                 return res.Success(new VariableDeclarationNode(variableDeclarationType, declarations));
             }
-            else if (_currentToken.Matches(TokenType.KEYWORD, "typeof"))
+            else if (_currentToken.Matches(TokenType.KEYWORD, Keyword.TypeOf))
             {
                 res.RegisterAdvancement();
                 Advance();
@@ -343,7 +343,7 @@ namespace RaLanguage.Parser
 
                 return res.Success(new TypeofNode(expr));
             }
-            else if (_currentToken.Matches(TokenType.KEYWORD, "nameof"))
+            else if (_currentToken.Matches(TokenType.KEYWORD, Keyword.NameOf))
             {
                 res.RegisterAdvancement();
                 Advance();
@@ -388,7 +388,7 @@ namespace RaLanguage.Parser
                 }
             }
 
-            var leftNode = res.Register(ParseBinaryOperation(ParseBitwiseOrExpression, new List<(TokenType, string?)> { (TokenType.KEYWORD, "and"), (TokenType.KEYWORD, "or") }));
+            var leftNode = res.Register(ParseBinaryOperation(ParseBitwiseOrExpression, new List<(TokenType, Keyword?)> { (TokenType.KEYWORD, Keyword.And), (TokenType.KEYWORD, Keyword.Or) }));
 
             if (res.Error != null)
             {
@@ -457,12 +457,12 @@ namespace RaLanguage.Parser
 
         private ParserResult ParseBitwiseOrExpression()
         {
-            return ParseBinaryOperation(ParseBitwiseAndExpression, new List<(TokenType, string?)> { (TokenType.BITWISE_OR, null) });
+            return ParseBinaryOperation(ParseBitwiseAndExpression, new List<(TokenType, Keyword?)> { (TokenType.BITWISE_OR, null) });
         }
 
         private ParserResult ParseBitwiseAndExpression()
         {
-            return ParseBinaryOperation(ParseComparisonExpression, new List<(TokenType, string?)> { (TokenType.BITWISE_AND, null) });
+            return ParseBinaryOperation(ParseComparisonExpression, new List<(TokenType, Keyword?)> { (TokenType.BITWISE_AND, null) });
         }
 
         private ParserResult ParseRangeExpression()
@@ -523,7 +523,7 @@ namespace RaLanguage.Parser
         {
             var res = new ParserResult();
 
-            if (_currentToken.Matches(TokenType.KEYWORD, "not") || _currentToken.Type == TokenType.BITWISE_NOT)
+            if (_currentToken.Matches(TokenType.KEYWORD, Keyword.Not) || _currentToken.Type == TokenType.BITWISE_NOT)
             {
                 var opTok = _currentToken;
                 res.RegisterAdvancement();
@@ -536,12 +536,12 @@ namespace RaLanguage.Parser
 
             var b_node = res.Register(ParseBinaryOperation(
                 ParseNullCoalescing,
-                new List<(TokenType, string?)>
+                new List<(TokenType, Keyword?)>
                 {
                     (TokenType.EE, null), (TokenType.NE, null), (TokenType.LT, null),
                     (TokenType.GT, null), (TokenType.LTE, null), (TokenType.GTE, null),
                     (TokenType.STRICT_EE, null), (TokenType.STRICT_NE, null),
-                    (TokenType.KEYWORD, "in"), (TokenType.KEYWORD, "not in")
+                    (TokenType.KEYWORD, Keyword.In), (TokenType.KEYWORD, Keyword.NotIn)
                 }
             ));
 
@@ -558,7 +558,7 @@ namespace RaLanguage.Parser
 
         private ParserResult ParseShiftExpression()
         {
-            return ParseBinaryOperation(ParseRangeExpression, new List<(TokenType, string?)>
+            return ParseBinaryOperation(ParseRangeExpression, new List<(TokenType, Keyword?)>
             {
                 (TokenType.BITWISE_LEFT_SHIFT, null),
                 (TokenType.BITWISE_RIGHT_SHIFT, null)
@@ -567,12 +567,12 @@ namespace RaLanguage.Parser
 
         private ParserResult ParseArithmeticExpression()
         {
-            return ParseBinaryOperation(ParseTerm, new List<(TokenType, string?)> { (TokenType.PLUS, null), (TokenType.MINUS, null) });
+            return ParseBinaryOperation(ParseTerm, new List<(TokenType, Keyword?)> { (TokenType.PLUS, null), (TokenType.MINUS, null) });
         }
 
         private ParserResult ParseTerm()
         {
-            return ParseBinaryOperation(ParseFactor, new List<(TokenType, string?)>
+            return ParseBinaryOperation(ParseFactor, new List<(TokenType, Keyword?)>
             {
                 (TokenType.MUL, null),
                 (TokenType.DIV, null),
@@ -608,7 +608,7 @@ namespace RaLanguage.Parser
 
         private ParserResult ParsePower()
         {
-            return ParseBinaryOperation(ParseCall, new List<(TokenType, string?)> { (TokenType.POW, null) }, ParseFactor);
+            return ParseBinaryOperation(ParseCall, new List<(TokenType, Keyword?)> { (TokenType.POW, null) }, ParseFactor);
         }
 
         private ParserResult ParseCall()
@@ -622,9 +622,9 @@ namespace RaLanguage.Parser
 
             while (_currentToken.Type == TokenType.LPAREN
                 || _currentToken.Type == TokenType.LSQUARE
-                || _currentToken.Matches(TokenType.KEYWORD, "not"))
+                || _currentToken.Matches(TokenType.KEYWORD, Keyword.Not))
             {
-                if (_currentToken.Matches(TokenType.KEYWORD, "not"))
+                if (_currentToken.Matches(TokenType.KEYWORD, Keyword.Not))
                 {
                     var opTok = _currentToken;
 
@@ -738,12 +738,12 @@ namespace RaLanguage.Parser
                     }
 
                     return res.Success(new StringNode(parts, posStart, posEnd));
-                case TokenType.KEYWORD when tok.Value?.ToString() == "null":
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Null:
                     res.RegisterAdvancement();
                     Advance();
                     return res.Success(new NullNode(tok));
-                case TokenType.KEYWORD when tok.Value?.ToString() == "true":
-                case TokenType.KEYWORD when tok.Value?.ToString() == "false":
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.True:
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.False:
                     res.RegisterAdvancement();
                     Advance();
                     return res.Success(new BooleanNode(tok));
@@ -781,27 +781,27 @@ namespace RaLanguage.Parser
                     var setExpr = res.Register(ParseSetExpression());
                     if (res.Error != null) return res;
                     return res.Success(setExpr);
-                case TokenType.KEYWORD when tok.Value?.ToString() == "if":
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.If:
                     var ifExpr = res.Register(ParseIfExpression());
                     if (res.Error != null) return res;
                     return res.Success(ifExpr);
-                case TokenType.KEYWORD when tok.Value?.ToString() == "for":
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.For:
                     var forExpr = res.Register(ParseForExpression());
                     if (res.Error != null) return res;
                     return res.Success(forExpr);
-                case TokenType.KEYWORD when tok.Value?.ToString() == "while":
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.While:
                     var whileExpr = res.Register(ParseWhileExpression());
                     if (res.Error != null) return res;
                     return res.Success(whileExpr);
-                case TokenType.KEYWORD when tok.Value?.ToString() == "fn":
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Fn:
                     var funcDef = res.Register(ParseFunctionDefinition());
                     if (res.Error != null) return res;
                     return res.Success(funcDef);
-                case TokenType.KEYWORD when tok.Value?.ToString() == "fn":
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Do:
                     var doWhileExpr = res.Register(ParseDoWhileExpression());
                     if (res.Error != null) return res;
                     return res.Success(doWhileExpr);
-                case TokenType.KEYWORD when tok.Value?.ToString() == "switch":
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Switch:
                     var switchExpr = res.Register(ParseSwitchExpression());
                     if (res.Error != null) return res;
                     return res.Success(switchExpr);
@@ -837,7 +837,7 @@ namespace RaLanguage.Parser
                 res.RegisterAdvancement();
                 Advance();
 
-                if (!_currentToken.Matches(TokenType.KEYWORD, "while"))
+                if (!_currentToken.Matches(TokenType.KEYWORD, Keyword.While))
                 {
                     return res.Failure(new InvalidSyntaxError(positionStart, _currentToken.PositionStart, "Expected 'while' keyword"));
                 }
@@ -864,7 +864,7 @@ namespace RaLanguage.Parser
                     return res;
                 }
 
-                if (!_currentToken.Matches(TokenType.KEYWORD, "while"))
+                if (!_currentToken.Matches(TokenType.KEYWORD, Keyword.While))
                 {
                     return res.Failure(new InvalidSyntaxError(positionStart, _currentToken.PositionStart, "Expected 'while' keyword"));
                 }
@@ -1067,14 +1067,14 @@ namespace RaLanguage.Parser
         {
             var res = new ParserResult();
 
-            var allCasesNode = res.Register(ParseIfExpressionCases("if"));
+            var allCasesNode = res.Register(ParseIfExpressionCases(Keyword.If));
             if (res.Error != null) return res;
 
             var wrapper = (IfCasesWrapperNode)allCasesNode;
             return res.Success(new IfNode(wrapper.Cases, wrapper.ElseCase));
         }
 
-        private ParserResult ParseIfExpressionCases(string caseKeyword)
+        private ParserResult ParseIfExpressionCases(Keyword caseKeyword)
         {
             var res = new ParserResult();
             var cases = new List<(AstNode, AstNode, bool)>();
@@ -1145,9 +1145,9 @@ namespace RaLanguage.Parser
             var cases = new List<(AstNode, AstNode, bool)>();
             (AstNode, bool)? elseCase = null;
 
-            if (_currentToken.Matches(TokenType.KEYWORD, "elif"))
+            if (_currentToken.Matches(TokenType.KEYWORD, Keyword.Elif))
             {
-                var node = res.Register(ParseIfExpressionCases("elif"));
+                var node = res.Register(ParseIfExpressionCases(Keyword.Elif));
                 if (res.Error != null) return res;
 
                 var wrapper = (IfCasesWrapperNode)node;
@@ -1171,7 +1171,7 @@ namespace RaLanguage.Parser
             var res = new ParserResult();
             (AstNode, bool)? elseCase = null;
 
-            if (_currentToken.Matches(TokenType.KEYWORD, "else"))
+            if (_currentToken.Matches(TokenType.KEYWORD, Keyword.Else))
             {
                 res.RegisterAdvancement();
                 Advance();
@@ -1214,7 +1214,7 @@ namespace RaLanguage.Parser
             var res = new ParserResult();
             var positionStart = _currentToken.PositionStart.Copy();
 
-            if (!_currentToken.Matches(TokenType.KEYWORD, "switch"))
+            if (!_currentToken.Matches(TokenType.KEYWORD, Keyword.Switch))
                 return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'switch'"));
 
             res.RegisterAdvancement();
@@ -1251,7 +1251,7 @@ namespace RaLanguage.Parser
                     Advance();
                 }
 
-                if (_currentToken.Matches(TokenType.KEYWORD, "case"))
+                if (_currentToken.Matches(TokenType.KEYWORD, Keyword.Case))
                 {
                     res.RegisterAdvancement();
                     Advance();
@@ -1277,7 +1277,7 @@ namespace RaLanguage.Parser
                         Advance();
 
                         var stmtList = new List<AstNode>();
-                        while (!(_currentToken.Matches(TokenType.KEYWORD, "case") || _currentToken.Matches(TokenType.KEYWORD, "default") || _currentToken.Type == TokenType.RBRACKET))
+                        while (!(_currentToken.Matches(TokenType.KEYWORD, Keyword.Case) || _currentToken.Matches(TokenType.KEYWORD, Keyword.Default) || _currentToken.Type == TokenType.RBRACKET))
                         {
                             if (_currentToken.Type == TokenType.NEWLINE)
                             {
@@ -1332,7 +1332,7 @@ namespace RaLanguage.Parser
                         return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' or '->' after case label"));
                     }
                 }
-                else if (_currentToken.Matches(TokenType.KEYWORD, "default"))
+                else if (_currentToken.Matches(TokenType.KEYWORD, Keyword.Default))
                 {
                     res.RegisterAdvancement();
                     Advance();
@@ -1343,7 +1343,7 @@ namespace RaLanguage.Parser
                         Advance();
 
                         var stmtList = new List<AstNode>();
-                        while (!(_currentToken.Matches(TokenType.KEYWORD, "case") || _currentToken.Type == TokenType.RBRACKET))
+                        while (!(_currentToken.Matches(TokenType.KEYWORD, Keyword.Case) || _currentToken.Type == TokenType.RBRACKET))
                         {
                             if (_currentToken.Type == TokenType.NEWLINE)
                             {
@@ -1419,7 +1419,7 @@ namespace RaLanguage.Parser
         {
             var res = new ParserResult();
 
-            if (!_currentToken.Matches(TokenType.KEYWORD, "for"))
+            if (!_currentToken.Matches(TokenType.KEYWORD, Keyword.For))
                 return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'for'"));
 
             res.RegisterAdvancement();
@@ -1440,7 +1440,7 @@ namespace RaLanguage.Parser
                 var startValue = res.Register(ParseExpression());
                 if (res.Error != null) return res;
 
-                if (!_currentToken.Matches(TokenType.KEYWORD, "to"))
+                if (!_currentToken.Matches(TokenType.KEYWORD, Keyword.To))
                     return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'to'"));
 
                 res.RegisterAdvancement();
@@ -1450,7 +1450,7 @@ namespace RaLanguage.Parser
                 if (res.Error != null) return res;
 
                 AstNode? stepValue = null;
-                if (_currentToken.Matches(TokenType.KEYWORD, "step"))
+                if (_currentToken.Matches(TokenType.KEYWORD, Keyword.Step))
                 {
                     res.RegisterAdvancement();
                     Advance();
@@ -1485,7 +1485,7 @@ namespace RaLanguage.Parser
 
                 return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' or '{'"));
             }
-            else if (_currentToken.Matches(TokenType.KEYWORD, "in"))
+            else if (_currentToken.Matches(TokenType.KEYWORD, Keyword.In))
             {
                 res.RegisterAdvancement();
                 Advance();
@@ -1527,7 +1527,7 @@ namespace RaLanguage.Parser
         private ParserResult ParseWhileExpression()
         {
             var res = new ParserResult();
-            if (!_currentToken.Matches(TokenType.KEYWORD, "while"))
+            if (!_currentToken.Matches(TokenType.KEYWORD, Keyword.While))
                 return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'while'"));
 
             res.RegisterAdvancement();
@@ -1568,7 +1568,7 @@ namespace RaLanguage.Parser
         {
             var res = new ParserResult();
 
-            if (!_currentToken.Matches(TokenType.KEYWORD, "fn"))
+            if (!_currentToken.Matches(TokenType.KEYWORD, Keyword.Fn))
                 return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'fn'"));
 
             res.RegisterAdvancement();
@@ -1649,14 +1649,14 @@ namespace RaLanguage.Parser
             return res.Success(new FunctionDefinitionNode(varNameTok, argNameToks, bodyStmts, false));
         }
 
-        private ParserResult ParseBinaryOperation(Func<ParserResult> funcA, List<(TokenType, string?)> ops, Func<ParserResult>? funcB = null)
+        private ParserResult ParseBinaryOperation(Func<ParserResult> funcA, List<(TokenType, Keyword?)> ops, Func<ParserResult>? funcB = null)
         {
             if (funcB == null) funcB = funcA;
             var res = new ParserResult();
             var left = res.Register(funcA());
             if (res.Error != null) return res;
 
-            while (ops.Any(op => op.Item1 == _currentToken.Type && (op.Item2 == null || op.Item2 == _currentToken.Value?.ToString())))
+            while (ops.Any(op => op.Item1 == _currentToken.Type && (op.Item2 == null || op.Item2 == ((Keyword)_currentToken.Value))))
             {
                 var opTok = _currentToken;
                 res.RegisterAdvancement();

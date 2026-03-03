@@ -10,15 +10,42 @@ namespace RaLanguage.Lexer
     {
         private readonly string _text;
         private Position _position;
-        private char? _currentCharacter; 
+        private char? _currentCharacter;
 
-        private static readonly HashSet<string> Keywords = new()
+        private static readonly Dictionary<string, Keyword> KeywordMap = new(StringComparer.Ordinal)
         {
-            "var", "and", "or", "not", "if", "elif", "else",
-            "for", "to", "step", "while", "fn", "ret", "is",
-            "continue", "break", "pass", "const", "final",
-            "del", "do", "typeof", "nameof", "null", "true",
-            "false", "in", "switch", "case", "default", "yield"
+            ["var"] = Keyword.Var,
+            ["and"] = Keyword.And,
+            ["or"] = Keyword.Or,
+            ["not"] = Keyword.Not,
+            ["if"] = Keyword.If,
+            ["elif"] = Keyword.Elif,
+            ["else"] = Keyword.Else,
+            ["for"] = Keyword.For,
+            ["to"] = Keyword.To,
+            ["step"] = Keyword.Step,
+            ["while"] = Keyword.While,
+            ["fn"] = Keyword.Fn,
+            ["ret"] = Keyword.Ret,
+            ["is"] = Keyword.Is,
+            ["continue"] = Keyword.Continue,
+            ["break"] = Keyword.Break,
+            ["pass"] = Keyword.Pass,
+            ["const"] = Keyword.Const,
+            ["final"] = Keyword.Final,
+            ["del"] = Keyword.Del,
+            ["do"] = Keyword.Do,
+            ["typeof"] = Keyword.TypeOf,
+            ["nameof"] = Keyword.NameOf,
+            ["null"] = Keyword.Null,
+            ["true"] = Keyword.True,
+            ["false"] = Keyword.False,
+            ["in"] = Keyword.In,
+            ["not in"] = Keyword.NotIn,
+            ["switch"] = Keyword.Switch,
+            ["case"] = Keyword.Case,
+            ["default"] = Keyword.Default,
+            ["yield"] = Keyword.Yield
         };
 
         public Lexer(string fn, string text)
@@ -491,23 +518,29 @@ namespace RaLanguage.Lexer
             bool escape = false;
 
             Advance();
+            var segStartPos = _position.Copy();
 
             void FlushTextBuffer(Position startPos, Position endPos)
             {
-                if (sb.Length == 0) return;
                 tokens.Add(new Token(TokenType.STRING_TEXT, sb.ToString(), startPos, endPos));
                 sb.Clear();
             }
-
-            var segStartPos = _position.Copy();
 
             while (_currentCharacter != null && (_currentCharacter != stringCharacter || escape))
             {
                 if (escape)
                 {
-                    if (_currentCharacter == 'n') sb.Append('\n');
-                    else if (_currentCharacter == 't') sb.Append('\t');
-                    else sb.Append(_currentCharacter);
+                    switch (_currentCharacter)
+                    {
+                        case 'n': sb.Append('\n'); break;
+                        case 't': sb.Append('\t'); break;
+                        case 'r': sb.Append('\r'); break;
+                        case '\\': sb.Append('\\'); break;
+                        case '"': sb.Append('"'); break;
+                        case '\'': sb.Append('\''); break;
+                        case '`': sb.Append('`'); break;
+                        default: sb.Append(_currentCharacter); break;
+                    }
                     escape = false;
                     Advance();
                     continue;
@@ -520,62 +553,49 @@ namespace RaLanguage.Lexer
                     continue;
                 }
 
-                if (allowInterpolation && _currentCharacter == '$')
+                if (allowInterpolation && _currentCharacter == '$' && _position.Idx + 1 < _text.Length && _text[_position.Idx + 1] == '{')
                 {
-                    if (_position.Idx + 1 < _text.Length && _text[_position.Idx + 1] == '{')
+                    var segEndPos = _position.Copy();
+                    FlushTextBuffer(segStartPos, segEndPos);
+
+                    var interpStartPos = _position.Copy();
+                    Advance(2);
+
+                    tokens.Add(new Token(TokenType.INTERP_START, null, interpStartPos, _position.Copy()));
+
+                    int innerStartIdx = _position.Idx;
+                    int scanIdx = innerStartIdx;
+                    int braceCount = 1;
+
+                    while (scanIdx < _text.Length && braceCount > 0)
                     {
-                        var segEndPos = _position.Copy();
-                        FlushTextBuffer(segStartPos, segEndPos);
-
-                        var interpStartPos = _position.Copy();
-                        Advance(2);
-
-                        tokens.Add(new Token(TokenType.INTERP_START, null, interpStartPos, _position.Copy()));
-
-                        int innerStartIdx = _position.Idx;
-                        int scanIdx = innerStartIdx;
-                        int braceCount = 1;
-
-                        while (scanIdx < _text.Length && braceCount > 0)
-                        {
-                            char c = _text[scanIdx];
-                            if (c == '{') braceCount++;
-                            else if (c == '}') braceCount--;
-                            scanIdx++;
-                        }
-
-                        if (braceCount != 0)
-                        {
-                            throw new Exception("Unterminated interpolation in string literal");
-                        }
-
-                        int innerExprLen = (scanIdx - 1) - innerStartIdx;
-                        if (innerExprLen < 0) innerExprLen = 0;
-
-                        string innerText = _text.Substring(innerStartIdx, innerExprLen);
-
-                        var innerLexer = new Lexer(positionStart.Fn ?? "", innerText);
-                        var (innerTokens, innerErr) = innerLexer.MakeTokens();
-                        if (innerErr != null)
-                        {
-                            return (null, new InvalidSyntaxError(positionStart, _position, innerErr.Details));
-                        }
-
-                        foreach (var t in innerTokens)
-                        {
-                            if (t.Type == TokenType.EOF) continue;
-                            tokens.Add(t);
-                        }
-
-                        int advancesNeeded = scanIdx - _position.Idx;
-                        if (advancesNeeded > 0) Advance(advancesNeeded);
-
-                        var interpEndPos = _position.Copy();
-                        tokens.Add(new Token(TokenType.INTERP_END, null, interpEndPos, interpEndPos));
-
-                        segStartPos = _position.Copy();
-                        continue;
+                        char c = _text[scanIdx];
+                        if (c == '{') braceCount++;
+                        else if (c == '}') braceCount--;
+                        scanIdx++;
                     }
+
+                    if (braceCount != 0)
+                        return (null, new InvalidSyntaxError(positionStart, _position, "Unterminated interpolation in string literal"));
+
+                    string innerText = _text.Substring(innerStartIdx, scanIdx - 1 - innerStartIdx);
+                    var innerLexer = new Lexer(positionStart.Fn ?? "", innerText);
+                    var (innerTokens, innerErr) = innerLexer.MakeTokens();
+                    if (innerErr != null)
+                        return (null, new InvalidSyntaxError(positionStart, _position, innerErr.Details));
+
+                    foreach (var t in innerTokens)
+                    {
+                        if (t.Type != TokenType.EOF) tokens.Add(t);
+                    }
+
+                    Advance(scanIdx - _position.Idx);
+
+                    var interpEndPos = _position.Copy();
+                    tokens.Add(new Token(TokenType.INTERP_END, null, interpEndPos, interpEndPos));
+
+                    segStartPos = _position.Copy();
+                    continue;
                 }
 
                 sb.Append(_currentCharacter);
@@ -586,13 +606,9 @@ namespace RaLanguage.Lexer
             FlushTextBuffer(segStartPos, finalSegEndPos);
 
             if (_currentCharacter == stringCharacter)
-            {
                 Advance();
-            }
             else
-            {
-                throw new Exception("Unterminated string literal");
-            }
+                return (null, new InvalidSyntaxError(positionStart, _position, "Unterminated string literal"));
 
             return (tokens, null);
         }
@@ -629,7 +645,7 @@ namespace RaLanguage.Lexer
                     if (_currentCharacter == 'i' && _text[_position.Idx + 1] == 'n')
                     {
                         Advance(2);
-                        return new Token(TokenType.KEYWORD, "not in", positionStart, _position);
+                        return new Token(TokenType.KEYWORD, Keyword.NotIn, positionStart, _position);
                     }
 
                     return new Token(TokenType.NE, null, positionStart, _position);
@@ -637,7 +653,7 @@ namespace RaLanguage.Lexer
                 else if (_currentCharacter == 'i' && _text[_position.Idx + 1] == 'n')
                 {
                     Advance(2);
-                    return new Token(TokenType.KEYWORD, "in", positionStart, _position);
+                    return new Token(TokenType.KEYWORD, Keyword.In, positionStart, _position);
                 }
 
                 return new Token(TokenType.EE, null, positionStart, _position);
@@ -652,12 +668,16 @@ namespace RaLanguage.Lexer
                 if (_currentCharacter == 'i' && _text[_position.Idx + 1] == 'n')
                 {
                     Advance(2);
-                    return new Token(TokenType.KEYWORD, "not in", positionStart, _position);
+                    return new Token(TokenType.KEYWORD, Keyword.NotIn, positionStart, _position);
                 }
             }
 
-            TokenType type = Keywords.Contains(idString) ? TokenType.KEYWORD : TokenType.IDENTIFIER;
-            return new Token(type, idString, positionStart, _position);
+            if (KeywordMap.ContainsKey(idString))
+            {
+                return new Token(TokenType.KEYWORD, KeywordMap[idString], positionStart, _position);
+            }
+
+            return new Token(TokenType.IDENTIFIER, idString, positionStart, _position);
         }
 
         private Token? MakeMinus()
@@ -705,7 +725,7 @@ namespace RaLanguage.Lexer
             if (_currentCharacter == '=')
             {
                 Advance();
-                
+
                 if (_currentCharacter == '=')
                 {
                     Advance();
@@ -715,7 +735,7 @@ namespace RaLanguage.Lexer
                 return new Token(TokenType.NE, null, positionStart, _position);
             }
 
-            return new Token(TokenType.KEYWORD, "not", positionStart, _position);
+            return new Token(TokenType.KEYWORD, Keyword.Not, positionStart, _position);
         }
 
         private Token MakeEquals()
@@ -759,7 +779,7 @@ namespace RaLanguage.Lexer
                     return new Token(TokenType.AND_EQ, null, positionStart, _position);
                 }
 
-                return new Token(TokenType.KEYWORD, "and", positionStart, _position);
+                return new Token(TokenType.KEYWORD, Keyword.And, positionStart, _position);
             }
             else if (_currentCharacter == '=')
             {
@@ -785,7 +805,7 @@ namespace RaLanguage.Lexer
                     return new Token(TokenType.OR_EQ, null, positionStart, _position);
                 }
 
-                return new Token(TokenType.KEYWORD, "or", positionStart, _position);
+                return new Token(TokenType.KEYWORD, Keyword.Or, positionStart, _position);
             }
             else if (_currentCharacter == '=')
             {
@@ -869,7 +889,7 @@ namespace RaLanguage.Lexer
                     Advance();
                     type = TokenType.BITWISE_RIGHT_SHIFT_EQ;
                 }
-            }    
+            }
 
             return new Token(type, null, positionStart, _position);
         }

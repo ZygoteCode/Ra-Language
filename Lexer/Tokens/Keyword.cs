@@ -1,0 +1,38 @@
+﻿namespace RaLanguage.Lexer.Tokens
+{
+    public enum Keyword
+    {
+        Var,
+        And,
+        Or,
+        Not,
+        If,
+        Elif,
+        Else,
+        For,
+        To,
+        Step,
+        While,
+        Fn,
+        Ret,
+        Is,
+        Continue,
+        Break,
+        Pass,
+        Const,
+        Final,
+        Del,
+        Do,
+        TypeOf,
+        NameOf,
+        Null,
+        True,
+        False,
+        In,
+        NotIn,
+        Switch,
+        Case,
+        Default,
+        Yield
+    }
+}
