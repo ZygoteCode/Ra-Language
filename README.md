@@ -8,7 +8,7 @@
   <img src="Ra-Language.png" alt="Ra Language" width="40%">
 </p>
 
-Every programming language has its learning curve… but with Ra Language, there’s no curve: you start at the zero point of an infinite line, and simply walking along it lets your skills evolve. You can begin with nothing and still have everything you need, or, if you’re already a pro, you can create truly extraordinary things. With Ra Language, growth is continuous, natural, and effortless.
+Every programming language has its learning curve… but with Ra Language, there’s no curve: you start at the zero point of an infinite line, and simply walking along it lets your skills evolve. You can begin with nothing and still have everything you need, or, if you’re already a pro, you can create truly extraordinary things. With Ra Language, growth is continuous, natural, and effortless. Join the official community to get updates and discuss about the project: https://discord.gg/wu63g6vBPe
 
 ## Work-in-progress tasks or already done features
 
