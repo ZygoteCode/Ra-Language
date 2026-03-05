@@ -38,6 +38,7 @@
         Map,
         Switch,
         SwitchCase,
-        Yield
+        Yield,
+        Tuple,
     }
 }

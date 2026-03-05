@@ -9,6 +9,7 @@
         Null,
         Boolean,
         Set,
-        Map
+        Map,
+        Tuple
     }
 }

@@ -55,6 +55,7 @@ This list contains what I have already added after the first commit (done featur
   - [x] Add string interpolation, example $"Example string: ${variable}".
   - [x] Implement complete switch statement + expression with case, default, yield support, with fall-through support (via colon ":" + break), right arrow expressions ("->")
   - [x] Added several different types of operations with all available language operators to strings, sets, lists and maps.
+  - [x] Added tuples as a new primitive value.
 
 ## TODOs for Ra Language (the near future)
 
@@ -74,5 +75,4 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [ ] Add a operator like "&" to function parameters to pass reference instead of copying only the value.
   - [ ] Function parameters can be statically typed -> fn test(a: int, b: int): int => print(a + b);
   - [ ] Idea: import new files with a intelligent path system.
-  - [ ] Idea: add tuples => "var (result1, result2) = (3, 5)".
   - [ ] Idea: List comprehensions, like [x*2 for x in a if x>1] to create lists in a compact way.

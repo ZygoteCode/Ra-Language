@@ -764,15 +764,60 @@ namespace RaLanguage.Parser
                 case TokenType.LPAREN:
                     res.RegisterAdvancement();
                     Advance();
-                    var expr = res.Register(ParseExpression());
-                    if (res.Error != null) return res;
+
+                    var positionStart = tok.PositionStart.Copy();
+
                     if (_currentToken.Type == TokenType.RPAREN)
                     {
                         res.RegisterAdvancement();
                         Advance();
-                        return res.Success(expr);
+                        return res.Success(new TupleNode(new List<AstNode>(), positionStart, _currentToken.PositionEnd.Copy()));
                     }
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ')'"));
+
+                    var firstExpr = res.Register(ParseExpression());
+                    if (res.Error != null) return res;
+
+                    if (_currentToken.Type == TokenType.COMMA)
+                    {
+                        var elementNodes = new List<AstNode> { firstExpr };
+
+                        while (_currentToken.Type == TokenType.COMMA)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+
+                            if (_currentToken.Type == TokenType.RPAREN)
+                            {
+                                break;
+                            }
+
+                            var nextExpr = res.Register(ParseExpression());
+                            if (res.Error != null) return res;
+                            elementNodes.Add(nextExpr);
+                        }
+
+                        if (_currentToken.Type != TokenType.RPAREN)
+                        {
+                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ')' after tuple"));
+                        }
+
+                        var tupleEndPos = _currentToken.PositionEnd.Copy();
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        return res.Success(new TupleNode(elementNodes, positionStart, tupleEndPos));
+                    }
+                    else
+                    {
+                        if (_currentToken.Type == TokenType.RPAREN)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                            return res.Success(firstExpr);
+                        }
+
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ',' or ')'"));
+                    }
                 case TokenType.LSQUARE:
                     var listExpr = res.Register(ParseListExpression());
                     if (res.Error != null) return res;

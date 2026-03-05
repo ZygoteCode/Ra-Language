@@ -60,6 +60,7 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.Map] = (node, ctx) => VisitMapNode((MapNode)node, ctx);
             _visitors[(int)AstNodeType.Yield] = (node, ctx) => VisitYieldNode((YieldNode)node, ctx);
             _visitors[(int)AstNodeType.Switch] = (node, ctx) => VisitSwitchNode((SwitchNode)node, ctx);
+            _visitors[(int)AstNodeType.Tuple] = (node, ctx) => VisitTupleNode((TupleNode)node, ctx);
         }
 
         public RuntimeResult Visit(AstNode node, Context context)
@@ -69,6 +70,21 @@ namespace RaLanguage.Interpreter
                 throw new Exception($"No visit method for {node.NodeType}");
 
             return _visitors[index](node, context);
+        }
+
+        private RuntimeResult VisitTupleNode(TupleNode node, Context context)
+        {
+            var res = new RuntimeResult();
+            var elements = new List<RuntimeValue>();
+
+            foreach (var elementNode in node.ElementNodes)
+            {
+                var val = res.Register(Visit(elementNode, context));
+                if (res.ShouldReturn()) return res;
+                elements.Add(val);
+            }
+
+            return res.Success(new TupleValue(elements).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
 
         private RuntimeResult VisitSwitchNode(SwitchNode node, Context context)
