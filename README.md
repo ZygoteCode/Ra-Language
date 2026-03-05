@@ -54,6 +54,7 @@ This list contains what I have already added after the first commit (done featur
   - [x] Add "not in" / "is not in" operation.
   - [x] Add string interpolation, example $"Example string: ${variable}".
   - [x] Implement complete switch statement + expression with case, default, yield support, with fall-through support (via colon ":" + break), right arrow expressions ("->")
+  - [x] Added several different types of operations with all available language operators to strings, sets, lists and maps.
 
 ## TODOs for Ra Language (the near future)
 
@@ -64,7 +65,6 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [ ] In functions, add "..." operator to make array unlimited parameters.
   - [ ] In functions, allow specific default values to parameters.
   - [ ] Allow function calling with named parameters.
-  - [ ] Add new operations to String + List + Set primitive values with the remaining operators.
   - [ ] I was thinking of adding something similar to Rust, like a "let" variable declaration - exit from context means you cannot use it anymore in actual context.
   - [ ] As the language will implement static typing, instead of having only "var a: number = 5", if I want to let the interpreter know already what the type is, I could use "auto a = 5" which is statically typed, so the value is recognized as a number type and can not take other types of values.
   - [ ] Add real support to multi-line statements & expressions.
@@ -76,5 +76,3 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [ ] Idea: import new files with a intelligent path system.
   - [ ] Idea: add tuples => "var (result1, result2) = (3, 5)".
   - [ ] Idea: List comprehensions, like [x*2 for x in a if x>1] to create lists in a compact way.
-  - [ ] Idea: the last operation of a function is its return value, like in V and Rust.
-  - [ ] Idea: add labels + goto keyword (you can do spaghetti code with that!)

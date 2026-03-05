@@ -45,7 +45,7 @@ namespace RaLanguage.Lexer
             ["switch"] = Keyword.Switch,
             ["case"] = Keyword.Case,
             ["default"] = Keyword.Default,
-            ["yield"] = Keyword.Yield
+            ["yield"] = Keyword.Yield,
         };
 
         public Lexer(string fn, string text)

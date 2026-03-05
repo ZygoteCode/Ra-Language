@@ -33,6 +33,6 @@
         Switch,
         Case,
         Default,
-        Yield
+        Yield,
     }
 }
