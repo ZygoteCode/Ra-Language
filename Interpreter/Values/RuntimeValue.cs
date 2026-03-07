@@ -3,6 +3,7 @@ using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer;
+using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes.Variables;
 
 namespace RaLanguage.Interpreter.Values
@@ -115,6 +116,54 @@ namespace RaLanguage.Interpreter.Values
                 foreach (var element in s.Elements)
                 {
                     if (element.Equals(this))
+                    {
+                        return (new BooleanValue(true), null);
+                    }
+                }
+
+                return (new BooleanValue(false), null);
+            }
+            else if (other.Type == RuntimeValueType.String && Type == RuntimeValueType.String)
+            {
+                StringValue s1 = (StringValue)other;
+                StringValue s2 = (StringValue)this;
+                return (new BooleanValue(s1.Value.Contains(s2.Value)), null);
+            }
+            else if (other.Type == RuntimeValueType.String && Type == RuntimeValueType.Number)
+            {
+                StringValue s1 = (StringValue)other;
+                NumberValue n1 = (NumberValue)this;
+                return (new BooleanValue(s1.Value.Contains(n1.Value.ToString())), null);
+            }
+            else if (other.Type == RuntimeValueType.Tuple)
+            {
+                TupleValue t = (TupleValue)other;
+
+                foreach (var element in t.Elements)
+                {
+                    if (element.Equals(this))
+                    {
+                        return (new BooleanValue(true), null);
+                    }
+                }
+
+                return (new BooleanValue(false), null);
+            }
+            else if (other.Type == RuntimeValueType.Map && Type == RuntimeValueType.Tuple)
+            {
+                MapValue m = (MapValue)other;
+                TupleValue t = (TupleValue)this;
+
+                if (t.Elements.Count != 2)
+                {
+                    return (null, IllegalOperation(other));
+                }
+
+                RuntimeValue v1 = t.Elements[0], v2 = t.Elements[1];
+
+                foreach (var e in m.Pairs)
+                {
+                    if (e.Key.Equals(v1) && e.Value.Equals(v2))
                     {
                         return (new BooleanValue(true), null);
                     }

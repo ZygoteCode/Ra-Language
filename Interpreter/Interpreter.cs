@@ -466,7 +466,7 @@ namespace RaLanguage.Interpreter
                 return res;
             }
 
-            if (collection.Type != RuntimeValueType.List && collection.Type != RuntimeValueType.Set)
+            if (collection.Type != RuntimeValueType.List && collection.Type != RuntimeValueType.Set && collection.Type != RuntimeValueType.Map && collection.Type != RuntimeValueType.Tuple)
             {
                 return res.Failure(new RuntimeError(
                     node.PositionStart, node.PositionEnd,
@@ -483,6 +483,24 @@ namespace RaLanguage.Interpreter
             else if (collection.Type == RuntimeValueType.Set)
             {
                 iterElements = ((SetValue)collection).Elements.ToList();
+            }
+            else if (collection.Type == RuntimeValueType.Tuple)
+            {
+                iterElements = ((TupleValue)collection).Elements;
+            }
+            else if (collection.Type == RuntimeValueType.Map)
+            {
+                MapValue m = (MapValue)collection;
+
+                foreach (var pair in m.Pairs)
+                {
+                    List<RuntimeValue> values = new List<RuntimeValue>();
+
+                    values.Add(pair.Key);
+                    values.Add(pair.Value);
+
+                    iterElements.Add(new TupleValue(values).SetContext(context));
+                }
             }
 
             foreach (RuntimeValue runtimeValue in iterElements)
