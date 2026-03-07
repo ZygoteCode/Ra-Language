@@ -40,5 +40,7 @@
         SwitchCase,
         Yield,
         Tuple,
+        Label,
+        Goto
     }
 }

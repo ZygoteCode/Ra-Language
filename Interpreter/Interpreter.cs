@@ -21,11 +21,13 @@ namespace RaLanguage.Interpreter
         private bool AreCallsBlocked { get; set; } = false;
 
         private readonly Func<AstNode, Context, RuntimeResult>[] _visitors;
+        private List<(string, AstNode)> _labels;
 
         public Interpreter()
         {
             var typesCount = Enum.GetValues<AstNodeType>().Length;
             _visitors = new Func<AstNode, Context, RuntimeResult>[typesCount];
+            _labels = new List<(string, AstNode)>();
 
             _visitors[(int)AstNodeType.Number] = (node, ctx) => VisitNumberNode((NumberNode)node, ctx);
             _visitors[(int)AstNodeType.String] = (node, ctx) => VisitStringNode((StringNode)node, ctx);
@@ -61,6 +63,8 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.Yield] = (node, ctx) => VisitYieldNode((YieldNode)node, ctx);
             _visitors[(int)AstNodeType.Switch] = (node, ctx) => VisitSwitchNode((SwitchNode)node, ctx);
             _visitors[(int)AstNodeType.Tuple] = (node, ctx) => VisitTupleNode((TupleNode)node, ctx);
+            _visitors[(int)AstNodeType.Label] = (node, ctx) => VisitLabelNode((LabelNode)node, ctx);
+            _visitors[(int)AstNodeType.Goto] = (node, ctx) => VisitGotoNode((GotoNode)node, ctx);
         }
 
         public RuntimeResult Visit(AstNode node, Context context)
@@ -70,6 +74,66 @@ namespace RaLanguage.Interpreter
                 throw new Exception($"No visit method for {node.NodeType}");
 
             return _visitors[index](node, context);
+        }
+
+        private RuntimeResult VisitGotoNode(GotoNode node, Context context)
+        {
+            var res = new RuntimeResult();
+            string varName = node.VarName.Value.ToString();
+
+            for (int i = 0; i < _labels.Count; i++)
+            {
+                var label = _labels[i];
+
+                if (label.Item1.Equals(varName))
+                {
+                    res.Register(Visit(label.Item2, context));
+
+                    if (res.Error != null)
+                    {
+                        return res;
+                    }
+
+                    return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                }
+            }
+
+            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' label is not defined", context));
+        }
+
+        private RuntimeResult VisitLabelNode(LabelNode node, Context context)
+        {
+            var res = new RuntimeResult();
+            string varName = node.Token.Value.ToString();
+            bool alreadyExists = false;
+            var index = -1;
+
+            for (int i = 0; i < _labels.Count; i++)
+            {
+                var label = _labels[i];
+
+                if (label.Item1.Equals(varName))
+                {
+                    alreadyExists = true;
+                    index = i;
+                    break;
+                }
+            }
+
+            if (alreadyExists)
+            {
+                _labels.RemoveAt(index);
+            }
+
+            _labels.Add((varName, node.Statements));
+            res.Register(Visit(node.Statements, context));
+
+            if (res.Error != null)
+            {
+                return res;
+            }
+
+            return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
 
         private RuntimeResult VisitTupleNode(TupleNode node, Context context)

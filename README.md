@@ -56,6 +56,7 @@ This list contains what I have already added after the first commit (done featur
   - [x] Implement complete switch statement + expression with case, default, yield support, with fall-through support (via colon ":" + break), right arrow expressions ("->")
   - [x] Added several different types of operations with all available language operators to strings, sets, lists and maps.
   - [x] Added tuples as a new primitive value.
+  - [x] Implemented labels + goto keyword.
 
 ## TODOs for Ra Language (the near future)
 

@@ -34,5 +34,6 @@
         Case,
         Default,
         Yield,
+        Goto
     }
 }

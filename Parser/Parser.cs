@@ -255,7 +255,41 @@ namespace RaLanguage.Parser
                         }
 
                         return res.Success(new VariableDeleteNode(tokens));
+                    case Keyword.Goto:
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        if (_currentToken.Type != TokenType.IDENTIFIER)
+                        {
+                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier"));
+                        }
+
+                        Token varName = _currentToken;
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        return res.Success(new GotoNode(positionStart, varName));
                 }
+            }
+
+            if (_currentToken.Type == TokenType.IDENTIFIER && _tokens[_tokenIndex + 1].Type == TokenType.COLON)
+            {
+                Token varName = _currentToken;
+
+                res.RegisterAdvancement();
+                Advance();
+
+                res.RegisterAdvancement();
+                Advance();
+
+                var statements = res.Register(ParseStatements());
+
+                if (res.Error != null)
+                {
+                    return res;
+                }
+
+                return res.Success(new LabelNode(varName, statements));
             }
 
             var expression = res.Register(ParseExpression());

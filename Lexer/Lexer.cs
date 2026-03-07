@@ -46,6 +46,7 @@ namespace RaLanguage.Lexer
             ["case"] = Keyword.Case,
             ["default"] = Keyword.Default,
             ["yield"] = Keyword.Yield,
+            ["goto"] = Keyword.Goto,
         };
 
         public Lexer(string fn, string text)
