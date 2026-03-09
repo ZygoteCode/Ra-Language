@@ -6,6 +6,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
     {
         public override RuntimeValueType Type => RuntimeValueType.Null;
         public static NullValue Null => new NullValue();
+        public override bool IsCopy => true;
 
         public override RuntimeValue Copy()
         {

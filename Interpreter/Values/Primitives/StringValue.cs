@@ -7,9 +7,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
 {
     public class StringValue : RuntimeValue
     {
-        public string Value { get; }
+        public string Value { get; private set; }
         public StringValue(string value) { Value = value; }
         public override RuntimeValueType Type => RuntimeValueType.String;
+        public override bool IsCopy => false;
 
         private string NormalizeNFC(string s) => s?.Normalize(NormalizationForm.FormC) ?? s;
 
@@ -298,6 +299,83 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new StringValue(g[i]).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
             }
             return base.ListAccess(other);
+        }
+
+        public override (RuntimeValue?, Error?) ListSet(RuntimeValue index, RuntimeValue value)
+        {
+            if (index.Type == RuntimeValueType.Number && value.Type == RuntimeValueType.String)
+            {
+                var idx = ToIntSafe(index);
+                var g = Graphemes();
+                int i = idx;
+                if (i < 0) i = g.Length + i;
+                if (i < 0 || i >= g.Length) return (null, IllegalOperation(index));
+
+                string result = "";
+
+                for (int j = 0; j < g.Length; j++)
+                {
+                    if (j == i)
+                    {
+                        result += ((StringValue)value).Value;
+                        continue;
+                    }
+
+                    result += g[j];
+                }
+
+                Value = result;
+                return (new StringValue(result).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
+            }
+            else if (index.Type == RuntimeValueType.List && value.Type == RuntimeValueType.String)
+            {
+                var g = Graphemes();
+                ListValue list = (ListValue)index;
+                List<int> indexes = new List<int>();
+
+                foreach (var element in list.Elements)
+                {
+                    if (element.Type != RuntimeValueType.Number)
+                    {
+                        return (null, IllegalOperation(index));
+                    }
+
+                    var idx = ToIntSafe(((NumberValue)element));
+                    if (idx < 0) idx = g.Length + idx;
+                    if (idx < 0 || idx >= g.Length) return (null, IllegalOperation(index));
+                    indexes.Add(idx);
+                }
+
+                StringValue v = (StringValue)value;
+                string result = "";
+
+                for (int j = 0; j < g.Length; j++)
+                {
+                    bool exists = false;
+
+                    foreach (int k in indexes)
+                    {
+                        if (k == j)
+                        {
+                            result += ((StringValue)value).Value;
+                            exists = true;
+                            break;
+                        }
+                    }
+
+                    if (exists)
+                    {
+                        continue;
+                    }
+
+                    result += g[j];
+                }
+
+                Value = result;
+                return (new StringValue(result).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
+            }
+
+            return base.ListSet(index, value);
         }
 
         public override (RuntimeValue?, Error?) GetComparisonLt(RuntimeValue other)

@@ -1,12 +1,15 @@
-fn func() {
-    var x = 8;
-    loop: x--;
+fn take(x) {
+    print(x);
+    print(x[0]);
+
+    x[0] = "c";
     print(x);
 
-    if (x > 0) {
-        goto loop;
-    }
+    x[0..2] = "a";
+    print(x);
 }
 
-print("test");
-func();
+let s = "test";
+take(s); // move happens: s invalidated
+
+print(s); // runtime error

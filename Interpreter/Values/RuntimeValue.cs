@@ -3,7 +3,6 @@ using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer;
-using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes.Variables;
 
 namespace RaLanguage.Interpreter.Values
@@ -15,6 +14,7 @@ namespace RaLanguage.Interpreter.Values
         public Context Context { get; set; }
         public VariableDeclarationType VariableDeclarationType { get; set; } = VariableDeclarationType.VARIABLE;
         public abstract RuntimeValueType Type { get; }
+        public virtual bool IsCopy => false;
 
         public RuntimeValue SetPos(Position positionStart, Position positionEnd)
         {

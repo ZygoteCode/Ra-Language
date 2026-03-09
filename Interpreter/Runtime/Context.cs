@@ -1,32 +1,69 @@
 ﻿using RaLanguage.Lexer;
-using System.Xml.Linq;
 
 namespace RaLanguage.Interpreter.Runtime
 {
-    public class Context
+    public class Context : IDisposable
     {
         public string DisplayName { get; }
         public Context? Parent { get; }
         public Position? ParentEntryPos { get; }
-        public SymbolTable SymbolTable { get; set; }
+
+        public SymbolTable? SymbolTable { get; set; }
+
+        private bool _disposed;
 
         public Context(string displayName, Context? parent = null, Position? parentEntryPos = null)
         {
             DisplayName = displayName;
             Parent = parent;
             ParentEntryPos = parentEntryPos;
+            SymbolTable = new SymbolTable(parent?.SymbolTable);
+            _disposed = false;
         }
 
         public Context Copy()
         {
             var newCtx = new Context(DisplayName, this);
-            newCtx.SymbolTable = new SymbolTable(newCtx.Parent?.SymbolTable);
             return newCtx;
         }
 
         public void ApplyChangesFrom(Context context)
         {
-            SymbolTable.ApplyChangesFrom(context.SymbolTable);
+            if (context.SymbolTable == null) return;
+            SymbolTable?.ApplyChangesFrom(context.SymbolTable);
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (_disposed) return;
+            if (disposing)
+            {
+                if (SymbolTable != null)
+                {
+                    try { SymbolTable.Dispose(); } catch { }
+                    SymbolTable = null;
+                }
+            }
+
+            _disposed = true;
+        }
+
+        ~Context()
+        {
+            Dispose(false);
+        }
+
+        public void DisposeSymbolTableRecursively()
+        {
+            if (SymbolTable == null) return;
+            SymbolTable.DisposeRecursively();
+            SymbolTable = null;
         }
     }
 }

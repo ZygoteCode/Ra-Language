@@ -9,6 +9,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public List<RuntimeValue> Elements { get; set;  }
         public ListValue(List<RuntimeValue> elements) { Elements = elements; }
         public override RuntimeValueType Type => RuntimeValueType.List;
+        public override bool IsCopy => false;
 
         private List<RuntimeValue> DeepCopyElements()
         {

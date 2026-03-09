@@ -8,6 +8,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public static BooleanValue True => new BooleanValue(true);
         public static BooleanValue False => new BooleanValue(false);
         public override RuntimeValueType Type => RuntimeValueType.Boolean;
+        public override bool IsCopy => true;
 
         public BooleanValue(bool value)
         {

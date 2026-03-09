@@ -6,6 +6,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
     public class TupleValue : RuntimeValue
     {
         public List<RuntimeValue> Elements { get; }
+        public override bool IsCopy => true;
 
         public TupleValue(List<RuntimeValue> elements)
         {

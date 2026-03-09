@@ -10,6 +10,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public static NumberValue One => new NumberValue(1);
         public static NumberValue Zero => new NumberValue(0);
         public override RuntimeValueType Type => RuntimeValueType.Number;
+        public override bool IsCopy => true;
 
         public NumberValue(BigNumber value)
         {

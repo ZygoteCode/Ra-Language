@@ -4,6 +4,7 @@ using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Functions;
 using RaLanguage.Interpreter.Values.Primitives;
+using RaLanguage.Lexer;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes;
 using RaLanguage.Parser.Nodes.Functions;
@@ -207,8 +208,10 @@ namespace RaLanguage.Interpreter
                         return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                     }
 
-                    if (c.Body is ListNode arrowBlock)
+                    if (c.Body.NodeType == AstNodeType.List)
                     {
+                        ListNode arrowBlock = (ListNode)c.Body;
+
                         foreach (var stmt in arrowBlock.ElementNodes)
                         {
                             var childRes = Visit(stmt, context);
@@ -258,8 +261,10 @@ namespace RaLanguage.Interpreter
 
                         if (caseToExec.Separator == SwitchCaseSeparator.Arrow)
                         {
-                            if (caseToExec.Body is ListNode arrowBlock2)
+                            if (caseToExec.Body.NodeType == AstNodeType.List)
                             {
+                                ListNode arrowBlock2 = (ListNode)caseToExec.Body;
+
                                 foreach (var stmt in arrowBlock2.ElementNodes)
                                 {
                                     var childRes = Visit(stmt, context);
@@ -301,8 +306,10 @@ namespace RaLanguage.Interpreter
                         }
                         else
                         {
-                            if (caseToExec.Body is ListNode colonBlock)
+                            if (caseToExec.Body.NodeType == AstNodeType.List)
                             {
+                                ListNode colonBlock = (ListNode)caseToExec.Body;
+
                                 foreach (var stmt in colonBlock.ElementNodes)
                                 {
                                     var childRes = Visit(stmt, context);
@@ -570,8 +577,9 @@ namespace RaLanguage.Interpreter
             foreach (RuntimeValue runtimeValue in iterElements)
             {
                 newContext.SymbolTable.Set(varName, runtimeValue);
-                var value = res.Register(Visit(node.BodyNode, newContext));
-                context.ApplyChangesFrom(newContext);
+                Context actualContext = newContext.Copy();
+                var value = res.Register(Visit(node.BodyNode, actualContext));
+                context.ApplyChangesFrom(actualContext);
 
                 if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak)
                 {
@@ -789,6 +797,7 @@ namespace RaLanguage.Interpreter
                 RuntimeValueType.Boolean => "boolean",
                 RuntimeValueType.Set => "set",
                 RuntimeValueType.Map => "map",
+                RuntimeValueType.Tuple => "tuple",
                 _ => ""
             };
 
@@ -899,8 +908,9 @@ namespace RaLanguage.Interpreter
 
                 foreach (var elementNode in node.ElementNodes)
                 {
-                    if (elementNode is SpreadNode spread)
+                    if (elementNode.NodeType == AstNodeType.Spread)
                     {
+                        SpreadNode spread = (SpreadNode)elementNode;
                         var val = res.Register(Visit(spread.Expression, newContext));
                         if (res.ShouldReturn()) return res;
 
@@ -930,8 +940,9 @@ namespace RaLanguage.Interpreter
             {
                 foreach (var elementNode in node.ElementNodes)
                 {
-                    if (elementNode is SpreadNode spread)
+                    if (elementNode.NodeType == AstNodeType.Spread)
                     {
+                        SpreadNode spread = (SpreadNode)elementNode;
                         var val = res.Register(Visit(spread.Expression, context));
                         if (res.ShouldReturn()) return res;
 
@@ -964,24 +975,49 @@ namespace RaLanguage.Interpreter
         private RuntimeResult VisitVariableAccessNode(VariableAccessNode node, Context context)
         {
             var res = new RuntimeResult();
-            var varName = node.VarNameTok.Value?.ToString();
-            var value = context.SymbolTable.Get(varName);
 
-            if (value == null)
+            var name = node.VarNameTok.Value?.ToString();
+
+            if (string.IsNullOrEmpty(name))
             {
-                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is not defined", context));
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Invalid variable name", context));
             }
 
-            if (value.Type == RuntimeValueType.Map)
+            var entry = context.SymbolTable.GetEntry(name);
+            if (entry == null)
             {
-                value = value.SetPos(node.PositionStart, node.PositionEnd).SetContext(context);
-            }
-            else
-            {
-                value = value.Copy().SetPos(node.PositionStart, node.PositionEnd).SetContext(context);
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{name}' is not defined", context));
             }
 
-            return res.Success(value);
+            if (entry.IsMoved)
+            {
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Variable '{name}' was moved", context));
+            }
+
+            var valueToReturn = entry.Value.IsCopy ? entry.Value.Copy() : entry.Value;
+            return res.Success(valueToReturn.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+        }
+
+        private (RuntimeValue? value, Error? error) ExtractVariableValueByName(string name, Position posStart, Position posEnd, Context context)
+        {
+            var entry = context.SymbolTable.GetEntry(name);
+            if (entry == null)
+            {
+                return (null, new RuntimeError(posStart, posEnd, $"'{name}' is not defined", context));
+            }
+
+            if (entry.IsMoved)
+            {
+                return (null, new RuntimeError(posStart, posEnd, $"Variable '{name}' was moved", context));
+            }
+
+            if (entry.IsLet && !entry.Value.IsCopy)
+            {
+                entry.IsMoved = true;
+                return (entry.Value.SetContext(context).SetPos(posStart, posEnd), null);
+            }
+
+            return (entry.Value.Copy().SetContext(context).SetPos(posStart, posEnd), null);
         }
 
         private RuntimeResult VisitVariableDeclarationNode(VariableDeclarationNode node, Context context)
@@ -993,66 +1029,68 @@ namespace RaLanguage.Interpreter
             {
                 var varName = declaration.Item1.Value?.ToString();
 
+                if (string.IsNullOrEmpty(varName))
+                {
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Invalid identifier", context));
+                }
+
                 if (context.SymbolTable.Get(varName) != null)
                 {
                     return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is already defined", context));
                 }
 
-                if (node.DeclarationType == VariableDeclarationType.VARIABLE)
+                RuntimeValue value = new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+
+                if (declaration.Item2 != null)
                 {
-                    RuntimeValue value = new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
-
-                    if (declaration.Item2 != null)
+                    if (declaration.Item2.NodeType == AstNodeType.VariableAccess)
                     {
-                        value = res.Register(Visit(declaration.Item2, context));
-
-                        if (res.ShouldReturn())
+                        VariableAccessNode varAccess = (VariableAccessNode)declaration.Item2;
+                        string srcName = varAccess.VarNameTok.Value?.ToString() ?? "";
+                        var (extracted, err) = ExtractVariableValueByName(srcName, varAccess.PositionStart, varAccess.PositionEnd, context);
+                        if (err != null) return res.Failure(err);
+                        value = extracted!;
+                    }
+                    else
+                    {
+                        if (node.DeclarationType == VariableDeclarationType.CONST)
                         {
-                            continue;
+                            AreCallsBlocked = true;
+                            var tmp = res.Register(Visit(declaration.Item2, context));
+                            AreCallsBlocked = false;
+                            if (res.ShouldReturn()) continue;
+                            value = tmp;
+                        }
+                        else
+                        {
+                            value = res.Register(Visit(declaration.Item2, context));
+                            if (res.ShouldReturn()) continue;
                         }
                     }
-
-                    context.SymbolTable.Set(varName, value);
-                    values.Add(value);
                 }
-                else if (node.DeclarationType == VariableDeclarationType.CONST)
+
+                if (node.DeclarationType == VariableDeclarationType.CONST)
                 {
-                    if (declaration.Item2 == null)
-                    {
-                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Value should be a constant value", context));
-                    }
-
-                    AreCallsBlocked = true;
-                    RuntimeValue value = res.Register(Visit(declaration.Item2, context));
-
-                    if (res.ShouldReturn())
-                    {
-                        continue;
-                    }
-
                     value.VariableDeclarationType = VariableDeclarationType.CONST;
-                    context.SymbolTable.Set(varName, value);
-                    AreCallsBlocked = false;
-                    values.Add(value);
+                    context.SymbolTable.Set(varName, value, isLet: false);
                 }
                 else if (node.DeclarationType == VariableDeclarationType.FINAL)
                 {
-                    RuntimeValue value = new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
-
-                    if (declaration.Item2 != null)
-                    {
-                        value = res.Register(Visit(declaration.Item2, context));
-
-                        if (res.ShouldReturn())
-                        {
-                            continue;
-                        }
-                    }
-
                     value.VariableDeclarationType = VariableDeclarationType.FINAL;
-                    context.SymbolTable.Set(varName, value);
-                    values.Add(value);
+                    context.SymbolTable.Set(varName, value, isLet: false);
                 }
+                else if (node.DeclarationType == VariableDeclarationType.LET)
+                {
+                    value.VariableDeclarationType = VariableDeclarationType.LET;
+                    context.SymbolTable.Set(varName, value, isLet: true);
+                }
+                else
+                {
+                    value.VariableDeclarationType = VariableDeclarationType.VARIABLE;
+                    context.SymbolTable.Set(varName, value, isLet: false);
+                }
+
+                values.Add(value);
             }
 
             return res.Success(new ListValue(values).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
@@ -1062,6 +1100,12 @@ namespace RaLanguage.Interpreter
         {
             var res = new RuntimeResult();
             var varName = node.VarNameTok.Value?.ToString();
+
+            if (string.IsNullOrEmpty(varName))
+            {
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Invalid assignment target", context));
+            }
+
             var currentValue = context.SymbolTable.Get(varName);
 
             if (currentValue == null)
@@ -1079,11 +1123,20 @@ namespace RaLanguage.Interpreter
             }
 
             var operation = node.AssignmentToken;
-            var value = res.Register(Visit(node.ValueNode, context));
 
-            if (res.ShouldReturn())
+            RuntimeValue value;
+            if (node.ValueNode.NodeType == AstNodeType.VariableAccess)
             {
-                return res;
+                VariableAccessNode rhsVarAccess = (VariableAccessNode)node.ValueNode;
+                string srcName = rhsVarAccess.VarNameTok.Value?.ToString() ?? "";
+                var (extracted, err) = ExtractVariableValueByName(srcName, rhsVarAccess.PositionStart, rhsVarAccess.PositionEnd, context);
+                if (err != null) return res.Failure(err);
+                value = extracted!;
+            }
+            else
+            {
+                value = res.Register(Visit(node.ValueNode, context));
+                if (res.ShouldReturn()) return res;
             }
 
             (RuntimeValue? result, Error? error) = (null, null);
@@ -1104,25 +1157,15 @@ namespace RaLanguage.Interpreter
                 case TokenType.AND_EQ: (result, error) = currentValue.AndedBy(value); break;
                 case TokenType.OR_EQ: (result, error) = currentValue.OredBy(value); break;
                 case TokenType.NULL_COALESCE_EQ:
-                    if (currentValue.Type == RuntimeValueType.Null)
-                    {
-                        (result, error) = (value.SetContext(context).SetPos(node.PositionStart, node.PositionEnd), null);
-                    }
-                    else
-                    {
-                        (result, error) = (currentValue.SetContext(context).SetPos(node.PositionStart, node.PositionEnd), null);
-                    }
-
+                    if (currentValue.Type == RuntimeValueType.Null) (result, error) = (value.SetContext(context).SetPos(node.PositionStart, node.PositionEnd), null);
+                    else (result, error) = (currentValue.SetContext(context).SetPos(node.PositionStart, node.PositionEnd), null);
                     break;
             }
 
-            if (error != null)
-            {
-                return res.Failure(error);
-            }
-
-            context.SymbolTable.Set(varName, result.SetDeclarationType(currentValue.VariableDeclarationType));
-            return res.Success(result!.SetPos(node.PositionStart, node.PositionEnd).SetDeclarationType(currentValue.VariableDeclarationType));
+            if (error != null) return res.Failure(error);
+            var declType = currentValue.VariableDeclarationType;
+            context.SymbolTable.Set(varName, result!.SetDeclarationType(declType));
+            return res.Success(result!.SetPos(node.PositionStart, node.PositionEnd).SetDeclarationType(declType));
         }
 
         private RuntimeResult VisitVariableDeleteNode(VariableDeleteNode node, Context context)
@@ -1133,12 +1176,7 @@ namespace RaLanguage.Interpreter
             {
                 string varName = token.Value.ToString();
                 var value = context.SymbolTable.Get(varName);
-
-                if (value == null)
-                {
-                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' variable does not exist", context));
-                }
-
+                if (value == null) return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' variable does not exist", context));
                 context.SymbolTable.Remove(varName);
             }
 
@@ -1201,8 +1239,11 @@ namespace RaLanguage.Interpreter
             {
                 case TokenType.DOUBLE_PLUS:
                 case TokenType.DOUBLE_MINUS:
-                    if (node.Node is not VariableAccessNode varAccessNode) return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Operator ++/-- can only be applied to variables", context));
-                    if (value is not NumberValue number) return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Operator ++/-- can only be applied to numbers", context));
+                    if (node.Node.NodeType != AstNodeType.VariableAccess) return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Operator ++/-- can only be applied to variables", context));
+                    if (value.Type != RuntimeValueType.Number) return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Operator ++/-- can only be applied to numbers", context));
+
+                    VariableAccessNode varAccessNode = (VariableAccessNode)node.Node;
+                    NumberValue number = (NumberValue)value;
 
                     RuntimeValue? newValue = null;
                     if (node.OpTok.Type == TokenType.DOUBLE_PLUS) (newValue, error) = number.AddedTo(NumberValue.One);
@@ -1260,11 +1301,7 @@ namespace RaLanguage.Interpreter
                     var exprValue = res.Register(Visit(expr, realCaseContext));
                     context.ApplyChangesFrom(realCaseContext);
 
-                    if (res.ShouldReturn())
-                    {
-                        return res;
-                    }
-
+                    if (res.ShouldReturn()) return res;
                     return res.Success(shouldReturnNull ? new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd) : exprValue);
                 }
                 else
@@ -1293,19 +1330,11 @@ namespace RaLanguage.Interpreter
             var initializationContext = context.Copy();
             var startValue = res.Register(Visit(node.StartValueNode, initializationContext));
             context.ApplyChangesFrom(initializationContext);
-
-            if (res.ShouldReturn())
-            {
-                return res;
-            }
+            if (res.ShouldReturn()) return res;
 
             var endValue = res.Register(Visit(node.EndValueNode, initializationContext));
             context.ApplyChangesFrom(initializationContext);
-
-            if (res.ShouldReturn())
-            {
-                return res;
-            }
+            if (res.ShouldReturn()) return res;
 
             RuntimeValue stepValue;
 
@@ -1313,11 +1342,7 @@ namespace RaLanguage.Interpreter
             {
                 stepValue = res.Register(Visit(node.StepValueNode, initializationContext));
                 context.ApplyChangesFrom(initializationContext);
-
-                if (res.ShouldReturn())
-                {
-                    return res;
-                }
+                if (res.ShouldReturn()) return res;
             }
             else
             {
@@ -1339,20 +1364,9 @@ namespace RaLanguage.Interpreter
                 var value = res.Register(Visit(node.BodyNode, actualContext));
                 context.ApplyChangesFrom(actualContext);
 
-                if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak)
-                {
-                    return res;
-                }
-
-                if (res.LoopShouldContinue)
-                {
-                    continue;
-                }
-
-                if (res.LoopShouldBreak)
-                {
-                    break;
-                }
+                if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak) return res;
+                if (res.LoopShouldContinue) continue;
+                if (res.LoopShouldBreak) break;
 
                 elements.Add(value);
             }
@@ -1371,36 +1385,16 @@ namespace RaLanguage.Interpreter
             while (true)
             {
                 var condition = res.Register(Visit(node.ConditionNode, newContext));
-
-                if (res.ShouldReturn())
-                {
-                    return res;
-                }
-
-                if (!condition.IsTrue())
-                {
-                    break;
-                }
+                if (res.ShouldReturn()) return res;
+                if (!condition.IsTrue()) break;
 
                 Context actualContext = newContext.Copy();
                 var value = res.Register(Visit(node.BodyNode, actualContext));
                 context.ApplyChangesFrom(actualContext);
 
-                if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak)
-                {
-                    return res;
-                }
-
-                if (res.LoopShouldContinue)
-                {
-                    continue;
-                }
-
-                if (res.LoopShouldBreak)
-                {
-                    break;
-                }
-
+                if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak) return res;
+                if (res.LoopShouldContinue) continue;
+                if (res.LoopShouldBreak) break;
                 elements.Add(value);
             }
 
@@ -1419,51 +1413,39 @@ namespace RaLanguage.Interpreter
                 .SetContext(context)
                 .SetPos(node.PositionStart, node.PositionEnd);
 
-            if (node.VarNameTok != null)
-            {
-                context.SymbolTable.Set(funcName, funcValue);
-            }
-
+            if (node.VarNameTok != null) context.SymbolTable.Set(funcName, funcValue);
             return res.Success(funcValue);
         }
 
         private RuntimeResult VisitFunctionCallNode(FunctionCallNode node, Context context)
         {
             var res = new RuntimeResult();
-
-            if (AreCallsBlocked)
-            {
-                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Function calls are blocked in this context", context));
-            }
+            if (AreCallsBlocked) return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Function calls are blocked in this context", context));
 
             var args = new List<RuntimeValue>();
-
             var valueToCall = res.Register(Visit(node.NodeToCall, context));
-
-            if (res.ShouldReturn())
-            {
-                return res;
-            }
+            if (res.ShouldReturn()) return res;
 
             valueToCall = valueToCall.Copy().SetPos(node.PositionStart, node.PositionEnd);
-
             foreach (var argNode in node.ArgNodes)
             {
-                args.Add(res.Register(Visit(argNode, context)));
-
-                if (res.ShouldReturn())
+                if (argNode is VariableAccessNode argVarAccess)
                 {
-                    return res;
+                    string srcName = argVarAccess.VarNameTok.Value?.ToString() ?? "";
+                    var (extracted, err) = ExtractVariableValueByName(srcName, argVarAccess.PositionStart, argVarAccess.PositionEnd, context);
+                    if (err != null) return res.Failure(err);
+                    args.Add(extracted!);
+                }
+                else
+                {
+                    var aVal = res.Register(Visit(argNode, context));
+                    if (res.ShouldReturn()) return res;
+                    args.Add(aVal);
                 }
             }
 
             var returnValue = res.Register(valueToCall.Execute(args));
-
-            if (res.ShouldReturn())
-            {
-                return res;
-            }
-
+            if (res.ShouldReturn()) return res;
             returnValue = returnValue.Copy().SetPos(node.PositionStart, node.PositionEnd).SetContext(context);
             return res.Success(returnValue);
         }
@@ -1475,9 +1457,20 @@ namespace RaLanguage.Interpreter
 
             if (node.NodeToReturn != null)
             {
-                value = res.Register(Visit(node.NodeToReturn, context));
-                if (res.ShouldReturn()) return res;
+                if (node.NodeToReturn is VariableAccessNode varAccess)
+                {
+                    string srcName = varAccess.VarNameTok.Value?.ToString() ?? "";
+                    var (extracted, err) = ExtractVariableValueByName(srcName, varAccess.PositionStart, varAccess.PositionEnd, context);
+                    if (err != null) return res.Failure(err);
+                    value = extracted!;
+                }
+                else
+                {
+                    value = res.Register(Visit(node.NodeToReturn, context));
+                    if (res.ShouldReturn()) return res;
+                }
             }
+
             return res.SuccessReturn(value);
         }
 

@@ -47,6 +47,7 @@ namespace RaLanguage.Lexer
             ["default"] = Keyword.Default,
             ["yield"] = Keyword.Yield,
             ["goto"] = Keyword.Goto,
+            ["let"] = Keyword.Let,
         };
 
         public Lexer(string fn, string text)

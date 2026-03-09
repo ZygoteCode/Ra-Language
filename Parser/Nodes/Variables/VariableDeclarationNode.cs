@@ -21,6 +21,7 @@ namespace RaLanguage.Parser.Nodes.Variables
     {
         VARIABLE,
         CONST,
-        FINAL
+        FINAL,
+        LET
     }
 }

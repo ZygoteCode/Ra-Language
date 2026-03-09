@@ -2,64 +2,79 @@
 
 namespace RaLanguage.Interpreter.Runtime
 {
-    public class SymbolTable
+    public class SymbolTable : IDisposable
     {
-        private readonly Dictionary<string, RuntimeValue> _symbols = new();
-        public SymbolTable? Parent { get; }
+        private readonly Dictionary<string, SymbolEntry> _symbols = new();
+        public SymbolTable? Parent { get; private set; }
+
+        private bool _disposed;
 
         public SymbolTable(SymbolTable? parent = null)
         {
             Parent = parent;
+            _disposed = false;
         }
 
         public RuntimeValue? Get(string name)
         {
-            if (_symbols.TryGetValue(name, out var val))
-            {
-                return val;
-            }
-
-            return Parent?.Get(name);
+            var entry = GetEntry(name);
+            return entry?.Value;
         }
 
-        public void Set(string name, RuntimeValue value)
+        public SymbolEntry? GetEntry(string name)
         {
-            SymbolTable? theSymbolTable = Parent;
-
-            while (theSymbolTable != null)
+            if (_symbols.TryGetValue(name, out var e))
             {
-                RuntimeValue? obtainedValue = theSymbolTable.Get(name);
-
-                if (obtainedValue != null)
-                {
-                    theSymbolTable.Set(name, value);
-                    return;
-                }
-
-                theSymbolTable = theSymbolTable.Parent;
+                return e;
             }
 
-            _symbols[name] = value;
+            return Parent?.GetEntry(name);
+        }
+
+        public void Set(string name, RuntimeValue value, bool isLet = false)
+        {
+            SymbolTable? st = this;
+            SymbolTable? owner = null;
+            while (st != null)
+            {
+                if (st._symbols.ContainsKey(name))
+                {
+                    owner = st;
+                    break;
+                }
+                st = st.Parent;
+            }
+
+            if (owner != null)
+            {
+                owner._symbols[name].Value = value;
+            }
+            else
+            {
+                _symbols[name] = new SymbolEntry(value, isLet);
+            }
         }
 
         public void Remove(string name)
         {
-            SymbolTable? theSymbolTable = Parent;
-
-            while (theSymbolTable != null)
+            SymbolTable? st = this;
+            SymbolTable? owner = null;
+            while (st != null)
             {
-                RuntimeValue? obtainedValue = theSymbolTable.Get(name);
-
-                if (obtainedValue != null)
+                if (st._symbols.ContainsKey(name))
                 {
-                    theSymbolTable.Remove(name);
-                    return;
+                    owner = st;
+                    break;
                 }
-
-                theSymbolTable = theSymbolTable.Parent;
+                st = st.Parent;
             }
 
-            _symbols.Remove(name);
+            if (owner != null)
+            {
+                var entry = owner._symbols[name];
+                try { entry.Dispose(); } catch { }
+                owner._symbols.Remove(name);
+            }
         }
 
         public void ApplyChangesFrom(SymbolTable? symbolTable)
@@ -69,7 +84,7 @@ namespace RaLanguage.Interpreter.Runtime
                 return;
             }
 
-            foreach (KeyValuePair<string, RuntimeValue> keyValuePair in _symbols)
+            foreach (KeyValuePair<string, SymbolEntry> keyValuePair in _symbols)
             {
                 RuntimeValue? value = symbolTable.Get(keyValuePair.Key);
 
@@ -82,6 +97,65 @@ namespace RaLanguage.Interpreter.Runtime
             }
 
             ApplyChangesFrom(symbolTable.Parent);
+        }
+
+        public IEnumerable<string> GetLocalKeys()
+        {
+            return _symbols.Keys.ToList();
+        }
+
+        public void Clear()
+        {
+            foreach (var kv in _symbols)
+            {
+                try { kv.Value.Dispose(); } catch { }
+            }
+            _symbols.Clear();
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (_disposed) return;
+            if (disposing)
+            {
+                foreach (var kv in _symbols)
+                {
+                    try { kv.Value.Dispose(); } catch { }
+                }
+                _symbols.Clear();
+            }
+
+            _disposed = true;
+        }
+
+        ~SymbolTable()
+        {
+            Dispose(false);
+        }
+
+        public void DisposeRecursively()
+        {
+            Dispose();
+
+            var p = Parent;
+            Parent = null;
+            while (p != null)
+            {
+                var next = p.Parent;
+                try { p.Dispose(); } catch { }
+                p = next;
+            }
+        }
+
+        public void DetachParent()
+        {
+            Parent = null;
         }
     }
 }

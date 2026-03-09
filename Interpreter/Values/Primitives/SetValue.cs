@@ -7,6 +7,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
     public class SetValue : RuntimeValue
     {
         public HashSet<RuntimeValue> Elements { get; }
+        public override bool IsCopy => false;
 
         public SetValue(HashSet<RuntimeValue> elements)
         {

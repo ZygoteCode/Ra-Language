@@ -6,6 +6,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
     public class MapValue : RuntimeValue
     {
         public List<(RuntimeValue Key, RuntimeValue Value)> Pairs { get; }
+        public override bool IsCopy => false;
 
         public MapValue()
         {
