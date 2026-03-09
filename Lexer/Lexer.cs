@@ -2,6 +2,7 @@
 using RaLanguage.Errors.Types;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Utilities;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace RaLanguage.Lexer
@@ -9,901 +10,777 @@ namespace RaLanguage.Lexer
     public class Lexer
     {
         private readonly string _text;
-        private Position _position;
-        private char? _currentCharacter;
-
-        private static readonly Dictionary<string, Keyword> KeywordMap = new(StringComparer.Ordinal)
-        {
-            ["var"] = Keyword.Var,
-            ["and"] = Keyword.And,
-            ["or"] = Keyword.Or,
-            ["not"] = Keyword.Not,
-            ["if"] = Keyword.If,
-            ["elif"] = Keyword.Elif,
-            ["else"] = Keyword.Else,
-            ["for"] = Keyword.For,
-            ["to"] = Keyword.To,
-            ["step"] = Keyword.Step,
-            ["while"] = Keyword.While,
-            ["fn"] = Keyword.Fn,
-            ["ret"] = Keyword.Ret,
-            ["is"] = Keyword.Is,
-            ["continue"] = Keyword.Continue,
-            ["break"] = Keyword.Break,
-            ["pass"] = Keyword.Pass,
-            ["const"] = Keyword.Const,
-            ["final"] = Keyword.Final,
-            ["del"] = Keyword.Del,
-            ["do"] = Keyword.Do,
-            ["typeof"] = Keyword.TypeOf,
-            ["nameof"] = Keyword.NameOf,
-            ["null"] = Keyword.Null,
-            ["true"] = Keyword.True,
-            ["false"] = Keyword.False,
-            ["in"] = Keyword.In,
-            ["not in"] = Keyword.NotIn,
-            ["switch"] = Keyword.Switch,
-            ["case"] = Keyword.Case,
-            ["default"] = Keyword.Default,
-            ["yield"] = Keyword.Yield,
-            ["goto"] = Keyword.Goto,
-            ["let"] = Keyword.Let,
-        };
+        private readonly string _fn;
+        private int _idx;
+        private int _ln;
+        private int _col;
 
         public Lexer(string fn, string text)
         {
+            _fn = fn;
             _text = text;
-            _position = new Position(-1, 0, -1, fn, text);
-            Advance();
+            _idx = 0;
+            _ln = 0;
+            _col = 0;
         }
 
-        private void Advance(int times = 1)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void Advance(char currentChar)
         {
-            for (int i = 0; i < times; i++)
+            _idx++;
+            if (currentChar == '\n')
             {
-                _position.Advance(_currentCharacter);
-                _currentCharacter = _position.Idx < _text.Length ? _text[_position.Idx] : null;
+                _ln++;
+                _col = 0;
+            }
+            else
+            {
+                _col++;
             }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void AdvanceMultiple(int count, ReadOnlySpan<char> span)
+        {
+            int len = span.Length;
+            int end = Math.Min(_idx + count, len);
+            int col = _col;
+            int ln = _ln;
+
+            for (int i = _idx; i < end; i++)
+            {
+                char ch = span[i];
+                if (ch == '\n')
+                {
+                    ln++;
+                    col = 0;
+                }
+                else
+                {
+                    col++;
+                }
+            }
+
+            _idx = end;
+            _ln = ln;
+            _col = col;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private Position GetPos() => new Position(_idx, _ln, _col, _fn, _text);
+
         public (List<Token> Tokens, Error? Error) MakeTokens()
         {
-            var tokens = new List<Token>();
+            var tokens = new List<Token>(Math.Min(_text.Length / 4, 2048));
+            ReadOnlySpan<char> span = _text.AsSpan();
 
-            while (_currentCharacter != null)
+            while (_idx < span.Length)
             {
-                switch (_currentCharacter.Value)
+                char c = span[_idx];
+
+                switch (c)
                 {
                     case ' ':
                     case '\r':
                     case '\t':
-                        Advance();
+                        Advance(c);
                         break;
+
                     case '#':
-                        SkipComment();
+                        SkipComment(span);
                         break;
+
                     case ';':
                     case '\n':
-                        tokens.Add(new Token(TokenType.NEWLINE, null, _position));
-                        Advance();
+                        tokens.Add(new Token(TokenType.NEWLINE, null, GetPos()));
+                        Advance(c);
                         break;
+
                     case '"':
                     case '\'':
                     case '`':
-                        var positionStart2 = _position.Copy();
-
-                        try
-                        {
-                            (List<Token>?, Error?) result2 = MakeString(_currentCharacter!.Value, false);
-                            if (result2.Item2 != null) return (new List<Token>(), result2.Item2!);
-                            tokens.AddRange(result2.Item1!);
-                        }
-                        catch
-                        {
-                            return (new List<Token>(), new InvalidSyntaxError(positionStart2, _position.Copy(), "Invalid string format"));
-                        }
-
+                        var errStr = ProcessString(span, c, false, tokens);
+                        if (errStr != null) return (new List<Token>(), errStr);
                         break;
+
                     case '$':
-                        var positionStart1 = _position.Copy();
-
-                        if (_position.Idx + 1 < _text.Length &&
-                            (_text[_position.Idx + 1] == '"' || _text[_position.Idx + 1] == '\'' || _text[_position.Idx + 1] == '`'))
+                        var posStartDollar = GetPos();
+                        if (_idx + 1 < span.Length && (span[_idx + 1] == '"' || span[_idx + 1] == '\'' || span[_idx + 1] == '`'))
                         {
-                            Advance();
-
-                            try
-                            {
-                                (List<Token>?, Error?) result1 = MakeString(_currentCharacter!.Value, true);
-                                if (result1.Item2 != null) return (new List<Token>(), result1.Item2!);
-                                tokens.AddRange(result1.Item1!);
-                            }
-                            catch (Exception ex)
-                            {
-                                return (new List<Token>(), new InvalidSyntaxError(positionStart1, _position.Copy(), ex.Message));
-                            }
+                            char quoteChar = span[_idx + 1];
+                            Advance(c);
+                            var errInterp = ProcessString(span, quoteChar, true, tokens);
+                            if (errInterp != null) return (new List<Token>(), errInterp);
                         }
                         else
                         {
-                            Advance();
-                            return (new List<Token>(), new IllegalCharacterError(positionStart1, _position, "$"));
+                            Advance(c);
+                            return (new List<Token>(), new IllegalCharacterError(posStartDollar, GetPos(), "$"));
                         }
                         break;
-                    case '+':
-                        tokens.Add(MakePlus());
-                        break;
-                    case '-':
-                        Token? tok = MakeMinus();
-                        if (tok != null) tokens.Add(tok);
-                        break;
-                    case '*':
-                        tokens.Add(MakeMul());
-                        break;
-                    case '/':
-                        Token? tok1 = MakeDiv();
-                        if (tok1 != null) tokens.Add(tok1);
-                        break;
-                    case '%':
-                        tokens.Add(MakeModulo());
-                        break;
-                    case '^':
-                        tokens.Add(MakePow());
-                        break;
-                    case '(':
-                        tokens.Add(new Token(TokenType.LPAREN, null, _position));
-                        Advance();
-                        break;
-                    case ')':
-                        tokens.Add(new Token(TokenType.RPAREN, null, _position));
-                        Advance();
-                        break;
-                    case '[':
-                        tokens.Add(new Token(TokenType.LSQUARE, null, _position));
-                        Advance();
-                        break;
-                    case ']':
-                        tokens.Add(new Token(TokenType.RSQUARE, null, _position));
-                        Advance();
-                        break;
-                    case ':':
-                        tokens.Add(MakeColon());
-                        break;
-                    case '.':
-                        tokens.Add(MakeDot());
-                        break;
-                    case '?':
-                        tokens.Add(MakeQuestionMark());
-                        break;
-                    case '{':
-                        tokens.Add(new Token(TokenType.LBRACKET, null, _position));
-                        Advance();
-                        break;
-                    case '}':
-                        tokens.Add(new Token(TokenType.RBRACKET, null, _position));
-                        Advance();
-                        break;
-                    case '!':
-                        tokens.Add(MakeNot());
-                        break;
-                    case '~':
-                        tokens.Add(new Token(TokenType.BITWISE_NOT, null, _position));
-                        Advance();
-                        break;
-                    case '=':
-                        tokens.Add(MakeEquals());
-                        break;
+
+                    case '+': ProcessPlus(span, tokens); break;
+                    case '-': ProcessMinus(span, tokens); break;
+                    case '*': ProcessMul(span, tokens); break;
+                    case '/': ProcessDiv(span, tokens); break;
+                    case '%': ProcessModulo(span, tokens); break;
+                    case '^': ProcessPow(span, tokens); break;
+                    case '=': ProcessEquals(span, tokens); break;
+                    case '!': ProcessNot(span, tokens); break;
                     case '<':
-                        (Token?, Error?) result = MakeLessThan();
-                        if (result.Item2 != null) return (new List<Token>(), result.Item2);
-                        if (result.Item1 != null) tokens.Add(result.Item1);
+                        var errLt = ProcessLessThan(span, tokens);
+                        if (errLt != null) return (new List<Token>(), errLt);
                         break;
-                    case '>':
-                        tokens.Add(MakeGreaterThan());
-                        break;
-                    case ',':
-                        tokens.Add(new Token(TokenType.COMMA, null, _position));
-                        Advance();
-                        break;
-                    case '&':
-                        tokens.Add(MakeAnd());
-                        break;
-                    case '|':
-                        tokens.Add(MakeOr());
-                        break;
+                    case '>': ProcessGreaterThan(span, tokens); break;
+                    case '&': ProcessAnd(span, tokens); break;
+                    case '|': ProcessOr(span, tokens); break;
+                    case ':': ProcessColon(span, tokens); break;
+                    case '.': ProcessDot(span, tokens); break;
+                    case '?': ProcessQuestionMark(span, tokens); break;
+
+                    case '(': tokens.Add(new Token(TokenType.LPAREN, null, GetPos())); Advance(c); break;
+                    case ')': tokens.Add(new Token(TokenType.RPAREN, null, GetPos())); Advance(c); break;
+                    case '[': tokens.Add(new Token(TokenType.LSQUARE, null, GetPos())); Advance(c); break;
+                    case ']': tokens.Add(new Token(TokenType.RSQUARE, null, GetPos())); Advance(c); break;
+                    case '{': tokens.Add(new Token(TokenType.LBRACKET, null, GetPos())); Advance(c); break;
+                    case '}': tokens.Add(new Token(TokenType.RBRACKET, null, GetPos())); Advance(c); break;
+                    case '~': tokens.Add(new Token(TokenType.BITWISE_NOT, null, GetPos())); Advance(c); break;
+                    case ',': tokens.Add(new Token(TokenType.COMMA, null, GetPos())); Advance(c); break;
+
                     default:
-                        if (Constants.DIGITS.Contains(_currentCharacter.Value))
+                        if (char.IsAsciiDigit(c))
                         {
-                            (Token?, Error?) result1 = MakeNumber();
-                            if (result1.Item2 != null) return (new List<Token>(), result1.Item2);
-                            if (result1.Item1 == null) return (new List<Token>(), new InvalidSyntaxError(_position.Copy(), _position, "Invalid number format"));
-                            tokens.Add(result1.Item1!);
+                            var errNum = ProcessNumber(span, tokens);
+                            if (errNum != null) return (new List<Token>(), errNum);
                         }
-                        else if (Constants.LETTERS.Contains(_currentCharacter.Value))
+                        else if (char.IsAsciiLetter(c) || c == '_')
                         {
-                            tokens.Add(MakeIdentifier());
+                            ProcessIdentifier(span, tokens);
                         }
                         else
                         {
-                            var positionStart = _position.Copy();
-                            char charErr = _currentCharacter.Value;
-                            Advance();
-                            return (new List<Token>(), new IllegalCharacterError(positionStart, _position, $"'{charErr}'"));
+                            var posStart = GetPos();
+                            Advance(c);
+                            return (new List<Token>(), new IllegalCharacterError(posStart, GetPos(), $"'{c}'"));
                         }
-
                         break;
                 }
             }
 
-            tokens.Add(new Token(TokenType.EOF, null, _position));
+            tokens.Add(new Token(TokenType.EOF, null, GetPos()));
             return (tokens, null);
         }
 
-        private Token MakeQuestionMark()
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void SkipComment(ReadOnlySpan<char> span)
         {
-            TokenType type = TokenType.QUESTION_MARK;
-            var positionStart = _position.Copy();
-            Advance();
-
-            if (_currentCharacter == '?')
+            int newLineIdx = span.Slice(_idx).IndexOf('\n');
+            if (newLineIdx == -1)
             {
-                Advance();
-                type = TokenType.NULL_COALESCE;
-
-                if (_currentCharacter == '=')
-                {
-                    Advance();
-                    type = TokenType.NULL_COALESCE_EQ;
-                }
-            }
-
-            return new Token(type, null, positionStart, _position);
-        }
-
-        private Token MakeColon()
-        {
-            TokenType type = TokenType.COLON;
-            var positionStart = _position.Copy();
-            Advance();
-
-            if (_currentCharacter == ':')
-            {
-                Advance();
-                type = TokenType.DOUBLE_COLON;
-            }
-
-            return new Token(type, null, positionStart, _position);
-        }
-
-        private Token MakeDot()
-        {
-            TokenType type = TokenType.DOT;
-            var positionStart = _position.Copy();
-            Advance();
-
-            if (_currentCharacter == '.')
-            {
-                Advance();
-                type = TokenType.DOUBLE_DOT;
-
-                if (_currentCharacter == '=')
-                {
-                    Advance();
-                    type = TokenType.DOUBLE_DOT_EQ;
-                }
-                else if (_currentCharacter == '.')
-                {
-                    Advance();
-                    type = TokenType.SPREAD;
-                }
-            }
-
-            return new Token(type, null, positionStart, _position);
-        }
-
-        private Token MakePlus()
-        {
-            TokenType type = TokenType.PLUS;
-            var positionStart = _position.Copy();
-            Advance();
-
-            if (_currentCharacter == '=')
-            {
-                Advance();
-                type = TokenType.PLUS_EQ;
-            }
-            else if (_currentCharacter == '+')
-            {
-                Advance();
-                type = TokenType.DOUBLE_PLUS;
-            }
-
-            return new Token(type, null, positionStart, _position);
-        }
-
-        private Token MakePow()
-        {
-            TokenType type = TokenType.POW;
-            var positionStart = _position.Copy();
-            Advance();
-
-            if (_currentCharacter == '=')
-            {
-                Advance();
-                type = TokenType.POW_EQ;
-            }
-
-            return new Token(type, null, positionStart, _position);
-        }
-
-        private Token MakeModulo()
-        {
-            TokenType type = TokenType.MODULO;
-            var positionStart = _position.Copy();
-            Advance();
-
-            if (_currentCharacter == '=')
-            {
-                Advance();
-                type = TokenType.MODULO_EQ;
-            }
-
-            return new Token(type, null, positionStart, _position);
-        }
-
-        private Token MakeMul()
-        {
-            TokenType type = TokenType.MUL;
-            var positionStart = _position.Copy();
-            Advance();
-
-            if (_currentCharacter == '*')
-            {
-                Advance();
-                type = TokenType.POW;
-
-                if (_currentCharacter == '=')
-                {
-                    Advance();
-                    type = TokenType.POW_EQ;
-                }
-            }
-            else if (_currentCharacter == '=')
-            {
-                Advance();
-                type = TokenType.MUL_EQ;
-            }
-
-            return new Token(type, null, positionStart, _position);
-        }
-
-        private Token? MakeDiv()
-        {
-            var positionStart = _position.Copy();
-            Advance();
-
-            if (_currentCharacter == '/')
-            {
-                Advance();
-
-                while (_currentCharacter != null && _currentCharacter != '\n')
-                {
-                    Advance();
-                }
-
-                Advance();
-                return null;
-            }
-            else if (_currentCharacter == '*')
-            {
-                Advance();
-
-                while (_currentCharacter != null && _text[_position.Idx] != '/' && _text[_position.Idx + 1] != '*')
-                {
-                    Advance();
-                }
-
-                Advance(3);
-                return null;
-            }
-            else if (_currentCharacter == '=')
-            {
-                Advance();
-                return new Token(TokenType.DIV_EQ, null, positionStart, _position);
+                AdvanceMultiple(span.Length - _idx, span);
             }
             else
             {
-                return new Token(TokenType.DIV, null, positionStart, _position);
+                AdvanceMultiple(newLineIdx + 1, span);
             }
         }
 
-        private (Token?, Error?) MakeNumber()
+        #region Operators Processing
+
+        private void ProcessPlus(ReadOnlySpan<char> span, List<Token> tokens)
         {
-            var numStr = new StringBuilder();
-            int dotCount = 0;
-            var positionStart = _position.Copy();
-
-            if (_currentCharacter == '0' && _text[_position.Idx + 1] is char p && (p == 'x' || p == 'X' || p == 'b' || p == 'B' || p == 'o' || p == 'O'))
+            var posStart = GetPos();
+            Advance(span[_idx]);
+            if (_idx < span.Length)
             {
-                numStr.Append(_currentCharacter);
-                Advance();
+                if (span[_idx] == '=') { Advance(span[_idx]); tokens.Add(new Token(TokenType.PLUS_EQ, null, posStart, GetPos())); return; }
+                if (span[_idx] == '+') { Advance(span[_idx]); tokens.Add(new Token(TokenType.DOUBLE_PLUS, null, posStart, GetPos())); return; }
+            }
+            tokens.Add(new Token(TokenType.PLUS, null, posStart, GetPos()));
+        }
 
-                numStr.Append(_currentCharacter);
-                Advance();
-
-                bool anyDigit = false;
-                char prefix = char.ToLower(numStr[1]);
-                while (_currentCharacter != null)
+        private void ProcessMinus(ReadOnlySpan<char> span, List<Token> tokens)
+        {
+            var posStart = GetPos();
+            Advance(span[_idx]);
+            if (_idx < span.Length)
+            {
+                if (span[_idx] == '-' && _idx + 1 < span.Length && span[_idx + 1] == '-')
                 {
-                    if (_currentCharacter == '_') { Advance(); continue; }
-
-                    if (prefix == 'x' && Utils.IsHexDigit(_currentCharacter.Value))
-                    {
-                        numStr.Append(_currentCharacter);
-                        anyDigit = true;
-                    }
-                    else if (prefix == 'b' && Utils.IsBinaryDigit(_currentCharacter.Value))
-                    {
-                        numStr.Append(_currentCharacter);
-                        anyDigit = true;
-                    }
-                    else if (prefix == 'o' && Utils.IsOctalDigit(_currentCharacter.Value))
-                    {
-                        numStr.Append(_currentCharacter);
-                        anyDigit = true;
-                    }
-                    else break;
-
-                    Advance();
+                    AdvanceMultiple(2, span);
+                    SkipComment(span);
+                    return;
                 }
+                if (span[_idx] == '-') { Advance(span[_idx]); tokens.Add(new Token(TokenType.DOUBLE_MINUS, null, posStart, GetPos())); return; }
+                if (span[_idx] == '=') { Advance(span[_idx]); tokens.Add(new Token(TokenType.MINUS_EQ, null, posStart, GetPos())); return; }
+                if (span[_idx] == '>') { Advance(span[_idx]); tokens.Add(new Token(TokenType.ARROW_RIGHT, null, posStart, GetPos())); return; }
+            }
+            tokens.Add(new Token(TokenType.MINUS, null, posStart, GetPos()));
+        }
 
-                if (!anyDigit) return (null, new InvalidSyntaxError(positionStart, _position, "Invalid prefixed integer literal"));
+        private void ProcessMul(ReadOnlySpan<char> span, List<Token> tokens)
+        {
+            var posStart = GetPos();
+            Advance(span[_idx]);
+            if (_idx < span.Length)
+            {
+                if (span[_idx] == '*')
+                {
+                    Advance(span[_idx]);
+                    if (_idx < span.Length && span[_idx] == '=')
+                    {
+                        Advance(span[_idx]);
+                        tokens.Add(new Token(TokenType.POW_EQ, null, posStart, GetPos()));
+                        return;
+                    }
+                    tokens.Add(new Token(TokenType.POW, null, posStart, GetPos()));
+                    return;
+                }
+                if (span[_idx] == '=') { Advance(span[_idx]); tokens.Add(new Token(TokenType.MUL_EQ, null, posStart, GetPos())); return; }
+            }
+            tokens.Add(new Token(TokenType.MUL, null, posStart, GetPos()));
+        }
 
-                return (new Token(TokenType.INT, numStr.ToString(), positionStart, _position), null);
+        private void ProcessDiv(ReadOnlySpan<char> span, List<Token> tokens)
+        {
+            var posStart = GetPos();
+            Advance(span[_idx]);
+            if (_idx < span.Length)
+            {
+                if (span[_idx] == '/')
+                {
+                    Advance(span[_idx]);
+                    SkipComment(span);
+                    return;
+                }
+                if (span[_idx] == '*')
+                {
+                    Advance(span[_idx]);
+                    var remaining = span.Slice(_idx);
+                    int endComment = remaining.IndexOf("*/");
+                    if (endComment == -1)
+                        AdvanceMultiple(remaining.Length, span);
+                    else
+                        AdvanceMultiple(endComment + 2, span);
+                    return;
+                }
+                if (span[_idx] == '=') { Advance(span[_idx]); tokens.Add(new Token(TokenType.DIV_EQ, null, posStart, GetPos())); return; }
+            }
+            tokens.Add(new Token(TokenType.DIV, null, posStart, GetPos()));
+        }
+
+        private void ProcessModulo(ReadOnlySpan<char> span, List<Token> tokens)
+        {
+            var posStart = GetPos();
+            Advance(span[_idx]);
+            if (_idx < span.Length && span[_idx] == '=') { Advance(span[_idx]); tokens.Add(new Token(TokenType.MODULO_EQ, null, posStart, GetPos())); return; }
+            tokens.Add(new Token(TokenType.MODULO, null, posStart, GetPos()));
+        }
+
+        private void ProcessPow(ReadOnlySpan<char> span, List<Token> tokens)
+        {
+            var posStart = GetPos();
+            Advance(span[_idx]);
+            if (_idx < span.Length && span[_idx] == '=') { Advance(span[_idx]); tokens.Add(new Token(TokenType.POW_EQ, null, posStart, GetPos())); return; }
+            tokens.Add(new Token(TokenType.POW, null, posStart, GetPos()));
+        }
+
+        private void ProcessEquals(ReadOnlySpan<char> span, List<Token> tokens)
+        {
+            var posStart = GetPos();
+            Advance(span[_idx]);
+            if (_idx < span.Length)
+            {
+                if (span[_idx] == '=')
+                {
+                    Advance(span[_idx]);
+                    if (_idx < span.Length && span[_idx] == '=')
+                    {
+                        Advance(span[_idx]);
+                        tokens.Add(new Token(TokenType.STRICT_EE, null, posStart, GetPos()));
+                        return;
+                    }
+                    tokens.Add(new Token(TokenType.EE, null, posStart, GetPos()));
+                    return;
+                }
+                if (span[_idx] == '>') { Advance(span[_idx]); tokens.Add(new Token(TokenType.ARROW, null, posStart, GetPos())); return; }
+            }
+            tokens.Add(new Token(TokenType.EQ, null, posStart, GetPos()));
+        }
+
+        private void ProcessNot(ReadOnlySpan<char> span, List<Token> tokens)
+        {
+            var posStart = GetPos();
+            Advance(span[_idx]);
+            if (_idx < span.Length && span[_idx] == '=')
+            {
+                Advance(span[_idx]);
+                if (_idx < span.Length && span[_idx] == '=')
+                {
+                    Advance(span[_idx]);
+                    tokens.Add(new Token(TokenType.STRICT_NE, null, posStart, GetPos()));
+                    return;
+                }
+                tokens.Add(new Token(TokenType.NE, null, posStart, GetPos()));
+                return;
+            }
+            tokens.Add(new Token(TokenType.KEYWORD, Keyword.Not, posStart, GetPos()));
+        }
+
+        private Error? ProcessLessThan(ReadOnlySpan<char> span, List<Token> tokens)
+        {
+            var posStart = GetPos();
+            Advance(span[_idx]);
+            if (_idx < span.Length)
+            {
+                if (span[_idx] == '=') { Advance(span[_idx]); tokens.Add(new Token(TokenType.LTE, null, posStart, GetPos())); return null; }
+                if (span[_idx] == '<')
+                {
+                    Advance(span[_idx]);
+                    if (_idx < span.Length && span[_idx] == '=')
+                    {
+                        Advance(span[_idx]);
+                        tokens.Add(new Token(TokenType.BITWISE_LEFT_SHIFT_EQ, null, posStart, GetPos()));
+                        return null;
+                    }
+                    tokens.Add(new Token(TokenType.BITWISE_LEFT_SHIFT, null, posStart, GetPos()));
+                    return null;
+                }
+                if (span[_idx] == '!')
+                {
+                    Advance(span[_idx]);
+                    if (_idx >= span.Length || span[_idx] != '-') return new ExpectedCharacterError(posStart, GetPos(), "Expected '-' character.");
+                    Advance(span[_idx]);
+                    if (_idx >= span.Length || span[_idx] != '-') return new ExpectedCharacterError(posStart, GetPos(), "Expected '-' character.");
+                    Advance(span[_idx]);
+
+                    int cdataEnd = span.Slice(_idx).IndexOf("-->");
+                    if (cdataEnd == -1) AdvanceMultiple(span.Length - _idx, span);
+                    else AdvanceMultiple(cdataEnd + 3, span);
+
+                    return null;
+                }
+            }
+            tokens.Add(new Token(TokenType.LT, null, posStart, GetPos()));
+            return null;
+        }
+
+        private void ProcessGreaterThan(ReadOnlySpan<char> span, List<Token> tokens)
+        {
+            var posStart = GetPos();
+            Advance(span[_idx]);
+            if (_idx < span.Length)
+            {
+                if (span[_idx] == '=') { Advance(span[_idx]); tokens.Add(new Token(TokenType.GTE, null, posStart, GetPos())); return; }
+                if (span[_idx] == '>')
+                {
+                    Advance(span[_idx]);
+                    if (_idx < span.Length && span[_idx] == '=')
+                    {
+                        Advance(span[_idx]);
+                        tokens.Add(new Token(TokenType.BITWISE_RIGHT_SHIFT_EQ, null, posStart, GetPos()));
+                        return;
+                    }
+                    tokens.Add(new Token(TokenType.BITWISE_RIGHT_SHIFT, null, posStart, GetPos()));
+                    return;
+                }
+            }
+            tokens.Add(new Token(TokenType.GT, null, posStart, GetPos()));
+        }
+
+        private void ProcessAnd(ReadOnlySpan<char> span, List<Token> tokens)
+        {
+            var posStart = GetPos();
+            Advance(span[_idx]);
+            if (_idx < span.Length)
+            {
+                if (span[_idx] == '&')
+                {
+                    Advance(span[_idx]);
+                    if (_idx < span.Length && span[_idx] == '=')
+                    {
+                        Advance(span[_idx]);
+                        tokens.Add(new Token(TokenType.AND_EQ, null, posStart, GetPos()));
+                        return;
+                    }
+                    tokens.Add(new Token(TokenType.KEYWORD, Keyword.And, posStart, GetPos()));
+                    return;
+                }
+                if (span[_idx] == '=') { Advance(span[_idx]); tokens.Add(new Token(TokenType.BITWISE_AND_EQ, null, posStart, GetPos())); return; }
+            }
+            tokens.Add(new Token(TokenType.BITWISE_AND, null, posStart, GetPos()));
+        }
+
+        private void ProcessOr(ReadOnlySpan<char> span, List<Token> tokens)
+        {
+            var posStart = GetPos();
+            Advance(span[_idx]);
+            if (_idx < span.Length)
+            {
+                if (span[_idx] == '|')
+                {
+                    Advance(span[_idx]);
+                    if (_idx < span.Length && span[_idx] == '=')
+                    {
+                        Advance(span[_idx]);
+                        tokens.Add(new Token(TokenType.OR_EQ, null, posStart, GetPos()));
+                        return;
+                    }
+                    tokens.Add(new Token(TokenType.KEYWORD, Keyword.Or, posStart, GetPos()));
+                    return;
+                }
+                if (span[_idx] == '=') { Advance(span[_idx]); tokens.Add(new Token(TokenType.BITWISE_OR_EQ, null, posStart, GetPos())); return; }
+            }
+            tokens.Add(new Token(TokenType.BITWISE_OR, null, posStart, GetPos()));
+        }
+
+        private void ProcessColon(ReadOnlySpan<char> span, List<Token> tokens)
+        {
+            var posStart = GetPos();
+            Advance(span[_idx]);
+            if (_idx < span.Length && span[_idx] == ':') { Advance(span[_idx]); tokens.Add(new Token(TokenType.DOUBLE_COLON, null, posStart, GetPos())); return; }
+            tokens.Add(new Token(TokenType.COLON, null, posStart, GetPos()));
+        }
+
+        private void ProcessDot(ReadOnlySpan<char> span, List<Token> tokens)
+        {
+            var posStart = GetPos();
+            Advance(span[_idx]);
+            if (_idx < span.Length && span[_idx] == '.')
+            {
+                Advance(span[_idx]);
+                if (_idx < span.Length)
+                {
+                    if (span[_idx] == '=') { Advance(span[_idx]); tokens.Add(new Token(TokenType.DOUBLE_DOT_EQ, null, posStart, GetPos())); return; }
+                    if (span[_idx] == '.') { Advance(span[_idx]); tokens.Add(new Token(TokenType.SPREAD, null, posStart, GetPos())); return; }
+                }
+                tokens.Add(new Token(TokenType.DOUBLE_DOT, null, posStart, GetPos()));
+                return;
+            }
+            tokens.Add(new Token(TokenType.DOT, null, posStart, GetPos()));
+        }
+
+        private void ProcessQuestionMark(ReadOnlySpan<char> span, List<Token> tokens)
+        {
+            var posStart = GetPos();
+            Advance(span[_idx]);
+            if (_idx < span.Length && span[_idx] == '?')
+            {
+                Advance(span[_idx]);
+                if (_idx < span.Length && span[_idx] == '=')
+                {
+                    Advance(span[_idx]);
+                    tokens.Add(new Token(TokenType.NULL_COALESCE_EQ, null, posStart, GetPos()));
+                    return;
+                }
+                tokens.Add(new Token(TokenType.NULL_COALESCE, null, posStart, GetPos()));
+                return;
+            }
+            tokens.Add(new Token(TokenType.QUESTION_MARK, null, posStart, GetPos()));
+        }
+
+        #endregion
+
+        #region Complex Tokens (Numbers, Strings, Identifiers)
+
+        private static string BuildStringNoUnderscores(ReadOnlySpan<char> span)
+        {
+            if (!span.Contains('_')) return span.ToString();
+            var sb = new StringBuilder(span.Length);
+            foreach (var ch in span)
+                if (ch != '_') sb.Append(ch);
+            return sb.ToString();
+        }
+
+        private Error? ProcessNumber(ReadOnlySpan<char> span, List<Token> tokens)
+        {
+            var posStart = GetPos();
+            int startIdx = _idx;
+            int dotCount = 0;
+            bool isFloat = false;
+
+            if (span[_idx] == '0' && _idx + 1 < span.Length)
+            {
+                char p = char.ToLowerInvariant(span[_idx + 1]);
+                if (p == 'x' || p == 'b' || p == 'o')
+                {
+                    AdvanceMultiple(2, span);
+                    bool anyDigit = false;
+
+                    while (_idx < span.Length)
+                    {
+                        char c = span[_idx];
+                        if (c == '_') { Advance(c); continue; }
+
+                        bool isValid = p == 'x' ? Utils.IsHexDigit(c) :
+                                       p == 'b' ? Utils.IsBinaryDigit(c) :
+                                                  Utils.IsOctalDigit(c);
+                        if (!isValid) break;
+
+                        anyDigit = true;
+                        Advance(c);
+                    }
+
+                    if (!anyDigit) return new InvalidSyntaxError(posStart, GetPos(), "Invalid prefixed integer literal");
+
+                    string numValStr = BuildStringNoUnderscores(_text.Substring(startIdx, _idx - startIdx));
+                    tokens.Add(new Token(TokenType.INT, numValStr, posStart, GetPos()));
+                    return null;
+                }
             }
 
-            while (_currentCharacter != null && (Constants.DIGITS.Contains(_currentCharacter.Value) || _currentCharacter == '.' || _currentCharacter == '_' || _currentCharacter == 'e' || _currentCharacter == 'E'))
+            while (_idx < span.Length)
             {
-                if (_currentCharacter == '_') { Advance(); continue; }
+                char c = span[_idx];
 
-                if (_currentCharacter == '.')
+                if (char.IsAsciiDigit(c))
                 {
-                    if (_position.Idx + 1 < _text.Length && _text[_position.Idx + 1] == '.')
-                    {
-                        break;
-                    }
-
-                    if (dotCount == 1) break;
-                    dotCount++;
-                    numStr.Append('.');
-                    Advance();
-                    continue;
+                    Advance(c);
                 }
-
-                if (_currentCharacter == 'e' || _currentCharacter == 'E')
+                else if (c == '_')
                 {
-                    numStr.Append(_currentCharacter);
-                    Advance();
+                    Advance(c);
+                }
+                else if (c == '.')
+                {
+                    if (_idx + 1 < span.Length && span[_idx + 1] == '.') break;
+                    if (dotCount == 1) break;
 
-                    if (_currentCharacter == '+' || _currentCharacter == '-')
-                    {
-                        numStr.Append(_currentCharacter);
-                        Advance();
-                    }
-
-                    if (_currentCharacter == null || !Constants.DIGITS.Contains(_currentCharacter.Value))
-                        return (null, new InvalidSyntaxError(positionStart, _position, "Expected digits after exponent"));
-
-                    while (_currentCharacter != null && Constants.DIGITS.Contains(_currentCharacter.Value))
-                    {
-                        numStr.Append(_currentCharacter);
-                        Advance();
-                    }
+                    dotCount++;
+                    isFloat = true;
+                    Advance(c);
+                }
+                else if (c == 'e' || c == 'E')
+                {
+                    isFloat = true;
+                    Advance(c);
+                    if (_idx < span.Length && (span[_idx] == '+' || span[_idx] == '-')) Advance(span[_idx]);
+                    if (_idx >= span.Length || !char.IsAsciiDigit(span[_idx])) return new InvalidSyntaxError(posStart, GetPos(), "Expected digits after exponent");
+                    while (_idx < span.Length && char.IsAsciiDigit(span[_idx])) Advance(span[_idx]);
                     break;
                 }
-
-                numStr.Append(_currentCharacter);
-                Advance();
+                else
+                {
+                    break;
+                }
             }
 
-            string finalNum = numStr.ToString();
-            if (dotCount == 0 && !finalNum.Contains('e') && !finalNum.Contains('E'))
-                return (new Token(TokenType.INT, finalNum, positionStart, _position), null);
-            else
-                return (new Token(TokenType.FLOAT, finalNum, positionStart, _position), null);
+            string finalNum = BuildStringNoUnderscores(_text.Substring(startIdx, _idx - startIdx));
+            tokens.Add(new Token(isFloat ? TokenType.FLOAT : TokenType.INT, finalNum, posStart, GetPos()));
+            return null;
         }
 
-        private (List<Token>?, Error?) MakeString(char stringCharacter, bool allowInterpolation)
+        private Error? ProcessString(ReadOnlySpan<char> span, char stringChar, bool allowInterpolation, List<Token> tokens)
         {
-            var tokens = new List<Token>();
-            var sb = new StringBuilder();
-            var positionStart = _position.Copy();
-            bool escape = false;
+            var posStart = GetPos();
+            Advance(span[_idx]);
 
-            Advance();
-            var segStartPos = _position.Copy();
+            var segStartPos = GetPos();
+            StringBuilder? sb = null;
+            int segStartIdx = _idx;
 
-            void FlushTextBuffer(Position startPos, Position endPos)
+            while (_idx < span.Length)
             {
-                tokens.Add(new Token(TokenType.STRING_TEXT, sb.ToString(), startPos, endPos));
-                sb.Clear();
-            }
+                char c = span[_idx];
 
-            while (_currentCharacter != null && (_currentCharacter != stringCharacter || escape))
-            {
-                if (escape)
+                if (c == stringChar) break;
+
+                if (c == '\\')
                 {
-                    switch (_currentCharacter)
+                    sb ??= new StringBuilder(span.Length - segStartIdx);
+                    sb.Append(span.Slice(segStartIdx, _idx - segStartIdx));
+
+                    Advance(c);
+                    if (_idx < span.Length)
                     {
-                        case 'n': sb.Append('\n'); break;
-                        case 't': sb.Append('\t'); break;
-                        case 'r': sb.Append('\r'); break;
-                        case '\\': sb.Append('\\'); break;
-                        case '"': sb.Append('"'); break;
-                        case '\'': sb.Append('\''); break;
-                        case '`': sb.Append('`'); break;
-                        default: sb.Append(_currentCharacter); break;
+                        char esc = span[_idx];
+                        switch (esc)
+                        {
+                            case 'n': sb.Append('\n'); break;
+                            case 't': sb.Append('\t'); break;
+                            case 'r': sb.Append('\r'); break;
+                            case '\\': sb.Append('\\'); break;
+                            case '"': sb.Append('"'); break;
+                            case '\'': sb.Append('\''); break;
+                            case '`': sb.Append('`'); break;
+                            default: sb.Append(esc); break;
+                        }
+                        Advance(esc);
                     }
-                    escape = false;
-                    Advance();
+                    segStartIdx = _idx;
                     continue;
                 }
 
-                if (_currentCharacter == '\\')
+                if (allowInterpolation && c == '$' && _idx + 1 < span.Length && span[_idx + 1] == '{')
                 {
-                    escape = true;
-                    Advance();
-                    continue;
-                }
+                    string textSeg = sb != null
+                        ? sb.Append(span.Slice(segStartIdx, _idx - segStartIdx)).ToString()
+                        : span.Slice(segStartIdx, _idx - segStartIdx).ToString();
 
-                if (allowInterpolation && _currentCharacter == '$' && _position.Idx + 1 < _text.Length && _text[_position.Idx + 1] == '{')
-                {
-                    var segEndPos = _position.Copy();
-                    FlushTextBuffer(segStartPos, segEndPos);
+                    tokens.Add(new Token(TokenType.STRING_TEXT, textSeg, segStartPos, GetPos()));
+                    sb?.Clear();
 
-                    var interpStartPos = _position.Copy();
-                    Advance(2);
+                    var interpStartPos = GetPos();
+                    AdvanceMultiple(2, span);
 
-                    tokens.Add(new Token(TokenType.INTERP_START, null, interpStartPos, _position.Copy()));
+                    tokens.Add(new Token(TokenType.INTERP_START, null, interpStartPos, GetPos()));
 
-                    int innerStartIdx = _position.Idx;
-                    int scanIdx = innerStartIdx;
+                    int innerStartIdx = _idx;
                     int braceCount = 1;
 
-                    while (scanIdx < _text.Length && braceCount > 0)
+                    while (_idx < span.Length && braceCount > 0)
                     {
-                        char c = _text[scanIdx];
-                        if (c == '{') braceCount++;
-                        else if (c == '}') braceCount--;
-                        scanIdx++;
+                        if (span[_idx] == '{') braceCount++;
+                        else if (span[_idx] == '}') braceCount--;
+                        Advance(span[_idx]);
                     }
 
-                    if (braceCount != 0)
-                        return (null, new InvalidSyntaxError(positionStart, _position, "Unterminated interpolation in string literal"));
+                    if (braceCount != 0) return new InvalidSyntaxError(posStart, GetPos(), "Unterminated interpolation in string literal");
 
-                    string innerText = _text.Substring(innerStartIdx, scanIdx - 1 - innerStartIdx);
-                    var innerLexer = new Lexer(positionStart.Fn ?? "", innerText);
+                    string innerText = _text.Substring(innerStartIdx, _idx - 1 - innerStartIdx);
+                    var innerLexer = new Lexer(_fn, innerText);
                     var (innerTokens, innerErr) = innerLexer.MakeTokens();
-                    if (innerErr != null)
-                        return (null, new InvalidSyntaxError(positionStart, _position, innerErr.Details));
+                    if (innerErr != null) return new InvalidSyntaxError(posStart, GetPos(), innerErr.Details);
 
                     foreach (var t in innerTokens)
                     {
                         if (t.Type != TokenType.EOF) tokens.Add(t);
                     }
 
-                    Advance(scanIdx - _position.Idx);
-
-                    var interpEndPos = _position.Copy();
+                    var interpEndPos = GetPos();
                     tokens.Add(new Token(TokenType.INTERP_END, null, interpEndPos, interpEndPos));
 
-                    segStartPos = _position.Copy();
+                    segStartIdx = _idx;
+                    segStartPos = GetPos();
                     continue;
                 }
 
-                sb.Append(_currentCharacter);
-                Advance();
+                Advance(c);
             }
 
-            var finalSegEndPos = _position.Copy();
-            FlushTextBuffer(segStartPos, finalSegEndPos);
+            if (_idx >= span.Length || span[_idx] != stringChar)
+            {
+                return new InvalidSyntaxError(posStart, GetPos(), "Unterminated string literal");
+            }
 
-            if (_currentCharacter == stringCharacter)
-                Advance();
+            string finalTextSeg = sb != null
+                ? sb.Append(span.Slice(segStartIdx, _idx - segStartIdx)).ToString()
+                : span.Slice(segStartIdx, _idx - segStartIdx).ToString();
+
+            tokens.Add(new Token(TokenType.STRING_TEXT, finalTextSeg, segStartPos, GetPos()));
+            Advance(span[_idx]);
+
+            return null;
+        }
+
+        private void ProcessIdentifier(ReadOnlySpan<char> span, List<Token> tokens)
+        {
+            var posStart = GetPos();
+            int startIdx = _idx;
+
+            while (_idx < span.Length && (char.IsAsciiLetterOrDigit(span[_idx]) || span[_idx] == '_'))
+            {
+                Advance(span[_idx]);
+            }
+
+            var idSpan = span.Slice(startIdx, _idx - startIdx);
+
+            if (idSpan.SequenceEqual("is"))
+            {
+                int peekIdx = _idx;
+                while (peekIdx < span.Length && (span[peekIdx] == ' ' || span[peekIdx] == '\t')) peekIdx++;
+
+                if (peekIdx + 2 < span.Length && span.Slice(peekIdx, 3).SequenceEqual("not"))
+                {
+                    int afterNot = peekIdx + 3;
+                    while (afterNot < span.Length && (span[afterNot] == ' ' || span[afterNot] == '\t')) afterNot++;
+                    if (afterNot + 1 < span.Length && span.Slice(afterNot, 2).SequenceEqual("in"))
+                    {
+                        AdvanceMultiple(afterNot + 2 - _idx, span);
+                        tokens.Add(new Token(TokenType.KEYWORD, Keyword.NotIn, posStart, GetPos()));
+                        return;
+                    }
+                    AdvanceMultiple(peekIdx + 3 - _idx, span);
+                    tokens.Add(new Token(TokenType.NE, null, posStart, GetPos()));
+                    return;
+                }
+
+                if (peekIdx + 1 < span.Length && span.Slice(peekIdx, 2).SequenceEqual("in"))
+                {
+                    AdvanceMultiple(peekIdx + 2 - _idx, span);
+                    tokens.Add(new Token(TokenType.KEYWORD, Keyword.In, posStart, GetPos()));
+                    return;
+                }
+
+                tokens.Add(new Token(TokenType.EE, null, posStart, GetPos()));
+                return;
+            }
+
+            if (idSpan.SequenceEqual("not"))
+            {
+                int peekIdx = _idx;
+                while (peekIdx < span.Length && (span[peekIdx] == ' ' || span[peekIdx] == '\t')) peekIdx++;
+
+                if (peekIdx + 1 < span.Length && span.Slice(peekIdx, 2).SequenceEqual("in"))
+                {
+                    AdvanceMultiple(peekIdx + 2 - _idx, span);
+                    tokens.Add(new Token(TokenType.KEYWORD, Keyword.NotIn, posStart, GetPos()));
+                    return;
+                }
+            }
+
+            Keyword? keyword = GetKeyword(idSpan);
+            if (keyword.HasValue)
+            {
+                tokens.Add(new Token(TokenType.KEYWORD, keyword.Value, posStart, GetPos()));
+            }
             else
-                return (null, new InvalidSyntaxError(positionStart, _position, "Unterminated string literal"));
-
-            return (tokens, null);
+            {
+                tokens.Add(new Token(TokenType.IDENTIFIER, idSpan.ToString(), posStart, GetPos()));
+            }
         }
 
-        private Token MakeIdentifier()
+        private static Keyword? GetKeyword(ReadOnlySpan<char> ident)
         {
-            var idStr = new StringBuilder();
-            var positionStart = _position.Copy();
-
-            while (_currentCharacter != null && (Constants.LETTERS_DIGITS.Contains(_currentCharacter.Value) || _currentCharacter == '_'))
+            switch (ident)
             {
-                idStr.Append(_currentCharacter);
-                Advance();
+                case "var": return Keyword.Var;
+                case "and": return Keyword.And;
+                case "or": return Keyword.Or;
+                case "not": return Keyword.Not;
+                case "if": return Keyword.If;
+                case "elif": return Keyword.Elif;
+                case "else": return Keyword.Else;
+                case "for": return Keyword.For;
+                case "to": return Keyword.To;
+                case "step": return Keyword.Step;
+                case "while": return Keyword.While;
+                case "fn": return Keyword.Fn;
+                case "ret": return Keyword.Ret;
+                case "is": return Keyword.Is;
+                case "continue": return Keyword.Continue;
+                case "break": return Keyword.Break;
+                case "pass": return Keyword.Pass;
+                case "const": return Keyword.Const;
+                case "final": return Keyword.Final;
+                case "del": return Keyword.Del;
+                case "do": return Keyword.Do;
+                case "typeof": return Keyword.TypeOf;
+                case "nameof": return Keyword.NameOf;
+                case "null": return Keyword.Null;
+                case "true": return Keyword.True;
+                case "false": return Keyword.False;
+                case "in": return Keyword.In;
+                case "switch": return Keyword.Switch;
+                case "case": return Keyword.Case;
+                case "default": return Keyword.Default;
+                case "yield": return Keyword.Yield;
+                case "goto": return Keyword.Goto;
+                case "let": return Keyword.Let;
+                default: return null;
             }
-
-            string idString = idStr.ToString();
-
-            if (idString == "is")
-            {
-                while (_currentCharacter == ' ' || _currentCharacter == '\t')
-                {
-                    Advance();
-                }
-
-                if (_currentCharacter == 'n' && _text[_position.Idx + 1] == 'o' && _text[_position.Idx + 2] == 't')
-                {
-                    Advance(3);
-
-                    while (_currentCharacter == ' ' || _currentCharacter == '\t')
-                    {
-                        Advance();
-                    }
-
-                    if (_currentCharacter == 'i' && _text[_position.Idx + 1] == 'n')
-                    {
-                        Advance(2);
-                        return new Token(TokenType.KEYWORD, Keyword.NotIn, positionStart, _position);
-                    }
-
-                    return new Token(TokenType.NE, null, positionStart, _position);
-                }
-                else if (_currentCharacter == 'i' && _text[_position.Idx + 1] == 'n')
-                {
-                    Advance(2);
-                    return new Token(TokenType.KEYWORD, Keyword.In, positionStart, _position);
-                }
-
-                return new Token(TokenType.EE, null, positionStart, _position);
-            }
-            else if (idString == "not")
-            {
-                while (_currentCharacter == ' ' || _currentCharacter == '\t')
-                {
-                    Advance();
-                }
-
-                if (_currentCharacter == 'i' && _text[_position.Idx + 1] == 'n')
-                {
-                    Advance(2);
-                    return new Token(TokenType.KEYWORD, Keyword.NotIn, positionStart, _position);
-                }
-            }
-
-            if (KeywordMap.ContainsKey(idString))
-            {
-                return new Token(TokenType.KEYWORD, KeywordMap[idString], positionStart, _position);
-            }
-
-            return new Token(TokenType.IDENTIFIER, idString, positionStart, _position);
         }
 
-        private Token? MakeMinus()
-        {
-            TokenType type = TokenType.MINUS;
-            var positionStart = _position.Copy();
-            Advance();
-
-            if (_currentCharacter == '-' && _text[_position.Idx + 1] == '-')
-            {
-                Advance(2);
-
-                while (_currentCharacter != null && _currentCharacter != '\n')
-                {
-                    Advance();
-                }
-
-                Advance();
-                return null;
-            }
-            else if (_currentCharacter == '-')
-            {
-                Advance();
-                type = TokenType.DOUBLE_MINUS;
-            }
-            else if (_currentCharacter == '=')
-            {
-                Advance();
-                type = TokenType.MINUS_EQ;
-            }
-            else if (_currentCharacter == '>')
-            {
-                Advance();
-                type = TokenType.ARROW_RIGHT;
-            }
-
-            return new Token(type, null, positionStart, _position);
-        }
-
-        private Token MakeNot()
-        {
-            var positionStart = _position.Copy();
-            Advance();
-
-            if (_currentCharacter == '=')
-            {
-                Advance();
-
-                if (_currentCharacter == '=')
-                {
-                    Advance();
-                    return new Token(TokenType.STRICT_NE, null, positionStart, _position);
-                }
-
-                return new Token(TokenType.NE, null, positionStart, _position);
-            }
-
-            return new Token(TokenType.KEYWORD, Keyword.Not, positionStart, _position);
-        }
-
-        private Token MakeEquals()
-        {
-            TokenType type = TokenType.EQ;
-            var positionStart = _position.Copy();
-            Advance();
-
-            if (_currentCharacter == '=')
-            {
-                Advance();
-                type = TokenType.EE;
-
-                if (_currentCharacter == '=')
-                {
-                    Advance();
-                    type = TokenType.STRICT_EE;
-                }
-            }
-            else if (_currentCharacter == '>')
-            {
-                Advance();
-                type = TokenType.ARROW;
-            }
-
-            return new Token(type, null, positionStart, _position);
-        }
-
-        private Token MakeAnd()
-        {
-            var positionStart = _position.Copy();
-            Advance();
-
-            if (_currentCharacter == '&')
-            {
-                Advance();
-
-                if (_currentCharacter == '=')
-                {
-                    Advance();
-                    return new Token(TokenType.AND_EQ, null, positionStart, _position);
-                }
-
-                return new Token(TokenType.KEYWORD, Keyword.And, positionStart, _position);
-            }
-            else if (_currentCharacter == '=')
-            {
-                Advance();
-                return new Token(TokenType.BITWISE_AND_EQ, null, positionStart, _position);
-            }
-
-            return new Token(TokenType.BITWISE_AND, null, positionStart, _position);
-        }
-
-        private Token MakeOr()
-        {
-            var positionStart = _position.Copy();
-            Advance();
-
-            if (_currentCharacter == '|')
-            {
-                Advance();
-
-                if (_currentCharacter == '=')
-                {
-                    Advance();
-                    return new Token(TokenType.OR_EQ, null, positionStart, _position);
-                }
-
-                return new Token(TokenType.KEYWORD, Keyword.Or, positionStart, _position);
-            }
-            else if (_currentCharacter == '=')
-            {
-                Advance();
-                return new Token(TokenType.BITWISE_OR_EQ, null, positionStart, _position);
-            }
-
-            return new Token(TokenType.BITWISE_OR, null, positionStart, _position);
-        }
-
-        private (Token?, Error?) MakeLessThan()
-        {
-            TokenType type = TokenType.LT;
-            var positionStart = _position.Copy();
-            Advance();
-
-            if (_currentCharacter == '=')
-            {
-                Advance();
-                type = TokenType.LTE;
-            }
-            else if (_currentCharacter == '<')
-            {
-                Advance();
-                type = TokenType.BITWISE_LEFT_SHIFT;
-
-                if (_currentCharacter == '=')
-                {
-                    Advance();
-                    type = TokenType.BITWISE_LEFT_SHIFT_EQ;
-                }
-            }
-            else if (_currentCharacter == '!')
-            {
-                Advance();
-
-                if (_currentCharacter != '-')
-                {
-                    return (null, new ExpectedCharacterError(positionStart, _position, "Expected '-' character."));
-                }
-
-                Advance();
-
-                if (_currentCharacter != '-')
-                {
-                    return (null, new ExpectedCharacterError(positionStart, _position, "Expected '-' character."));
-                }
-
-                Advance();
-
-                while (_currentCharacter != null && !(_text[_position.Idx] == '-' && _text[_position.Idx + 1] == '-' && _text[_position.Idx + 2] == '>'))
-                {
-                    Advance();
-                }
-
-                Advance(3);
-                return (null, null);
-            }
-
-            return (new Token(type, null, positionStart, _position), null);
-        }
-
-        private Token MakeGreaterThan()
-        {
-            TokenType type = TokenType.GT;
-            var positionStart = _position.Copy();
-            Advance();
-
-            if (_currentCharacter == '=')
-            {
-                Advance();
-                type = TokenType.GTE;
-            }
-            else if (_currentCharacter == '>')
-            {
-                Advance();
-                type = TokenType.BITWISE_RIGHT_SHIFT;
-
-                if (_currentCharacter == '=')
-                {
-                    Advance();
-                    type = TokenType.BITWISE_RIGHT_SHIFT_EQ;
-                }
-            }
-
-            return new Token(type, null, positionStart, _position);
-        }
-
-        private void SkipComment()
-        {
-            Advance();
-            while (_currentCharacter != null && _currentCharacter != '\n')
-            {
-                Advance();
-            }
-            Advance();
-        }
+        #endregion
     }
 }

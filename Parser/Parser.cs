@@ -312,19 +312,19 @@ namespace RaLanguage.Parser
         {
             var res = new ParserResult();
 
-            if (_currentToken.Matches(TokenType.KEYWORD, Keyword.Var) || _currentToken.Matches(TokenType.KEYWORD, Keyword.Const) || _currentToken.Matches(TokenType.KEYWORD, Keyword.Final) || _currentToken.Matches(TokenType.KEYWORD, Keyword.Let))
+            if (_currentToken.Matches(Keyword.Var) || _currentToken.Matches(Keyword.Const) || _currentToken.Matches(Keyword.Final) || _currentToken.Matches(Keyword.Let))
             {
                 VariableDeclarationType variableDeclarationType = VariableDeclarationType.VARIABLE;
 
-                if (_currentToken.Matches(TokenType.KEYWORD, Keyword.Const))
+                if (_currentToken.Matches(Keyword.Const))
                 {
                     variableDeclarationType = VariableDeclarationType.CONST;
                 }
-                else if (_currentToken.Matches(TokenType.KEYWORD, Keyword.Final))
+                else if (_currentToken.Matches(Keyword.Final))
                 {
                     variableDeclarationType = VariableDeclarationType.FINAL;
                 }
-                else if (_currentToken.Matches(TokenType.KEYWORD, Keyword.Let))
+                else if (_currentToken.Matches(Keyword.Let))
                 {
                     variableDeclarationType = VariableDeclarationType.LET;
                 }
@@ -368,7 +368,7 @@ namespace RaLanguage.Parser
 
                 return res.Success(new VariableDeclarationNode(variableDeclarationType, declarations));
             }
-            else if (_currentToken.Matches(TokenType.KEYWORD, Keyword.TypeOf))
+            else if (_currentToken.Matches(Keyword.TypeOf))
             {
                 res.RegisterAdvancement();
                 Advance();
@@ -381,7 +381,7 @@ namespace RaLanguage.Parser
 
                 return res.Success(new TypeofNode(expr));
             }
-            else if (_currentToken.Matches(TokenType.KEYWORD, Keyword.NameOf))
+            else if (_currentToken.Matches(Keyword.NameOf))
             {
                 res.RegisterAdvancement();
                 Advance();
@@ -561,7 +561,7 @@ namespace RaLanguage.Parser
         {
             var res = new ParserResult();
 
-            if (_currentToken.Matches(TokenType.KEYWORD, Keyword.Not) || _currentToken.Type == TokenType.BITWISE_NOT)
+            if (_currentToken.Matches(Keyword.Not) || _currentToken.Type == TokenType.BITWISE_NOT)
             {
                 var opTok = _currentToken;
                 res.RegisterAdvancement();
@@ -660,9 +660,9 @@ namespace RaLanguage.Parser
 
             while (_currentToken.Type == TokenType.LPAREN
                 || _currentToken.Type == TokenType.LSQUARE
-                || _currentToken.Matches(TokenType.KEYWORD, Keyword.Not))
+                || _currentToken.Matches(Keyword.Not))
             {
-                if (_currentToken.Matches(TokenType.KEYWORD, Keyword.Not))
+                if (_currentToken.Matches(Keyword.Not))
                 {
                     var opTok = _currentToken;
 
@@ -920,7 +920,7 @@ namespace RaLanguage.Parser
                 res.RegisterAdvancement();
                 Advance();
 
-                if (!_currentToken.Matches(TokenType.KEYWORD, Keyword.While))
+                if (!_currentToken.Matches(Keyword.While))
                 {
                     return res.Failure(new InvalidSyntaxError(positionStart, _currentToken.PositionStart, "Expected 'while' keyword"));
                 }
@@ -947,7 +947,7 @@ namespace RaLanguage.Parser
                     return res;
                 }
 
-                if (!_currentToken.Matches(TokenType.KEYWORD, Keyword.While))
+                if (!_currentToken.Matches(Keyword.While))
                 {
                     return res.Failure(new InvalidSyntaxError(positionStart, _currentToken.PositionStart, "Expected 'while' keyword"));
                 }
@@ -1163,7 +1163,7 @@ namespace RaLanguage.Parser
             var cases = new List<(AstNode, AstNode, bool)>();
             (AstNode, bool)? elseCase = null;
 
-            if (!_currentToken.Matches(TokenType.KEYWORD, caseKeyword))
+            if (!_currentToken.Matches(caseKeyword))
                 return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, $"Expected '{caseKeyword}'"));
 
             res.RegisterAdvancement();
@@ -1228,7 +1228,7 @@ namespace RaLanguage.Parser
             var cases = new List<(AstNode, AstNode, bool)>();
             (AstNode, bool)? elseCase = null;
 
-            if (_currentToken.Matches(TokenType.KEYWORD, Keyword.Elif))
+            if (_currentToken.Matches(Keyword.Elif))
             {
                 var node = res.Register(ParseIfExpressionCases(Keyword.Elif));
                 if (res.Error != null) return res;
@@ -1254,7 +1254,7 @@ namespace RaLanguage.Parser
             var res = new ParserResult();
             (AstNode, bool)? elseCase = null;
 
-            if (_currentToken.Matches(TokenType.KEYWORD, Keyword.Else))
+            if (_currentToken.Matches(Keyword.Else))
             {
                 res.RegisterAdvancement();
                 Advance();
@@ -1297,7 +1297,7 @@ namespace RaLanguage.Parser
             var res = new ParserResult();
             var positionStart = _currentToken.PositionStart.Copy();
 
-            if (!_currentToken.Matches(TokenType.KEYWORD, Keyword.Switch))
+            if (!_currentToken.Matches(Keyword.Switch))
                 return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'switch'"));
 
             res.RegisterAdvancement();
@@ -1334,7 +1334,7 @@ namespace RaLanguage.Parser
                     Advance();
                 }
 
-                if (_currentToken.Matches(TokenType.KEYWORD, Keyword.Case))
+                if (_currentToken.Matches(Keyword.Case))
                 {
                     res.RegisterAdvancement();
                     Advance();
@@ -1360,7 +1360,7 @@ namespace RaLanguage.Parser
                         Advance();
 
                         var stmtList = new List<AstNode>();
-                        while (!(_currentToken.Matches(TokenType.KEYWORD, Keyword.Case) || _currentToken.Matches(TokenType.KEYWORD, Keyword.Default) || _currentToken.Type == TokenType.RBRACKET))
+                        while (!(_currentToken.Matches(Keyword.Case) || _currentToken.Matches(Keyword.Default) || _currentToken.Type == TokenType.RBRACKET))
                         {
                             if (_currentToken.Type == TokenType.NEWLINE)
                             {
@@ -1415,7 +1415,7 @@ namespace RaLanguage.Parser
                         return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' or '->' after case label"));
                     }
                 }
-                else if (_currentToken.Matches(TokenType.KEYWORD, Keyword.Default))
+                else if (_currentToken.Matches(Keyword.Default))
                 {
                     res.RegisterAdvancement();
                     Advance();
@@ -1426,7 +1426,7 @@ namespace RaLanguage.Parser
                         Advance();
 
                         var stmtList = new List<AstNode>();
-                        while (!(_currentToken.Matches(TokenType.KEYWORD, Keyword.Case) || _currentToken.Type == TokenType.RBRACKET))
+                        while (!(_currentToken.Matches(Keyword.Case) || _currentToken.Type == TokenType.RBRACKET))
                         {
                             if (_currentToken.Type == TokenType.NEWLINE)
                             {
@@ -1502,7 +1502,7 @@ namespace RaLanguage.Parser
         {
             var res = new ParserResult();
 
-            if (!_currentToken.Matches(TokenType.KEYWORD, Keyword.For))
+            if (!_currentToken.Matches(Keyword.For))
                 return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'for'"));
 
             res.RegisterAdvancement();
@@ -1523,7 +1523,7 @@ namespace RaLanguage.Parser
                 var startValue = res.Register(ParseExpression());
                 if (res.Error != null) return res;
 
-                if (!_currentToken.Matches(TokenType.KEYWORD, Keyword.To))
+                if (!_currentToken.Matches(Keyword.To))
                     return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'to'"));
 
                 res.RegisterAdvancement();
@@ -1533,7 +1533,7 @@ namespace RaLanguage.Parser
                 if (res.Error != null) return res;
 
                 AstNode? stepValue = null;
-                if (_currentToken.Matches(TokenType.KEYWORD, Keyword.Step))
+                if (_currentToken.Matches(Keyword.Step))
                 {
                     res.RegisterAdvancement();
                     Advance();
@@ -1568,7 +1568,7 @@ namespace RaLanguage.Parser
 
                 return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' or '{'"));
             }
-            else if (_currentToken.Matches(TokenType.KEYWORD, Keyword.In))
+            else if (_currentToken.Matches(Keyword.In))
             {
                 res.RegisterAdvancement();
                 Advance();
@@ -1610,7 +1610,7 @@ namespace RaLanguage.Parser
         private ParserResult ParseWhileExpression()
         {
             var res = new ParserResult();
-            if (!_currentToken.Matches(TokenType.KEYWORD, Keyword.While))
+            if (!_currentToken.Matches(Keyword.While))
                 return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'while'"));
 
             res.RegisterAdvancement();
@@ -1651,7 +1651,7 @@ namespace RaLanguage.Parser
         {
             var res = new ParserResult();
 
-            if (!_currentToken.Matches(TokenType.KEYWORD, Keyword.Fn))
+            if (!_currentToken.Matches(Keyword.Fn))
                 return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'fn'"));
 
             res.RegisterAdvancement();
