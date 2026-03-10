@@ -1421,7 +1421,7 @@ namespace RaLanguage.Interpreter
 
             string funcName = node.VarNameTok != null ? node.VarNameTok.Value.ToString() : null;
             var argNames = node.ArgNameToks.Select(t => t.Value.ToString()).ToList();
-            var funcValue = new FunctionValue(funcName, node.BodyNode, argNames, node.ShouldAutoReturn)
+            var funcValue = new FunctionValue(funcName, node.BodyNode, argNames, node.ArgTypes, node.ReturnType, node.ShouldAutoReturn)
                 .SetContext(context)
                 .SetPos(node.PositionStart, node.PositionEnd);
 

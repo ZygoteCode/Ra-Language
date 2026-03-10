@@ -1,5 +1,6 @@
 ﻿using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Functions
 {
@@ -40,11 +41,31 @@ namespace RaLanguage.Interpreter.Values.Functions
             }
         }
 
-        public RuntimeResult CheckAndPopulateArgs(List<string> argNames, List<RuntimeValue> args, Context execCtx)
+        public RuntimeResult CheckAndPopulateArgs(List<string> argNames, List<RuntimeValue> args, Context execCtx, List<TypeDescriptor?>? argTypes = null)
         {
             var res = new RuntimeResult();
             res.Register(CheckArgs(argNames, args));
             if (res.ShouldReturn()) return res;
+
+            if (argTypes != null)
+            {
+                for (int i = 0; i < argNames.Count; i++)
+                {
+                    var expected = (i < argTypes.Count) ? argTypes[i] : null;
+                    if (expected != null)
+                    {
+                        if (!(expected.IsBuiltIn && expected.BuiltIn == BuiltInType.Any))
+                        {
+                            if (!TypeSystem.IsAssignable(expected, args[i]))
+                            {
+                                return res.Failure(new RuntimeError(PositionStart, PositionEnd,
+                                    $"Type mismatch for argument '{argNames[i]}': expected '{expected}', got '{args[i].Type.ToString().ToLower()}'", Context));
+                            }
+                        }
+                    }
+                }
+            }
+
             PopulateArgs(argNames, args, execCtx);
             return res.Success(null);
         }

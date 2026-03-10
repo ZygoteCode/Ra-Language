@@ -1,5 +1,7 @@
-﻿using RaLanguage.Interpreter.Values.Primitives;
+﻿using RaLanguage.Errors.Types;
+using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Parser.Nodes;
+using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Functions
 {
@@ -7,14 +9,18 @@ namespace RaLanguage.Interpreter.Values.Functions
     {
         public AstNode BodyNode { get; }
         public List<string> ArgNames { get; }
+        public List<TypeDescriptor?> ArgTypes { get; }
+        public TypeDescriptor? ReturnType { get; }
         public bool ShouldAutoReturn { get; }
         public override RuntimeValueType Type => RuntimeValueType.Function;
 
-        public FunctionValue(string name, AstNode bodyNode, List<string> argNames, bool shouldAutoReturn)
+        public FunctionValue(string name, AstNode bodyNode, List<string> argNames, List<TypeDescriptor?>? argTypes, TypeDescriptor? returnType, bool shouldAutoReturn)
             : base(name)
         {
             BodyNode = bodyNode;
             ArgNames = argNames;
+            ArgTypes = argTypes ?? new List<TypeDescriptor?>();
+            ReturnType = returnType;
             ShouldAutoReturn = shouldAutoReturn;
         }
 
@@ -24,19 +30,29 @@ namespace RaLanguage.Interpreter.Values.Functions
             var interpreter = new Interpreter();
             var execCtx = GenerateNewContext();
 
-            res.Register(CheckAndPopulateArgs(ArgNames, args, execCtx));
+            res.Register(CheckAndPopulateArgs(ArgNames, args, execCtx, ArgTypes));
             if (res.ShouldReturn()) return res;
 
             var value = res.Register(interpreter.Visit(BodyNode, execCtx));
             if (res.ShouldReturn() && res.FuncReturnValue == null) return res;
 
             var retValue = (ShouldAutoReturn ? value : null) ?? res.FuncReturnValue ?? new NullValue().SetContext(Context).SetPos(PositionStart, PositionEnd);
+
+            if (ReturnType != null && !(ReturnType.IsBuiltIn && ReturnType.BuiltIn == BuiltInType.Any))
+            {
+                if (!TypeSystem.IsAssignable(ReturnType, retValue))
+                {
+                    return res.Failure(new RuntimeError(PositionStart, PositionEnd,
+                        $"Return type mismatch in function '{Name}': expected '{ReturnType}', got '{retValue.Type.ToString().ToLower()}'", Context));
+                }
+            }
+
             return res.Success(retValue);
         }
 
         public override RuntimeValue Copy()
         {
-            return new FunctionValue(Name, BodyNode, ArgNames, ShouldAutoReturn).SetContext(Context).SetPos(PositionStart, PositionEnd);
+            return new FunctionValue(Name, BodyNode, ArgNames, ArgTypes, ReturnType, ShouldAutoReturn).SetContext(Context).SetPos(PositionStart, PositionEnd);
         }
 
         public override string ToString() => $"<function {Name}>";
