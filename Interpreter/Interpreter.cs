@@ -1283,7 +1283,6 @@ namespace RaLanguage.Interpreter
         private RuntimeResult VisitFunctionCallNode(FunctionCallNode node, Context context)
         {
             var res = new RuntimeResult();
-            if (AreCallsBlocked) return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Function calls are blocked in this context", context));
 
             if (AreCallsBlocked)
             {
