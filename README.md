@@ -63,6 +63,7 @@ This list contains what I have already added after the first commit (done featur
   - [x] Function parameters can be statically typed -> fn test(a: int, b: int): int => print(a + b);
   - [x] Add static return type to functions.
   - [x] Implemented direct type casting using "as" keyword.
+  - [x] In functions, implement varargs with "..." (spread) operator with the possibility to assign a custom name to it!
 
 ## TODOs for Ra Language (the near future)
 
@@ -71,13 +72,9 @@ This is constantly updated list, I am expanding with new ideas and concepts for 
 I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
   
   - [ ] Add generics, for example, for declaring a "list<number>" or a "tuple<string, number>".
-  
-  - [ ] In functions, add "..." operator to make array unlimited parameters.
   - [ ] In functions, allow specific default values to parameters.
   - [ ] Allow function calling with named parameters.
-
   - [ ] Add real support to multi-line statements & expressions.
-
   - [ ] Idea: add a operator like "&" to function parameters to pass reference instead of copying only the value.
   - [ ] Idea: import new files with a intelligent path system.
   - [ ] Idea: List comprehensions, like [x*2 for x in a if x>1] to create lists in a compact way.

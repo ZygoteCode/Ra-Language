@@ -1722,51 +1722,105 @@ namespace RaLanguage.Parser
 
             var argNameToks = new List<Token>();
             var argTypes = new List<TypeDescriptor?>();
+            bool hasVarArgs = false;
+            Token? varArgNameTok = null;
+            TypeDescriptor? varArgType = null;
 
-            if (_currentToken.Type == TokenType.IDENTIFIER)
+            if (_currentToken.Type == TokenType.IDENTIFIER || _currentToken.Type == TokenType.SPREAD)
             {
                 while (true)
                 {
-                    if (_currentToken.Type != TokenType.IDENTIFIER)
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected parameter name"));
-
-                    var paramNameTok = _currentToken;
-                    argNameToks.Add(paramNameTok);
-
-                    res.RegisterAdvancement();
-                    Advance();
-
-                    TypeDescriptor? paramType = null;
-                    if (_currentToken.Type == TokenType.COLON)
+                    if (_currentToken.Type == TokenType.SPREAD)
                     {
+                        hasVarArgs = true;
                         res.RegisterAdvancement();
                         Advance();
 
-                        if (!(_currentToken.Type == TokenType.IDENTIFIER || _currentToken.Type == TokenType.KEYWORD))
+                        if (_currentToken.Type != TokenType.IDENTIFIER)
                         {
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':'"));
+                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier after '...'"));
                         }
 
-                        var typeName = _currentToken.Value?.ToString() ?? _currentToken.ToString();
-                        paramType = TypeDescriptor.Parse(typeName);
+                        varArgNameTok = _currentToken;
                         res.RegisterAdvancement();
                         Advance();
+
+                        if (_currentToken.Type == TokenType.COLON)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+
+                            if (!(_currentToken.Type == TokenType.IDENTIFIER || _currentToken.Type == TokenType.KEYWORD))
+                            {
+                                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type identifier after ':'"));
+                            }
+
+                            string typeName = _currentToken.Value?.ToString() ?? _currentToken.ToString();
+                            varArgType = TypeDescriptor.Parse(typeName);
+
+                            res.RegisterAdvancement();
+                            Advance();
+                        }
+
+                        if (_currentToken.Type != TokenType.RPAREN)
+                        {
+                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Variadic parameter must be the last parameter"));
+                        }
+
+                        break;
                     }
-
-                    argTypes.Add(paramType);
-
-                    if (_currentToken.Type == TokenType.COMMA)
+                    else
                     {
+                        if (_currentToken.Type != TokenType.IDENTIFIER)
+                        {
+                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected parameter name"));
+                        }
+
+                        var paramNameTok = _currentToken;
+                        argNameToks.Add(paramNameTok);
+
                         res.RegisterAdvancement();
                         Advance();
-                        continue;
-                    }
 
-                    break;
+                        TypeDescriptor? paramType = null;
+                        if (_currentToken.Type == TokenType.COLON)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+
+                            if (!(_currentToken.Type == TokenType.IDENTIFIER || _currentToken.Type == TokenType.KEYWORD))
+                            {
+                                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':'"));
+                            }
+
+                            string typeName = _currentToken.Value?.ToString() ?? _currentToken.ToString();
+                            paramType = TypeDescriptor.Parse(typeName);
+
+                            res.RegisterAdvancement();
+                            Advance();
+                        }
+
+                        argTypes.Add(paramType);
+
+                        if (_currentToken.Type == TokenType.COMMA)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+
+                            if (_currentToken.Type == TokenType.RPAREN)
+                                break;
+
+                            continue;
+                        }
+
+                        break;
+                    }
                 }
 
                 if (_currentToken.Type != TokenType.RPAREN)
+                {
                     return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ',' or ')'"));
+                }
             }
             else
             {
@@ -1801,7 +1855,7 @@ namespace RaLanguage.Parser
                 Advance();
                 var body = res.Register(ParseExpression());
                 if (res.Error != null) return res;
-                return res.Success(new FunctionDefinitionNode(varNameTok, argNameToks, argTypes, returnType, body, true));
+                return res.Success(new FunctionDefinitionNode(varNameTok, argNameToks, argTypes, hasVarArgs, varArgNameTok, varArgType, returnType, body, true));
             }
 
             if (_currentToken.Type != TokenType.LBRACKET)
@@ -1818,7 +1872,7 @@ namespace RaLanguage.Parser
 
             res.RegisterAdvancement();
             Advance();
-            return res.Success(new FunctionDefinitionNode(varNameTok, argNameToks, argTypes, returnType, bodyStmts, false));
+            return res.Success(new FunctionDefinitionNode(varNameTok, argNameToks, argTypes, hasVarArgs, varArgNameTok, varArgType, returnType, bodyStmts, false));
         }
 
         private ParserResult ParseBinaryOperation(Func<ParserResult> funcA, List<(TokenType, Keyword?)> ops, Func<ParserResult>? funcB = null)

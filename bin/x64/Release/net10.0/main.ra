@@ -1,3 +1,14 @@
 var a: number = 5;
 var b: string = a as string;
 print(b);
+
+fn test(a, b, ...params) {
+    ret a + b + params[0] + params[1];
+}
+
+fn test1(a, b, ...lol) {
+    ret a + b + lol[0];
+}
+
+print(test(1, 2, 3, 4));
+print(test1(1, 2, 3));
