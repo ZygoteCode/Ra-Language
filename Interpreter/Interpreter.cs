@@ -1266,6 +1266,7 @@ namespace RaLanguage.Interpreter
                 node.BodyNode,
                 argNames,
                 node.ArgTypes,
+                node.ParamDefaults,
                 node.HasVarArgs,
                 node.VarArgNameTok,
                 node.VarArgType,
@@ -1284,32 +1285,52 @@ namespace RaLanguage.Interpreter
             var res = new RuntimeResult();
             if (AreCallsBlocked) return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Function calls are blocked in this context", context));
 
-            var args = new List<RuntimeValue>();
-            var valueToCall = res.Register(Visit(node.NodeToCall, context));
+            if (AreCallsBlocked)
+            {
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Function calls are blocked in this context", context));
+            }
+
+            var valueToCallRes = Visit(node.NodeToCall, context);
+            var valRes = valueToCallRes;
+            var valueToCall = res.Register(valueToCallRes);
             if (res.ShouldReturn()) return res;
 
-            valueToCall = valueToCall.Copy().SetPos(node.PositionStart, node.PositionEnd);
+            var positionalArgs = new List<RuntimeValue>();
+            var namedArgs = new Dictionary<string, RuntimeValue>(StringComparer.Ordinal);
+
             foreach (var argNode in node.ArgNodes)
             {
-                if (argNode is VariableAccessNode argVarAccess)
+                var evaluated = res.Register(Visit(argNode.Expr, context));
+                if (res.ShouldReturn()) return res;
+
+                if (argNode.NameTok != null)
                 {
-                    string srcName = argVarAccess.VarNameTok.Value?.ToString() ?? "";
-                    var (extracted, err) = ExtractVariableValueByName(srcName, argVarAccess.PositionStart, argVarAccess.PositionEnd, context);
-                    if (err != null) return res.Failure(err);
-                    args.Add(extracted!);
+                    string name = argNode.NameTok.Value?.ToString() ?? "";
+                    if (namedArgs.ContainsKey(name))
+                        return res.Failure(new RuntimeError(argNode.PositionStart, argNode.PositionEnd, $"Duplicate named argument '{name}'", context));
+                    namedArgs[name] = evaluated;
                 }
                 else
                 {
-                    var aVal = res.Register(Visit(argNode, context));
-                    if (res.ShouldReturn()) return res;
-                    args.Add(aVal);
+                    positionalArgs.Add(evaluated);
                 }
             }
 
-            var returnValue = res.Register(valueToCall.Execute(args));
-            if (res.ShouldReturn()) return res;
-            returnValue = returnValue.Copy().SetPos(node.PositionStart, node.PositionEnd).SetContext(context);
-            return res.Success(returnValue);
+            if (valueToCall is BaseFunctionValue func)
+            {
+                var ret = res.Register(func.ExecuteWithNamedArgs(positionalArgs, namedArgs));
+                if (res.ShouldReturn()) return res;
+
+                var returnValue = ret.Copy().SetPos(node.PositionStart, node.PositionEnd).SetContext(context);
+                return res.Success(returnValue);
+            }
+
+            {
+                var returnValue = res.Register(valueToCall.Execute(positionalArgs));
+                if (res.ShouldReturn()) return res;
+                returnValue = returnValue.Copy().SetPos(node.PositionStart, node.PositionEnd).SetContext(context);
+                return res.Success(returnValue);
+            }
         }
 
         private RuntimeResult VisitReturnNode(ReturnNode node, Context context)

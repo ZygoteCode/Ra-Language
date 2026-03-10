@@ -1,7 +1,9 @@
-﻿using RaLanguage.Errors.Types;
+﻿using RaLanguage.Errors;
+using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer.Tokens;
+using RaLanguage.Parser.Nodes;
 using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Functions
@@ -41,6 +43,159 @@ namespace RaLanguage.Interpreter.Values.Functions
                 argValue.SetContext(execCtx);
                 execCtx.SymbolTable.Set(argNames[i], argValue);
             }
+        }
+
+        public virtual RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
+        {
+            return Execute(positionalArgs);
+        }
+
+        public (Context? execCtx, Error? error) PrepareExecutionContextForCall(
+            List<RuntimeValue> positionalArgs,
+            Dictionary<string, RuntimeValue> namedArgs,
+            List<string> formalNames,
+            List<TypeDescriptor?>? argTypes,
+            List<AstNode?>? paramDefaults,
+            bool hasVarArgs,
+            Token? varArgNameTok,
+            TypeDescriptor? varArgType)
+        {
+            var execCtx = GenerateNewContext();
+
+            var finalAssigned = new Dictionary<string, RuntimeValue>(StringComparer.Ordinal);
+            var extras = new List<RuntimeValue>();
+
+            int formalCount = formalNames?.Count ?? 0;
+
+            for (int i = 0; i < positionalArgs.Count; i++)
+            {
+                if (i < formalCount)
+                {
+                    var name = formalNames[i];
+                    if (finalAssigned.ContainsKey(name))
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd, $"Argument for parameter '{name}' provided multiple times", Context));
+                    }
+                    finalAssigned[name] = positionalArgs[i];
+                }
+                else
+                {
+                    if (!hasVarArgs)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, $"{positionalArgs.Count - formalCount} too many args passed into {Name}", Context));
+
+                    extras.Add(positionalArgs[i]);
+                }
+            }
+
+            if (namedArgs != null)
+            {
+                foreach (var kv in namedArgs)
+                {
+                    var name = kv.Key;
+                    var value = kv.Value;
+
+                    if (hasVarArgs && varArgNameTok != null && name == varArgNameTok.Value?.ToString())
+                    {
+                        if (value.Type != RuntimeValueType.List)
+                        {
+                            return (null, new RuntimeError(PositionStart, PositionEnd, $"Variadic named argument '{name}' must be a list", Context));
+                        }
+
+                        ListValue provided = (ListValue)value;
+                        extras.AddRange(provided.Elements);
+                        continue;
+                    }
+
+                    if (!formalNames.Contains(name))
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd, $"Unknown named argument '{name}'", Context));
+                    }
+
+                    if (finalAssigned.ContainsKey(name))
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd, $"Argument for parameter '{name}' provided multiple times", Context));
+                    }
+
+                    finalAssigned[name] = value;
+                }
+            }
+
+            foreach (var kv in finalAssigned)
+            {
+                var v = kv.Value;
+                v.SetContext(execCtx);
+                execCtx.SymbolTable.Set(kv.Key, v);
+            }
+
+            if (paramDefaults != null)
+            {
+                var interpreter = new Interpreter();
+
+                for (int i = 0; i < formalNames.Count; i++)
+                {
+                    var name = formalNames[i];
+                    if (finalAssigned.ContainsKey(name)) continue;
+
+                    AstNode? defAst = i < paramDefaults.Count ? paramDefaults[i] : null;
+                    if (defAst != null)
+                    {
+                        var innerRes = interpreter.Visit(defAst, execCtx);
+                        if (innerRes.Error != null) return (null, innerRes.Error);
+                        var val = innerRes.Value;
+                        if (val == null) val = new RaLanguage.Interpreter.Values.Primitives.NullValue().SetContext(execCtx).SetPos(defAst.PositionStart, defAst.PositionEnd);
+                        val.SetContext(execCtx);
+                        execCtx.SymbolTable.Set(name, val);
+                        finalAssigned[name] = val;
+                    }
+                }
+            }
+
+            for (int i = 0; i < formalNames.Count; i++)
+            {
+                var name = formalNames[i];
+                if (!finalAssigned.ContainsKey(name))
+                {
+                    return (null, new RuntimeError(PositionStart, PositionEnd, $"Missing required argument '{name}' for function '{Name}'", Context));
+                }
+            }
+
+            if (argTypes != null)
+            {
+                for (int i = 0; i < formalNames.Count; i++)
+                {
+                    var expected = i < argTypes.Count ? argTypes[i] : null;
+                    if (expected != null && !(expected.IsBuiltIn && expected.BuiltIn == BuiltInType.Any))
+                    {
+                        var actual = finalAssigned[formalNames[i]];
+                        if (!TypeSystem.IsAssignable(expected, actual))
+                        {
+                            return (null, new RuntimeError(PositionStart, PositionEnd, $"Type mismatch for argument '{formalNames[i]}': expected '{expected}', got '{actual.Type}'", Context));
+                        }
+                    }
+                }
+            }
+
+            if (hasVarArgs)
+            {
+                var listVal = new ListValue(extras).SetContext(execCtx).SetPos(PositionStart, PositionEnd);
+
+                if (varArgType != null && !(varArgType.IsBuiltIn && varArgType.BuiltIn == BuiltInType.Any))
+                {
+                    foreach (var e in extras)
+                    {
+                        if (!TypeSystem.IsAssignable(varArgType, e))
+                        {
+                            string vname = varArgNameTok?.Value?.ToString() ?? "<vararg>";
+                            return (null, new RuntimeError(PositionStart, PositionEnd, $"Type mismatch for variadic argument '{vname}': expected '{varArgType}', got '{e.Type}'", Context));
+                        }
+                    }
+                }
+
+                var varname = varArgNameTok?.Value?.ToString() ?? "params";
+                execCtx.SymbolTable.Set(varname, listVal);
+            }
+
+            return (execCtx, null);
         }
 
         public RuntimeResult CheckAndPopulateArgs(

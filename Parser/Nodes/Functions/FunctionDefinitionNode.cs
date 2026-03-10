@@ -1,4 +1,5 @@
-﻿using RaLanguage.Lexer.Tokens;
+﻿using System.Collections.Generic;
+using RaLanguage.Lexer.Tokens;
 using RaLanguage.Types;
 
 namespace RaLanguage.Parser.Nodes.Functions
@@ -8,6 +9,7 @@ namespace RaLanguage.Parser.Nodes.Functions
         public Token? VarNameTok { get; }
         public List<Token> ArgNameToks { get; }
         public List<TypeDescriptor?> ArgTypes { get; }
+        public List<AstNode?> ParamDefaults { get; } // parallel to ArgNameToks
         public bool HasVarArgs { get; }
         public Token? VarArgNameTok { get; }
         public TypeDescriptor? VarArgType { get; }
@@ -19,6 +21,7 @@ namespace RaLanguage.Parser.Nodes.Functions
             Token? varNameTok,
             List<Token> argNameToks,
             List<TypeDescriptor?> argTypes,
+            List<AstNode?> paramDefaults,
             bool hasVarArgs,
             Token? varArgNameTok,
             TypeDescriptor? varArgType,
@@ -30,6 +33,7 @@ namespace RaLanguage.Parser.Nodes.Functions
             VarNameTok = varNameTok;
             ArgNameToks = argNameToks ?? new List<Token>();
             ArgTypes = argTypes ?? new List<TypeDescriptor?>();
+            ParamDefaults = paramDefaults ?? new List<AstNode?>();
             HasVarArgs = hasVarArgs;
             VarArgNameTok = varArgNameTok;
             VarArgType = varArgType;

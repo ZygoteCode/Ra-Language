@@ -42,6 +42,7 @@
         Tuple,
         Label,
         Goto,
-        Cast
+        Cast,
+        Argument
     }
 }
