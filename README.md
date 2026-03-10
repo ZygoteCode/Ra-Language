@@ -69,7 +69,7 @@ This is constantly updated list, I am expanding with new ideas and concepts for 
 
 I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
   
-  - [ ] Add cast to other types with classic C-like notation => var a: int = 5; var b: float = (float) a; <= For example, don't care about syntax. Another possible syntax => var a: string = "5"; var b: number = a::number;
+  - [ ] Add cast to other types with classic C-like notation => var a: int = 5; var b: float = (float) a; <= For example, don't care about syntax. Another possible syntax => var a: string = "5"; var b: number = a::number; - Another one => var b: number = a as number.
   - [ ] Add generics, for example, for declaring a "list<number>" or a "tuple<string, number>".
   
   - [ ] In functions, add "..." operator to make array unlimited parameters.
