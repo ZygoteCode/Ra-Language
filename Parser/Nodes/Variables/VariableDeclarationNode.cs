@@ -1,13 +1,14 @@
 ﻿using RaLanguage.Lexer.Tokens;
+using RaLanguage.Types;
 
 namespace RaLanguage.Parser.Nodes.Variables
 {
     public class VariableDeclarationNode : AstNode
     {
         public VariableDeclarationType DeclarationType { get; }
-        public List<(Token, AstNode?)> Declarations { get; }
+        public List<(Token, AstNode?, TypeDescriptor?)> Declarations { get; }
 
-        public VariableDeclarationNode(VariableDeclarationType declarationType, List<(Token, AstNode?)> declarations) : base(AstNodeType.VariableDeclaration)
+        public VariableDeclarationNode(VariableDeclarationType declarationType, List<(Token, AstNode?, TypeDescriptor?)> declarations) : base(AstNodeType.VariableDeclaration)
         {
             DeclarationType = declarationType;
             Declarations = declarations;

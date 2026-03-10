@@ -9,6 +9,7 @@ using RaLanguage.Parser.Nodes.Primitives;
 using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Statements;
 using RaLanguage.Parser.Nodes.Variables;
+using RaLanguage.Types;
 
 namespace RaLanguage.Parser
 {
@@ -332,7 +333,7 @@ namespace RaLanguage.Parser
                 res.RegisterAdvancement();
                 Advance();
 
-                List<(Token, AstNode?)> declarations = new List<(Token, AstNode?)>();
+                List<(Token, AstNode?, TypeDescriptor?)> declarations = new List<(Token, AstNode?, TypeDescriptor?)>();
 
                 if (_currentToken.Type != TokenType.IDENTIFIER)
                     return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier"));
@@ -342,6 +343,24 @@ namespace RaLanguage.Parser
                     var varName = _currentToken;
                     res.RegisterAdvancement();
                     Advance();
+
+                    TypeDescriptor? declaredType = null;
+                    if (_currentToken.Type == TokenType.COLON)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        if (_currentToken.Type != TokenType.IDENTIFIER && !_currentToken.Matches(Keyword.Auto))
+                        {
+                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type identifier after ':'"));
+                        }
+
+                        string typeName = _currentToken.Matches(Keyword.Auto) ? "auto" : (_currentToken.Value?.ToString() ?? _currentToken?.ToString() ?? "");
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        declaredType = TypeDescriptor.Parse(typeName);
+                    }
 
                     AstNode? expr = null;
 
@@ -357,7 +376,7 @@ namespace RaLanguage.Parser
                         }
                     }
 
-                    declarations.Add((varName, expr));
+                    declarations.Add((varName, expr, declaredType));
 
                     if (_currentToken.Type == TokenType.COMMA)
                     {

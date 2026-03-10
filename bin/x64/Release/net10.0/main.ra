@@ -1,0 +1,9 @@
+var a: number = 5;
+print(a);
+
+var t: list = [1, 2, 3];
+print(t);
+t = 7;
+
+a = "test";
+print(a);

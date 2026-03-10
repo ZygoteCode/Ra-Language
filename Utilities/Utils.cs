@@ -15,7 +15,7 @@ namespace RaLanguage.Utilities
             var sb = new StringBuilder(capacity: Math.Min(1024, text.Length + 64));
 
             int startSearchIdx = Math.Min(positionStart.Idx, span.Length - 1);
-            int idxLastNewline = span.Slice(0, startSearchIdx + 1).LastIndexOf('\n'); // -1 if none
+            int idxLastNewline = span.Slice(0, startSearchIdx + 1).LastIndexOf('\n');
             int idxStart = (idxLastNewline == -1) ? 0 : (idxLastNewline + 1);
 
             int nextNewlineRel = span.Slice(idxStart).IndexOf('\n');

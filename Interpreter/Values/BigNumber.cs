@@ -195,7 +195,6 @@ namespace RaLanguage.Interpreter.Values
             return new BigNumber(unscaled, scale).Normalize();
         }
 
-        // ---------------------- ToString ----------------------
         public override string ToString()
         {
             if (Unscaled.IsZero) return "0";

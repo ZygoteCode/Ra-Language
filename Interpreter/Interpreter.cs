@@ -14,6 +14,7 @@ using RaLanguage.Parser.Nodes.Primitives;
 using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Statements;
 using RaLanguage.Parser.Nodes.Variables;
+using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter
 {
@@ -1025,7 +1026,7 @@ namespace RaLanguage.Interpreter
             var res = new RuntimeResult();
             var values = new List<RuntimeValue>();
 
-            foreach ((Token, AstNode?) declaration in node.Declarations)
+            foreach ((Token, AstNode?, TypeDescriptor?) declaration in node.Declarations)
             {
                 var varName = declaration.Item1.Value?.ToString();
 
@@ -1040,56 +1041,51 @@ namespace RaLanguage.Interpreter
                 }
 
                 RuntimeValue value = new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                TypeDescriptor? declaredType = declaration.Item3;
 
                 if (declaration.Item2 != null)
                 {
-                    if (declaration.Item2.NodeType == AstNodeType.VariableAccess)
+                    value = res.Register(Visit(declaration.Item2, context));
+                    if (res.ShouldReturn()) continue;
+                }
+
+                if (declaredType != null)
+                {
+                    if (declaredType.IsBuiltIn && declaredType.BuiltIn == BuiltInType.Any)
                     {
-                        VariableAccessNode varAccess = (VariableAccessNode)declaration.Item2;
-                        string srcName = varAccess.VarNameTok.Value?.ToString() ?? "";
-                        var (extracted, err) = ExtractVariableValueByName(srcName, varAccess.PositionStart, varAccess.PositionEnd, context);
-                        if (err != null) return res.Failure(err);
-                        value = extracted!;
+                        if (declaration.Item2 == null)
+                        {
+                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "'auto' requires an initializer to infer type", context));
+                        }
+
+                        var inferred = TypeDescriptor.FromRuntimeValue(value);
+                        declaredType = inferred;
                     }
                     else
                     {
-                        if (node.DeclarationType == VariableDeclarationType.CONST)
+                        if (declaration.Item2 != null)
                         {
-                            AreCallsBlocked = true;
-                            var tmp = res.Register(Visit(declaration.Item2, context));
-                            AreCallsBlocked = false;
-                            if (res.ShouldReturn()) continue;
-                            value = tmp;
-                        }
-                        else
-                        {
-                            value = res.Register(Visit(declaration.Item2, context));
-                            if (res.ShouldReturn()) continue;
+                            if (!TypeSystem.IsAssignable(declaredType, value))
+                            {
+                                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Type mismatch: cannot initialize variable '{varName}' of type '{declaredType}' with value of type '{value.Type}'", context));
+                            }
                         }
                     }
                 }
 
-                if (node.DeclarationType == VariableDeclarationType.CONST)
-                {
-                    value.VariableDeclarationType = VariableDeclarationType.CONST;
-                    context.SymbolTable.Set(varName, value, isLet: false);
-                }
-                else if (node.DeclarationType == VariableDeclarationType.FINAL)
-                {
-                    value.VariableDeclarationType = VariableDeclarationType.FINAL;
-                    context.SymbolTable.Set(varName, value, isLet: false);
-                }
-                else if (node.DeclarationType == VariableDeclarationType.LET)
-                {
-                    value.VariableDeclarationType = VariableDeclarationType.LET;
-                    context.SymbolTable.Set(varName, value, isLet: true);
-                }
-                else
-                {
-                    value.VariableDeclarationType = VariableDeclarationType.VARIABLE;
-                    context.SymbolTable.Set(varName, value, isLet: false);
-                }
+                bool isLetFlag = node.DeclarationType == VariableDeclarationType.LET;
+                bool isStaticallyTyped = declaredType != null;
 
+                if (node.DeclarationType == VariableDeclarationType.CONST)
+                    value.VariableDeclarationType = VariableDeclarationType.CONST;
+                else if (node.DeclarationType == VariableDeclarationType.FINAL)
+                    value.VariableDeclarationType = VariableDeclarationType.FINAL;
+                else if (node.DeclarationType == VariableDeclarationType.LET)
+                    value.VariableDeclarationType = VariableDeclarationType.LET;
+                else
+                    value.VariableDeclarationType = VariableDeclarationType.VARIABLE;
+
+                context.SymbolTable.Set(varName, value, isLetFlag, declaredType, isStaticallyTyped);
                 values.Add(value);
             }
 
@@ -1164,8 +1160,24 @@ namespace RaLanguage.Interpreter
 
             if (error != null) return res.Failure(error);
             var declType = currentValue.VariableDeclarationType;
-            context.SymbolTable.Set(varName, result!.SetDeclarationType(declType));
-            return res.Success(result!.SetPos(node.PositionStart, node.PositionEnd).SetDeclarationType(declType));
+            var entry = context.SymbolTable.GetEntry(varName);
+
+            if (entry == null)
+            {
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is not defined", context));
+            }
+
+            if (entry.IsStaticallyTyped && entry.DeclaredType != null)
+            {
+                if (!TypeSystem.IsAssignable(entry.DeclaredType, result!))
+                {
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Type mismatch: cannot assign value of type '{result.Type.ToString().ToLower()}' to variable '{varName}' of type '{entry.DeclaredType}'", context));
+                }
+            }
+
+            var declType2 = entry.Value?.VariableDeclarationType ?? VariableDeclarationType.VARIABLE;
+            context.SymbolTable.Set(varName, result!.SetDeclarationType(declType2));
+            return res.Success(result!.SetPos(node.PositionStart, node.PositionEnd).SetDeclarationType(declType2));
         }
 
         private RuntimeResult VisitVariableDeleteNode(VariableDeleteNode node, Context context)

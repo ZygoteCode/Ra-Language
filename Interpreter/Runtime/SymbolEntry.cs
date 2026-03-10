@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Interpreter.Values;
+using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Runtime
 {
@@ -8,6 +9,9 @@ namespace RaLanguage.Interpreter.Runtime
         public bool IsLet { get; set; }
         public bool IsMoved { get; set; }
 
+        public TypeDescriptor? DeclaredType { get; set; }
+        public bool IsStaticallyTyped { get; set; } = false;
+
         private bool _disposed;
 
         public SymbolEntry(RuntimeValue value, bool isLet = false)
@@ -15,7 +19,16 @@ namespace RaLanguage.Interpreter.Runtime
             Value = value;
             IsLet = isLet;
             IsMoved = false;
+            DeclaredType = null;
+            IsStaticallyTyped = false;
             _disposed = false;
+        }
+
+        public SymbolEntry(RuntimeValue value, bool isLet, TypeDescriptor? declaredType, bool isStaticallyTyped)
+            : this(value, isLet)
+        {
+            DeclaredType = declaredType;
+            IsStaticallyTyped = isStaticallyTyped;
         }
 
         public void Dispose()
@@ -31,25 +44,23 @@ namespace RaLanguage.Interpreter.Runtime
             {
                 if (Value is IDisposable d)
                 {
-                    try { d.Dispose(); } catch {}
+                    try { d.Dispose(); } catch { }
                 }
 
                 Value = null;
             }
-
             _disposed = true;
         }
 
-        ~SymbolEntry()
-        {
-            Dispose(false);
-        }
+        ~SymbolEntry() { Dispose(false); }
 
         public void ClearReference()
         {
             Value = null;
             IsLet = false;
             IsMoved = false;
+            DeclaredType = null;
+            IsStaticallyTyped = false;
         }
     }
 }

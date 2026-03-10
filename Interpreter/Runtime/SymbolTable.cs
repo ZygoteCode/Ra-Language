@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Interpreter.Values;
+using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Runtime
 {
@@ -31,7 +32,7 @@ namespace RaLanguage.Interpreter.Runtime
             return Parent?.GetEntry(name);
         }
 
-        public void Set(string name, RuntimeValue value, bool isLet = false)
+        public void Set(string name, RuntimeValue value, bool isLet = false, TypeDescriptor? declaredType = null, bool isStaticallyTyped = false)
         {
             SymbolTable? st = this;
             SymbolTable? owner = null;
@@ -48,10 +49,15 @@ namespace RaLanguage.Interpreter.Runtime
             if (owner != null)
             {
                 owner._symbols[name].Value = value;
+                if (owner._symbols[name].DeclaredType == null && declaredType != null)
+                {
+                    owner._symbols[name].DeclaredType = declaredType;
+                    owner._symbols[name].IsStaticallyTyped = isStaticallyTyped;
+                }
             }
             else
             {
-                _symbols[name] = new SymbolEntry(value, isLet);
+                _symbols[name] = new SymbolEntry(value, isLet, declaredType, isStaticallyTyped);
             }
         }
 

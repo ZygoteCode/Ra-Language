@@ -58,6 +58,9 @@ This list contains what I have already added after the first commit (done featur
   - [x] Added tuples as a new primitive value.
   - [x] Implemented labels + goto keyword.
   - [x] Implemented let declarations with full support for copy types, move action, and invalidate on move.
+  - [x] Implemented static variable typing, example: "var n: number = 5".
+  - [x] Implemented "auto" keyword for assigning automatically the static type to the variable recognized from the declaration value.
+
 
 ## TODOs for Ra Language (the near future)
 
@@ -65,15 +68,17 @@ This is constantly updated list, I am expanding with new ideas and concepts for 
 
 I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
   
+  - [ ] Function parameters can be statically typed -> fn test(a: int, b: int): int => print(a + b);
+  - [ ] Add static return type to functions.
+  - [ ] Add cast to other types with classic C-like notation => var a: int = 5; var b: float = (float) a; <= For example, don't care about syntax.
+  - [ ] Add generics, for example, for declaring a "list<number>" or a "tuple<string, number>".
+  
   - [ ] In functions, add "..." operator to make array unlimited parameters.
   - [ ] In functions, allow specific default values to parameters.
   - [ ] Allow function calling with named parameters.
-  - [ ] As the language will implement static typing, instead of having only "var a: number = 5", if I want to let the interpreter know already what the type is, I could use "auto a = 5" which is statically typed, so the value is recognized as a number type and can not take other types of values.
+
   - [ ] Add real support to multi-line statements & expressions.
-  - [ ] Add static typing with strict type checking.
-  - [ ] Add static return type to functions.
-  - [ ] Add cast to other types with classic C-like notation => var a: int = 5; var b: float = (float) a; <= For example, don't care about syntax.
-  - [ ] Add a operator like "&" to function parameters to pass reference instead of copying only the value.
-  - [ ] Function parameters can be statically typed -> fn test(a: int, b: int): int => print(a + b);
+
+  - [ ] Idea: add a operator like "&" to function parameters to pass reference instead of copying only the value.
   - [ ] Idea: import new files with a intelligent path system.
   - [ ] Idea: List comprehensions, like [x*2 for x in a if x>1] to create lists in a compact way.

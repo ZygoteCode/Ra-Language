@@ -35,6 +35,7 @@
         Default,
         Yield,
         Goto,
-        Let
+        Let,
+        Auto
     }
 }
