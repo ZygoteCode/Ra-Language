@@ -1,5 +1,6 @@
 ﻿using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Types;
 
@@ -112,7 +113,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                     extras.Add(a);
                 }
 
-                var listVal = ListValue(extras)
+                var listVal = new ListValue(extras)
                     .SetContext(execCtx)
                     .SetPos(PositionStart, PositionEnd);
 
