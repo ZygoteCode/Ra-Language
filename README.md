@@ -58,7 +58,7 @@ This list contains what I have already added after the first commit (done featur
   - [x] Added tuples as a new primitive value.
   - [x] Implemented labels + goto keyword.
   - [x] Implemented let declarations with full support for copy types, move action, and invalidate on move.
-  - [x] Implemented static variable typing, example: "var n: number = 5".
+  - [x] Implemented static variable typization, example: "var n: number = 5".
   - [x] Implemented "auto" keyword for assigning automatically the static type to the variable recognized from the declaration value.
 
 
