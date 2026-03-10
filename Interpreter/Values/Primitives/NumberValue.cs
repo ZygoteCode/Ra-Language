@@ -1,5 +1,6 @@
 ﻿using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
+using RaLanguage.Types;
 using System.Globalization;
 
 namespace RaLanguage.Interpreter.Values.Primitives
@@ -270,6 +271,37 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public override RuntimeValue Copy()
         {
             return new NumberValue(Value).SetPos(PositionStart, PositionEnd).SetContext(Context);
+        }
+
+        public override (RuntimeValue?, Error?) CastTo(TypeDescriptor targetType)
+        {
+            if (targetType.IsBuiltIn && targetType.BuiltIn == BuiltInType.String)
+            {
+                return (new StringValue(Value.ToString()).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            if (targetType.IsBuiltIn && targetType.BuiltIn == BuiltInType.Boolean)
+            {
+                bool b = false;
+
+                try
+                {
+                    b = Convert.ToDouble(Value) != 0.0;
+                }
+                catch
+                {
+                    b = true;
+                }
+
+                return (new BooleanValue(b).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            if (targetType.IsBuiltIn && targetType.BuiltIn == BuiltInType.Number)
+            {
+                return (Copy().SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            return base.CastTo(targetType);
         }
 
         public override bool IsTrue() => Value == 1;

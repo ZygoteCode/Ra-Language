@@ -4,6 +4,7 @@ using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer;
 using RaLanguage.Parser.Nodes.Variables;
+using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values
 {
@@ -49,11 +50,7 @@ namespace RaLanguage.Interpreter.Values
 
         public virtual (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
         {
-            if (Type == RuntimeValueType.Null && other.Type == RuntimeValueType.Null)
-            {
-                return (new NumberValue(BigNumber.One).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
-            }
-
+            if (Type == RuntimeValueType.Null && other.Type == RuntimeValueType.Null) return (new NumberValue(BigNumber.One).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
             return (null, IllegalOperation(other));
         }
 
@@ -61,11 +58,7 @@ namespace RaLanguage.Interpreter.Values
         {
             if (Type == RuntimeValueType.Null || other.Type == RuntimeValueType.Null)
             {
-                if (Type == RuntimeValueType.Null && other.Type == RuntimeValueType.Null)
-                {
-                    return (new NumberValue(BigNumber.Zero).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
-                }
-
+                if (Type == RuntimeValueType.Null && other.Type == RuntimeValueType.Null) return (new NumberValue(BigNumber.Zero).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
                 return (new NumberValue(BigNumber.One).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
             }
 
@@ -101,10 +94,7 @@ namespace RaLanguage.Interpreter.Values
 
                 foreach (var element in l.Elements)
                 {
-                    if (element.Equals(this))
-                    {
-                        return (new BooleanValue(true), null);
-                    }
+                    if (element.Equals(this)) return (new BooleanValue(true), null);
                 }
 
                 return (new BooleanValue(false), null);
@@ -115,10 +105,7 @@ namespace RaLanguage.Interpreter.Values
 
                 foreach (var element in s.Elements)
                 {
-                    if (element.Equals(this))
-                    {
-                        return (new BooleanValue(true), null);
-                    }
+                    if (element.Equals(this)) return (new BooleanValue(true), null);
                 }
 
                 return (new BooleanValue(false), null);
@@ -141,10 +128,7 @@ namespace RaLanguage.Interpreter.Values
 
                 foreach (var element in t.Elements)
                 {
-                    if (element.Equals(this))
-                    {
-                        return (new BooleanValue(true), null);
-                    }
+                    if (element.Equals(this)) return (new BooleanValue(true), null);
                 }
 
                 return (new BooleanValue(false), null);
@@ -154,19 +138,13 @@ namespace RaLanguage.Interpreter.Values
                 MapValue m = (MapValue)other;
                 TupleValue t = (TupleValue)this;
 
-                if (t.Elements.Count != 2)
-                {
-                    return (null, IllegalOperation(other));
-                }
+                if (t.Elements.Count != 2) return (null, IllegalOperation(other));
 
                 RuntimeValue v1 = t.Elements[0], v2 = t.Elements[1];
 
                 foreach (var e in m.Pairs)
                 {
-                    if (e.Key.Equals(v1) && e.Value.Equals(v2))
-                    {
-                        return (new BooleanValue(true), null);
-                    }
+                    if (e.Key.Equals(v1) && e.Value.Equals(v2)) return (new BooleanValue(true), null);
                 }
 
                 return (new BooleanValue(false), null);
@@ -182,31 +160,26 @@ namespace RaLanguage.Interpreter.Values
 
         public override bool Equals(object? obj)
         {
-            if (obj == null)
-            {
-                return false;
-            }
+            if (obj == null) return false;
 
             if (obj is RuntimeValue)
             {
                 RuntimeValue value = (RuntimeValue)obj;
                 RuntimeValue? result = GetComparisonStrictEq(value).Item1;
 
-                if (result == null)
-                {
-                    return false;
-                }
-
-                if (result.Type != RuntimeValueType.Boolean)
-                {
-                    return false;
-                }
-
+                if (result == null) return false;
+                if (result.Type != RuntimeValueType.Boolean) return false;
                 BooleanValue b = (BooleanValue)result;
                 return b.Value;
             }
 
             return base.Equals(obj);
+        }
+
+        public virtual (RuntimeValue?, Error?) CastTo(TypeDescriptor targetType)
+        {
+            if (targetType != null && targetType.IsBuiltIn && targetType.BuiltIn == BuiltInType.String) return (new StringValue(ToString()).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to '{targetType}'", Context));
         }
 
         public abstract RuntimeValue Copy();

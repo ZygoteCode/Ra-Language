@@ -778,6 +778,7 @@ namespace RaLanguage.Lexer
                 case "goto": return Keyword.Goto;
                 case "let": return Keyword.Let;
                 case "auto": return Keyword.Auto;
+                case "as": return Keyword.As;
                 default: return null;
             }
         }

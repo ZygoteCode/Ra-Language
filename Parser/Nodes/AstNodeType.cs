@@ -41,6 +41,7 @@
         Yield,
         Tuple,
         Label,
-        Goto
+        Goto,
+        Cast
     }
 }

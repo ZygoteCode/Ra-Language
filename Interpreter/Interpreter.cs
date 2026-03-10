@@ -67,6 +67,7 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.Tuple] = (node, ctx) => VisitTupleNode((TupleNode)node, ctx);
             _visitors[(int)AstNodeType.Label] = (node, ctx) => VisitLabelNode((LabelNode)node, ctx);
             _visitors[(int)AstNodeType.Goto] = (node, ctx) => VisitGotoNode((GotoNode)node, ctx);
+            _visitors[(int)AstNodeType.Cast] = (node, ctx) => VisitCastNode((CastNode)node, ctx);
         }
 
         public RuntimeResult Visit(AstNode node, Context context)
@@ -74,8 +75,20 @@ namespace RaLanguage.Interpreter
             var index = (int)node.NodeType;
             if (index < 0 || index >= _visitors.Length || _visitors[index] == null)
                 throw new Exception($"No visit method for {node.NodeType}");
-
             return _visitors[index](node, context);
+        }
+
+        private RuntimeResult VisitCastNode(CastNode node, Context context)
+        {
+            var res = new RuntimeResult();
+            var val = res.Register(Visit(node.Expression, context));
+            if (res.ShouldReturn()) return res;
+
+            if (val == null) return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast null value", context));
+            (RuntimeValue? casted, Error? error) = val.CastTo(node.TargetType);
+            if (error != null) return res.Failure(error);   
+            if (casted == null) return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+            return res.Success(casted.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
 
         private RuntimeResult VisitGotoNode(GotoNode node, Context context)
@@ -90,12 +103,7 @@ namespace RaLanguage.Interpreter
                 if (label.Item1.Equals(varName))
                 {
                     res.Register(Visit(label.Item2, context));
-
-                    if (res.Error != null)
-                    {
-                        return res;
-                    }
-
+                    if (res.Error != null) return res;
                     return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
             }
@@ -122,19 +130,11 @@ namespace RaLanguage.Interpreter
                 }
             }
 
-            if (alreadyExists)
-            {
-                _labels.RemoveAt(index);
-            }
-
+            if (alreadyExists) _labels.RemoveAt(index);
             _labels.Add((varName, node.Statements));
             res.Register(Visit(node.Statements, context));
 
-            if (res.Error != null)
-            {
-                return res;
-            }
-
+            if (res.Error != null) return res;
             return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
 
@@ -205,9 +205,7 @@ namespace RaLanguage.Interpreter
                 if (c.Separator == SwitchCaseSeparator.Arrow)
                 {
                     if (c.Body == null)
-                    {
                         return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
-                    }
 
                     if (c.Body.NodeType == AstNodeType.List)
                     {
@@ -228,14 +226,10 @@ namespace RaLanguage.Interpreter
                             }
 
                             if (childRes.LoopShouldContinue)
-                            {
                                 return res.SuccessContinue();
-                            }
 
                             if (childRes.ShouldYield)
-                            {
                                 return res.SuccessYield(childRes.YieldValue ?? new NullValue().SetContext(context));
-                            }
                         }
 
                         return res.Success(new NullValue().SetContext(context));
@@ -281,14 +275,10 @@ namespace RaLanguage.Interpreter
                                     }
 
                                     if (childRes.LoopShouldContinue)
-                                    {
                                         return res.SuccessContinue();
-                                    }
 
                                     if (childRes.ShouldYield)
-                                    {
                                         return res.SuccessYield(childRes.YieldValue ?? new NullValue().SetContext(context));
-                                    }
                                 }
                             }
                             else if (caseToExec.Body != null)
@@ -326,14 +316,10 @@ namespace RaLanguage.Interpreter
                                     }
 
                                     if (childRes.LoopShouldContinue)
-                                    {
                                         return res.SuccessContinue();
-                                    }
 
                                     if (childRes.ShouldYield)
-                                    {
                                         return res.SuccessYield(childRes.YieldValue ?? new NullValue().SetContext(context));
-                                    }
                                 }
                             }
                         }
@@ -377,10 +363,7 @@ namespace RaLanguage.Interpreter
                 valueVal.SetContext(context).SetPos(valueNode.PositionStart, valueNode.PositionEnd);
 
                 var (setResult, setError) = map.ListSet(keyVal, valueVal);
-                if (setError != null)
-                {
-                    return res.Failure(setError);
-                }
+                if (setError != null) return res.Failure(setError);
             }
 
             return res.Success(map);
@@ -423,23 +406,13 @@ namespace RaLanguage.Interpreter
             }
 
             var left = res.Register(Visit(node.Left, context));
-
-            if (res.Error != null)
-            {
-                return res;
-            }
+            if (res.Error != null) return res;
 
             var right = res.Register(Visit(node.Right, context));
-
-            if (res.Error != null)
-            {
-                return res;
-            }
+            if (res.Error != null) return res;
 
             if (left.Type == RuntimeValueType.Null)
-            {
                 return res.Success(right.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
-            }
 
             return res.Success(left.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
@@ -448,69 +421,45 @@ namespace RaLanguage.Interpreter
         {
             var res = new RuntimeResult();
             var start = res.Register(Visit(node.Start, context));
-
-            if (res.Error != null)
-            {
-                return res;
-            }
+            if (res.Error != null) return res;
 
             if (start.Type != RuntimeValueType.Number)
-            {
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Start value should be a number", context));
-            }
 
             var end = res.Register(Visit(node.End, context));
-
-            if (res.Error != null)
-            {
-                return res;
-            }
+            if (res.Error != null) return res;
 
             if (end.Type != RuntimeValueType.Number)
-            {
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "End value should be a number", context));
-            }
 
             RuntimeValue? step = null;
             
             if (node.Step != null)
             {
                 step = res.Register(Visit(node.Step, context));
-
-                if (res.Error != null)
-                {
-                    return res;
-                }
+                if (res.Error != null) return res;
 
                 if (step.Type != RuntimeValueType.Number)
-                {
                     return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Step value should be a number", context));
-                }
             }
 
             NumberValue startValue = (NumberValue)start, endValue = (NumberValue)end;
             NumberValue stepValue = step != null ? (NumberValue)step : NumberValue.One;
 
             if (startValue.Value > endValue.Value)
-            {
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Start value should not be higher than the end value", context));
-            }
 
             List<RuntimeValue> values = new List<RuntimeValue>();
 
             if (node.Operator.Type == TokenType.DOUBLE_DOT)
             {
                 for (BigNumber i = startValue.Value; i < endValue.Value; i += stepValue.Value)
-                {
                     values.Add(new NumberValue(i).SetContext(context));
-                }
             }
             else if (node.Operator.Type == TokenType.DOUBLE_DOT_EQ)
             {
                 for (BigNumber i = startValue.Value; i <= endValue.Value; i += stepValue.Value)
-                {
                     values.Add(new NumberValue(i).SetContext(context));
-                }
             }
 
             return res.Success(new ListValue(values).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
@@ -532,11 +481,7 @@ namespace RaLanguage.Interpreter
             var elements = new List<RuntimeValue>();
             var newContext = context.Copy();
             var collection = res.Register(Visit(node.CollectionNode, newContext));
-
-            if (res.Error != null)
-            {
-                return res;
-            }
+            if (res.Error != null) return res;
 
             if (collection.Type != RuntimeValueType.List && collection.Type != RuntimeValueType.Set && collection.Type != RuntimeValueType.Map && collection.Type != RuntimeValueType.Tuple)
             {
@@ -582,20 +527,9 @@ namespace RaLanguage.Interpreter
                 var value = res.Register(Visit(node.BodyNode, actualContext));
                 context.ApplyChangesFrom(actualContext);
 
-                if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak)
-                {
-                    return res;
-                }
-
-                if (res.LoopShouldContinue)
-                {
-                    continue;
-                }
-
-                if (res.LoopShouldBreak)
-                {
-                    break;
-                }
+                if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak) return res;
+                if (res.LoopShouldContinue) continue;
+                if (res.LoopShouldBreak) break;
 
                 elements.Add(value);
             }
@@ -632,10 +566,7 @@ namespace RaLanguage.Interpreter
             if (node.AssignmentToken.Type != TokenType.EQ)
             {
                 var accessResult = targetList.ListAccess(indexValue);
-                if (accessResult.Item2 != null)
-                {
-                    return res.Failure(accessResult.Item2);
-                }
+                if (accessResult.Item2 != null) return res.Failure(accessResult.Item2);
 
                 var currentValue = accessResult.Item1!;
                 (RuntimeValue? result, Error? error) = (null, null);
@@ -660,21 +591,12 @@ namespace RaLanguage.Interpreter
                         break;
                 }
 
-                if (error != null)
-                {
-                    return res.Failure(error);
-                }
-
+                if (error != null) return res.Failure(error);
                 finalValue = result!;
             }
 
             var (result1, error1) = targetList.ListSet(indexValue, finalValue);
-
-            if (error1 != null)
-            {
-                return res.Failure(error1);
-            }
-
+            if (error1 != null) return res.Failure(error1);
             return res.Success(finalValue.SetPos(node.PositionStart, node.PositionEnd).SetContext(context));
         }
 
@@ -686,11 +608,7 @@ namespace RaLanguage.Interpreter
             foreach (var elementNode in node.ElementNodes)
             {
                 var val = res.Register(Visit(elementNode, context));
-
-                if (res.ShouldReturn())
-                {
-                    return res;
-                }
+                if (res.ShouldReturn()) return res;
 
                 bool exists = false;
 
@@ -703,11 +621,7 @@ namespace RaLanguage.Interpreter
                     }
                 }
 
-                if (exists)
-                {
-                    continue;
-                }
-
+                if (exists) continue;
                 elements.Add(val);
             }
 
@@ -720,26 +634,13 @@ namespace RaLanguage.Interpreter
         {
             var res = new RuntimeResult();
             var target = res.Register(Visit(node.Target, context));
-
-            if (res.Error != null)
-            {
-                return res;
-            }
+            if (res.Error != null) return res;
 
             var index = res.Register(Visit(node.Index, context));
-
-            if (res.Error != null)
-            {
-                return res;
-            }
+            if (res.Error != null) return res;
 
             (RuntimeValue?, Error?) result = target.ListAccess(index);
-
-            if (result.Item2 != null)
-            {
-                return res.Failure(result.Item2);
-            }
-
+            if (result.Item2 != null) return res.Failure(result.Item2);
             return res.Success(result.Item1!.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
 
@@ -748,13 +649,9 @@ namespace RaLanguage.Interpreter
             var res = new RuntimeResult();
 
             if (((Keyword)node.Token.Value) == Keyword.True)
-            {
                 return res.Success(new BooleanValue(true).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
-            }
             else if (((Keyword)node.Token.Value) == Keyword.False)
-            {
                 return res.Success(new BooleanValue(false).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
-            }
 
             return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Invalid boolean value", context));
         }
@@ -771,9 +668,7 @@ namespace RaLanguage.Interpreter
             var value = context.SymbolTable.Get(varName);
 
             if (value == null)
-            {
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Variable {varName} not defined", context));
-            }
 
             return res.Success(new StringValue(varName).SetPos(node.PositionStart, node.PositionEnd).SetContext(context));
         }
@@ -782,11 +677,7 @@ namespace RaLanguage.Interpreter
         {
             var res = new RuntimeResult();
             var value = res.Register(Visit(node.Node, context));
-
-            if (res.Error != null)
-            {
-                return res;
-            }
+            if (res.Error != null) return res;
 
             string type = value.Type switch
             {
@@ -815,40 +706,19 @@ namespace RaLanguage.Interpreter
             while (true)
             {
                 var condition = res.Register(Visit(node.ConditionNode, newContext));
+                if (res.ShouldReturn()) return res;
 
-                if (res.ShouldReturn())
-                {
-                    return res;
-                }
-
-                if (!firstTime && !condition.IsTrue())
-                {
-                    break;
-                }
-                else
-                {
-                    firstTime = false;
-                }
+                if (!firstTime && !condition.IsTrue()) break;
+                else firstTime = false;
 
                 Context iterationContext = newContext.Copy();
                 var value = res.Register(Visit(node.BodyNode, iterationContext));
                 newContext.ApplyChangesFrom(iterationContext);
                 context.ApplyChangesFrom(newContext);
 
-                if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak)
-                {
-                    return res;
-                }
-
-                if (res.LoopShouldContinue)
-                {
-                    continue;
-                }
-
-                if (res.LoopShouldBreak)
-                {
-                    break;
-                }
+                if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak) return res;
+                if (res.LoopShouldContinue) continue;
+                if (res.LoopShouldBreak) break;
 
                 elements.Add(value);
             }
@@ -980,20 +850,14 @@ namespace RaLanguage.Interpreter
             var name = node.VarNameTok.Value?.ToString();
 
             if (string.IsNullOrEmpty(name))
-            {
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Invalid variable name", context));
-            }
 
             var entry = context.SymbolTable.GetEntry(name);
             if (entry == null)
-            {
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{name}' is not defined", context));
-            }
 
             if (entry.IsMoved)
-            {
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Variable '{name}' was moved", context));
-            }
 
             var valueToReturn = entry.Value.IsCopy ? entry.Value.Copy() : entry.Value;
             return res.Success(valueToReturn.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
@@ -1003,14 +867,10 @@ namespace RaLanguage.Interpreter
         {
             var entry = context.SymbolTable.GetEntry(name);
             if (entry == null)
-            {
                 return (null, new RuntimeError(posStart, posEnd, $"'{name}' is not defined", context));
-            }
 
             if (entry.IsMoved)
-            {
                 return (null, new RuntimeError(posStart, posEnd, $"Variable '{name}' was moved", context));
-            }
 
             if (entry.IsLet && !entry.Value.IsCopy)
             {
@@ -1031,14 +891,10 @@ namespace RaLanguage.Interpreter
                 var varName = declaration.Item1.Value?.ToString();
 
                 if (string.IsNullOrEmpty(varName))
-                {
                     return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Invalid identifier", context));
-                }
 
                 if (context.SymbolTable.Get(varName) != null)
-                {
                     return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is already defined", context));
-                }
 
                 RuntimeValue value = new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 TypeDescriptor? declaredType = declaration.Item3;
@@ -1054,9 +910,7 @@ namespace RaLanguage.Interpreter
                     if (declaredType.IsBuiltIn && declaredType.BuiltIn == BuiltInType.Any)
                     {
                         if (declaration.Item2 == null)
-                        {
                             return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "'auto' requires an initializer to infer type", context));
-                        }
 
                         var inferred = TypeDescriptor.FromRuntimeValue(value);
                         declaredType = inferred;
@@ -1066,9 +920,7 @@ namespace RaLanguage.Interpreter
                         if (declaration.Item2 != null)
                         {
                             if (!TypeSystem.IsAssignable(declaredType, value))
-                            {
                                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Type mismatch: cannot initialize variable '{varName}' of type '{declaredType}' with value of type '{value.Type}'", context));
-                            }
                         }
                     }
                 }
@@ -1098,25 +950,17 @@ namespace RaLanguage.Interpreter
             var varName = node.VarNameTok.Value?.ToString();
 
             if (string.IsNullOrEmpty(varName))
-            {
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Invalid assignment target", context));
-            }
 
             var currentValue = context.SymbolTable.Get(varName);
 
             if (currentValue == null)
-            {
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is not defined", context));
-            }
 
             if (currentValue.VariableDeclarationType == VariableDeclarationType.CONST)
-            {
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is a constant variable and cannot be modified at runtime", context));
-            }
             else if (currentValue.VariableDeclarationType == VariableDeclarationType.FINAL && currentValue.Type != RuntimeValueType.Null)
-            {
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is a final variable and cannot be modified at runtime", context));
-            }
 
             var operation = node.AssignmentToken;
 
@@ -1163,16 +1007,12 @@ namespace RaLanguage.Interpreter
             var entry = context.SymbolTable.GetEntry(varName);
 
             if (entry == null)
-            {
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is not defined", context));
-            }
 
             if (entry.IsStaticallyTyped && entry.DeclaredType != null)
             {
                 if (!TypeSystem.IsAssignable(entry.DeclaredType, result!))
-                {
                     return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Type mismatch: cannot assign value of type '{result.Type.ToString().ToLower()}' to variable '{varName}' of type '{entry.DeclaredType}'", context));
-                }
             }
 
             var declType2 = entry.Value?.VariableDeclarationType ?? VariableDeclarationType.VARIABLE;

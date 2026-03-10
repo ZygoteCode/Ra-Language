@@ -447,6 +447,32 @@ namespace RaLanguage.Parser
 
             var leftNode = res.Register(ParseBinaryOperation(ParseBitwiseOrExpression, new List<(TokenType, Keyword?)> { (TokenType.KEYWORD, Keyword.And), (TokenType.KEYWORD, Keyword.Or) }));
 
+            if (res.Error == null)
+            {
+                while (_currentToken.Matches(Keyword.As))
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    if (!(_currentToken.Type == TokenType.IDENTIFIER || _currentToken.Type == TokenType.KEYWORD))
+                    {
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type identifier after 'as'"));
+                    }
+
+                    var typeTok = _currentToken;
+                    string typeName = typeTok.Value?.ToString() ?? typeTok.ToString();
+
+                    var targetType = TypeDescriptor.Parse(typeName);
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    var castNode = new CastNode(leftNode, targetType);
+                    castNode.PositionStart = leftNode.PositionStart;
+                    castNode.PositionEnd = typeTok.PositionEnd.Copy();
+                    leftNode = castNode;
+                }
+            }
+
             if (res.Error != null)
             {
                 return res.Failure(new InvalidSyntaxError(

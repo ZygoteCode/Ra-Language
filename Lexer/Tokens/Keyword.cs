@@ -36,6 +36,7 @@
         Yield,
         Goto,
         Let,
-        Auto
+        Auto,
+        As
     }
 }
