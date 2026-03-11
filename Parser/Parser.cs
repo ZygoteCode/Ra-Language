@@ -635,7 +635,7 @@ namespace RaLanguage.Parser
                    "Expected int, float, identifier, '+', '-', '(', '[', 'if', 'for', 'while', 'fn' or 'not'"
                ));
             }
-            
+
             return res.Success(b_node);
         }
 
@@ -962,7 +962,7 @@ namespace RaLanguage.Parser
 
             return res.Failure(new InvalidSyntaxError(tok.PositionStart, tok.PositionEnd, "Expected int, float, identifier, '+', '-', '(', '[', 'if', 'for', 'while', 'fn'"));
         }
-        
+
         private ParserResult ParseTryExpression()
         {
             var res = new ParserResult();
