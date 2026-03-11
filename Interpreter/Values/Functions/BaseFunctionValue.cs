@@ -11,6 +11,8 @@ namespace RaLanguage.Interpreter.Values.Functions
     public abstract class BaseFunctionValue : RuntimeValue
     {
         public string Name { get; }
+        public override RuntimeValueType Type => RuntimeValueType.BaseFunction;
+
         public BaseFunctionValue(string name)
         {
             Name = name ?? "<anonymous>";

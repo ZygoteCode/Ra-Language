@@ -463,8 +463,8 @@ namespace RaLanguage.Interpreter
             if (res.ShouldReturn()) return res;
 
             bool condIsTrue;
-            if (condVal is BooleanValue bv)
-                condIsTrue = bv.Value;
+            if (condVal.Type == RuntimeValueType.Boolean)
+                condIsTrue = ((BooleanValue) condVal).Value;
             else
                 condIsTrue = condVal.IsTrue();
 
@@ -1431,8 +1431,9 @@ namespace RaLanguage.Interpreter
                 }
             }
 
-            if (valueToCall is BaseFunctionValue func)
+            if (valueToCall.Type == RuntimeValueType.BaseFunction || valueToCall.Type == RuntimeValueType.Function)
             {
+                BaseFunctionValue func = (BaseFunctionValue)valueToCall;
                 var ret = res.Register(func.ExecuteWithNamedArgs(positionalArgs, namedArgs));
                 if (res.ShouldReturn()) return res;
 
@@ -1455,8 +1456,9 @@ namespace RaLanguage.Interpreter
 
             if (node.NodeToReturn != null)
             {
-                if (node.NodeToReturn is VariableAccessNode varAccess)
+                if (node.NodeToReturn.NodeType == AstNodeType.VariableAccess)
                 {
+                    VariableAccessNode varAccess = (VariableAccessNode)node.NodeToReturn;
                     string srcName = varAccess.VarNameTok.Value?.ToString() ?? "";
                     var (extracted, err) = ExtractVariableValueByName(srcName, varAccess.PositionStart, varAccess.PositionEnd, context);
                     if (err != null) return res.Failure(err);

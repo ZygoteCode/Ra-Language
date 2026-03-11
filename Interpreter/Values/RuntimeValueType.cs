@@ -6,6 +6,7 @@
         String,
         List,
         Function,
+        BaseFunction,
         Null,
         Boolean,
         Set,

@@ -3,7 +3,6 @@ using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes;
 using RaLanguage.Types;
-using System.Collections.Generic;
 
 namespace RaLanguage.Interpreter.Values.Functions
 {
