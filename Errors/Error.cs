@@ -25,5 +25,10 @@ namespace RaLanguage.Errors
             result += "\n\n" + Utils.StringWithArrows(PositionStart.Ftxt, PositionStart, PositionEnd);
             return result;
         }
+
+        public override string ToString()
+        {
+            return AsString();
+        }
     }
 }

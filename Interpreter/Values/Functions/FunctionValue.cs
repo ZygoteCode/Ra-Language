@@ -49,7 +49,6 @@ namespace RaLanguage.Interpreter.Values.Functions
             return ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(System.StringComparer.Ordinal));
         }
 
-        // new: accepts named args too
         public override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
         {
             var res = new RuntimeResult();

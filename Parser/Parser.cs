@@ -954,9 +954,108 @@ namespace RaLanguage.Parser
                     var switchExpr = res.Register(ParseSwitchExpression());
                     if (res.Error != null) return res;
                     return res.Success(switchExpr);
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Try:
+                    var tryExpr = res.Register(ParseTryExpression());
+                    if (res.Error != null) return res;
+                    return res.Success(tryExpr);
             }
 
             return res.Failure(new InvalidSyntaxError(tok.PositionStart, tok.PositionEnd, "Expected int, float, identifier, '+', '-', '(', '[', 'if', 'for', 'while', 'fn'"));
+        }
+        
+        private ParserResult ParseTryExpression()
+        {
+            var res = new ParserResult();
+
+            if (!_currentToken.Matches(Keyword.Try))
+            {
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'try'"));
+            }
+
+            res.RegisterAdvancement();
+            Advance();
+
+            if (_currentToken.Type != TokenType.LBRACKET)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{' after 'try'"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            var tryBody = res.Register(ParseStatements());
+            if (res.Error != null) return res;
+
+            if (_currentToken.Type != TokenType.RBRACKET)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}' after try block"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            Token? catchVarTok = null;
+            AstNode? catchBody = null;
+
+            if (_currentToken.Matches(Keyword.Catch))
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                if (_currentToken.Type != TokenType.LPAREN)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '(' after 'catch'"));
+
+                res.RegisterAdvancement();
+                Advance();
+
+                if (_currentToken.Type != TokenType.IDENTIFIER)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier in 'catch (identifier)'"));
+
+                catchVarTok = _currentToken;
+                res.RegisterAdvancement();
+                Advance();
+
+                if (_currentToken.Type != TokenType.RPAREN)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ')' after catch identifier"));
+
+                res.RegisterAdvancement();
+                Advance();
+
+                if (_currentToken.Type != TokenType.LBRACKET)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{' after 'catch(...)'"));
+
+                res.RegisterAdvancement();
+                Advance();
+
+                catchBody = res.Register(ParseStatements());
+                if (res.Error != null) return res;
+
+                if (_currentToken.Type != TokenType.RBRACKET)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}' after catch block"));
+
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            AstNode? finallyBody = null;
+            if (_currentToken.Matches(Keyword.Finally))
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                if (_currentToken.Type != TokenType.LBRACKET)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{' after 'finally'"));
+
+                res.RegisterAdvancement();
+                Advance();
+
+                finallyBody = res.Register(ParseStatements());
+                if (res.Error != null) return res;
+
+                if (_currentToken.Type != TokenType.RBRACKET)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}' after finally block"));
+
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            return res.Success(new TryNode(tryBody, catchVarTok, catchBody, finallyBody));
         }
 
         private ParserResult ParseDoWhileExpression()

@@ -66,6 +66,7 @@ This list contains what I have already added after the first commit (done featur
   - [x] In functions, implement varargs with "..." (spread) operator with the possibility to assign a custom name to it!
   - [x] Allow function calling with named parameters.
   - [x] In functions, allow specific default values to parameters.
+  - [x] Implemented try statement with optional catch and finally.
 
 ## TODOs for Ra Language (the near future)
 

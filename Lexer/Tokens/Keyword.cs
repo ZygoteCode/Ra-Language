@@ -37,6 +37,9 @@
         Goto,
         Let,
         Auto,
-        As
+        As,
+        Try,
+        Catch,
+        Finally
     }
 }

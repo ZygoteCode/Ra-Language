@@ -779,6 +779,9 @@ namespace RaLanguage.Lexer
                 case "let": return Keyword.Let;
                 case "auto": return Keyword.Auto;
                 case "as": return Keyword.As;
+                case "try": return Keyword.Try;
+                case "catch": return Keyword.Catch;
+                case "finally": return Keyword.Finally;
                 default: return null;
             }
         }

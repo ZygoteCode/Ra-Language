@@ -68,6 +68,7 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.Label] = (node, ctx) => VisitLabelNode((LabelNode)node, ctx);
             _visitors[(int)AstNodeType.Goto] = (node, ctx) => VisitGotoNode((GotoNode)node, ctx);
             _visitors[(int)AstNodeType.Cast] = (node, ctx) => VisitCastNode((CastNode)node, ctx);
+            _visitors[(int)AstNodeType.Try] = (node, ctx) => VisitTryNode((TryNode)node, ctx);
         }
 
         public RuntimeResult Visit(AstNode node, Context context)
@@ -78,10 +79,92 @@ namespace RaLanguage.Interpreter
             return _visitors[index](node, context);
         }
 
+        private RuntimeResult VisitTryNode(TryNode node, Context context)
+        {
+            var res = new RuntimeResult();
+            var tryRes = Visit(node.TryBody, context);
+
+            if (tryRes.Error == null)
+            {
+                if (node.FinallyBody != null)
+                {
+                    var finallyRes = Visit(node.FinallyBody, context);
+                    if (finallyRes.Error != null) return res.Failure(finallyRes.Error);
+                    if (finallyRes.FuncReturnValue != null) return res.SuccessReturn(finallyRes.FuncReturnValue);
+                    if (finallyRes.LoopShouldContinue) return res.SuccessContinue();
+                    if (finallyRes.LoopShouldBreak) return res.SuccessBreak();
+                }
+
+                if (tryRes.FuncReturnValue != null) return res.SuccessReturn(tryRes.FuncReturnValue);
+                if (tryRes.LoopShouldContinue) return res.SuccessContinue();
+                if (tryRes.LoopShouldBreak) return res.SuccessBreak();
+
+                return res.Success(tryRes.Value);
+            }
+
+            var originalError = tryRes.Error;
+
+            if (node.CatchBody != null)
+            {
+                var catchCtx = context.Copy();
+                string errMsg = originalError.ToString();
+                var errVal = new StringValue(errMsg).SetContext(catchCtx).SetPos(node.PositionStart, node.PositionEnd);
+
+                if (node.CatchVarTok != null)
+                {
+                    catchCtx.SymbolTable.Set(node.CatchVarTok.Value.ToString(), errVal);
+                }
+
+                var catchRes = Visit(node.CatchBody, catchCtx);
+
+                if (catchRes.Error != null)
+                {
+                    if (node.FinallyBody != null)
+                    {
+                        var finallyRes2 = Visit(node.FinallyBody, context);
+                        if (finallyRes2.Error != null) return res.Failure(finallyRes2.Error);
+                        if (finallyRes2.FuncReturnValue != null) return res.SuccessReturn(finallyRes2.FuncReturnValue);
+                        if (finallyRes2.LoopShouldContinue) return res.SuccessContinue();
+                        if (finallyRes2.LoopShouldBreak) return res.SuccessBreak();
+                    }
+                    return res.Failure(catchRes.Error);
+                }
+
+                if (node.FinallyBody != null)
+                {
+                    var finallyRes3 = Visit(node.FinallyBody, context);
+                    if (finallyRes3.Error != null) return res.Failure(finallyRes3.Error);
+                    if (finallyRes3.FuncReturnValue != null) return res.SuccessReturn(finallyRes3.FuncReturnValue);
+                    if (finallyRes3.LoopShouldContinue) return res.SuccessContinue();
+                    if (finallyRes3.LoopShouldBreak) return res.SuccessBreak();
+                }
+
+                if (catchRes.FuncReturnValue != null) return res.SuccessReturn(catchRes.FuncReturnValue);
+                if (catchRes.LoopShouldContinue) return res.SuccessContinue();
+                if (catchRes.LoopShouldBreak) return res.SuccessBreak();
+
+                return res.Success(catchRes.Value);
+            }
+            else
+            {
+                if (node.FinallyBody != null)
+                {
+                    var finallyRes4 = Visit(node.FinallyBody, context);
+                    if (finallyRes4.Error != null) return res.Failure(finallyRes4.Error);
+                    if (finallyRes4.FuncReturnValue != null) return res.SuccessReturn(finallyRes4.FuncReturnValue);
+                    if (finallyRes4.LoopShouldContinue) return res.SuccessContinue();
+                    if (finallyRes4.LoopShouldBreak) return res.SuccessBreak();
+                }
+
+                return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+            }
+        }
+
         private RuntimeResult VisitCastNode(CastNode node, Context context)
         {
             var res = new RuntimeResult();
             var val = res.Register(Visit(node.Expression, context));
+            if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
 
             if (val == null) return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast null value", context));
@@ -133,7 +216,6 @@ namespace RaLanguage.Interpreter
             if (alreadyExists) _labels.RemoveAt(index);
             _labels.Add((varName, node.Statements));
             res.Register(Visit(node.Statements, context));
-
             if (res.Error != null) return res;
             return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
@@ -146,6 +228,7 @@ namespace RaLanguage.Interpreter
             foreach (var elementNode in node.ElementNodes)
             {
                 var val = res.Register(Visit(elementNode, context));
+                if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
                 elements.Add(val);
             }
@@ -354,10 +437,12 @@ namespace RaLanguage.Interpreter
             foreach (var (keyNode, valueNode) in node.Pairs)
             {
                 var keyVal = res.Register(Visit(keyNode, context));
+                if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
 
                 keyVal.SetContext(context).SetPos(keyNode.PositionStart, keyNode.PositionEnd);
                 var valueVal = res.Register(Visit(valueNode, context));
+                if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
 
                 valueVal.SetContext(context).SetPos(valueNode.PositionStart, valueNode.PositionEnd);
@@ -374,6 +459,7 @@ namespace RaLanguage.Interpreter
             var res = new RuntimeResult();
 
             var condVal = res.Register(Visit(node.Condition, context));
+            if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
 
             bool condIsTrue;
@@ -385,12 +471,14 @@ namespace RaLanguage.Interpreter
             if (condIsTrue)
             {
                 var trueVal = res.Register(Visit(node.TrueExpression, context));
+                if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
                 return res.Success(trueVal);
             }
             else
             {
                 var falseVal = res.Register(Visit(node.FalseExpression, context));
+                if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
                 return res.Success(falseVal);
             }
@@ -525,6 +613,7 @@ namespace RaLanguage.Interpreter
                 newContext.SymbolTable.Set(varName, runtimeValue);
                 Context actualContext = newContext.Copy();
                 var value = res.Register(Visit(node.BodyNode, actualContext));
+                if (res.Error != null) return res;
                 context.ApplyChangesFrom(actualContext);
 
                 if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak) return res;
@@ -553,12 +642,15 @@ namespace RaLanguage.Interpreter
 
             ListAccessNode listAccessNode = (ListAccessNode)node.Target;
             var targetList = res.Register(Visit(listAccessNode.Target, context));
+            if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
 
             var indexValue = res.Register(Visit(listAccessNode.Index, context));
+            if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
 
             var valueToAssign = res.Register(Visit(node.Value, context));
+            if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
 
             RuntimeValue finalValue = valueToAssign;
@@ -608,6 +700,7 @@ namespace RaLanguage.Interpreter
             foreach (var elementNode in node.ElementNodes)
             {
                 var val = res.Register(Visit(elementNode, context));
+                if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
 
                 bool exists = false;
@@ -706,6 +799,7 @@ namespace RaLanguage.Interpreter
             while (true)
             {
                 var condition = res.Register(Visit(node.ConditionNode, newContext));
+                if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
 
                 if (!firstTime && !condition.IsTrue()) break;
@@ -713,6 +807,7 @@ namespace RaLanguage.Interpreter
 
                 Context iterationContext = newContext.Copy();
                 var value = res.Register(Visit(node.BodyNode, iterationContext));
+                if (res.Error != null) return res;
                 newContext.ApplyChangesFrom(iterationContext);
                 context.ApplyChangesFrom(newContext);
 
@@ -754,6 +849,7 @@ namespace RaLanguage.Interpreter
                 else
                 {
                     var val = res.Register(Visit(part, context));
+                    if (res.Error != null) return res;
                     if (res.ShouldReturn()) return res;
 
                     if (val.Type == RuntimeValueType.String)
@@ -783,6 +879,7 @@ namespace RaLanguage.Interpreter
                     {
                         SpreadNode spread = (SpreadNode)elementNode;
                         var val = res.Register(Visit(spread.Expression, newContext));
+                        if (res.Error != null) return res;
                         if (res.ShouldReturn()) return res;
 
                         if (val.Type != RuntimeValueType.List)
@@ -800,6 +897,7 @@ namespace RaLanguage.Interpreter
                     else
                     {
                         var val = res.Register(Visit(elementNode, newContext));
+                        if (res.Error != null) return res;
                         if (res.ShouldReturn()) return res;
                         elements.Add(val);
                     }
@@ -815,6 +913,7 @@ namespace RaLanguage.Interpreter
                     {
                         SpreadNode spread = (SpreadNode)elementNode;
                         var val = res.Register(Visit(spread.Expression, context));
+                        if (res.Error != null) return res;
                         if (res.ShouldReturn()) return res;
 
                         if (val.Type != RuntimeValueType.List)
@@ -832,6 +931,7 @@ namespace RaLanguage.Interpreter
                     else
                     {
                         var val = res.Register(Visit(elementNode, context));
+                        if (res.Error != null) return res;
                         if (res.ShouldReturn()) return res;
                         elements.Add(val);
                     }
@@ -902,6 +1002,7 @@ namespace RaLanguage.Interpreter
                 if (declaration.Item2 != null)
                 {
                     value = res.Register(Visit(declaration.Item2, context));
+                    if (res.Error != null) return res;
                     if (res.ShouldReturn()) continue;
                 }
 
@@ -976,6 +1077,7 @@ namespace RaLanguage.Interpreter
             else
             {
                 value = res.Register(Visit(node.ValueNode, context));
+                if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
             }
 
@@ -1039,8 +1141,11 @@ namespace RaLanguage.Interpreter
         {
             var res = new RuntimeResult();
             var left = res.Register(Visit(node.LeftNode, context));
+            if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
+
             var right = res.Register(Visit(node.RightNode, context));
+            if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
 
             (RuntimeValue? result, Error? error) = (null, null);
@@ -1083,6 +1188,7 @@ namespace RaLanguage.Interpreter
         {
             var res = new RuntimeResult();
             var value = res.Register(Visit(node.Node, context));
+            if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
 
             Error? error = null;
@@ -1140,6 +1246,7 @@ namespace RaLanguage.Interpreter
             {
                 Context caseContext = newContext.Copy();
                 var conditionValue = res.Register(Visit(condition, caseContext));
+                if (res.Error != null) return res;
 
                 if (res.ShouldReturn())
                 {
@@ -1151,6 +1258,7 @@ namespace RaLanguage.Interpreter
                 {
                     Context realCaseContext = caseContext.Copy();
                     var exprValue = res.Register(Visit(expr, realCaseContext));
+                    if (res.Error != null) return res;
                     context.ApplyChangesFrom(realCaseContext);
 
                     if (res.ShouldReturn()) return res;
@@ -1167,6 +1275,7 @@ namespace RaLanguage.Interpreter
                 Context elseCaseContext = newContext.Copy();
                 var (expr, shouldReturnNull) = node.ElseCase.Value;
                 var exprValue = res.Register(Visit(expr, elseCaseContext));
+                if (res.Error != null) return res;
                 context.ApplyChangesFrom(elseCaseContext);
                 if (res.ShouldReturn()) return res;
                 return res.Success(shouldReturnNull ? new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd) : exprValue);
@@ -1181,10 +1290,12 @@ namespace RaLanguage.Interpreter
             var elements = new List<RuntimeValue>();
             var initializationContext = context.Copy();
             var startValue = res.Register(Visit(node.StartValueNode, initializationContext));
+            if (res.Error != null) return res;
             context.ApplyChangesFrom(initializationContext);
             if (res.ShouldReturn()) return res;
 
             var endValue = res.Register(Visit(node.EndValueNode, initializationContext));
+            if (res.Error != null) return res;
             context.ApplyChangesFrom(initializationContext);
             if (res.ShouldReturn()) return res;
 
@@ -1193,6 +1304,7 @@ namespace RaLanguage.Interpreter
             if (node.StepValueNode != null)
             {
                 stepValue = res.Register(Visit(node.StepValueNode, initializationContext));
+                if (res.Error != null) return res;
                 context.ApplyChangesFrom(initializationContext);
                 if (res.ShouldReturn()) return res;
             }
@@ -1214,6 +1326,7 @@ namespace RaLanguage.Interpreter
                 i += step;
                 Context actualContext = newContext.Copy();
                 var value = res.Register(Visit(node.BodyNode, actualContext));
+                if (res.Error != null) return res;
                 context.ApplyChangesFrom(actualContext);
 
                 if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak) return res;
@@ -1237,11 +1350,13 @@ namespace RaLanguage.Interpreter
             while (true)
             {
                 var condition = res.Register(Visit(node.ConditionNode, newContext));
+                if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
                 if (!condition.IsTrue()) break;
 
                 Context actualContext = newContext.Copy();
                 var value = res.Register(Visit(node.BodyNode, actualContext));
+                if (res.Error != null) return res;
                 context.ApplyChangesFrom(actualContext);
 
                 if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak) return res;
@@ -1300,6 +1415,7 @@ namespace RaLanguage.Interpreter
             foreach (var argNode in node.ArgNodes)
             {
                 var evaluated = res.Register(Visit(argNode.Expr, context));
+                if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
 
                 if (argNode.NameTok != null)
@@ -1349,6 +1465,7 @@ namespace RaLanguage.Interpreter
                 else
                 {
                     value = res.Register(Visit(node.NodeToReturn, context));
+                    if (res.Error != null) return res;
                     if (res.ShouldReturn()) return res;
                 }
             }

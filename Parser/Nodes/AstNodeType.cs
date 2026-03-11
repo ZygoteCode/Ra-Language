@@ -43,6 +43,7 @@
         Label,
         Goto,
         Cast,
-        Argument
+        Argument,
+        Try
     }
 }
