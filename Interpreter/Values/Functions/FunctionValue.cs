@@ -17,6 +17,7 @@ namespace RaLanguage.Interpreter.Values.Functions
         public TypeDescriptor? VarArgType { get; }
         public TypeDescriptor? ReturnType { get; }
         public bool ShouldAutoReturn { get; }
+        public List<string> GenericTypeParams { get; } = new List<string>();
         public override RuntimeValueType Type => RuntimeValueType.Function;
 
         public FunctionValue(
@@ -29,7 +30,8 @@ namespace RaLanguage.Interpreter.Values.Functions
             Token? varArgNameTok,
             TypeDescriptor? varArgType,
             TypeDescriptor? returnType,
-            bool shouldAutoReturn
+            bool shouldAutoReturn,
+            List<string>? genericTypeParams = null
         ) : base(name)
         {
             BodyNode = bodyNode;
@@ -41,18 +43,92 @@ namespace RaLanguage.Interpreter.Values.Functions
             VarArgType = varArgType;
             ReturnType = returnType;
             ShouldAutoReturn = shouldAutoReturn;
+            if (genericTypeParams != null) GenericTypeParams = new List<string>(genericTypeParams);
         }
 
         public override RuntimeResult Execute(List<RuntimeValue> args)
         {
-            return ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(System.StringComparer.Ordinal));
+            return ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
         }
 
-        public override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
+        public override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs)
         {
             var res = new RuntimeResult();
+            var bindings = new Dictionary<string, TypeDescriptor>(StringComparer.Ordinal);
 
-            var (execCtx, err) = PrepareExecutionContextForCall(positionalArgs, namedArgs, ArgNames, ArgTypes, ParamDefaults, HasVarArgs, VarArgNameTok, VarArgType);
+            if (explicitTypeArgs != null && explicitTypeArgs.Count > 0)
+            {
+                if (explicitTypeArgs.Count != GenericTypeParams.Count)
+                    return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Wrong number of type arguments for function '{Name}'", Context));
+
+                for (int i = 0; i < GenericTypeParams.Count; i++)
+                {
+                    var gname = GenericTypeParams[i];
+                    var td = explicitTypeArgs[i] ?? new TypeDescriptor("any");
+                    bindings[gname] = td;
+                }
+            }
+            else
+            {
+                try
+                {
+                    var formalTypesForInference = new List<TypeDescriptor>();
+                    for (int i = 0; i < ArgNames.Count; i++)
+                    {
+                        TypeDescriptor? ft = (i < ArgTypes.Count) ? ArgTypes[i] : null;
+                        if (ft == null) ft = new TypeDescriptor("any");
+                        formalTypesForInference.Add(ft);
+                    }
+
+                    var inferred = TypeSystem.InferBindingsFromArgs(formalTypesForInference, positionalArgs);
+                    if (inferred != null)
+                    {
+                        foreach (var kv in inferred) bindings[kv.Key] = kv.Value;
+                    }
+
+                    if (namedArgs != null && namedArgs.Count > 0)
+                    {
+                        foreach (var kv in namedArgs)
+                        {
+                            var name = kv.Key;
+                            var val = kv.Value;
+                            int idx = ArgNames.IndexOf(name);
+                            if (idx >= 0 && idx < ArgTypes.Count && ArgTypes[idx] != null)
+                            {
+                                var formal = ArgTypes[idx];
+                                var actualDesc = TypeSystem.GetDescriptorFromRuntimeValue(val);
+                                var sub = TypeSystem.UnifyGenericParameters(formal, actualDesc, new Dictionary<string, TypeDescriptor>(bindings));
+                                if (sub != null)
+                                {
+                                    foreach (var b in sub) bindings[b.Key] = b.Value;
+                                }
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+
+                }
+            }
+
+            List<TypeDescriptor?> instantiatedArgTypes = null;
+            TypeDescriptor? instantiatedVarArgType = null;
+            TypeDescriptor? instantiatedReturnType = null;
+            try
+            {
+                instantiatedArgTypes = ArgTypes?.Select(t => t == null ? null : t.SubstituteBindings(bindings)).ToList();
+                instantiatedVarArgType = VarArgType == null ? null : VarArgType.SubstituteBindings(bindings);
+                instantiatedReturnType = ReturnType == null ? null : ReturnType.SubstituteBindings(bindings);
+            }
+            catch
+            {
+                instantiatedArgTypes = ArgTypes;
+                instantiatedVarArgType = VarArgType;
+                instantiatedReturnType = ReturnType;
+            }
+
+            var (execCtx, err) = PrepareExecutionContextForCall(positionalArgs, namedArgs, ArgNames, instantiatedArgTypes, ParamDefaults, HasVarArgs, VarArgNameTok, instantiatedVarArgType);
             if (err != null)
             {
                 return res.Failure(err);
@@ -65,10 +141,10 @@ namespace RaLanguage.Interpreter.Values.Functions
             if (bodyRes.FuncReturnValue != null)
             {
                 var retVal = bodyRes.FuncReturnValue;
-                if (ReturnType != null && !(ReturnType.IsBuiltIn && ReturnType.BuiltIn == BuiltInType.Any))
+                if (instantiatedReturnType != null && !instantiatedReturnType.IsTypeParameter())
                 {
-                    if (!TypeSystem.IsAssignable(ReturnType, retVal))
-                        return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Return type mismatch in function '{Name}': expected '{ReturnType}', got '{retVal.Type}'", Context));
+                    if (!TypeSystem.IsAssignable(instantiatedReturnType, retVal))
+                        return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Return type mismatch in function '{Name}': expected '{instantiatedReturnType}', got '{retVal.Type}'", Context));
                 }
                 return res.Success(retVal.SetContext(Context).SetPos(PositionStart, PositionEnd));
             }
@@ -76,10 +152,10 @@ namespace RaLanguage.Interpreter.Values.Functions
             var value = bodyRes.Value ?? new NullValue().SetContext(Context).SetPos(PositionStart, PositionEnd);
             var retValue = (ShouldAutoReturn ? value : null) ?? value;
 
-            if (ReturnType != null && !(ReturnType.IsBuiltIn && ReturnType.BuiltIn == BuiltInType.Any))
+            if (instantiatedReturnType != null && !instantiatedReturnType.IsTypeParameter())
             {
-                if (!TypeSystem.IsAssignable(ReturnType, retValue))
-                    return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Return type mismatch in function '{Name}': expected '{ReturnType}', got '{retValue.Type}'", Context));
+                if (!TypeSystem.IsAssignable(instantiatedReturnType, retValue))
+                    return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Return type mismatch in function '{Name}': expected '{instantiatedReturnType}', got '{retValue.Type}'", Context));
             }
 
             return res.Success(retValue.SetContext(Context).SetPos(PositionStart, PositionEnd));
@@ -87,7 +163,19 @@ namespace RaLanguage.Interpreter.Values.Functions
 
         public override RuntimeValue Copy()
         {
-            return new FunctionValue(Name, BodyNode, ArgNames, ArgTypes, ParamDefaults, HasVarArgs, VarArgNameTok, VarArgType, ReturnType, ShouldAutoReturn).SetContext(Context).SetPos(PositionStart, PositionEnd);
+            return new FunctionValue(
+                Name,
+                BodyNode,
+                new List<string>(ArgNames),
+                ArgTypes == null ? null : new List<TypeDescriptor?>(ArgTypes),
+                ParamDefaults == null ? null : new List<AstNode?>(ParamDefaults),
+                HasVarArgs,
+                VarArgNameTok,
+                VarArgType,
+                ReturnType,
+                ShouldAutoReturn,
+                new List<string>(GenericTypeParams)
+            ).SetContext(Context).SetPos(PositionStart, PositionEnd);
         }
 
         public override string ToString() => $"<function {Name}>";

@@ -1,0 +1,32 @@
+var nums: list<number> = [1,2,3];
+var anyList: list = [1, "s"]; // allowed if no generic arg provided
+
+fn first<T>(l: list<T>): T {
+    ret l[0];
+}
+
+var one = first(nums); // inferred T:number
+print(one);
+print(nums);
+
+fn makePair<T,U>(a: T, b: U): tuple<T, U> {
+    ret (a, b,);
+}
+
+var p: tuple<number, string> = makePair(1, "ok");
+print(p);
+
+fn id<T>(x: T): T {
+    ret x;
+}
+
+fn toString<T>(x: T): string {
+    ret x as string;
+}
+
+var s = toString<number>(123); // explicit T=number
+print(s);
+
+var a: number = 5;
+var b: string = id(a); // error - inferred T = number, return type number => cannot assign to string
+var n = id(7); // n type number

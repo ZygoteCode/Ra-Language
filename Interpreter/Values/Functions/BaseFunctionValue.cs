@@ -49,6 +49,11 @@ namespace RaLanguage.Interpreter.Values.Functions
 
         public virtual RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
         {
+            return ExecuteWithNamedArgs(positionalArgs, namedArgs, null);
+        }
+
+        public virtual RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs)
+        {
             return Execute(positionalArgs);
         }
 
@@ -166,8 +171,10 @@ namespace RaLanguage.Interpreter.Values.Functions
                 for (int i = 0; i < formalNames.Count; i++)
                 {
                     var expected = i < argTypes.Count ? argTypes[i] : null;
-                    if (expected != null && !(expected.IsBuiltIn && expected.BuiltIn == BuiltInType.Any))
+                    if (expected != null)
                     {
+                        if (expected.IsTypeParameter()) continue;
+
                         var actual = finalAssigned[formalNames[i]];
                         if (!TypeSystem.IsAssignable(expected, actual))
                         {
@@ -181,14 +188,17 @@ namespace RaLanguage.Interpreter.Values.Functions
             {
                 var listVal = new ListValue(extras).SetContext(execCtx).SetPos(PositionStart, PositionEnd);
 
-                if (varArgType != null && !(varArgType.IsBuiltIn && varArgType.BuiltIn == BuiltInType.Any))
+                if (varArgType != null)
                 {
-                    foreach (var e in extras)
+                    if (!varArgType.IsTypeParameter())
                     {
-                        if (!TypeSystem.IsAssignable(varArgType, e))
+                        foreach (var e in extras)
                         {
-                            string vname = varArgNameTok?.Value?.ToString() ?? "<vararg>";
-                            return (null, new RuntimeError(PositionStart, PositionEnd, $"Type mismatch for variadic argument '{vname}': expected '{varArgType}', got '{e.Type}'", Context));
+                            if (!TypeSystem.IsAssignable(varArgType, e))
+                            {
+                                string vname = varArgNameTok?.Value?.ToString() ?? "<vararg>";
+                                return (null, new RuntimeError(PositionStart, PositionEnd, $"Type mismatch for variadic argument '{vname}': expected '{varArgType}', got '{e.Type}'", Context));
+                            }
                         }
                     }
                 }
@@ -229,9 +239,9 @@ namespace RaLanguage.Interpreter.Values.Functions
                 for (int i = 0; i < argNames.Count; i++)
                 {
                     var expected = (i < argTypes.Count) ? argTypes[i] : null;
-                    if (expected != null && !(expected.IsBuiltIn && expected.BuiltIn == BuiltInType.Any))
+                    if (expected != null)
                     {
-                        if (!TypeSystem.IsAssignable(expected, args[i]))
+                        if (!expected.IsTypeParameter() && !TypeSystem.IsAssignable(expected, args[i]))
                         {
                             return res.Failure(new RuntimeError(PositionStart, PositionEnd,
                                 $"Type mismatch for argument '{argNames[i]}': expected '{expected}', got '{args[i].Type}'", Context));
@@ -239,7 +249,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                     }
                 }
 
-                if (hasVarArgs && varArgType != null && !(varArgType.IsBuiltIn && varArgType.BuiltIn == BuiltInType.Any))
+                if (hasVarArgs && varArgType != null && !varArgType.IsTypeParameter())
                 {
                     for (int i = argNames.Count; i < args.Count; i++)
                     {
@@ -279,6 +289,40 @@ namespace RaLanguage.Interpreter.Values.Functions
             }
 
             return res.Success(null);
+        }
+    }
+
+    internal static class TypeDescriptorExtensions
+    {
+        public static bool IsTypeParameter(this TypeDescriptor? td)
+        {
+            if (td == null) return false;
+            try
+            {
+                var prop = td.GetType().GetProperty("IsTypeParameter");
+                if (prop != null) return (bool)prop.GetValue(td);
+            }
+            catch { }
+            return !string.IsNullOrEmpty(td.Name) && char.IsUpper(td.Name[0]) && td.GenericArgs.Count == 0;
+        }
+
+        public static TypeDescriptor SubstituteBindings(this TypeDescriptor? td, Dictionary<string, TypeDescriptor> bindings)
+        {
+            if (td == null) return null;
+            try
+            {
+                var method = td.GetType().GetMethod("Substitute");
+                if (method != null)
+                {
+                    var result = method.Invoke(td, new object[] { bindings });
+                    return (TypeDescriptor)result;
+                }
+            }
+            catch { }
+            if (td.IsTypeParameter() && bindings.TryGetValue(td.Name, out var bound)) return bound;
+            if (td.GenericArgs == null || td.GenericArgs.Count == 0) return td;
+            var newArgs = td.GenericArgs.Select(a => a.SubstituteBindings(bindings)).ToList();
+            return new TypeDescriptor(td.Name, newArgs);
         }
     }
 }

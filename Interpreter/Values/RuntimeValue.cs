@@ -178,7 +178,58 @@ namespace RaLanguage.Interpreter.Values
 
         public virtual (RuntimeValue?, Error?) CastTo(TypeDescriptor targetType)
         {
-            if (targetType != null && targetType.IsBuiltIn && targetType.BuiltIn == BuiltInType.String) return (new StringValue(ToString()).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            if (targetType == null)
+            {
+                return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast to null type", Context));
+            }
+
+            if (targetType.IsTypeParameter)
+            {
+                return (Copy().SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            var targetName = targetType.Name?.ToString() ?? "";
+
+            if (string.Equals(targetName, "string", StringComparison.OrdinalIgnoreCase))
+            {
+                return (new StringValue(ToString()).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            if (string.Equals(targetName, "boolean", StringComparison.OrdinalIgnoreCase) || string.Equals(targetName, "bool", StringComparison.OrdinalIgnoreCase))
+            {
+                return (new BooleanValue(IsTrue()).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            if (string.Equals(targetName, "number", StringComparison.OrdinalIgnoreCase))
+            {
+                if (Type == RuntimeValueType.Number)
+                {
+                    return (Copy().SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.String)
+                {
+                    var s = (StringValue)this;
+                    try
+                    {
+                        var n = BigNumber.Parse(s.Value);
+                        return (new NumberValue(n).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                    }
+                    catch
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast string '{s.Value}' to number", Context));
+                    }
+                }
+
+                if (Type == RuntimeValueType.Boolean)
+                {
+                    var b = (BooleanValue)this;
+                    return (new NumberValue(b.Value ? BigNumber.One : BigNumber.Zero).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'number'", Context));
+            }
+
             return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to '{targetType}'", Context));
         }
 

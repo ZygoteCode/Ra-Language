@@ -15,6 +15,7 @@ namespace RaLanguage.Parser.Nodes.Functions
         public TypeDescriptor? ReturnType { get; }
         public AstNode BodyNode { get; }
         public bool ShouldAutoReturn { get; }
+        public List<string> GenericTypeParams { get; }
 
         public FunctionDefinitionNode(
             Token? varNameTok,
@@ -26,7 +27,8 @@ namespace RaLanguage.Parser.Nodes.Functions
             TypeDescriptor? varArgType,
             TypeDescriptor? returnType,
             AstNode bodyNode,
-            bool shouldAutoReturn
+            bool shouldAutoReturn,
+            List<string>? genericTypeParams = null
         ) : base(AstNodeType.FunctionDefinition)
         {
             VarNameTok = varNameTok;
@@ -39,9 +41,10 @@ namespace RaLanguage.Parser.Nodes.Functions
             ReturnType = returnType;
             BodyNode = bodyNode;
             ShouldAutoReturn = shouldAutoReturn;
+            GenericTypeParams = genericTypeParams ?? new List<string>();
 
             if (varNameTok != null) PositionStart = varNameTok.PositionStart;
-            else if (argNameToks.Count > 0) PositionStart = argNameToks[0].PositionStart;
+            else if (ArgNameToks.Count > 0) PositionStart = ArgNameToks[0].PositionStart;
             else PositionStart = bodyNode.PositionStart;
 
             PositionEnd = bodyNode.PositionEnd;

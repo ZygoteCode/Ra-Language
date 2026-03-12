@@ -1008,22 +1008,8 @@ namespace RaLanguage.Interpreter
 
                 if (declaredType != null)
                 {
-                    if (declaredType.IsBuiltIn && declaredType.BuiltIn == BuiltInType.Any)
-                    {
-                        if (declaration.Item2 == null)
-                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "'auto' requires an initializer to infer type", context));
-
-                        var inferred = TypeDescriptor.FromRuntimeValue(value);
-                        declaredType = inferred;
-                    }
-                    else
-                    {
-                        if (declaration.Item2 != null)
-                        {
-                            if (!TypeSystem.IsAssignable(declaredType, value))
-                                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Type mismatch: cannot initialize variable '{varName}' of type '{declaredType}' with value of type '{value.Type}'", context));
-                        }
-                    }
+                    if (!TypeSystem.IsAssignable(declaredType, value))
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Type mismatch: cannot assign value of type '{value.Type}' to '{declaredType}'", context));
                 }
 
                 bool isLetFlag = node.DeclarationType == VariableDeclarationType.LET;
@@ -1404,49 +1390,80 @@ namespace RaLanguage.Interpreter
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Function calls are blocked in this context", context));
             }
 
-            var valueToCallRes = Visit(node.NodeToCall, context);
-            var valRes = valueToCallRes;
-            var valueToCall = res.Register(valueToCallRes);
+            var calleeVal = res.Register(Visit(node.NodeToCall, context));
+            if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
+            if (calleeVal == null)
+            {
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Attempted to call a null value", context));
+            }
 
             var positionalArgs = new List<RuntimeValue>();
             var namedArgs = new Dictionary<string, RuntimeValue>(StringComparer.Ordinal);
 
-            foreach (var argNode in node.ArgNodes)
+            if (node.ArgNodes != null)
             {
-                var evaluated = res.Register(Visit(argNode.Expr, context));
+                foreach (var argNode in node.ArgNodes)
+                {
+                    var evaluated = res.Register(Visit(argNode.Expr, context));
+                    if (res.Error != null) return res;
+                    if (res.ShouldReturn()) return res;
+
+                    if (argNode.NameTok != null)
+                    {
+                        string name = argNode.NameTok.Value?.ToString() ?? "";
+                        if (namedArgs.ContainsKey(name))
+                        {
+                            return res.Failure(new RuntimeError(argNode.PositionStart, argNode.PositionEnd, $"Duplicate named argument '{name}'", context));
+                        }
+                        namedArgs[name] = evaluated;
+                    }
+                    else
+                    {
+                        positionalArgs.Add(evaluated);
+                    }
+                }
+            }
+
+            if (calleeVal.Type == RuntimeValueType.BaseFunction || calleeVal.Type == RuntimeValueType.Function)
+            {
+                var func = (BaseFunctionValue)calleeVal;
+                RuntimeValue? callResult = null;
+                var fnExecRes = func.ExecuteWithNamedArgs(positionalArgs, namedArgs);
+                var fnReturn = res.Register(fnExecRes);
                 if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
 
-                if (argNode.NameTok != null)
+                if (fnReturn == null)
                 {
-                    string name = argNode.NameTok.Value?.ToString() ?? "";
-                    if (namedArgs.ContainsKey(name))
-                        return res.Failure(new RuntimeError(argNode.PositionStart, argNode.PositionEnd, $"Duplicate named argument '{name}'", context));
-                    namedArgs[name] = evaluated;
+                    callResult = new NullValue()
+                        .SetContext(context)
+                        .SetPos(node.PositionStart, node.PositionEnd);
                 }
                 else
                 {
-                    positionalArgs.Add(evaluated);
+                    callResult = fnReturn;
                 }
+
+                var outVal = callResult.Copy().SetPos(node.PositionStart, node.PositionEnd).SetContext(context);
+                return res.Success(outVal);
             }
 
-            if (valueToCall.Type == RuntimeValueType.BaseFunction || valueToCall.Type == RuntimeValueType.Function)
+            var execRes = calleeVal.Execute(positionalArgs);
+            var execReturn = res.Register(execRes);
+            if (res.Error != null) return res;
+            if (res.ShouldReturn()) return res;
+
+            if (execReturn == null)
             {
-                BaseFunctionValue func = (BaseFunctionValue)valueToCall;
-                var ret = res.Register(func.ExecuteWithNamedArgs(positionalArgs, namedArgs));
-                if (res.ShouldReturn()) return res;
-
-                var returnValue = ret.Copy().SetPos(node.PositionStart, node.PositionEnd).SetContext(context);
-                return res.Success(returnValue);
+                var nullVal = new NullValue()
+                    .SetContext(context)
+                    .SetPos(node.PositionStart, node.PositionEnd);
+                return res.Success(nullVal);
             }
 
-            {
-                var returnValue = res.Register(valueToCall.Execute(positionalArgs));
-                if (res.ShouldReturn()) return res;
-                returnValue = returnValue.Copy().SetPos(node.PositionStart, node.PositionEnd).SetContext(context);
-                return res.Success(returnValue);
-            }
+            var finalVal = execReturn.Copy().SetPos(node.PositionStart, node.PositionEnd).SetContext(context);
+            return res.Success(finalVal);
         }
 
         private RuntimeResult VisitReturnNode(ReturnNode node, Context context)
