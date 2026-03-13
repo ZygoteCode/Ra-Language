@@ -1,5 +1,5 @@
-﻿using System.Globalization;
-using System.Numerics;
+﻿using System;
+using System.Globalization;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Types;
@@ -8,27 +8,36 @@ namespace RaLanguage.Interpreter.Values.Primitives
 {
     public class IntegerValue : RuntimeValue
     {
-        public BigInteger Value { get; }
+        public int Value { get; }
+
         public override RuntimeValueType Type => RuntimeValueType.Integer;
         public override bool IsCopy => true;
 
-        public IntegerValue(BigInteger value)
+        public IntegerValue(int value)
         {
             Value = value;
         }
 
-        public static IntegerValue FromBigInteger(BigInteger value) => new IntegerValue(value);
+        public static IntegerValue FromBigInteger(System.Numerics.BigInteger value)
+        {
+            if (value < int.MinValue || value > int.MaxValue)
+            {
+                throw new OverflowException("Integer literal out of int range");
+            }
+
+            return new IntegerValue((int)value);
+        }
 
         public static IntegerValue FromLiteral(string literal)
         {
-            return new IntegerValue(ParseLiteralToBigInteger(literal));
+            return new IntegerValue(ParseLiteralToInt(literal));
         }
 
         public static IntegerValue? TryParseLiteral(string literal)
         {
             try
             {
-                return new IntegerValue(ParseLiteralToBigInteger(literal));
+                return new IntegerValue(ParseLiteralToInt(literal));
             }
             catch
             {
@@ -36,56 +45,67 @@ namespace RaLanguage.Interpreter.Values.Primitives
             }
         }
 
-        private static BigInteger ParseLiteralToBigInteger(string literal)
+        private static int ParseLiteralToInt(string literal)
         {
             var s = (literal ?? "0").Replace("_", "").Trim();
 
             if (s.StartsWith("-"))
             {
-                return BigInteger.Negate(ParseLiteralToBigInteger(s[1..]));
+                checked
+                {
+                    return -ParseLiteralToInt(s.Substring(1));
+                }
             }
 
             if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
             {
-                return ParseBase(s[2..], 16);
+                return ParseWithBase(s.Substring(2), 16);
             }
 
             if (s.StartsWith("0b", StringComparison.OrdinalIgnoreCase))
             {
-                return ParseBase(s[2..], 2);
+                return ParseWithBase(s.Substring(2), 2);
             }
 
             if (s.StartsWith("0o", StringComparison.OrdinalIgnoreCase))
             {
-                return ParseBase(s[2..], 8);
+                return ParseWithBase(s.Substring(2), 8);
             }
 
-            return BigInteger.Parse(s, CultureInfo.InvariantCulture);
+            return int.Parse(s, NumberStyles.Integer, CultureInfo.InvariantCulture);
         }
 
-        private static BigInteger ParseBase(string digits, int numberBase)
+        private static int ParseWithBase(string digits, int numberBase)
         {
             if (string.IsNullOrWhiteSpace(digits))
-                return BigInteger.Zero;
-
-            BigInteger result = BigInteger.Zero;
-            foreach (char c in digits)
             {
-                int d = c switch
-                {
-                    >= '0' and <= '9' => c - '0',
-                    >= 'a' and <= 'f' => 10 + (c - 'a'),
-                    >= 'A' and <= 'F' => 10 + (c - 'A'),
-                    _ => -1
-                };
-
-                if (d < 0 || d >= numberBase)
-                    throw new FormatException("Invalid integer literal");
-
-                result = (result * numberBase) + d;
+                return 0;
             }
 
-            return result;
+            checked
+            {
+                int result = 0;
+
+                foreach (char c in digits)
+                {
+                    int d = c switch
+                    {
+                        >= '0' and <= '9' => c - '0',
+                        >= 'a' and <= 'f' => 10 + (c - 'a'),
+                        >= 'A' and <= 'F' => 10 + (c - 'A'),
+                        _ => -1
+                    };
+
+                    if (d < 0 || d >= numberBase)
+                    {
+                        throw new FormatException("Invalid integer literal");
+                    }
+
+                    result = (result * numberBase) + d;
+                }
+
+                return result;
+            }
         }
 
         private NumberValue PromoteToNumber()
@@ -98,12 +118,22 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Integer)
             {
                 var i = (IntegerValue)other;
-                return (new IntegerValue(Value + i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                try
+                {
+                    checked
+                    {
+                        return (new IntegerValue(Value + i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                    }
+                }
+                catch
+                {
+                    return (null, new RuntimeError(PositionStart, PositionEnd, "Integer overflow", Context));
+                }
             }
 
             if (other.Type == RuntimeValueType.Number)
             {
-                return (PromoteToNumber().AddedTo(other).Item1?.SetPos(PositionStart, PositionEnd), PromoteToNumber().AddedTo(other).Item2);
+                return PromoteToNumber().AddedTo(other);
             }
 
             return base.AddedTo(other);
@@ -114,12 +144,22 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Integer)
             {
                 var i = (IntegerValue)other;
-                return (new IntegerValue(Value - i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                try
+                {
+                    checked
+                    {
+                        return (new IntegerValue(Value - i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                    }
+                }
+                catch
+                {
+                    return (null, new RuntimeError(PositionStart, PositionEnd, "Integer overflow", Context));
+                }
             }
 
             if (other.Type == RuntimeValueType.Number)
             {
-                return (PromoteToNumber().SubbedBy(other).Item1?.SetPos(PositionStart, PositionEnd), PromoteToNumber().SubbedBy(other).Item2);
+                return PromoteToNumber().SubbedBy(other);
             }
 
             return base.SubbedBy(other);
@@ -130,12 +170,22 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Integer)
             {
                 var i = (IntegerValue)other;
-                return (new IntegerValue(Value * i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                try
+                {
+                    checked
+                    {
+                        return (new IntegerValue(Value * i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                    }
+                }
+                catch
+                {
+                    return (null, new RuntimeError(PositionStart, PositionEnd, "Integer overflow", Context));
+                }
             }
 
             if (other.Type == RuntimeValueType.Number)
             {
-                return (PromoteToNumber().MultedBy(other).Item1?.SetPos(PositionStart, PositionEnd), PromoteToNumber().MultedBy(other).Item2);
+                return PromoteToNumber().MultedBy(other);
             }
 
             return base.MultedBy(other);
@@ -146,15 +196,18 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Integer)
             {
                 var i = (IntegerValue)other;
-                if (i.Value.IsZero)
-                    return (null, new RuntimeError(i.PositionStart, i.PositionEnd, "Division by zero", Context));
+
+                if (i.Value == 0)
+                {
+                    return (null, new RuntimeError(other.PositionStart, other.PositionEnd, "Division by zero", Context));
+                }
 
                 return (new IntegerValue(Value / i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
             {
-                return (PromoteToNumber().DivedBy(other).Item1?.SetPos(PositionStart, PositionEnd), PromoteToNumber().DivedBy(other).Item2);
+                return PromoteToNumber().DivedBy(other);
             }
 
             return base.DivedBy(other);
@@ -166,18 +219,45 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 var i = (IntegerValue)other;
 
-                if (i.Value < 0 || i.Value > int.MaxValue)
+                if (i.Value < 0)
                 {
-                    return (PromoteToNumber().PowedBy(PromoteToNumber()).Item1?.SetPos(PositionStart, PositionEnd),
-                            new RuntimeError(other.PositionStart, other.PositionEnd, "Invalid integer exponent", Context));
+                    return (null, new RuntimeError(other.PositionStart, other.PositionEnd, "Negative exponent not allowed for int", Context));
                 }
 
-                return (new IntegerValue(BigInteger.Pow(Value, (int)i.Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                try
+                {
+                    checked
+                    {
+                        int result = 1;
+                        int baseVal = Value;
+                        int exp = i.Value;
+
+                        while (exp > 0)
+                        {
+                            if ((exp & 1) == 1)
+                            {
+                                result *= baseVal;
+                            }
+
+                            exp >>= 1;
+                            if (exp > 0)
+                            {
+                                baseVal *= baseVal;
+                            }
+                        }
+
+                        return (new IntegerValue(result).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                    }
+                }
+                catch
+                {
+                    return (null, new RuntimeError(PositionStart, PositionEnd, "Integer overflow", Context));
+                }
             }
 
             if (other.Type == RuntimeValueType.Number)
             {
-                return (PromoteToNumber().PowedBy(other).Item1?.SetPos(PositionStart, PositionEnd), PromoteToNumber().PowedBy(other).Item2);
+                return PromoteToNumber().PowedBy(other);
             }
 
             return base.PowedBy(other);
@@ -188,15 +268,18 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Integer)
             {
                 var i = (IntegerValue)other;
-                if (i.Value.IsZero)
-                    return (null, new RuntimeError(i.PositionStart, i.PositionEnd, "Modulo by zero", Context));
+
+                if (i.Value == 0)
+                {
+                    return (null, new RuntimeError(other.PositionStart, other.PositionEnd, "Modulo by zero", Context));
+                }
 
                 return (new IntegerValue(Value % i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
             {
-                return (PromoteToNumber().ModuledBy(other).Item1?.SetPos(PositionStart, PositionEnd), PromoteToNumber().ModuledBy(other).Item2);
+                return PromoteToNumber().ModuledBy(other);
             }
 
             return base.ModuledBy(other);
@@ -207,7 +290,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Integer)
             {
                 var i = (IntegerValue)other;
-                return (new IntegerValue(Value << (int)i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                return (new IntegerValue(Value << i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             return base.BitwiseLeftShiftedBy(other);
@@ -218,7 +301,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Integer)
             {
                 var i = (IntegerValue)other;
-                return (new IntegerValue(Value >> (int)i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                return (new IntegerValue(Value >> i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             return base.BitwiseRightShiftedBy(other);
@@ -248,7 +331,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) Notted()
         {
-            return (new IntegerValue(Value.IsZero ? BigInteger.One : BigInteger.Zero).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            return (new IntegerValue(Value == 0 ? 1 : 0).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
         }
 
         public override (RuntimeValue?, Error?) BitwiseNotted()
@@ -263,13 +346,23 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (null, new RuntimeError(PositionStart, PositionEnd, "Factorial is not defined for negative integers", Context));
             }
 
-            BigInteger factorial = BigInteger.One;
-            for (BigInteger i = BigInteger.One; i <= Value; i++)
+            try
             {
-                factorial *= i;
-            }
+                checked
+                {
+                    int factorial = 1;
+                    for (int i = 2; i <= Value; i++)
+                    {
+                        factorial *= i;
+                    }
 
-            return (new IntegerValue(factorial).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                    return (new IntegerValue(factorial).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+            }
+            catch
+            {
+                return (null, new RuntimeError(PositionStart, PositionEnd, "Integer overflow", Context));
+            }
         }
 
         public override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
@@ -403,8 +496,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             var tn = targetType?.Name?.ToString() ?? "";
 
             if (string.Equals(tn, "int", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "integer", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "i32", StringComparison.OrdinalIgnoreCase))
+                string.Equals(tn, "integer", StringComparison.OrdinalIgnoreCase))
             {
                 return (Copy().SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
@@ -422,7 +514,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (string.Equals(tn, "boolean", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(tn, "bool", StringComparison.OrdinalIgnoreCase))
             {
-                return (new BooleanValue(!Value.IsZero).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                return (new BooleanValue(Value != 0).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             return base.CastTo(targetType);
@@ -433,7 +525,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return new IntegerValue(Value).SetPos(PositionStart, PositionEnd).SetContext(Context);
         }
 
-        public override bool IsTrue() => !Value.IsZero;
+        public override bool IsTrue() => Value != 0;
 
         public override string ToString() => Value.ToString();
     }

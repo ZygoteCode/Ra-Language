@@ -210,9 +210,7 @@ namespace RaLanguage.Interpreter.Values
                 {
                     var n = (NumberValue)this;
                     var bi = n.Value.ToBigInteger();
-                    var roundTrip = BigNumber.Parse(bi.ToString());
-
-                    if (n.Value != roundTrip)
+                    if (!BigNumber.Parse(bi.ToString()).Equals(n.Value))
                     {
                         return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer number to int", Context));
                     }
@@ -235,8 +233,7 @@ namespace RaLanguage.Interpreter.Values
                 if (Type == RuntimeValueType.Boolean)
                 {
                     var b = (BooleanValue)this;
-                    return (IntegerValue.FromBigInteger(b.Value ? BigInteger.One : BigInteger.Zero)
-                        .SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                    return (new IntegerValue(b.Value ? 1 : 0).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
                 }
 
                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'int'", Context));
