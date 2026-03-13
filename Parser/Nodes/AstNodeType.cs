@@ -44,6 +44,7 @@
         Goto,
         Cast,
         Argument,
-        Try
+        Try,
+        SuperFor
     }
 }

@@ -10,9 +10,25 @@
 
 Every programming language has its learning curve… but with Ra Language, there’s no curve: you start at the zero point of an infinite line, and simply walking along it lets your skills evolve. You can begin with nothing and still have everything you need, or, if you’re already a pro, you can create truly extraordinary things. With Ra Language, growth is continuous, natural, and effortless.
 
-## Work-in-progress tasks or already done features
+## TODOs for Ra Language (the near future)
 
-This list contains what I have already added after the first commit (done features, they'll obviously get updates) and what I am doing right now to improve the language.
+This is constantly updated list, I am expanding with new ideas and concepts for the language. If you feel good with the language and have new ideas & suggestions, you can open an issue with some details, or submit a pull request with interesting modifications.
+
+I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
+  
+  - [ ] Implement new primitives: int/integer/i32, float/f32, double/f64, decimal/f128, char, long/i64, byte, sbyte, uint/ui32, ulong/ui64. Add "str" as alias of "string" and "bool" as alias of "boolean".
+  - [ ] Add a new innovative statement: "retry for 5 times delay 200ms / else" (something similar).
+  - [ ] Implement structs into the language. Can instatiate new objects as instance of single structs.
+  - [ ] Implement enums in the language.
+  - [ ] Import source files with a intelligent path system.
+
+New ideas coming soon!
+
+## Phase 2: Object Oriented Programming
+
+- [ ] NO TASKS COMPLETED YET.
+
+## Finished Phase 1: The Language Essentials
 
   - [x] Fix context in all remaining statements (for, while, fn).
   - [x] Add comparison operators && , || , ! additionally to actual "is", "and", "or", "is not", "not".
@@ -68,13 +84,4 @@ This list contains what I have already added after the first commit (done featur
   - [x] In functions, allow specific default values to parameters.
   - [x] Implemented try statement with optional catch and finally.
   - [x] Implemented generics in variables and functions declarations.
-
-## TODOs for Ra Language (the near future)
-
-This is constantly updated list, I am expanding with new ideas and concepts for the language. If you feel good with the language and have new ideas & suggestions, you can open an issue with some details, or submit a pull request with interesting modifications.
-
-I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
-  
-  - [ ] Idea: add a operator like "&" to function parameters to pass reference instead of copying only the value.
-  - [ ] Idea: import new files with a intelligent path system.
-  - [ ] Idea: List comprehensions, like [x*2 for x in a if x>1] to create lists in a compact way.
+  - [x] Implemented for statement C-like => for (var i = 0; i < 5; i++): print("example").

@@ -15,6 +15,7 @@ using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Statements;
 using RaLanguage.Parser.Nodes.Variables;
 using RaLanguage.Types;
+using System.Xml.Linq;
 
 namespace RaLanguage.Interpreter
 {
@@ -69,6 +70,7 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.Goto] = (node, ctx) => VisitGotoNode((GotoNode)node, ctx);
             _visitors[(int)AstNodeType.Cast] = (node, ctx) => VisitCastNode((CastNode)node, ctx);
             _visitors[(int)AstNodeType.Try] = (node, ctx) => VisitTryNode((TryNode)node, ctx);
+            _visitors[(int)AstNodeType.SuperFor] = (node, ctx) => VisitSuperForNode((SuperForNode)node, ctx);
         }
 
         public RuntimeResult Visit(AstNode node, Context context)
@@ -77,6 +79,60 @@ namespace RaLanguage.Interpreter
             if (index < 0 || index >= _visitors.Length || _visitors[index] == null)
                 throw new Exception($"No visit method for {node.NodeType}");
             return _visitors[index](node, context);
+        }
+
+        private RuntimeResult VisitSuperForNode(SuperForNode node, Context context)
+        {
+            var res = new RuntimeResult();
+            var newContext = context.Copy();
+            
+            foreach (var initializationNode in node.InitializationNodes)
+            {
+                res.Register(Visit(initializationNode, context));
+                if (res.Error != null) return res;
+            }
+
+            while (true)
+            {
+                bool canContinue = true;
+
+                foreach (var conditionNode in node.ConditionNodes)
+                {
+                    var condition = res.Register(Visit(conditionNode, newContext));
+                    if (res.Error != null) return res;
+                    if (res.ShouldReturn()) return res;
+
+                    if (!condition.IsTrue())
+                    {
+                        canContinue = false;
+                        break;
+                    }
+                }
+
+                if (!canContinue)
+                {
+                    break;
+                }
+
+                Context actualContext = newContext.Copy();
+                var value = res.Register(Visit(node.BodyNode, actualContext));
+                if (res.Error != null) return res;
+
+                foreach (var stepNode in node.StepNodes)
+                {
+                    var condition = res.Register(Visit(stepNode, newContext));
+                    if (res.Error != null) return res;
+                    if (res.ShouldReturn()) return res;
+                }
+
+                context.ApplyChangesFrom(actualContext);
+
+                if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak) return res;
+                if (res.LoopShouldContinue) continue;
+                if (res.LoopShouldBreak) break;
+            }
+
+            return res.Success(new NullValue().SetPos(node.PositionStart, node.PositionEnd).SetContext(context));
         }
 
         private RuntimeResult VisitTryNode(TryNode node, Context context)

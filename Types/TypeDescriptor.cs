@@ -1,6 +1,4 @@
-﻿using RaLanguage.Interpreter.Values;
-
-namespace RaLanguage.Types
+﻿namespace RaLanguage.Types
 {
     public enum BuiltInType
     {
