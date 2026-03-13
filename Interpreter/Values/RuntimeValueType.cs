@@ -11,6 +11,7 @@
         Boolean,
         Set,
         Map,
-        Tuple
+        Tuple,
+        Integer
     }
 }

@@ -839,6 +839,7 @@ namespace RaLanguage.Interpreter
                 RuntimeValueType.Set => "set",
                 RuntimeValueType.Map => "map",
                 RuntimeValueType.Tuple => "tuple",
+                RuntimeValueType.Integer => "integer",
                 _ => ""
             };
 
