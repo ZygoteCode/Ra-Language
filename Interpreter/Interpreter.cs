@@ -840,6 +840,7 @@ namespace RaLanguage.Interpreter
                 RuntimeValueType.Map => "map",
                 RuntimeValueType.Tuple => "tuple",
                 RuntimeValueType.Integer => "integer",
+                RuntimeValueType.Long => "long",
                 _ => ""
             };
 
@@ -1081,6 +1082,11 @@ namespace RaLanguage.Interpreter
                 else
                     value.VariableDeclarationType = VariableDeclarationType.VARIABLE;
 
+                if (declaredType != null && string.Equals(declaredType.Name?.ToString(), "long", StringComparison.Ordinal) && value.Type == RuntimeValueType.Integer)
+                {
+                    value = new LongValue(((IntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+
                 context.SymbolTable.Set(varName, value, isLetFlag, declaredType, isStaticallyTyped);
                 values.Add(value);
             }
@@ -1161,6 +1167,12 @@ namespace RaLanguage.Interpreter
             }
 
             var declType2 = entry.Value?.VariableDeclarationType ?? VariableDeclarationType.VARIABLE;
+
+            if (entry != null && entry.DeclaredType != null && string.Equals(entry.DeclaredType.Name?.ToString(), "long", StringComparison.Ordinal) && result.Type == RuntimeValueType.Integer)
+            {
+                result = new LongValue(((IntegerValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+            }
+
             context.SymbolTable.Set(varName, result!.SetDeclarationType(declType2));
             return res.Success(result!.SetPos(node.PositionStart, node.PositionEnd).SetDeclarationType(declType2));
         }

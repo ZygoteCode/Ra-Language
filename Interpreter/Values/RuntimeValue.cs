@@ -5,7 +5,6 @@ using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer;
 using RaLanguage.Parser.Nodes.Variables;
 using RaLanguage.Types;
-using System.Numerics;
 
 namespace RaLanguage.Interpreter.Values
 {
@@ -179,43 +178,49 @@ namespace RaLanguage.Interpreter.Values
 
         public virtual (RuntimeValue?, Error?) CastTo(TypeDescriptor targetType)
         {
-            if (targetType == null)
-            {
-                return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast to null type", Context));
-            }
+            var tn = targetType?.Name?.ToString() ?? "";
 
-            var targetName = targetType.Name?.ToString() ?? "";
-
-            if (string.Equals(targetName, "string", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "string", StringComparison.Ordinal))
             {
                 return (new StringValue(ToString()).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(targetName, "boolean", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(targetName, "bool", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "boolean", StringComparison.Ordinal) ||
+                string.Equals(tn, "bool", StringComparison.Ordinal))
             {
                 return (new BooleanValue(IsTrue()).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(targetName, "int", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(targetName, "integer", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(targetName, "i32", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "int", StringComparison.Ordinal) ||
+                string.Equals(tn, "integer", StringComparison.Ordinal) ||
+                string.Equals(tn, "i32", StringComparison.Ordinal))
             {
                 if (Type == RuntimeValueType.Integer)
                 {
                     return (Copy().SetContext(Context).SetPos(PositionStart, PositionEnd), null);
                 }
 
+                if (Type == RuntimeValueType.Long)
+                {
+                    var l = (LongValue)this;
+                    if (l.Value < int.MinValue || l.Value > int.MaxValue)
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast long to int without overflow", Context));
+                    }
+
+                    return (new IntegerValue((int)l.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
                 if (Type == RuntimeValueType.Number)
                 {
                     var n = (NumberValue)this;
                     var bi = n.Value.ToBigInteger();
-                    if (!BigNumber.Parse(bi.ToString()).Equals(n.Value))
+                    if (bi < int.MinValue || bi > int.MaxValue)
                     {
-                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer number to int", Context));
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast number to int without overflow", Context));
                     }
 
-                    return (IntegerValue.FromBigInteger(bi).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                    return (new IntegerValue((int)bi).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
                 }
 
                 if (Type == RuntimeValueType.String)
@@ -239,7 +244,54 @@ namespace RaLanguage.Interpreter.Values
                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'int'", Context));
             }
 
-            if (string.Equals(targetName, "number", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "long", StringComparison.Ordinal) ||
+                string.Equals(tn, "i64", StringComparison.Ordinal))
+            {
+                if (Type == RuntimeValueType.Long)
+                {
+                    return (Copy().SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Integer)
+                {
+                    var i = (IntegerValue)this;
+                    return (new LongValue(i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Number)
+                {
+                    var n = (NumberValue)this;
+                    var bi = n.Value.ToBigInteger();
+                    if (bi < long.MinValue || bi > long.MaxValue)
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast number to long without overflow", Context));
+                    }
+
+                    return (new LongValue((long)bi).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.String)
+                {
+                    var s = (StringValue)this;
+                    var parsed = LongValue.TryParseLiteral(s.Value);
+                    if (parsed == null)
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast string '{s.Value}' to long", Context));
+                    }
+
+                    return (parsed.SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Boolean)
+                {
+                    var b = (BooleanValue)this;
+                    return (new LongValue(b.Value ? 1L : 0L).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'long'", Context));
+            }
+
+            if (string.Equals(tn, "number", StringComparison.Ordinal))
             {
                 if (Type == RuntimeValueType.Number)
                 {
@@ -249,8 +301,13 @@ namespace RaLanguage.Interpreter.Values
                 if (Type == RuntimeValueType.Integer)
                 {
                     var i = (IntegerValue)this;
-                    return (new NumberValue(BigNumber.Parse(i.Value.ToString()))
-                        .SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                    return (new NumberValue(BigNumber.Parse(i.Value.ToString())).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Long)
+                {
+                    var l = (LongValue)this;
+                    return (new NumberValue(BigNumber.Parse(l.Value.ToString())).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
                 }
 
                 if (Type == RuntimeValueType.String)
@@ -258,8 +315,7 @@ namespace RaLanguage.Interpreter.Values
                     var s = (StringValue)this;
                     try
                     {
-                        return (new NumberValue(BigNumber.Parse(s.Value))
-                            .SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                        return (new NumberValue(BigNumber.Parse(s.Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
                     }
                     catch
                     {
@@ -270,8 +326,7 @@ namespace RaLanguage.Interpreter.Values
                 if (Type == RuntimeValueType.Boolean)
                 {
                     var b = (BooleanValue)this;
-                    return (new NumberValue(b.Value ? BigNumber.One : BigNumber.Zero)
-                        .SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                    return (new NumberValue(b.Value ? BigNumber.One : BigNumber.Zero).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
                 }
 
                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'number'", Context));
@@ -279,7 +334,6 @@ namespace RaLanguage.Interpreter.Values
 
             return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to '{targetType}'", Context));
         }
-
 
         public abstract RuntimeValue Copy();
 

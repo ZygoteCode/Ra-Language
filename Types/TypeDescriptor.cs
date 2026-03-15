@@ -9,6 +9,8 @@
         Map,
         Set,
         List,
+        Integer,
+        Long,
         Any,
         Unknown
     }
@@ -56,7 +58,6 @@
             return true;
         }
 
-        // substitute type parameters using a binding map
         public TypeDescriptor Substitute(Dictionary<string, TypeDescriptor> bindings)
         {
             if (IsTypeParameter)
@@ -69,15 +70,12 @@
             return new TypeDescriptor(Name, substituted);
         }
 
-        // Parse from a string like "list<number>" or "T"
-        // This is a simple parser for convenience (used if parser passes whole string). Prefer token-based ParseType in Parser.
         public static TypeDescriptor Parse(string s)
         {
             var p = new _StringParser(s);
             return p.ParseType();
         }
 
-        // small internal string parser
         private class _StringParser
         {
             private readonly string _s;
@@ -99,9 +97,8 @@
                     Consume('>');
                     return new TypeDescriptor(name, args);
                 }
-                // treat single uppercase identifier as type parameter (heuristic)
-                if (!string.IsNullOrEmpty(name) && char.IsUpper(name[0]) && name.Length <= 5)
-                    return TypeDescriptor.TypeParameter(name);
+
+                if (!string.IsNullOrEmpty(name) && char.IsUpper(name[0]) && name.Length <= 5) return TypeParameter(name);
                 return new TypeDescriptor(name);
             }
 

@@ -12,6 +12,7 @@
         Set,
         Map,
         Tuple,
-        Integer
+        Integer,
+        Long
     }
 }

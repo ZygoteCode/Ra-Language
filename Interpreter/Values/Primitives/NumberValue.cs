@@ -369,9 +369,9 @@ namespace RaLanguage.Interpreter.Values.Primitives
         {
             var tn = targetType?.Name?.ToString() ?? "";
 
-            if (string.Equals(tn, "int", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "integer", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "i32", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "int", StringComparison.Ordinal) ||
+                string.Equals(tn, "integer", StringComparison.Ordinal) ||
+                string.Equals(tn, "i32", StringComparison.Ordinal))
             {
                 var bi = Value.ToBigInteger();
                 var roundTrip = BigNumber.Parse(bi.ToString());
@@ -384,18 +384,18 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (IntegerValue.FromBigInteger(bi).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "string", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "string", StringComparison.Ordinal))
             {
                 return (new StringValue(Value.ToString()).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "boolean", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "bool", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "boolean", StringComparison.Ordinal) ||
+                string.Equals(tn, "bool", StringComparison.Ordinal))
             {
                 return (new BooleanValue(!Value.IsZero()).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "number", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "number", StringComparison.Ordinal))
             {
                 return (Copy().SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }

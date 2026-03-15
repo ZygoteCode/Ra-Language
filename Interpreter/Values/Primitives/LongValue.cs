@@ -1,43 +1,31 @@
-﻿using System;
-using System.Globalization;
-using RaLanguage.Errors;
+﻿using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
-    public class IntegerValue : RuntimeValue
+    public class LongValue : RuntimeValue
     {
-        public int Value { get; }
+        public long Value { get; }
 
-        public override RuntimeValueType Type => RuntimeValueType.Integer;
+        public override RuntimeValueType Type => RuntimeValueType.Long;
         public override bool IsCopy => true;
 
-        public IntegerValue(int value)
+        public LongValue(long value)
         {
             Value = value;
         }
 
-        public static IntegerValue FromBigInteger(System.Numerics.BigInteger value)
+        public static LongValue FromLiteral(string literal)
         {
-            if (value < int.MinValue || value > int.MaxValue)
-            {
-                throw new OverflowException("Integer literal out of int range");
-            }
-
-            return new IntegerValue((int)value);
+            return new LongValue(ParseLiteralToLong(literal));
         }
 
-        public static IntegerValue FromLiteral(string literal)
-        {
-            return new IntegerValue(ParseLiteralToInt(literal));
-        }
-
-        public static IntegerValue? TryParseLiteral(string literal)
+        public static LongValue? TryParseLiteral(string literal)
         {
             try
             {
-                return new IntegerValue(ParseLiteralToInt(literal));
+                return new LongValue(ParseLiteralToLong(literal));
             }
             catch
             {
@@ -45,7 +33,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             }
         }
 
-        private static int ParseLiteralToInt(string literal)
+        private static long ParseLiteralToLong(string literal)
         {
             var s = (literal ?? "0").Replace("_", "").Trim();
 
@@ -53,38 +41,38 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 checked
                 {
-                    return -ParseLiteralToInt(s.Substring(1));
+                    return -ParseLiteralToLong(s.Substring(1));
                 }
             }
 
-            if (s.StartsWith("0x", StringComparison.Ordinal))
+            if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
             {
                 return ParseWithBase(s.Substring(2), 16);
             }
 
-            if (s.StartsWith("0b", StringComparison.Ordinal))
+            if (s.StartsWith("0b", StringComparison.OrdinalIgnoreCase))
             {
                 return ParseWithBase(s.Substring(2), 2);
             }
 
-            if (s.StartsWith("0o", StringComparison.Ordinal))
+            if (s.StartsWith("0o", StringComparison.OrdinalIgnoreCase))
             {
                 return ParseWithBase(s.Substring(2), 8);
             }
 
-            return int.Parse(s, NumberStyles.Integer, CultureInfo.InvariantCulture);
+            return long.Parse(s);
         }
 
-        private static int ParseWithBase(string digits, int numberBase)
+        private static long ParseWithBase(string digits, int numberBase)
         {
             if (string.IsNullOrWhiteSpace(digits))
             {
-                return 0;
+                return 0L;
             }
 
             checked
             {
-                int result = 0;
+                long result = 0L;
 
                 foreach (char c in digits)
                 {
@@ -98,7 +86,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
                     if (d < 0 || d >= numberBase)
                     {
-                        throw new FormatException("Invalid integer literal");
+                        throw new FormatException("Invalid long literal");
                     }
 
                     result = (result * numberBase) + d;
@@ -113,21 +101,36 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return new NumberValue(BigNumber.Parse(Value.ToString()));
         }
 
-        public override (RuntimeValue?, Error?) AddedTo(RuntimeValue other)
+        private static LongValue Promote(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Integer)
             {
-                var i = (IntegerValue)other;
+                return new LongValue(((IntegerValue)other).Value);
+            }
+
+            if (other.Type == RuntimeValueType.Long)
+            {
+                return (LongValue)other;
+            }
+
+            throw new InvalidOperationException("Cannot promote value to long");
+        }
+
+        public override (RuntimeValue?, Error?) AddedTo(RuntimeValue other)
+        {
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer)
+            {
+                var o = Promote(other);
                 try
                 {
                     checked
                     {
-                        return (new IntegerValue(Value + i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                        return (new LongValue(Value + o.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
                     }
                 }
                 catch
                 {
-                    return (null, new RuntimeError(PositionStart, PositionEnd, "Integer overflow", Context));
+                    return (null, new RuntimeError(PositionStart, PositionEnd, "Long overflow", Context));
                 }
             }
 
@@ -141,19 +144,19 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) SubbedBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Integer)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer)
             {
-                var i = (IntegerValue)other;
+                var o = Promote(other);
                 try
                 {
                     checked
                     {
-                        return (new IntegerValue(Value - i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                        return (new LongValue(Value - o.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
                     }
                 }
                 catch
                 {
-                    return (null, new RuntimeError(PositionStart, PositionEnd, "Integer overflow", Context));
+                    return (null, new RuntimeError(PositionStart, PositionEnd, "Long overflow", Context));
                 }
             }
 
@@ -167,19 +170,19 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) MultedBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Integer)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer)
             {
-                var i = (IntegerValue)other;
+                var o = Promote(other);
                 try
                 {
                     checked
                     {
-                        return (new IntegerValue(Value * i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                        return (new LongValue(Value * o.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
                     }
                 }
                 catch
                 {
-                    return (null, new RuntimeError(PositionStart, PositionEnd, "Integer overflow", Context));
+                    return (null, new RuntimeError(PositionStart, PositionEnd, "Long overflow", Context));
                 }
             }
 
@@ -193,16 +196,16 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) DivedBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Integer)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer)
             {
-                var i = (IntegerValue)other;
+                var o = Promote(other);
 
-                if (i.Value == 0)
+                if (o.Value == 0)
                 {
                     return (null, new RuntimeError(other.PositionStart, other.PositionEnd, "Division by zero", Context));
                 }
 
-                return (new IntegerValue(Value / i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                return (new LongValue(Value / o.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
@@ -215,22 +218,22 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) PowedBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Integer)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer)
             {
-                var i = (IntegerValue)other;
+                var o = Promote(other);
 
-                if (i.Value < 0)
+                if (o.Value < 0 || o.Value > int.MaxValue)
                 {
-                    return (null, new RuntimeError(other.PositionStart, other.PositionEnd, "Negative exponent not allowed for int", Context));
+                    return (null, new RuntimeError(other.PositionStart, other.PositionEnd, "Invalid exponent for long", Context));
                 }
 
                 try
                 {
                     checked
                     {
-                        int result = 1;
-                        int baseVal = Value;
-                        int exp = i.Value;
+                        long result = 1;
+                        long baseVal = Value;
+                        long exp = o.Value;
 
                         while (exp > 0)
                         {
@@ -246,12 +249,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                             }
                         }
 
-                        return (new IntegerValue(result).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                        return (new LongValue(result).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
                     }
                 }
                 catch
                 {
-                    return (null, new RuntimeError(PositionStart, PositionEnd, "Integer overflow", Context));
+                    return (null, new RuntimeError(PositionStart, PositionEnd, "Long overflow", Context));
                 }
             }
 
@@ -265,16 +268,16 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) ModuledBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Integer)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer)
             {
-                var i = (IntegerValue)other;
+                var o = Promote(other);
 
-                if (i.Value == 0)
+                if (o.Value == 0)
                 {
                     return (null, new RuntimeError(other.PositionStart, other.PositionEnd, "Modulo by zero", Context));
                 }
 
-                return (new IntegerValue(Value % i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                return (new LongValue(Value % o.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
@@ -287,10 +290,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) BitwiseLeftShiftedBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Integer)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer)
             {
-                var i = (IntegerValue)other;
-                return (new IntegerValue(Value << i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                var o = Promote(other);
+                return (new LongValue(Value << (int)o.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             return base.BitwiseLeftShiftedBy(other);
@@ -298,10 +301,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) BitwiseRightShiftedBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Integer)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer)
             {
-                var i = (IntegerValue)other;
-                return (new IntegerValue(Value >> i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                var o = Promote(other);
+                return (new LongValue(Value >> (int)o.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             return base.BitwiseRightShiftedBy(other);
@@ -309,10 +312,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) BitwiseAndedBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Integer)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer)
             {
-                var i = (IntegerValue)other;
-                return (new IntegerValue(Value & i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                var o = Promote(other);
+                return (new LongValue(Value & o.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             return base.BitwiseAndedBy(other);
@@ -320,10 +323,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) BitwiseOredBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Integer)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer)
             {
-                var i = (IntegerValue)other;
-                return (new IntegerValue(Value | i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                var o = Promote(other);
+                return (new LongValue(Value | o.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             return base.BitwiseOredBy(other);
@@ -331,46 +334,46 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) Notted()
         {
-            return (new IntegerValue(Value == 0 ? 1 : 0).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            return (new LongValue(Value == 0 ? 1L : 0L).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
         }
 
         public override (RuntimeValue?, Error?) BitwiseNotted()
         {
-            return (new IntegerValue(~Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            return (new LongValue(~Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
         }
 
         public override (RuntimeValue?, Error?) Factorial()
         {
             if (Value < 0)
             {
-                return (null, new RuntimeError(PositionStart, PositionEnd, "Factorial is not defined for negative integers", Context));
+                return (null, new RuntimeError(PositionStart, PositionEnd, "Factorial is not defined for negative longs", Context));
             }
 
             try
             {
                 checked
                 {
-                    int factorial = 1;
-                    for (int i = 2; i <= Value; i++)
+                    long factorial = 1;
+                    for (long i = 2; i <= Value; i++)
                     {
                         factorial *= i;
                     }
 
-                    return (new IntegerValue(factorial).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                    return (new LongValue(factorial).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
                 }
             }
             catch
             {
-                return (null, new RuntimeError(PositionStart, PositionEnd, "Integer overflow", Context));
+                return (null, new RuntimeError(PositionStart, PositionEnd, "Long overflow", Context));
             }
         }
 
         public override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Integer)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer)
             {
-                var i = (IntegerValue)other;
-                return (new BooleanValue(Value == i.Value).SetContext(Context), null);
+                var o = Promote(other);
+                return (new BooleanValue(Value == o.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
@@ -396,10 +399,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Integer)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer)
             {
-                var i = (IntegerValue)other;
-                return (new BooleanValue(Value != i.Value).SetContext(Context), null);
+                var o = Promote(other);
+                return (new BooleanValue(Value != o.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
@@ -425,10 +428,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonLt(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Integer)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer)
             {
-                var i = (IntegerValue)other;
-                return (new BooleanValue(Value < i.Value).SetContext(Context), null);
+                var o = Promote(other);
+                return (new BooleanValue(Value < o.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
@@ -442,10 +445,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonGt(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Integer)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer)
             {
-                var i = (IntegerValue)other;
-                return (new BooleanValue(Value > i.Value).SetContext(Context), null);
+                var o = Promote(other);
+                return (new BooleanValue(Value > o.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
@@ -459,10 +462,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonLte(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Integer)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer)
             {
-                var i = (IntegerValue)other;
-                return (new BooleanValue(Value <= i.Value).SetContext(Context), null);
+                var o = Promote(other);
+                return (new BooleanValue(Value <= o.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
@@ -476,10 +479,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonGte(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Integer)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer)
             {
-                var i = (IntegerValue)other;
-                return (new BooleanValue(Value >= i.Value).SetContext(Context), null);
+                var o = Promote(other);
+                return (new BooleanValue(Value >= o.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
@@ -495,11 +498,20 @@ namespace RaLanguage.Interpreter.Values.Primitives
         {
             var tn = targetType?.Name?.ToString() ?? "";
 
-            if (string.Equals(tn, "int", StringComparison.Ordinal) ||
-                string.Equals(tn, "integer", StringComparison.Ordinal) ||
-                string.Equals(tn, "i32", StringComparison.Ordinal))
+            if (string.Equals(tn, "long", StringComparison.Ordinal))
             {
                 return (Copy().SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            if (string.Equals(tn, "int", StringComparison.Ordinal) ||
+                string.Equals(tn, "integer", StringComparison.Ordinal))
+            {
+                if (Value < int.MinValue || Value > int.MaxValue)
+                {
+                    return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast long to int without overflow", Context));
+                }
+
+                return (new IntegerValue((int)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             if (string.Equals(tn, "number", StringComparison.Ordinal))
@@ -518,18 +530,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new BooleanValue(Value != 0).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "long", StringComparison.Ordinal) ||
-                string.Equals(tn, "i64", StringComparison.Ordinal))
-            {
-                return (new LongValue(Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
-            }
-
             return base.CastTo(targetType);
         }
 
         public override RuntimeValue Copy()
         {
-            return new IntegerValue(Value).SetPos(PositionStart, PositionEnd).SetContext(Context);
+            return new LongValue(Value).SetPos(PositionStart, PositionEnd).SetContext(Context);
         }
 
         public override bool IsTrue() => Value != 0;

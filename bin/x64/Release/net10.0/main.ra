@@ -1,12 +1,9 @@
-var a: int = 5;
-var b: number = a;
-var c: int = 7 + 8;
-print(a + c);
-print(((a as number) + 1) * b);
-var the_list: list<int> = [1, 2, 3, 4, 5, 6, 7];
-
-for x in the_list {
-    print(x);
-}
-
-print(the_list[a - 1] + 37);
+var a: long = 5;
+var b: long = 6;
+var c = a + b;
+print(c);
+print((a as string));
+var d: int = 74832;
+var e: long = d as long;
+print(e);
+print(typeof(e));

@@ -5,7 +5,6 @@ namespace RaLanguage.Types
 {
     public static class TypeSystem
     {
-        // Verifica se runtime value è assegnabile al TypeDescriptor target
         public static bool IsAssignable(TypeDescriptor target, RuntimeValue value)
         {
             if (target == null) return true;
@@ -16,14 +15,17 @@ namespace RaLanguage.Types
             {
                 case RuntimeValueType.Number:
                 case RuntimeValueType.Integer:
+                case RuntimeValueType.Long:
                     return string.Equals(target.Name, "number", StringComparison.Ordinal)
                         || string.Equals(target.Name, "int", StringComparison.Ordinal)
                         || string.Equals(target.Name, "i32", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "integer", StringComparison.Ordinal);
+                        || string.Equals(target.Name, "integer", StringComparison.Ordinal)
+                        || string.Equals(target.Name, "long", StringComparison.Ordinal)
+                        || string.Equals(target.Name, "i64", StringComparison.Ordinal);
                 case RuntimeValueType.String:
                     return string.Equals(target.Name, "string", StringComparison.Ordinal);
                 case RuntimeValueType.Boolean:
-                    return string.Equals(target.Name, "boolean", StringComparison.Ordinal) || string.Equals(target.Name, "bool", StringComparison.OrdinalIgnoreCase);
+                    return string.Equals(target.Name, "boolean", StringComparison.Ordinal) || string.Equals(target.Name, "bool", StringComparison.Ordinal);
                 case RuntimeValueType.Null:
                     return true;
                 case RuntimeValueType.List:
@@ -86,7 +88,7 @@ namespace RaLanguage.Types
                 return bindings;
             }
 
-            if (!string.Equals(formal.Name, actual.Name, StringComparison.OrdinalIgnoreCase)) return null;
+            if (!string.Equals(formal.Name, actual.Name, StringComparison.Ordinal)) return null;
             if (formal.GenericArgs.Count != actual.GenericArgs.Count) return null;
 
             for (int i = 0; i < formal.GenericArgs.Count; i++)
@@ -121,6 +123,7 @@ namespace RaLanguage.Types
                 case RuntimeValueType.String: return new TypeDescriptor("string");
                 case RuntimeValueType.Boolean: return new TypeDescriptor("boolean");
                 case RuntimeValueType.Integer: return new TypeDescriptor("integer");
+                case RuntimeValueType.Long: return new TypeDescriptor("long");
                 case RuntimeValueType.List:
                     var l = (ListValue)val;
                     if (l.Elements.Count == 0) return new TypeDescriptor("list");
