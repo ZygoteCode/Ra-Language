@@ -35,6 +35,16 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return new NumberValue(BigNumber.Parse(value.Value.ToString()));
         }
 
+        private static NumberValue Promote(DoubleValue value)
+        {
+            return new NumberValue(BigNumber.Parse(value.Value.ToString()));
+        }
+
+        private static NumberValue Promote(UnsignedIntegerValue value)
+        {
+            return new NumberValue(BigNumber.Parse(value.Value.ToString()));
+        }
+
         public override (RuntimeValue?, Error?) AddedTo(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Number)
@@ -68,6 +78,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var d = (DoubleValue)other;
                 var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
                 return (new NumberValue(Value + rhs).SetContext(Context), null);
+            }
+
+            if (other.Type == RuntimeValueType.UnsignedInteger)
+            {
+                NumberValue n = Promote((UnsignedIntegerValue)other);
+                return (new NumberValue(Value + n.Value).SetContext(Context), null);
             }
 
             return base.AddedTo(other);
@@ -108,6 +124,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new NumberValue(Value - rhs).SetContext(Context), null);
             }
 
+            if (other.Type == RuntimeValueType.UnsignedInteger)
+            {
+                NumberValue n = Promote((UnsignedIntegerValue)other);
+                return (new NumberValue(Value - n.Value).SetContext(Context), null);
+            }
+
             return base.SubbedBy(other);
         }
 
@@ -144,6 +166,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var d = (DoubleValue)other;
                 var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
                 return (new NumberValue(Value * rhs).SetContext(Context), null);
+            }
+
+            if (other.Type == RuntimeValueType.UnsignedInteger)
+            {
+                NumberValue n = Promote((UnsignedIntegerValue)other);
+                return (new NumberValue(Value * n.Value).SetContext(Context), null);
             }
 
             return base.MultedBy(other);
@@ -213,6 +241,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new NumberValue(Value / rhs).SetContext(Context), null);
             }
 
+            if (other.Type == RuntimeValueType.UnsignedInteger)
+            {
+                NumberValue n = Promote((UnsignedIntegerValue)other);
+                return (new NumberValue(Value / n.Value).SetContext(Context), null);
+            }
+
             return base.DivedBy(other);
         }
 
@@ -247,6 +281,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var d = (DoubleValue)other;
                 var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
                 return (new NumberValue(BigNumber.Parse(Math.Pow((double)Value, (double)rhs).ToString())).SetContext(Context), null);
+            }
+
+            if (other.Type == RuntimeValueType.UnsignedInteger)
+            {
+                NumberValue n = Promote((UnsignedIntegerValue)other);
+                return (new NumberValue(BigNumber.Parse(Math.Pow((double)Value, (double)n.Value).ToString())).SetContext(Context), null);
             }
 
             return base.PowedBy(other);
@@ -292,6 +332,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
                 return (new BooleanValue(Value == rhs).SetContext(Context), null);
             }
+            else if (other.Type == RuntimeValueType.UnsignedInteger)
+            {
+                NumberValue n = Promote((UnsignedIntegerValue)other);
+                return (new BooleanValue(Value == n.Value).SetContext(Context), null);
+            }
 
             return base.GetComparisonEq(other);
         }
@@ -336,6 +381,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
                 return (new BooleanValue(Value != rhs).SetContext(Context), null);
             }
+            else if (other.Type == RuntimeValueType.UnsignedInteger)
+            {
+                NumberValue n = Promote((UnsignedIntegerValue)other);
+                return (new BooleanValue(Value != n.Value).SetContext(Context), null);
+            }
 
             return base.GetComparisonNe(other);
         }
@@ -373,6 +423,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var d = (DoubleValue)other;
                 var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
                 return (new BooleanValue(Value < rhs).SetContext(Context), null);
+            }
+
+            if (other.Type == RuntimeValueType.UnsignedInteger)
+            {
+                NumberValue n = Promote((UnsignedIntegerValue)other);
+                return (new BooleanValue(Value < n.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonLt(other);
@@ -413,6 +469,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new BooleanValue(Value > rhs).SetContext(Context), null);
             }
 
+            if (other.Type == RuntimeValueType.UnsignedInteger)
+            {
+                NumberValue n = Promote((UnsignedIntegerValue)other);
+                return (new BooleanValue(Value > n.Value).SetContext(Context), null);
+            }
+
             return base.GetComparisonGt(other);
         }
 
@@ -451,6 +513,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new BooleanValue(Value <= rhs).SetContext(Context), null);
             }
 
+            if (other.Type == RuntimeValueType.UnsignedInteger)
+            {
+                NumberValue n = Promote((UnsignedIntegerValue)other);
+                return (new BooleanValue(Value <= n.Value).SetContext(Context), null);
+            }
+
             return base.GetComparisonLte(other);
         }
 
@@ -487,6 +555,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var d = (DoubleValue)other;
                 var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
                 return (new BooleanValue(Value >= rhs).SetContext(Context), null);
+            }
+
+            if (other.Type == RuntimeValueType.UnsignedInteger)
+            {
+                NumberValue n = Promote((UnsignedIntegerValue)other);
+                return (new BooleanValue(Value >= n.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonGte(other);
@@ -567,6 +641,16 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Long)
             {
                 NumberValue n = Promote((LongValue)other);
+                if (n.Value.ToBigInteger().IsZero)
+                    return (null, new RuntimeError(other.PositionStart, other.PositionEnd, "Modulo by zero", Context));
+
+                return (new NumberValue(BigNumber.Mod(Value, n.Value)).SetContext(Context), null);
+            }
+
+
+            if (other.Type == RuntimeValueType.UnsignedInteger)
+            {
+                NumberValue n = Promote((UnsignedIntegerValue)other);
                 if (n.Value.ToBigInteger().IsZero)
                     return (null, new RuntimeError(other.PositionStart, other.PositionEnd, "Modulo by zero", Context));
 
@@ -670,6 +754,21 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 }
 
                 return (new DoubleValue(d).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            if (string.Equals(tn, "unsignedinteger", StringComparison.Ordinal) ||
+                string.Equals(tn, "uint", StringComparison.Ordinal) ||
+                string.Equals(tn, "ui32", StringComparison.Ordinal))
+            {
+                var bi = Value.ToBigInteger();
+                var roundTrip = BigNumber.Parse(bi.ToString());
+
+                if (Value != roundTrip)
+                {
+                    return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer number to uint", Context));
+                }
+
+                return (UnsignedIntegerValue.FromBigInteger(bi).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             return base.CastTo(targetType);

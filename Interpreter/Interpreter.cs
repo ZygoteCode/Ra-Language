@@ -842,6 +842,7 @@ namespace RaLanguage.Interpreter
                 RuntimeValueType.Long => "long",
                 RuntimeValueType.Double => "double",
                 RuntimeValueType.Float => "float",
+                RuntimeValueType.UnsignedInteger => "uint",
                 _ => ""
             };
 
@@ -1129,6 +1130,36 @@ namespace RaLanguage.Interpreter
                         value = new DoubleValue(d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                     }
                 }
+                else if (declaredType != null && (string.Equals(declaredType.Name?.ToString(), "uint", StringComparison.Ordinal) || string.Equals(declaredType.Name?.ToString(), "ui32", StringComparison.Ordinal) || string.Equals(declaredType.Name?.ToString(), "unsignedinteger", StringComparison.Ordinal)))
+                {
+                    if (value.Type == RuntimeValueType.Integer)
+                    {
+                        value = new UnsignedIntegerValue((uint) ((IntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Long)
+                    {
+                        value = new UnsignedIntegerValue((uint) ((LongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Float)
+                    {
+                        value = new UnsignedIntegerValue((uint)((FloatValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Double)
+                    {
+                        value = new UnsignedIntegerValue((uint)((DoubleValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Number)
+                    {
+                        var n = (NumberValue)value;
+
+                        if (!double.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                        {
+                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to double", context));
+                        }
+
+                        value = new UnsignedIntegerValue((uint) d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                }
 
                 context.SymbolTable.Set(varName, value, isLetFlag, declaredType, isStaticallyTyped);
                 values.Add(value);
@@ -1219,16 +1250,16 @@ namespace RaLanguage.Interpreter
             {
                 if (value.Type == RuntimeValueType.Integer)
                 {
-                    value = new FloatValue(((IntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    result = new FloatValue(((IntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
                 else if (value.Type == RuntimeValueType.Long)
                 {
-                    value = new FloatValue(((LongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    result = new FloatValue(((LongValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
                 else if (value.Type == RuntimeValueType.Number)
                 {
-                    var n = (NumberValue)value;
-                    value = new FloatValue(float.Parse(n.Value.ToString(), System.Globalization.CultureInfo.InvariantCulture))
+                    var n = (NumberValue)result;
+                    result = new FloatValue(float.Parse(n.Value.ToString(), System.Globalization.CultureInfo.InvariantCulture))
                         .SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
             }
@@ -1236,25 +1267,55 @@ namespace RaLanguage.Interpreter
             {
                 if (value.Type == RuntimeValueType.Integer)
                 {
-                    value = new DoubleValue(((IntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    result = new DoubleValue(((IntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
                 else if (value.Type == RuntimeValueType.Long)
                 {
-                    value = new DoubleValue(((LongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    result = new DoubleValue(((LongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
                 else if (value.Type == RuntimeValueType.Float)
                 {
-                    value = new DoubleValue(((FloatValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    result = new DoubleValue(((FloatValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
                 else if (value.Type == RuntimeValueType.Number)
                 {
-                    var n = (NumberValue)value;
+                    var n = (NumberValue)result;
                     if (!double.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
                     {
                         return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to double", context));
                     }
 
-                    value = new DoubleValue(d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    result = new DoubleValue(d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+            }
+            else if (entry != null && entry.DeclaredType != null && (string.Equals(entry.DeclaredType.Name?.ToString(), "uint", StringComparison.Ordinal) || string.Equals(entry.DeclaredType.Name?.ToString(), "ui32", StringComparison.Ordinal) || string.Equals(entry.DeclaredType.Name?.ToString(), "unsignedinteger", StringComparison.Ordinal)))
+            {
+                if (value.Type == RuntimeValueType.Integer)
+                {
+                    result = new UnsignedIntegerValue((uint)((IntegerValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (value.Type == RuntimeValueType.Long)
+                {
+                    result = new UnsignedIntegerValue((uint)((LongValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (value.Type == RuntimeValueType.Float)
+                {
+                    result = new UnsignedIntegerValue((uint)((FloatValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (value.Type == RuntimeValueType.Double)
+                {
+                    result = new UnsignedIntegerValue((uint)((DoubleValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (value.Type == RuntimeValueType.Number)
+                {
+                    var n = (NumberValue)result;
+
+                    if (!uint.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                    {
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to double", context));
+                    }
+
+                    result = new UnsignedIntegerValue((uint)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
             }
 

@@ -13,6 +13,7 @@
         Long,
         Float,
         Double,
+        UnsignedInteger,
         Any,
         Unknown
     }

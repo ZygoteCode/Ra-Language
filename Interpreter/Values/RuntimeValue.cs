@@ -504,6 +504,93 @@ namespace RaLanguage.Interpreter.Values
                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'number'", Context));
             }
 
+            if (string.Equals(tn, "uint", StringComparison.Ordinal) ||
+                string.Equals(tn, "unsignedinteger", StringComparison.Ordinal) ||
+                string.Equals(tn, "ui32", StringComparison.Ordinal))
+            {
+                if (Type == RuntimeValueType.UnsignedInteger)
+                {
+                    return (Copy().SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Integer)
+                {
+                    var i = (IntegerValue)this;
+                    if (i.Value < 0)
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast negative int to uint", Context));
+                    }
+
+                    return (new UnsignedIntegerValue((uint)i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Long)
+                {
+                    var l = (LongValue)this;
+                    if (l.Value < 0 || l.Value > uint.MaxValue)
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast long to uint without overflow", Context));
+                    }
+
+                    return (new UnsignedIntegerValue((uint)l.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Float)
+                {
+                    var f = (FloatValue)this;
+                    if (MathF.Abs(f.Value - MathF.Truncate(f.Value)) > 0.000001f || f.Value < 0f || f.Value > uint.MaxValue)
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer float to uint", Context));
+                    }
+
+                    return (new UnsignedIntegerValue((uint)f.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Double)
+                {
+                    var d = (DoubleValue)this;
+                    if (Math.Abs(d.Value - Math.Truncate(d.Value)) > 0.000001d || d.Value < 0.0 || d.Value > uint.MaxValue)
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer double to uint", Context));
+                    }
+
+                    return (new UnsignedIntegerValue((uint)d.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Number)
+                {
+                    var n = (NumberValue)this;
+                    var s = n.Value.ToString();
+
+                    if (!uint.TryParse(s, out var ui))
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast number '{s}' to uint", Context));
+                    }
+
+                    return (new UnsignedIntegerValue(ui).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.String)
+                {
+                    var s = (StringValue)this;
+                    var parsed = UnsignedIntegerValue.TryParseLiteral(s.Value);
+                    if (parsed == null)
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast string '{s.Value}' to uint", Context));
+                    }
+
+                    return (parsed.SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Boolean)
+                {
+                    var b = (BooleanValue)this;
+                    return (new UnsignedIntegerValue(b.Value ? 1u : 0u).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'uint'", Context));
+            }
+
             return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to '{targetType}'", Context));
         }
 
