@@ -13,6 +13,7 @@
         Map,
         Tuple,
         Integer,
-        Long
+        Long,
+        Float
     }
 }

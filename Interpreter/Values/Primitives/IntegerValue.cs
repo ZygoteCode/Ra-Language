@@ -1,5 +1,4 @@
-﻿using System;
-using System.Globalization;
+﻿using System.Globalization;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Types;
@@ -136,6 +135,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return PromoteToNumber().AddedTo(other);
             }
 
+            if (other.Type == RuntimeValueType.Float)
+            {
+                var f = (FloatValue)other;
+                return (new FloatValue(Value + f.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
             return base.AddedTo(other);
         }
 
@@ -160,6 +165,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Number)
             {
                 return PromoteToNumber().SubbedBy(other);
+            }
+
+            if (other.Type == RuntimeValueType.Float)
+            {
+                var f = (FloatValue)other;
+                return (new FloatValue(Value - f.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             return base.SubbedBy(other);
@@ -188,6 +199,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return PromoteToNumber().MultedBy(other);
             }
 
+            if (other.Type == RuntimeValueType.Float)
+            {
+                var f = (FloatValue)other;
+                return (new FloatValue(Value * f.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
             return base.MultedBy(other);
         }
 
@@ -208,6 +225,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Number)
             {
                 return PromoteToNumber().DivedBy(other);
+            }
+
+            if (other.Type == RuntimeValueType.Float)
+            {
+                var f = (FloatValue)other;
+                return (new FloatValue(Value / f.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             return base.DivedBy(other);
@@ -258,6 +281,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Number)
             {
                 return PromoteToNumber().PowedBy(other);
+            }
+
+            if (other.Type == RuntimeValueType.Float)
+            {
+                var f = (FloatValue)other;
+                return (new FloatValue((float)Math.Pow(Value, (double)f.Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             return base.PowedBy(other);
@@ -391,6 +420,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new BooleanValue(Value.ToString() == s.Value).SetContext(Context), null);
             }
 
+            if (other.Type == RuntimeValueType.Float)
+            {
+                var f = (FloatValue)other;
+                return (new BooleanValue(Value == f.Value).SetContext(Context), null);
+            }
+
             return base.GetComparisonEq(other);
         }
 
@@ -420,6 +455,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new BooleanValue(Value.ToString() != s.Value).SetContext(Context), null);
             }
 
+            if (other.Type == RuntimeValueType.Float)
+            {
+                var f = (FloatValue)other;
+                return (new BooleanValue(Value != f.Value).SetContext(Context), null);
+            }
+
             return base.GetComparisonNe(other);
         }
 
@@ -435,6 +476,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 var n = (NumberValue)other;
                 return (new BooleanValue(BigNumber.Parse(Value.ToString()) < n.Value).SetContext(Context), null);
+            }
+
+            if (other.Type == RuntimeValueType.Float)
+            {
+                var f = (FloatValue)other;
+                return (new BooleanValue(Value < f.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonLt(other);
@@ -454,6 +501,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new BooleanValue(BigNumber.Parse(Value.ToString()) > n.Value).SetContext(Context), null);
             }
 
+            if (other.Type == RuntimeValueType.Float)
+            {
+                var f = (FloatValue)other;
+                return (new BooleanValue(Value > f.Value).SetContext(Context), null);
+            }
+
             return base.GetComparisonGt(other);
         }
 
@@ -471,6 +524,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new BooleanValue(BigNumber.Parse(Value.ToString()) <= n.Value).SetContext(Context), null);
             }
 
+            if (other.Type == RuntimeValueType.Float)
+            {
+                var f = (FloatValue)other;
+                return (new BooleanValue(Value <= f.Value).SetContext(Context), null);
+            }
+
             return base.GetComparisonLte(other);
         }
 
@@ -486,6 +545,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 var n = (NumberValue)other;
                 return (new BooleanValue(BigNumber.Parse(Value.ToString()) >= n.Value).SetContext(Context), null);
+            }
+
+            if (other.Type == RuntimeValueType.Float)
+            {
+                var f = (FloatValue)other;
+                return (new BooleanValue(Value >= f.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonGte(other);
@@ -522,6 +587,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 string.Equals(tn, "i64", StringComparison.Ordinal))
             {
                 return (new LongValue(Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            if (string.Equals(tn, "float", StringComparison.Ordinal) ||
+                string.Equals(tn, "f64", StringComparison.Ordinal))
+            {
+                return (new FloatValue(Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             return base.CastTo(targetType);

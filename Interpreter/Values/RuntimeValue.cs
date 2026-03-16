@@ -211,13 +211,24 @@ namespace RaLanguage.Interpreter.Values
                     return (new IntegerValue((int)l.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
                 }
 
+                if (Type == RuntimeValueType.Float)
+                {
+                    var f = (FloatValue)this;
+                    if (f.Value < int.MinValue || f.Value > int.MaxValue || MathF.Abs(f.Value - MathF.Truncate(f.Value)) > 0.000001f)
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer float to int", Context));
+                    }
+
+                    return (new IntegerValue((int)f.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
                 if (Type == RuntimeValueType.Number)
                 {
                     var n = (NumberValue)this;
                     var bi = n.Value.ToBigInteger();
-                    if (bi < int.MinValue || bi > int.MaxValue)
+                    if (!BigNumber.Parse(bi.ToString()).Equals(n.Value))
                     {
-                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast number to int without overflow", Context));
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer number to int", Context));
                     }
 
                     return (new IntegerValue((int)bi).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
@@ -258,11 +269,22 @@ namespace RaLanguage.Interpreter.Values
                     return (new LongValue(i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
                 }
 
+                if (Type == RuntimeValueType.Float)
+                {
+                    var f = (FloatValue)this;
+                    if (f.Value < long.MinValue || f.Value > long.MaxValue || MathF.Abs(f.Value - MathF.Truncate(f.Value)) > 0.000001f)
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer float to long", Context));
+                    }
+
+                    return (new LongValue((long)f.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
                 if (Type == RuntimeValueType.Number)
                 {
                     var n = (NumberValue)this;
                     var bi = n.Value.ToBigInteger();
-                    if (bi < long.MinValue || bi > long.MaxValue)
+                    if (bi < long.MinValue || bi > long.MaxValue || !BigNumber.Parse(bi.ToString()).Equals(n.Value))
                     {
                         return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast number to long without overflow", Context));
                     }
@@ -291,6 +313,58 @@ namespace RaLanguage.Interpreter.Values
                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'long'", Context));
             }
 
+            if (string.Equals(tn, "float", StringComparison.Ordinal) ||
+                string.Equals(tn, "f32", StringComparison.Ordinal))
+            {
+                if (Type == RuntimeValueType.Float)
+                {
+                    return (Copy().SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Integer)
+                {
+                    var i = (IntegerValue)this;
+                    return (new FloatValue(i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Long)
+                {
+                    var l = (LongValue)this;
+                    return (new FloatValue(l.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Number)
+                {
+                    var n = (NumberValue)this;
+                    if (!float.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var f))
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast number to float", Context));
+                    }
+
+                    return (new FloatValue(f).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.String)
+                {
+                    var s = (StringValue)this;
+                    var parsed = FloatValue.TryParseLiteral(s.Value);
+                    if (parsed == null)
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast string '{s.Value}' to float", Context));
+                    }
+
+                    return (parsed.SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Boolean)
+                {
+                    var b = (BooleanValue)this;
+                    return (new FloatValue(b.Value ? 1f : 0f).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'float'", Context));
+            }
+
             if (string.Equals(tn, "number", StringComparison.Ordinal))
             {
                 if (Type == RuntimeValueType.Number)
@@ -308,6 +382,12 @@ namespace RaLanguage.Interpreter.Values
                 {
                     var l = (LongValue)this;
                     return (new NumberValue(BigNumber.Parse(l.Value.ToString())).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Float)
+                {
+                    var f = (FloatValue)this;
+                    return (new NumberValue(BigNumber.Parse(f.Value.ToString(System.Globalization.CultureInfo.InvariantCulture))).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
                 }
 
                 if (Type == RuntimeValueType.String)

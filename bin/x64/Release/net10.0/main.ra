@@ -1,9 +1,7 @@
-var a: long = 5;
-var b: long = 6;
+var a: float = 5;
+var b: float = 2.5;
 var c = a + b;
 print(c);
-print((a as string));
-var d: int = 74832;
-var e: long = d as long;
-print(e);
-print(typeof(e));
+print(a as string);
+var d: long = 7;
+print(c + d);

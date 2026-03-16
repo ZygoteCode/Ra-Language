@@ -1082,9 +1082,26 @@ namespace RaLanguage.Interpreter
                 else
                     value.VariableDeclarationType = VariableDeclarationType.VARIABLE;
 
-                if (declaredType != null && string.Equals(declaredType.Name?.ToString(), "long", StringComparison.Ordinal) && value.Type == RuntimeValueType.Integer)
+                if (declaredType != null && (string.Equals(declaredType.Name?.ToString(), "long", StringComparison.Ordinal) || string.Equals(declaredType.Name?.ToString(), "i64", StringComparison.Ordinal)) && value.Type == RuntimeValueType.Integer)
                 {
                     value = new LongValue(((IntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (declaredType != null && (string.Equals(declaredType.Name?.ToString(), "float", StringComparison.Ordinal) || string.Equals(declaredType.Name?.ToString(), "f32", StringComparison.Ordinal)))
+                {
+                    if (value.Type == RuntimeValueType.Integer)
+                    {
+                        value = new FloatValue(((IntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Long)
+                    {
+                        value = new FloatValue(((LongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Number)
+                    {
+                        var n = (NumberValue)value;
+                        value = new FloatValue(float.Parse(n.Value.ToString(), System.Globalization.CultureInfo.InvariantCulture))
+                            .SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
                 }
 
                 context.SymbolTable.Set(varName, value, isLetFlag, declaredType, isStaticallyTyped);
@@ -1168,9 +1185,26 @@ namespace RaLanguage.Interpreter
 
             var declType2 = entry.Value?.VariableDeclarationType ?? VariableDeclarationType.VARIABLE;
 
-            if (entry != null && entry.DeclaredType != null && string.Equals(entry.DeclaredType.Name?.ToString(), "long", StringComparison.Ordinal) && result.Type == RuntimeValueType.Integer)
+            if (entry != null && entry.DeclaredType != null && (string.Equals(entry.DeclaredType.Name?.ToString(), "long", StringComparison.Ordinal) || string.Equals(entry.DeclaredType.Name?.ToString(), "i64", StringComparison.Ordinal)) && result.Type == RuntimeValueType.Integer)
             {
                 result = new LongValue(((IntegerValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+            }
+            else if (entry != null && entry.DeclaredType != null && (string.Equals(entry.DeclaredType.Name?.ToString(), "float", StringComparison.Ordinal) || string.Equals(entry.DeclaredType.Name?.ToString(), "f32", StringComparison.Ordinal)))
+            {
+                if (value.Type == RuntimeValueType.Integer)
+                {
+                    value = new FloatValue(((IntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (value.Type == RuntimeValueType.Long)
+                {
+                    value = new FloatValue(((LongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (value.Type == RuntimeValueType.Number)
+                {
+                    var n = (NumberValue)value;
+                    value = new FloatValue(float.Parse(n.Value.ToString(), System.Globalization.CultureInfo.InvariantCulture))
+                        .SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
             }
 
             context.SymbolTable.Set(varName, result!.SetDeclarationType(declType2));
