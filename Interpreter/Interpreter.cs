@@ -843,6 +843,7 @@ namespace RaLanguage.Interpreter
                 RuntimeValueType.Double => "double",
                 RuntimeValueType.Float => "float",
                 RuntimeValueType.UnsignedInteger => "uint",
+                RuntimeValueType.UnsignedLong => "ulong",
                 _ => ""
             };
 
@@ -1134,11 +1135,11 @@ namespace RaLanguage.Interpreter
                 {
                     if (value.Type == RuntimeValueType.Integer)
                     {
-                        value = new UnsignedIntegerValue((uint) ((IntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                        value = new UnsignedIntegerValue((uint)((IntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                     }
                     else if (value.Type == RuntimeValueType.Long)
                     {
-                        value = new UnsignedIntegerValue((uint) ((LongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                        value = new UnsignedIntegerValue((uint)((LongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                     }
                     else if (value.Type == RuntimeValueType.Float)
                     {
@@ -1154,10 +1155,40 @@ namespace RaLanguage.Interpreter
 
                         if (!double.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
                         {
-                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to double", context));
+                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to uint", context));
                         }
 
-                        value = new UnsignedIntegerValue((uint) d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                        value = new UnsignedIntegerValue((uint)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                }
+                else if (declaredType != null && (string.Equals(declaredType.Name?.ToString(), "ulong", StringComparison.Ordinal) || string.Equals(declaredType.Name?.ToString(), "ui64", StringComparison.Ordinal) || string.Equals(declaredType.Name?.ToString(), "unsignedlong", StringComparison.Ordinal)))
+                {
+                    if (value.Type == RuntimeValueType.Integer)
+                    {
+                        value = new UnsignedLongValue((ulong)((IntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Long)
+                    {
+                        value = new UnsignedLongValue((ulong)((LongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Float)
+                    {
+                        value = new UnsignedLongValue((ulong)((FloatValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Double)
+                    {
+                        value = new UnsignedLongValue((ulong)((DoubleValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Number)
+                    {
+                        var n = (NumberValue)value;
+
+                        if (!double.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                        {
+                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to ulong", context));
+                        }
+
+                        value = new UnsignedLongValue((ulong)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                     }
                 }
 
@@ -1316,6 +1347,40 @@ namespace RaLanguage.Interpreter
                     }
 
                     result = new UnsignedIntegerValue((uint)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (value.Type == RuntimeValueType.UnsignedLong)
+                {
+                    result = new UnsignedLongValue((ulong)((IntegerValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+            }
+            else if (entry != null && entry.DeclaredType != null && (string.Equals(entry.DeclaredType.Name?.ToString(), "ulong", StringComparison.Ordinal) || string.Equals(entry.DeclaredType.Name?.ToString(), "ui64", StringComparison.Ordinal) || string.Equals(entry.DeclaredType.Name?.ToString(), "unsignedlong", StringComparison.Ordinal)))
+            {
+                if (value.Type == RuntimeValueType.Integer)
+                {
+                    result = new UnsignedLongValue((ulong)((IntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (value.Type == RuntimeValueType.Long)
+                {
+                    result = new UnsignedLongValue((ulong)((LongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (value.Type == RuntimeValueType.Float)
+                {
+                    result = new UnsignedLongValue((ulong)((FloatValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (value.Type == RuntimeValueType.Double)
+                {
+                    result = new UnsignedLongValue((ulong)((DoubleValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (value.Type == RuntimeValueType.Number)
+                {
+                    var n = (NumberValue)result;
+
+                    if (!double.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                    {
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to ulong", context));
+                    }
+
+                    result = new UnsignedLongValue((ulong)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
             }
 

@@ -14,6 +14,7 @@
         Float,
         Double,
         UnsignedInteger,
+        UnsignedLong,
         Any,
         Unknown
     }

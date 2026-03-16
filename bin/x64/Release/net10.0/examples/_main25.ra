@@ -1,6 +1,6 @@
-var a: ulong = 7;
-var b: ulong = 13;
-var c: ulong = a + b;
+var a: uint = 7;
+var b: uint = 13;
+var c: uint = a + b;
 print(c);
 print(typeof(c));
 c = 7;

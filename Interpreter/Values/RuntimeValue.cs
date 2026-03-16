@@ -591,6 +591,81 @@ namespace RaLanguage.Interpreter.Values
                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'uint'", Context));
             }
 
+            if (string.Equals(tn, "ulong", StringComparison.Ordinal) ||
+                string.Equals(tn, "unsignedlong", StringComparison.Ordinal) ||
+                string.Equals(tn, "ui64", StringComparison.Ordinal))
+            {
+                if (Type == RuntimeValueType.UnsignedLong)
+                {
+                    return (Copy().SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.UnsignedInteger)
+                {
+                    var u = (UnsignedIntegerValue)this;
+                    return (new UnsignedLongValue(u.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Integer)
+                {
+                    var i = (IntegerValue)this;
+                    if (i.Value < 0) return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast negative int to ulong", Context));
+                    return (new UnsignedLongValue((ulong)i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Long)
+                {
+                    var l = (LongValue)this;
+                    if (l.Value < 0) return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast negative long to ulong", Context));
+                    return (new UnsignedLongValue((ulong)l.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Float)
+                {
+                    var f = (FloatValue)this;
+                    if (f.Value < 0f || f.Value > ulong.MaxValue || MathF.Abs(f.Value - MathF.Truncate(f.Value)) > 0.000001f)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer float to ulong", Context));
+
+                    return (new UnsignedLongValue((ulong)f.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Double)
+                {
+                    var d = (DoubleValue)this;
+                    if (d.Value < 0d || d.Value > ulong.MaxValue || Math.Abs(d.Value - Math.Truncate(d.Value)) > 0.000001d)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer double to ulong", Context));
+
+                    return (new UnsignedLongValue((ulong)d.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Number)
+                {
+                    var n = (NumberValue)this;
+                    if (!ulong.TryParse(n.Value.ToString(), out var ul))
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast number to ulong", Context));
+
+                    return (new UnsignedLongValue(ul).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.String)
+                {
+                    var s = (StringValue)this;
+                    var parsed = UnsignedLongValue.TryParseLiteral(s.Value);
+                    if (parsed == null)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast string '{s.Value}' to ulong", Context));
+
+                    return (parsed.SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Boolean)
+                {
+                    var b = (BooleanValue)this;
+                    return (new UnsignedLongValue(b.Value ? 1UL : 0UL).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'ulong'", Context));
+            }
+
             return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to '{targetType}'", Context));
         }
 
