@@ -193,7 +193,7 @@ namespace RaLanguage.Interpreter.Values
 
             if (string.Equals(tn, "int", StringComparison.Ordinal) ||
                 string.Equals(tn, "integer", StringComparison.Ordinal) ||
-                string.Equals(tn, "i32", StringComparison.Ordinal))
+                string.Equals(tn, "i64", StringComparison.Ordinal))
             {
                 if (Type == RuntimeValueType.Integer)
                 {
@@ -222,11 +222,22 @@ namespace RaLanguage.Interpreter.Values
                     return (new IntegerValue((int)f.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
                 }
 
+                if (Type == RuntimeValueType.Double)
+                {
+                    var d = (DoubleValue)this;
+                    if (d.Value < int.MinValue || d.Value > int.MaxValue || Math.Abs(d.Value - Math.Truncate(d.Value)) > 0.000001d)
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer double to int", Context));
+                    }
+
+                    return (new IntegerValue((int)d.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
                 if (Type == RuntimeValueType.Number)
                 {
                     var n = (NumberValue)this;
                     var bi = n.Value.ToBigInteger();
-                    if (!BigNumber.Parse(bi.ToString()).Equals(n.Value))
+                    if (bi < int.MinValue || bi > int.MaxValue || !BigNumber.Parse(bi.ToString()).Equals(n.Value))
                     {
                         return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer number to int", Context));
                     }
@@ -278,6 +289,17 @@ namespace RaLanguage.Interpreter.Values
                     }
 
                     return (new LongValue((long)f.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Double)
+                {
+                    var d = (DoubleValue)this;
+                    if (d.Value < long.MinValue || d.Value > long.MaxValue || Math.Abs(d.Value - Math.Truncate(d.Value)) > 0.000001d)
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer double to long", Context));
+                    }
+
+                    return (new LongValue((long)d.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
                 }
 
                 if (Type == RuntimeValueType.Number)
@@ -333,6 +355,12 @@ namespace RaLanguage.Interpreter.Values
                     return (new FloatValue(l.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
                 }
 
+                if (Type == RuntimeValueType.Double)
+                {
+                    var d = (DoubleValue)this;
+                    return (new FloatValue((float)d.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
                 if (Type == RuntimeValueType.Number)
                 {
                     var n = (NumberValue)this;
@@ -365,6 +393,64 @@ namespace RaLanguage.Interpreter.Values
                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'float'", Context));
             }
 
+            if (string.Equals(tn, "double", StringComparison.Ordinal) ||
+                string.Equals(tn, "f64", StringComparison.Ordinal))
+            {
+                if (Type == RuntimeValueType.Double)
+                {
+                    return (Copy().SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Integer)
+                {
+                    var i = (IntegerValue)this;
+                    return (new DoubleValue(i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Long)
+                {
+                    var l = (LongValue)this;
+                    return (new DoubleValue(l.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Float)
+                {
+                    var f = (FloatValue)this;
+                    return (new DoubleValue(f.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Number)
+                {
+                    var n = (NumberValue)this;
+                    if (!double.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast number to double", Context));
+                    }
+
+                    return (new DoubleValue(d).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.String)
+                {
+                    var s = (StringValue)this;
+                    var parsed = DoubleValue.TryParseLiteral(s.Value);
+                    if (parsed == null)
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast string '{s.Value}' to double", Context));
+                    }
+
+                    return (parsed.SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Boolean)
+                {
+                    var b = (BooleanValue)this;
+                    return (new DoubleValue(b.Value ? 1.0 : 0.0).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'double'", Context));
+            }
+
             if (string.Equals(tn, "number", StringComparison.Ordinal))
             {
                 if (Type == RuntimeValueType.Number)
@@ -390,6 +476,12 @@ namespace RaLanguage.Interpreter.Values
                     return (new NumberValue(BigNumber.Parse(f.Value.ToString(System.Globalization.CultureInfo.InvariantCulture))).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
                 }
 
+                if (Type == RuntimeValueType.Double)
+                {
+                    var d = (DoubleValue)this;
+                    return (new NumberValue(BigNumber.Parse(d.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture))).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
                 if (Type == RuntimeValueType.String)
                 {
                     var s = (StringValue)this;
@@ -402,7 +494,7 @@ namespace RaLanguage.Interpreter.Values
                         return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast string '{s.Value}' to number", Context));
                     }
                 }
-
+                
                 if (Type == RuntimeValueType.Boolean)
                 {
                     var b = (BooleanValue)this;

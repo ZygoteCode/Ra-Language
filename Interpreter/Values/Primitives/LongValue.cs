@@ -113,6 +113,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return new LongValue((long)((FloatValue)other).Value);
             }
 
+            if (other.Type == RuntimeValueType.Double)
+            {
+                return new LongValue((long)((DoubleValue)other).Value);
+            }
+
             if (other.Type == RuntimeValueType.Long)
             {
                 return (LongValue)other;
@@ -123,7 +128,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) AddedTo(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Float)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Double)
             {
                 var o = Promote(other);
                 try
@@ -149,7 +155,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) SubbedBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Float)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Double)
             {
                 var o = Promote(other);
                 try
@@ -175,7 +182,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) MultedBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Float)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Double)
             {
                 var o = Promote(other);
                 try
@@ -201,7 +209,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) DivedBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Float)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Double)
             {
                 var o = Promote(other);
 
@@ -223,7 +232,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) PowedBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Float)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Double)
             {
                 var o = Promote(other);
 
@@ -273,7 +283,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) ModuledBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Float)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Double)
             {
                 var o = Promote(other);
 
@@ -295,7 +306,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) BitwiseLeftShiftedBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Float)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Double)
             {
                 var o = Promote(other);
                 return (new LongValue(Value << (int)o.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
@@ -306,7 +318,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) BitwiseRightShiftedBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Float)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer 
+                || other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Double)
             {
                 var o = Promote(other);
                 return (new LongValue(Value >> (int)o.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
@@ -317,7 +330,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) BitwiseAndedBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Float)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Double)
             {
                 var o = Promote(other);
                 return (new LongValue(Value & o.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
@@ -328,7 +342,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) BitwiseOredBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Float)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Double)
             {
                 var o = Promote(other);
                 return (new LongValue(Value | o.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
@@ -375,7 +390,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Float)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Double)
             {
                 var o = Promote(other);
                 return (new BooleanValue(Value == o.Value).SetContext(Context), null);
@@ -404,7 +420,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Float)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Double)
             {
                 var o = Promote(other);
                 return (new BooleanValue(Value != o.Value).SetContext(Context), null);
@@ -433,7 +450,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonLt(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Float)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Double)
             {
                 var o = Promote(other);
                 return (new BooleanValue(Value < o.Value).SetContext(Context), null);
@@ -450,7 +468,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonGt(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Float)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Double)
             {
                 var o = Promote(other);
                 return (new BooleanValue(Value > o.Value).SetContext(Context), null);
@@ -467,7 +486,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonLte(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Float)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Double)
             {
                 var o = Promote(other);
                 return (new BooleanValue(Value <= o.Value).SetContext(Context), null);
@@ -484,7 +504,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonGte(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Float)
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Double)
             {
                 var o = Promote(other);
                 return (new BooleanValue(Value >= o.Value).SetContext(Context), null);
@@ -539,6 +560,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 string.Equals(tn, "f32", StringComparison.Ordinal))
             {
                 return (new FloatValue(Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            if (string.Equals(tn, "double", StringComparison.Ordinal) ||
+                string.Equals(tn, "f64", StringComparison.Ordinal))
+            {
+                return (new DoubleValue(Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             return base.CastTo(targetType);

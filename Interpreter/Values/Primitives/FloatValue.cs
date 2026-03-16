@@ -52,6 +52,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 RuntimeValueType.Float => ((FloatValue)other).Value,
                 RuntimeValueType.Integer => ((IntegerValue)other).Value,
                 RuntimeValueType.Long => ((LongValue)other).Value,
+                RuntimeValueType.Double => (float) ((DoubleValue)other).Value,
                 _ => throw new InvalidOperationException("Cannot convert runtime value to float")
             };
         }
@@ -63,7 +64,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) AddedTo(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Long)
+            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double)
             {
                 float result = Value + AsFloat(other);
                 if (!EnsureFinite(result))
@@ -82,7 +84,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) SubbedBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Long)
+            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double)
             {
                 float result = Value - AsFloat(other);
                 if (!EnsureFinite(result))
@@ -101,7 +104,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) MultedBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Long)
+            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double)
             {
                 float result = Value * AsFloat(other);
                 if (!EnsureFinite(result))
@@ -120,7 +124,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) DivedBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Long)
+            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double)
             {
                 float divisor = AsFloat(other);
                 if (divisor == 0f)
@@ -145,7 +150,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) PowedBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Long)
+            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double)
             {
                 float exponent = AsFloat(other);
                 float result = MathF.Pow(Value, exponent);
@@ -166,7 +172,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) ModuledBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Long)
+            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double)
             {
                 float divisor = AsFloat(other);
                 if (divisor == 0f)
@@ -191,7 +198,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Long)
+            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double)
             {
                 return (new BooleanValue(Value == AsFloat(other)).SetContext(Context), null);
             }
@@ -219,7 +227,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Long)
+            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double)
             {
                 return (new BooleanValue(Value != AsFloat(other)).SetContext(Context), null);
             }
@@ -247,7 +256,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonLt(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Long)
+            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double)
             {
                 return (new BooleanValue(Value < AsFloat(other)).SetContext(Context), null);
             }
@@ -263,7 +273,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonGt(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Long)
+            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double)
             {
                 return (new BooleanValue(Value > AsFloat(other)).SetContext(Context), null);
             }
@@ -279,7 +290,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonLte(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Long)
+            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double)
             {
                 return (new BooleanValue(Value <= AsFloat(other)).SetContext(Context), null);
             }
@@ -295,7 +307,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonGte(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.Long)
+            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double)
             {
                 return (new BooleanValue(Value >= AsFloat(other)).SetContext(Context), null);
             }
@@ -355,7 +368,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
             }
 
             if (string.Equals(tn, "int", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "integer", StringComparison.OrdinalIgnoreCase))
+                string.Equals(tn, "integer", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(tn, "i32", StringComparison.OrdinalIgnoreCase))
             {
                 if (MathF.Abs(Value - MathF.Truncate(Value)) > 0.000001f ||
                     Value < int.MinValue || Value > int.MaxValue)
@@ -366,7 +380,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new IntegerValue((int)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "long", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "long", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(tn, "i64", StringComparison.OrdinalIgnoreCase))
             {
                 if (MathF.Abs(Value - MathF.Truncate(Value)) > 0.000001f ||
                     Value < long.MinValue || Value > long.MaxValue)
@@ -391,6 +406,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 string.Equals(tn, "bool", StringComparison.OrdinalIgnoreCase))
             {
                 return (new BooleanValue(Value != 0f).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            if (string.Equals(tn, "double", StringComparison.Ordinal) ||
+                string.Equals(tn, "f64", StringComparison.Ordinal))
+            {
+                return (new DoubleValue(Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             return base.CastTo(targetType);

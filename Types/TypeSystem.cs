@@ -24,7 +24,9 @@ namespace RaLanguage.Types
                         || string.Equals(target.Name, "long", StringComparison.Ordinal)
                         || string.Equals(target.Name, "i64", StringComparison.Ordinal)
                         || string.Equals(target.Name, "float", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "f32", StringComparison.Ordinal);
+                        || string.Equals(target.Name, "f32", StringComparison.Ordinal)
+                        || string.Equals(target.Name, "double", StringComparison.Ordinal)
+                        || string.Equals(target.Name, "f64", StringComparison.Ordinal);
                 case RuntimeValueType.String:
                     return string.Equals(target.Name, "string", StringComparison.Ordinal);
                 case RuntimeValueType.Boolean:
@@ -128,6 +130,7 @@ namespace RaLanguage.Types
                 case RuntimeValueType.Integer: return new TypeDescriptor("integer");
                 case RuntimeValueType.Long: return new TypeDescriptor("long");
                 case RuntimeValueType.Float: return new TypeDescriptor("float");
+                case RuntimeValueType.Double: return new TypeDescriptor("double");
                 case RuntimeValueType.List:
                     var l = (ListValue)val;
                     if (l.Elements.Count == 0) return new TypeDescriptor("list");

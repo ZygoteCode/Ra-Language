@@ -63,6 +63,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new NumberValue(lhs + rhs).SetContext(Context), null);
             }
 
+            if (other.Type == RuntimeValueType.Double)
+            {
+                var d = (DoubleValue)other;
+                var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
+                return (new NumberValue(Value + rhs).SetContext(Context), null);
+            }
+
             return base.AddedTo(other);
         }
 
@@ -94,6 +101,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new NumberValue(lhs - rhs).SetContext(Context), null);
             }
 
+            if (other.Type == RuntimeValueType.Double)
+            {
+                var d = (DoubleValue)other;
+                var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
+                return (new NumberValue(Value - rhs).SetContext(Context), null);
+            }
+
             return base.SubbedBy(other);
         }
 
@@ -123,6 +137,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var lhs = BigNumber.Parse(Value.ToString());
                 var rhs = BigNumber.Parse(f.Value.ToString("R", CultureInfo.InvariantCulture));
                 return (new NumberValue(lhs * rhs).SetContext(Context), null);
+            }
+
+            if (other.Type == RuntimeValueType.Double)
+            {
+                var d = (DoubleValue)other;
+                var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
+                return (new NumberValue(Value * rhs).SetContext(Context), null);
             }
 
             return base.MultedBy(other);
@@ -185,6 +206,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new NumberValue(lhs / rhs).SetContext(Context), null);
             }
 
+            if (other.Type == RuntimeValueType.Double)
+            {
+                var d = (DoubleValue)other;
+                var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
+                return (new NumberValue(Value / rhs).SetContext(Context), null);
+            }
+
             return base.DivedBy(other);
         }
 
@@ -212,6 +240,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 NumberValue n = Promote((FloatValue)other);
                 return (new NumberValue(Value.Pow(n.Value)).SetContext(Context), null);
+            }
+
+            if (other.Type == RuntimeValueType.Double)
+            {
+                var d = (DoubleValue)other;
+                var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
+                return (new NumberValue(BigNumber.Parse(Math.Pow((double)Value, (double)rhs).ToString())).SetContext(Context), null);
             }
 
             return base.PowedBy(other);
@@ -251,6 +286,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var rhs = BigNumber.Parse(f.Value.ToString("R", CultureInfo.InvariantCulture));
                 return (new BooleanValue(lhs == rhs).SetContext(Context), null);
             }
+            else if (other.Type == RuntimeValueType.Double)
+            {
+                var d = (DoubleValue)other;
+                var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
+                return (new BooleanValue(Value == rhs).SetContext(Context), null);
+            }
 
             return base.GetComparisonEq(other);
         }
@@ -289,6 +330,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var rhs = BigNumber.Parse(f.Value.ToString("R", CultureInfo.InvariantCulture));
                 return (new BooleanValue(lhs != rhs).SetContext(Context), null);
             }
+            else if (other.Type == RuntimeValueType.Double)
+            {
+                var d = (DoubleValue)other;
+                var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
+                return (new BooleanValue(Value != rhs).SetContext(Context), null);
+            }
 
             return base.GetComparisonNe(other);
         }
@@ -319,6 +366,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var lhs = BigNumber.Parse(Value.ToString());
                 var rhs = BigNumber.Parse(f.Value.ToString("R", CultureInfo.InvariantCulture));
                 return (new BooleanValue(lhs < rhs).SetContext(Context), null);
+            }
+            
+            if (other.Type == RuntimeValueType.Double)
+            {
+                var d = (DoubleValue)other;
+                var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
+                return (new BooleanValue(Value < rhs).SetContext(Context), null);
             }
 
             return base.GetComparisonLt(other);
@@ -352,6 +406,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new BooleanValue(lhs > rhs).SetContext(Context), null);
             }
 
+            if (other.Type == RuntimeValueType.Double)
+            {
+                var d = (DoubleValue)other;
+                var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
+                return (new BooleanValue(Value > rhs).SetContext(Context), null);
+            }
+
             return base.GetComparisonGt(other);
         }
 
@@ -383,6 +444,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new BooleanValue(lhs <= rhs).SetContext(Context), null);
             }
 
+            if (other.Type == RuntimeValueType.Double)
+            {
+                var d = (DoubleValue)other;
+                var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
+                return (new BooleanValue(Value <= rhs).SetContext(Context), null);
+            }
+
             return base.GetComparisonLte(other);
         }
 
@@ -412,6 +480,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var lhs = BigNumber.Parse(Value.ToString());
                 var rhs = BigNumber.Parse(f.Value.ToString("R", CultureInfo.InvariantCulture));
                 return (new BooleanValue(lhs >= rhs).SetContext(Context), null);
+            }
+
+            if (other.Type == RuntimeValueType.Double)
+            {
+                var d = (DoubleValue)other;
+                var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
+                return (new BooleanValue(Value >= rhs).SetContext(Context), null);
             }
 
             return base.GetComparisonGte(other);
@@ -576,7 +651,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             }
 
             if (string.Equals(tn, "float", StringComparison.Ordinal) ||
-                string.Equals(tn, "f64", StringComparison.Ordinal))
+                string.Equals(tn, "f32", StringComparison.Ordinal))
             {
                 if (!float.TryParse(Value.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var f))
                 {
@@ -584,6 +659,17 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 }
 
                 return (new FloatValue(f).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            if (string.Equals(tn, "double", StringComparison.Ordinal) ||
+                string.Equals(tn, "f64", StringComparison.Ordinal))
+            {
+                if (!double.TryParse(Value.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var d))
+                {
+                    return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast number to double", Context));
+                }
+
+                return (new DoubleValue(d).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             return base.CastTo(targetType);

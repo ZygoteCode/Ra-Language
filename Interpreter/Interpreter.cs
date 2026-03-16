@@ -15,7 +15,6 @@ using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Statements;
 using RaLanguage.Parser.Nodes.Variables;
 using RaLanguage.Types;
-using System.Xml.Linq;
 
 namespace RaLanguage.Interpreter
 {
@@ -841,6 +840,8 @@ namespace RaLanguage.Interpreter
                 RuntimeValueType.Tuple => "tuple",
                 RuntimeValueType.Integer => "integer",
                 RuntimeValueType.Long => "long",
+                RuntimeValueType.Double => "double",
+                RuntimeValueType.Float => "float",
                 _ => ""
             };
 
@@ -1103,6 +1104,31 @@ namespace RaLanguage.Interpreter
                             .SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                     }
                 }
+                else if (declaredType != null && (string.Equals(declaredType.Name?.ToString(), "double", StringComparison.Ordinal) || string.Equals(declaredType.Name?.ToString(), "f64", StringComparison.Ordinal)))
+                {
+                    if (value.Type == RuntimeValueType.Integer)
+                    {
+                        value = new DoubleValue(((IntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Long)
+                    {
+                        value = new DoubleValue(((LongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Float)
+                    {
+                        value = new DoubleValue(((FloatValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Number)
+                    {
+                        var n = (NumberValue)value;
+                        if (!double.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                        {
+                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to double", context));
+                        }
+
+                        value = new DoubleValue(d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                }
 
                 context.SymbolTable.Set(varName, value, isLetFlag, declaredType, isStaticallyTyped);
                 values.Add(value);
@@ -1204,6 +1230,31 @@ namespace RaLanguage.Interpreter
                     var n = (NumberValue)value;
                     value = new FloatValue(float.Parse(n.Value.ToString(), System.Globalization.CultureInfo.InvariantCulture))
                         .SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+            }
+            else if (entry != null && entry.DeclaredType != null && (string.Equals(entry.DeclaredType.Name?.ToString(), "double", StringComparison.Ordinal) || string.Equals(entry.DeclaredType.Name?.ToString(), "f64", StringComparison.Ordinal)))
+            {
+                if (value.Type == RuntimeValueType.Integer)
+                {
+                    value = new DoubleValue(((IntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (value.Type == RuntimeValueType.Long)
+                {
+                    value = new DoubleValue(((LongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (value.Type == RuntimeValueType.Float)
+                {
+                    value = new DoubleValue(((FloatValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (value.Type == RuntimeValueType.Number)
+                {
+                    var n = (NumberValue)value;
+                    if (!double.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                    {
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to double", context));
+                    }
+
+                    value = new DoubleValue(d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
             }
 

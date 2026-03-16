@@ -1,7 +1,5 @@
-var a: float = 5;
-var b: float = 2.5;
+var a: double = 5;
+var b: double = 2.5;
 var c = a + b;
 print(c);
 print(a as string);
-var d: long = 7;
-print(c + d);

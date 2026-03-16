@@ -11,6 +11,8 @@
         List,
         Integer,
         Long,
+        Float,
+        Double,
         Any,
         Unknown
     }

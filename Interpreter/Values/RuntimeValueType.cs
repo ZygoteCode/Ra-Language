@@ -14,6 +14,7 @@
         Tuple,
         Integer,
         Long,
-        Float
+        Float,
+        Double
     }
 }
