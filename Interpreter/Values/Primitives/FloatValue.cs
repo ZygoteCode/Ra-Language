@@ -56,6 +56,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 RuntimeValueType.UnsignedInteger => ((UnsignedIntegerValue)other).Value,
                 RuntimeValueType.UnsignedLong => ((UnsignedLongValue)other).Value,
                 RuntimeValueType.Short => ((ShortValue)other).Value,
+                RuntimeValueType.UnsignedShort => ((UnsignedShortValue)other).Value,
                 _ => throw new InvalidOperationException("Cannot convert runtime value to float")
             };
         }
@@ -70,7 +71,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
-                || other.Type == RuntimeValueType.Short)
+                || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort)
             {
                 float result = Value + AsFloat(other);
                 if (!EnsureFinite(result))
@@ -92,7 +93,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
-                || other.Type == RuntimeValueType.Short)
+                || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort)
             {
                 float result = Value - AsFloat(other);
                 if (!EnsureFinite(result))
@@ -114,7 +115,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
-                || other.Type == RuntimeValueType.Short)
+                || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort)
             {
                 float result = Value * AsFloat(other);
                 if (!EnsureFinite(result))
@@ -136,7 +137,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
-                || other.Type == RuntimeValueType.Short)
+                || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort)
             {
                 float divisor = AsFloat(other);
                 if (divisor == 0f)
@@ -164,7 +165,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
-                || other.Type == RuntimeValueType.Short)
+                || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort)
             {
                 float exponent = AsFloat(other);
                 float result = MathF.Pow(Value, exponent);
@@ -188,7 +189,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
-                || other.Type == RuntimeValueType.Short)
+                || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort)
             {
                 float divisor = AsFloat(other);
                 if (divisor == 0f)
@@ -216,7 +217,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
-                || other.Type == RuntimeValueType.Short)
+                || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort)
             {
                 return (new BooleanValue(Value == AsFloat(other)).SetContext(Context), null);
             }
@@ -247,7 +248,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
-                || other.Type == RuntimeValueType.Short)
+                || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort)
             {
                 return (new BooleanValue(Value != AsFloat(other)).SetContext(Context), null);
             }
@@ -278,7 +279,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
-                || other.Type == RuntimeValueType.Short)
+                || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort)
             {
                 return (new BooleanValue(Value < AsFloat(other)).SetContext(Context), null);
             }
@@ -297,7 +298,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
-                || other.Type == RuntimeValueType.Short)
+                || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort)
             {
                 return (new BooleanValue(Value > AsFloat(other)).SetContext(Context), null);
             }
@@ -316,7 +317,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
-                || other.Type == RuntimeValueType.Short)
+                || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort)
             {
                 return (new BooleanValue(Value <= AsFloat(other)).SetContext(Context), null);
             }
@@ -335,7 +336,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Double
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
-                || other.Type == RuntimeValueType.Short)
+                || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort)
             {
                 return (new BooleanValue(Value >= AsFloat(other)).SetContext(Context), null);
             }
@@ -470,6 +471,20 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (string.Equals(tn, "i16", StringComparison.Ordinal) ||
                 string.Equals(tn, "int16", StringComparison.Ordinal) ||
                 string.Equals(tn, "short", StringComparison.Ordinal))
+            {
+                if (MathF.Abs(Value - MathF.Truncate(Value)) > 0.000001f ||
+                    Value < short.MinValue || Value > short.MaxValue)
+                {
+                    return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer float to short", Context));
+                }
+
+                return (new ShortValue((short)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            if (string.Equals(tn, "uint16", StringComparison.Ordinal) ||
+                string.Equals(tn, "ui16", StringComparison.Ordinal) ||
+                string.Equals(tn, "ushort", StringComparison.Ordinal) ||
+                string.Equals(tn, "unsignedshort", StringComparison.Ordinal))
             {
                 if (MathF.Abs(Value - MathF.Truncate(Value)) > 0.000001f ||
                     Value < short.MinValue || Value > short.MaxValue)

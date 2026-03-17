@@ -18,6 +18,7 @@
         Double,
         UnsignedInteger,
         UnsignedLong,
-        Short
+        Short,
+        UnsignedShort
     }
 }

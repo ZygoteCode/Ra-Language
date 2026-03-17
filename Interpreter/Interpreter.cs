@@ -845,6 +845,7 @@ namespace RaLanguage.Interpreter
                 RuntimeValueType.UnsignedInteger => "uint",
                 RuntimeValueType.UnsignedLong => "ulong",
                 RuntimeValueType.Short => "short",
+                RuntimeValueType.UnsignedShort => "ushort",
                 _ => ""
             };
 
@@ -1230,6 +1231,44 @@ namespace RaLanguage.Interpreter
                         value = new ShortValue((short)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                     }
                 }
+                else if (declaredType != null && (string.Equals(declaredType.Name?.ToString(), "ushort", StringComparison.Ordinal) || string.Equals(declaredType.Name?.ToString(), "ui16", StringComparison.Ordinal) || string.Equals(declaredType.Name?.ToString(), "uint16", StringComparison.Ordinal)))
+                {
+                    if (value.Type == RuntimeValueType.Integer)
+                    {
+                        value = new UnsignedShortValue((ushort)((IntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Long)
+                    {
+                        value = new UnsignedShortValue((ushort)((LongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Float)
+                    {
+                        value = new UnsignedShortValue((ushort)((FloatValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Double)
+                    {
+                        value = new UnsignedShortValue((ushort)((DoubleValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.UnsignedInteger)
+                    {
+                        value = new UnsignedShortValue((ushort)((UnsignedIntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.UnsignedLong)
+                    {
+                        value = new UnsignedShortValue((ushort)((UnsignedLongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Number)
+                    {
+                        var n = (NumberValue)value;
+
+                        if (!double.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                        {
+                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to ushort", context));
+                        }
+
+                        value = new UnsignedShortValue((ushort)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                }
 
                 context.SymbolTable.Set(varName, value, isLetFlag, declaredType, isStaticallyTyped);
                 values.Add(value);
@@ -1458,6 +1497,44 @@ namespace RaLanguage.Interpreter
                     }
 
                     result = new ShortValue((short)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+            }
+            else if (entry != null && entry.DeclaredType != null && (string.Equals(entry.DeclaredType.Name?.ToString(), "uint16", StringComparison.Ordinal) || string.Equals(entry.DeclaredType.Name?.ToString(), "ushort", StringComparison.Ordinal) || string.Equals(entry.DeclaredType.Name?.ToString(), "ui16", StringComparison.Ordinal)))
+            {
+                if (result.Type == RuntimeValueType.Integer)
+                {
+                    result = new UnsignedShortValue((ushort)((IntegerValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Long)
+                {
+                    result = new UnsignedShortValue((ushort)((LongValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Float)
+                {
+                    result = new UnsignedShortValue((ushort)((FloatValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Double)
+                {
+                    result = new UnsignedShortValue((ushort)((DoubleValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.UnsignedInteger)
+                {
+                    result = new UnsignedShortValue((ushort)((UnsignedIntegerValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.UnsignedLong)
+                {
+                    result = new UnsignedShortValue((ushort)((UnsignedLongValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Number)
+                {
+                    var n = (NumberValue)result;
+
+                    if (!double.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                    {
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to ushort", context));
+                    }
+
+                    result = new UnsignedShortValue((ushort)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
             }
 

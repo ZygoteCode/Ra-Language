@@ -22,6 +22,16 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return new UnsignedLongValue(ParseLiteralToULong(literal));
         }
 
+        public static UnsignedLongValue FromBigInteger(System.Numerics.BigInteger value)
+        {
+            if (value < uint.MinValue || value > uint.MaxValue)
+            {
+                throw new OverflowException("Integer literal out of int range");
+            }
+
+            return new UnsignedLongValue((uint)value);
+        }
+
         public static UnsignedLongValue? TryParseLiteral(string literal)
         {
             try
@@ -574,6 +584,17 @@ namespace RaLanguage.Interpreter.Values.Primitives
                     return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast ulong to short without overflow", Context));
 
                 return (new ShortValue((short)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            if (string.Equals(tn, "ushort", StringComparison.Ordinal) ||
+                string.Equals(tn, "unsignedshort", StringComparison.Ordinal) ||
+                string.Equals(tn, "ui16", StringComparison.Ordinal) ||
+                string.Equals(tn, "uint16", StringComparison.Ordinal))
+            {
+                if (Value > ushort.MaxValue || Value < ushort.MinValue)
+                    return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast ulong to ushort without overflow", Context));
+
+                return (new UnsignedShortValue((ushort)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             if (string.Equals(tn, "ulong", StringComparison.Ordinal) ||

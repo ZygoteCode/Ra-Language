@@ -116,6 +116,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 RuntimeValueType.UnsignedInteger => ((UnsignedIntegerValue)other).Value,
                 RuntimeValueType.Integer => ((IntegerValue)other).Value,
                 RuntimeValueType.Long => ((LongValue)other).Value,
+                RuntimeValueType.Short => ((ShortValue)other).Value,
+                RuntimeValueType.UnsignedShort => ((UnsignedShortValue)other).Value,
                 _ => throw new InvalidOperationException("Cannot convert runtime value to long")
             };
         }
@@ -128,6 +130,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 RuntimeValueType.Integer => ((IntegerValue)other).Value,
                 RuntimeValueType.Long => ((LongValue)other).Value,
                 RuntimeValueType.Float => ((FloatValue)other).Value,
+                RuntimeValueType.Short => ((ShortValue)other).Value,
+                RuntimeValueType.UnsignedShort => ((UnsignedShortValue)other).Value,
                 _ => throw new InvalidOperationException("Cannot convert runtime value to float")
             };
         }
@@ -141,6 +145,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 RuntimeValueType.Long => ((LongValue)other).Value,
                 RuntimeValueType.Float => ((FloatValue)other).Value,
                 RuntimeValueType.Double => ((DoubleValue)other).Value,
+                RuntimeValueType.Short => ((ShortValue)other).Value,
+                RuntimeValueType.UnsignedShort => ((UnsignedShortValue)other).Value,
                 _ => throw new InvalidOperationException("Cannot convert runtime value to double")
             };
         }
@@ -198,6 +204,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new ShortValue((short)(Value + u.Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
+            if (other.Type == RuntimeValueType.UnsignedShort)
+            {
+                var u = (UnsignedShortValue)other;
+                return (new UnsignedShortValue((ushort)(Value + u.Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
             return base.AddedTo(other);
         }
 
@@ -247,6 +259,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 var u = (ShortValue)other;
                 return (new ShortValue((short)(Value - u.Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            if (other.Type == RuntimeValueType.UnsignedShort)
+            {
+                var u = (UnsignedShortValue)other;
+                return (new UnsignedShortValue((ushort)(Value - u.Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             return base.SubbedBy(other);
@@ -303,6 +321,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 var u = (ShortValue)other;
                 return (new ShortValue((short)(Value * u.Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            if (other.Type == RuntimeValueType.UnsignedShort)
+            {
+                var u = (UnsignedShortValue)other;
+                return (new UnsignedShortValue((ushort)(Value * u.Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             return base.MultedBy(other);
@@ -370,6 +394,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 var u = (ShortValue)other;
                 return (new ShortValue((short)(Value / u.Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            if (other.Type == RuntimeValueType.UnsignedShort)
+            {
+                var u = (UnsignedShortValue)other;
+                return (new UnsignedShortValue((ushort)(Value / u.Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             return base.DivedBy(other);
@@ -449,6 +479,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new ShortValue((short)(Value ^ u.Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
+            if (other.Type == RuntimeValueType.UnsignedShort)
+            {
+                var u = (UnsignedShortValue)other;
+                return (new UnsignedShortValue((ushort)(Value ^ u.Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
             return base.PowedBy(other);
         }
 
@@ -515,6 +551,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new ShortValue((short)(Value % u.Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
+            if (other.Type == RuntimeValueType.UnsignedShort)
+            {
+                var u = (UnsignedShortValue)other;
+                return (new UnsignedShortValue((ushort)(Value % u.Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
             return base.ModuledBy(other);
         }
 
@@ -535,6 +577,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 var u = (ShortValue)other;
                 return (new ShortValue((short)(Value << u.Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            if (other.Type == RuntimeValueType.UnsignedShort)
+            {
+                var u = (UnsignedShortValue)other;
+                return (new UnsignedShortValue((ushort)(Value << u.Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             return base.BitwiseLeftShiftedBy(other);
@@ -559,6 +607,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new ShortValue((short)(Value >> u.Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
+            if (other.Type == RuntimeValueType.UnsignedShort)
+            {
+                var u = (UnsignedShortValue)other;
+                return (new UnsignedShortValue((ushort)(Value >> u.Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
             return base.BitwiseRightShiftedBy(other);
         }
 
@@ -581,6 +635,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new ShortValue((short)(Value & u.Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
+            if (other.Type == RuntimeValueType.UnsignedShort)
+            {
+                var u = (UnsignedShortValue)other;
+                return (new UnsignedShortValue((ushort)(Value & u.Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
             return base.BitwiseAndedBy(other);
         }
 
@@ -601,6 +661,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 var u = (ShortValue)other;
                 return (new ShortValue((short)(Value | u.Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            if (other.Type == RuntimeValueType.UnsignedShort)
+            {
+                var u = (UnsignedShortValue)other;
+                return (new UnsignedShortValue((ushort)(Value | u.Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             return base.BitwiseOredBy(other);
@@ -639,6 +705,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
         {
+            if (other.Type == RuntimeValueType.UnsignedShort)
+            {
+                return (new BooleanValue(Value == ((UnsignedShortValue)other).Value).SetContext(Context), null);
+            }
+
             if (other.Type == RuntimeValueType.Short)
             {
                 return (new BooleanValue(Value == ((ShortValue)other).Value).SetContext(Context), null);
@@ -691,6 +762,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
         {
+            if (other.Type == RuntimeValueType.UnsignedShort)
+            {
+                return (new BooleanValue(Value != ((UnsignedShortValue)other).Value).SetContext(Context), null);
+            }
+
             if (other.Type == RuntimeValueType.Short)
             {
                 return (new BooleanValue(Value != ((ShortValue)other).Value).SetContext(Context), null);
@@ -743,6 +819,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonLt(RuntimeValue other)
         {
+            if (other.Type == RuntimeValueType.UnsignedShort)
+            {
+                return (new BooleanValue(Value < ((UnsignedShortValue)other).Value).SetContext(Context), null);
+            }
+
             if (other.Type == RuntimeValueType.Short)
             {
                 return (new BooleanValue(Value < ((ShortValue)other).Value).SetContext(Context), null);
@@ -778,6 +859,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonGt(RuntimeValue other)
         {
+            if (other.Type == RuntimeValueType.UnsignedShort)
+            {
+                return (new BooleanValue(Value > ((UnsignedShortValue)other).Value).SetContext(Context), null);
+            }
+
             if (other.Type == RuntimeValueType.Short)
             {
                 return (new BooleanValue(Value > ((ShortValue)other).Value).SetContext(Context), null);
@@ -813,6 +899,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonLte(RuntimeValue other)
         {
+            if (other.Type == RuntimeValueType.UnsignedShort)
+            {
+                return (new BooleanValue(Value <= ((UnsignedShortValue)other).Value).SetContext(Context), null);
+            }
+
             if (other.Type == RuntimeValueType.Short)
             {
                 return (new BooleanValue(Value <= ((ShortValue)other).Value).SetContext(Context), null);
@@ -848,6 +939,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonGte(RuntimeValue other)
         {
+            if (other.Type == RuntimeValueType.UnsignedShort)
+            {
+                return (new BooleanValue(Value >= ((UnsignedShortValue)other).Value).SetContext(Context), null);
+            }
+
             if (other.Type == RuntimeValueType.Short)
             {
                 return (new BooleanValue(Value >= ((ShortValue)other).Value).SetContext(Context), null);
@@ -884,6 +980,14 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public override (RuntimeValue?, Error?) CastTo(TypeDescriptor targetType)
         {
             var tn = targetType?.Name?.ToString() ?? "";
+
+            if (string.Equals(tn, "ushort", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(tn, "uint16", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(tn, "ui16", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(tn, "unsignedshort", StringComparison.OrdinalIgnoreCase))
+            {
+                return (new ShortValue((short)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
 
             if (string.Equals(tn, "ulong", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(tn, "unsignedlong", StringComparison.OrdinalIgnoreCase) ||
