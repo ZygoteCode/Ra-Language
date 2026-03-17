@@ -855,6 +855,89 @@ namespace RaLanguage.Interpreter.Values
                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'ushort'", Context));
             }
 
+            if (string.Equals(tn, "int128", StringComparison.Ordinal) ||
+                string.Equals(tn, "i128", StringComparison.Ordinal) ||
+                string.Equals(tn, "integer128", StringComparison.Ordinal))
+            {
+                if (Type == RuntimeValueType.Int128)
+                {
+                    return (Copy().SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Short)
+                {
+                    return (new Int128Value(((ShortValue)this).Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.UnsignedShort)
+                {
+                    return (new Int128Value(((UnsignedShortValue)this).Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Integer)
+                {
+                    return (new Int128Value(((IntegerValue)this).Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.UnsignedInteger)
+                {
+                    return (new Int128Value(((UnsignedIntegerValue)this).Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Long)
+                {
+                    return (new Int128Value(((LongValue)this).Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.UnsignedLong)
+                {
+                    return (new Int128Value(((UnsignedLongValue)this).Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Float)
+                {
+                    float f = ((FloatValue)this).Value;
+                    if (MathF.Abs(f - MathF.Truncate(f)) > 0.000001f)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer float to int128", Context));
+
+                    return (new Int128Value((Int128)f).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Double)
+                {
+                    double d = ((DoubleValue)this).Value;
+                    if (Math.Abs(d - Math.Truncate(d)) > 0.000001d)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer double to int128", Context));
+
+                    return (new Int128Value((Int128)d).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Number)
+                {
+                    var s = ((NumberValue)this).Value.ToString();
+                    if (!Int128.TryParse(s, out var i128))
+                        return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast number '{s}' to int128", Context));
+
+                    return (new Int128Value(i128).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.String)
+                {
+                    var s = ((StringValue)this).Value;
+                    if (!Int128.TryParse(s, out var i128))
+                        return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast string '{s}' to int128", Context));
+
+                    return (new Int128Value(i128).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Boolean)
+                {
+                    return (new Int128Value(((BooleanValue)this).Value ? (Int128)1 : (Int128)0).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'int128'", Context));
+            }
+
             return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to '{targetType}'", Context));
         }
 

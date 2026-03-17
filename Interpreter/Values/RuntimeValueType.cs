@@ -19,6 +19,7 @@
         UnsignedInteger,
         UnsignedLong,
         Short,
-        UnsignedShort
+        UnsignedShort,
+        Int128
     }
 }

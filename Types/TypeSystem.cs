@@ -22,6 +22,7 @@ namespace RaLanguage.Types
                 case RuntimeValueType.UnsignedLong:
                 case RuntimeValueType.Short:
                 case RuntimeValueType.UnsignedShort:
+                case RuntimeValueType.Int128:
                     return string.Equals(target.Name, "number", StringComparison.Ordinal)
                         || string.Equals(target.Name, "int", StringComparison.Ordinal)
                         || string.Equals(target.Name, "i32", StringComparison.Ordinal)
@@ -41,11 +42,13 @@ namespace RaLanguage.Types
                         || string.Equals(target.Name, "i16", StringComparison.Ordinal)
                         || string.Equals(target.Name, "int16", StringComparison.Ordinal)
                         || string.Equals(target.Name, "short", StringComparison.Ordinal)
-
                         || string.Equals(target.Name, "ushort", StringComparison.Ordinal)
                         || string.Equals(target.Name, "uint16", StringComparison.Ordinal)
                         || string.Equals(target.Name, "ui16", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "unsignedshort", StringComparison.Ordinal);
+                        || string.Equals(target.Name, "unsignedshort", StringComparison.Ordinal)
+                        || string.Equals(target.Name, "int128", StringComparison.Ordinal)
+                        || string.Equals(target.Name, "i128", StringComparison.Ordinal)
+                        || string.Equals(target.Name, "integer128", StringComparison.Ordinal);
                 case RuntimeValueType.String:
                     return string.Equals(target.Name, "string", StringComparison.Ordinal);
                 case RuntimeValueType.Boolean:
@@ -154,6 +157,7 @@ namespace RaLanguage.Types
                 case RuntimeValueType.UnsignedLong: return new TypeDescriptor("ulong");
                 case RuntimeValueType.Short: return new TypeDescriptor("short");
                 case RuntimeValueType.UnsignedShort: return new TypeDescriptor("ushort");
+                case RuntimeValueType.Int128: return new TypeDescriptor("int128");
                 case RuntimeValueType.List:
                     var l = (ListValue)val;
                     if (l.Elements.Count == 0) return new TypeDescriptor("list");
