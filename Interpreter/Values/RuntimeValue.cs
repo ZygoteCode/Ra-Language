@@ -666,6 +666,95 @@ namespace RaLanguage.Interpreter.Values
                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'ulong'", Context));
             }
 
+            if (string.Equals(tn, "short", StringComparison.Ordinal) ||
+                string.Equals(tn, "int16", StringComparison.Ordinal) ||
+                string.Equals(tn, "i16", StringComparison.Ordinal))
+            {
+                if (Type == RuntimeValueType.Short)
+                {
+                    return (Copy().SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Integer)
+                {
+                    int i = ((IntegerValue)this).Value;
+                    if (i < short.MinValue || i > short.MaxValue)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast int to short without overflow", Context));
+
+                    return (new ShortValue((short)i).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.UnsignedInteger)
+                {
+                    uint u = ((UnsignedIntegerValue)this).Value;
+                    if (u > short.MaxValue)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast uint to short without overflow", Context));
+
+                    return (new ShortValue((short)u).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Long)
+                {
+                    long l = ((LongValue)this).Value;
+                    if (l < short.MinValue || l > short.MaxValue)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast long to short without overflow", Context));
+
+                    return (new ShortValue((short)l).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.UnsignedLong)
+                {
+                    ulong ul = ((UnsignedLongValue)this).Value;
+                    if (ul > (ulong)short.MaxValue)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast ulong to short without overflow", Context));
+
+                    return (new ShortValue((short)ul).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Float)
+                {
+                    float f = ((FloatValue)this).Value;
+                    if (MathF.Abs(f - MathF.Truncate(f)) > 0.000001f || f < short.MinValue || f > short.MaxValue)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer float to short", Context));
+
+                    return (new ShortValue((short)f).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Double)
+                {
+                    double d = ((DoubleValue)this).Value;
+                    if (Math.Abs(d - Math.Truncate(d)) > 0.000001d || d < short.MinValue || d > short.MaxValue)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer double to short", Context));
+
+                    return (new ShortValue((short)d).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Number)
+                {
+                    var n = (NumberValue)this;
+                    if (!short.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var s))
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast number to short", Context));
+
+                    return (new ShortValue(s).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.String)
+                {
+                    var sv = (StringValue)this;
+                    if (!short.TryParse(sv.Value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var s))
+                        return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast string '{sv.Value}' to short", Context));
+
+                    return (new ShortValue(s).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Boolean)
+                {
+                    return (new ShortValue(((BooleanValue)this).Value ? (short)1 : (short)0).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'short'", Context));
+            }
+
             return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to '{targetType}'", Context));
         }
 

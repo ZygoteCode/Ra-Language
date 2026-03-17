@@ -17,6 +17,7 @@
         Float,
         Double,
         UnsignedInteger,
-        UnsignedLong
+        UnsignedLong,
+        Short
     }
 }

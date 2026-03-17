@@ -844,6 +844,7 @@ namespace RaLanguage.Interpreter
                 RuntimeValueType.Float => "float",
                 RuntimeValueType.UnsignedInteger => "uint",
                 RuntimeValueType.UnsignedLong => "ulong",
+                RuntimeValueType.Short => "short",
                 _ => ""
             };
 
@@ -1191,6 +1192,44 @@ namespace RaLanguage.Interpreter
                         value = new UnsignedLongValue((ulong)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                     }
                 }
+                else if (declaredType != null && (string.Equals(declaredType.Name?.ToString(), "i16", StringComparison.Ordinal) || string.Equals(declaredType.Name?.ToString(), "short", StringComparison.Ordinal) || string.Equals(declaredType.Name?.ToString(), "int16", StringComparison.Ordinal)))
+                {
+                    if (value.Type == RuntimeValueType.Integer)
+                    {
+                        value = new ShortValue((short)((IntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Long)
+                    {
+                        value = new ShortValue((short)((LongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Float)
+                    {
+                        value = new ShortValue((short)((FloatValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Double)
+                    {
+                        value = new ShortValue((short)((DoubleValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.UnsignedInteger)
+                    {
+                        value = new ShortValue((short)((UnsignedIntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.UnsignedLong)
+                    {
+                        value = new ShortValue((short)((UnsignedLongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Number)
+                    {
+                        var n = (NumberValue)value;
+
+                        if (!double.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                        {
+                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to ulong", context));
+                        }
+
+                        value = new ShortValue((short)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                }
 
                 context.SymbolTable.Set(varName, value, isLetFlag, declaredType, isStaticallyTyped);
                 values.Add(value);
@@ -1279,15 +1318,15 @@ namespace RaLanguage.Interpreter
             }
             else if (entry != null && entry.DeclaredType != null && (string.Equals(entry.DeclaredType.Name?.ToString(), "float", StringComparison.Ordinal) || string.Equals(entry.DeclaredType.Name?.ToString(), "f32", StringComparison.Ordinal)))
             {
-                if (value.Type == RuntimeValueType.Integer)
+                if (result.Type == RuntimeValueType.Integer)
                 {
                     result = new FloatValue(((IntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
-                else if (value.Type == RuntimeValueType.Long)
+                else if (result.Type == RuntimeValueType.Long)
                 {
                     result = new FloatValue(((LongValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
-                else if (value.Type == RuntimeValueType.Number)
+                else if (result.Type == RuntimeValueType.Number)
                 {
                     var n = (NumberValue)result;
                     result = new FloatValue(float.Parse(n.Value.ToString(), System.Globalization.CultureInfo.InvariantCulture))
@@ -1296,19 +1335,19 @@ namespace RaLanguage.Interpreter
             }
             else if (entry != null && entry.DeclaredType != null && (string.Equals(entry.DeclaredType.Name?.ToString(), "double", StringComparison.Ordinal) || string.Equals(entry.DeclaredType.Name?.ToString(), "f64", StringComparison.Ordinal)))
             {
-                if (value.Type == RuntimeValueType.Integer)
+                if (result.Type == RuntimeValueType.Integer)
                 {
-                    result = new DoubleValue(((IntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    result = new DoubleValue(((IntegerValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
-                else if (value.Type == RuntimeValueType.Long)
+                else if (result.Type == RuntimeValueType.Long)
                 {
-                    result = new DoubleValue(((LongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    result = new DoubleValue(((LongValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
                 else if (value.Type == RuntimeValueType.Float)
                 {
-                    result = new DoubleValue(((FloatValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    result = new DoubleValue(((FloatValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
-                else if (value.Type == RuntimeValueType.Number)
+                else if (result.Type == RuntimeValueType.Number)
                 {
                     var n = (NumberValue)result;
                     if (!double.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
@@ -1321,23 +1360,23 @@ namespace RaLanguage.Interpreter
             }
             else if (entry != null && entry.DeclaredType != null && (string.Equals(entry.DeclaredType.Name?.ToString(), "uint", StringComparison.Ordinal) || string.Equals(entry.DeclaredType.Name?.ToString(), "ui32", StringComparison.Ordinal) || string.Equals(entry.DeclaredType.Name?.ToString(), "unsignedinteger", StringComparison.Ordinal)))
             {
-                if (value.Type == RuntimeValueType.Integer)
+                if (result.Type == RuntimeValueType.Integer)
                 {
                     result = new UnsignedIntegerValue((uint)((IntegerValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
-                else if (value.Type == RuntimeValueType.Long)
+                else if (result.Type == RuntimeValueType.Long)
                 {
                     result = new UnsignedIntegerValue((uint)((LongValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
-                else if (value.Type == RuntimeValueType.Float)
+                else if (result.Type == RuntimeValueType.Float)
                 {
                     result = new UnsignedIntegerValue((uint)((FloatValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
-                else if (value.Type == RuntimeValueType.Double)
+                else if (result.Type == RuntimeValueType.Double)
                 {
                     result = new UnsignedIntegerValue((uint)((DoubleValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
-                else if (value.Type == RuntimeValueType.Number)
+                else if (result.Type == RuntimeValueType.Number)
                 {
                     var n = (NumberValue)result;
 
@@ -1348,30 +1387,30 @@ namespace RaLanguage.Interpreter
 
                     result = new UnsignedIntegerValue((uint)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
-                else if (value.Type == RuntimeValueType.UnsignedLong)
+                else if (result.Type == RuntimeValueType.UnsignedLong)
                 {
                     result = new UnsignedLongValue((ulong)((IntegerValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
             }
             else if (entry != null && entry.DeclaredType != null && (string.Equals(entry.DeclaredType.Name?.ToString(), "ulong", StringComparison.Ordinal) || string.Equals(entry.DeclaredType.Name?.ToString(), "ui64", StringComparison.Ordinal) || string.Equals(entry.DeclaredType.Name?.ToString(), "unsignedlong", StringComparison.Ordinal)))
             {
-                if (value.Type == RuntimeValueType.Integer)
+                if (result.Type == RuntimeValueType.Integer)
                 {
-                    result = new UnsignedLongValue((ulong)((IntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    result = new UnsignedLongValue((ulong)((IntegerValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
-                else if (value.Type == RuntimeValueType.Long)
+                else if (result.Type == RuntimeValueType.Long)
                 {
-                    result = new UnsignedLongValue((ulong)((LongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    result = new UnsignedLongValue((ulong)((LongValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
-                else if (value.Type == RuntimeValueType.Float)
+                else if (result.Type == RuntimeValueType.Float)
                 {
-                    result = new UnsignedLongValue((ulong)((FloatValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    result = new UnsignedLongValue((ulong)((FloatValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
-                else if (value.Type == RuntimeValueType.Double)
+                else if (result.Type == RuntimeValueType.Double)
                 {
-                    result = new UnsignedLongValue((ulong)((DoubleValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    result = new UnsignedLongValue((ulong)((DoubleValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
-                else if (value.Type == RuntimeValueType.Number)
+                else if (result.Type == RuntimeValueType.Number)
                 {
                     var n = (NumberValue)result;
 
@@ -1381,6 +1420,44 @@ namespace RaLanguage.Interpreter
                     }
 
                     result = new UnsignedLongValue((ulong)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+            }
+            else if (entry != null && entry.DeclaredType != null && (string.Equals(entry.DeclaredType.Name?.ToString(), "i16", StringComparison.Ordinal) || string.Equals(entry.DeclaredType.Name?.ToString(), "short", StringComparison.Ordinal) || string.Equals(entry.DeclaredType.Name?.ToString(), "int16", StringComparison.Ordinal)))
+            {
+                if (result.Type == RuntimeValueType.Integer)
+                {
+                    result = new ShortValue((short)((IntegerValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Long)
+                {
+                    result = new ShortValue((short)((LongValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Float)
+                {
+                    result = new ShortValue((short)((FloatValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Double)
+                {
+                    result = new ShortValue((short)((DoubleValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.UnsignedInteger)
+                {
+                    result = new ShortValue((short)((UnsignedIntegerValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.UnsignedLong)
+                {
+                    result = new ShortValue((short)((UnsignedLongValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Number)
+                {
+                    var n = (NumberValue)result;
+
+                    if (!double.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                    {
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to ulong", context));
+                    }
+
+                    result = new ShortValue((short)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
             }
 

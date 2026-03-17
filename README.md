@@ -16,7 +16,7 @@ This is constantly updated list, I am expanding with new ideas and concepts for 
 
 I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
   
-  - [ ] Implement new primitives: char, byte, sbyte, short/i16, ushort/ui16, i128, ui128, decimal/f128.
+  - [ ] Implement new primitives: char, byte, sbyte, ushort/ui16, i128, ui128, decimal/f128.
   - [ ] Add "str" as alias of "string" and "bool" as alias of "boolean".
   - [ ] Add a new innovative statement: "retry for 5 times delay 200ms / else" (something similar).
   - [ ] Implement structs into the language. Can instatiate new objects as instance of single structs.
@@ -33,6 +33,7 @@ New ideas coming soon!
   - [x] Implemented double/f64 as a new primitive value type of the language.
   - [x] Implemented uint/ui32 as a new primitive value type of the language.
   - [x] Implemented ulong/ui64 as a new primitive value type of the language.
+  - [x] Implemented short/i16 as a new primitive value type of the language.
 
 ## Finished Phase 1: The Language Essentials
 
