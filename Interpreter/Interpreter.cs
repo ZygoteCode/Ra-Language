@@ -848,6 +848,7 @@ namespace RaLanguage.Interpreter
                 RuntimeValueType.UnsignedShort => "ushort",
                 RuntimeValueType.Int128 => "int128",
                 RuntimeValueType.UnsignedInt128 => "uint128",
+                RuntimeValueType.Decimal => "decimal",
                 _ => ""
             };
 
@@ -1351,6 +1352,10 @@ namespace RaLanguage.Interpreter
                     {
                         value = new UnsignedInt128Value((UInt128)((ShortValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                     }
+                    else if (value.Type == RuntimeValueType.Int128)
+                    {
+                        value = new UnsignedInt128Value((UInt128)((Int128Value)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
                     else if (value.Type == RuntimeValueType.Number)
                     {
                         var n = (NumberValue)value;
@@ -1361,6 +1366,60 @@ namespace RaLanguage.Interpreter
                         }
 
                         value = new UnsignedInt128Value((UInt128)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                }
+                else if (declaredType != null && (string.Equals(declaredType.Name?.ToString(), "decimal", StringComparison.Ordinal) || string.Equals(declaredType.Name?.ToString(), "f128", StringComparison.Ordinal)))
+                {
+                    if (value.Type == RuntimeValueType.Integer)
+                    {
+                        value = new DecimalValue((decimal)((IntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Long)
+                    {
+                        value = new DecimalValue((decimal)((LongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Float)
+                    {
+                        value = new DecimalValue((decimal)((FloatValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Double)
+                    {
+                        value = new DecimalValue((decimal)((DoubleValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.UnsignedInteger)
+                    {
+                        value = new DecimalValue((decimal)((UnsignedIntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.UnsignedLong)
+                    {
+                        value = new DecimalValue((decimal)((UnsignedLongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.UnsignedShort)
+                    {
+                        value = new DecimalValue((decimal)((UnsignedShortValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Short)
+                    {
+                        value = new DecimalValue((decimal)((ShortValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Int128)
+                    {
+                        value = new DecimalValue((decimal)((Int128Value)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.UnsignedInt128)
+                    {
+                        value = new DecimalValue((decimal)((UnsignedInt128Value)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Number)
+                    {
+                        var n = (NumberValue)value;
+
+                        if (!decimal.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                        {
+                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to decimal", context));
+                        }
+
+                        value = new DecimalValue((decimal)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                     }
                 }
 
@@ -1717,6 +1776,60 @@ namespace RaLanguage.Interpreter
                     }
 
                     result = new UnsignedInt128Value((UInt128)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+            }
+            else if (entry != null && entry.DeclaredType != null && (string.Equals(entry.DeclaredType.Name?.ToString(), "decimal", StringComparison.Ordinal) || string.Equals(entry.DeclaredType.Name?.ToString(), "f128", StringComparison.Ordinal)))
+            {
+                if (result.Type == RuntimeValueType.Integer)
+                {
+                    result = new DecimalValue((decimal)((IntegerValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Long)
+                {
+                    result = new DecimalValue((decimal)((LongValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Float)
+                {
+                    result = new DecimalValue((decimal)((FloatValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Double)
+                {
+                    result = new DecimalValue((decimal)((DoubleValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.UnsignedInteger)
+                {
+                    result = new DecimalValue((decimal)((UnsignedIntegerValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.UnsignedLong)
+                {
+                    result = new DecimalValue((decimal)((UnsignedLongValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.UnsignedShort)
+                {
+                    result = new DecimalValue((decimal)((UnsignedShortValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Short)
+                {
+                    result = new DecimalValue((decimal)((ShortValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Int128)
+                {
+                    result = new DecimalValue((decimal)((Int128Value)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.UnsignedInt128)
+                {
+                    result = new DecimalValue((decimal)((UnsignedInt128Value)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Number)
+                {
+                    var n = (NumberValue)result;
+
+                    if (!decimal.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                    {
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to decimal", context));
+                    }
+
+                    result = new DecimalValue((decimal)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
             }
 

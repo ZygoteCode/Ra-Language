@@ -21,6 +21,7 @@
         Short,
         UnsignedShort,
         Int128,
-        UnsignedInt128
+        UnsignedInt128,
+        Decimal
     }
 }

@@ -63,6 +63,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 RuntimeValueType.UnsignedShort => (short)((UnsignedShortValue)other).Value,
                 RuntimeValueType.Int128 => (short)((Int128Value)other).Value,
                 RuntimeValueType.UnsignedInt128 => (short)((UnsignedInt128Value)other).Value,
+                RuntimeValueType.Decimal => (short)((DecimalValue)other).Value,
                 _ => throw new InvalidOperationException()
             };
         }
@@ -97,7 +98,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
             if (other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.UnsignedInteger
                 || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.UnsignedLong
-                || other.Type == RuntimeValueType.UnsignedInt128)
+                || other.Type == RuntimeValueType.UnsignedInt128 || other.Type == RuntimeValueType.Decimal)
             {
                 return (new LongValue((long)Value + AsLong(other)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
@@ -149,7 +150,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
             if (other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.UnsignedInteger
                 || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.UnsignedLong
-                || other.Type == RuntimeValueType.UnsignedInt128)
+                || other.Type == RuntimeValueType.UnsignedInt128 || other.Type == RuntimeValueType.Decimal)
             {
                 return (new LongValue((long)Value - AsLong(other)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
@@ -201,7 +202,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
             if (other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.UnsignedInteger
                 || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.UnsignedLong
-                || other.Type == RuntimeValueType.UnsignedInt128)
+                || other.Type == RuntimeValueType.UnsignedInt128 || other.Type == RuntimeValueType.Decimal)
             {
                 return (new LongValue((long)Value * AsLong(other)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
@@ -266,6 +267,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new DoubleValue(Value / rhs).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
+            if (other.Type == RuntimeValueType.Decimal)
+            {
+                decimal rhs = ((DecimalValue)other).Value;
+                if (rhs == 0m) return (null, new RuntimeError(other.PositionStart, other.PositionEnd, "Division by zero", Context));
+                return (new DecimalValue(Value / rhs).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
             if (other.Type == RuntimeValueType.Number)
             {
                 return PromoteToInteger().DivedBy(other);
@@ -324,6 +332,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new DoubleValue(Math.Pow(Value, ((DoubleValue)other).Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
+            if (other.Type == RuntimeValueType.Decimal)
+            {
+                return (new DecimalValue((decimal) Math.Pow(Value, (double) ((DecimalValue)other).Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
             if (other.Type == RuntimeValueType.Number)
             {
                 return PromoteToInteger().PowedBy(other);
@@ -362,6 +375,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 double rhs = ((DoubleValue)other).Value;
                 if (rhs == 0d) return (null, new RuntimeError(other.PositionStart, other.PositionEnd, "Modulo by zero", Context));
                 return (new DoubleValue(Value % rhs).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            if (other.Type == RuntimeValueType.Decimal)
+            {
+                decimal rhs = ((DecimalValue)other).Value;
+                if (rhs == 0m) return (null, new RuntimeError(other.PositionStart, other.PositionEnd, "Modulo by zero", Context));
+                return (new DecimalValue(Value % rhs).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
@@ -471,6 +491,9 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
         {
+            if (other.Type == RuntimeValueType.Decimal)
+                return (new BooleanValue((decimal)Value == ((DecimalValue)other).Value).SetContext(Context), null);
+
             if (other.Type == RuntimeValueType.UnsignedInt128)
                 return (new BooleanValue((UInt128)Value == ((UnsignedInt128Value)other).Value).SetContext(Context), null);
 
@@ -519,6 +542,9 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override (RuntimeValue?, Error?) GetComparisonLt(RuntimeValue other)
         {
+            if (other.Type == RuntimeValueType.Decimal)
+                return (new BooleanValue((decimal)Value < ((DecimalValue)other).Value).SetContext(Context), null);
+
             if (other.Type == RuntimeValueType.Short)
                 return (new BooleanValue(Value < ((ShortValue)other).Value).SetContext(Context), null);
 
@@ -552,6 +578,9 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Double)
                 return (new BooleanValue((double)Value > ((DoubleValue)other).Value).SetContext(Context), null);
 
+            if (other.Type == RuntimeValueType.Decimal)
+                return (new BooleanValue((decimal)Value > ((DecimalValue)other).Value).SetContext(Context), null);
+
             return base.GetComparisonGt(other);
         }
 
@@ -570,6 +599,9 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
             if (other.Type == RuntimeValueType.Double)
                 return (new BooleanValue((double)Value <= ((DoubleValue)other).Value).SetContext(Context), null);
+
+            if (other.Type == RuntimeValueType.Decimal)
+                return (new BooleanValue((decimal)Value <= ((DecimalValue)other).Value).SetContext(Context), null);
 
             return base.GetComparisonLte(other);
         }
@@ -590,12 +622,21 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Double)
                 return (new BooleanValue((double)Value >= ((DoubleValue)other).Value).SetContext(Context), null);
 
+            if (other.Type == RuntimeValueType.Decimal)
+                return (new BooleanValue((decimal)Value >= ((DecimalValue)other).Value).SetContext(Context), null);
+
             return base.GetComparisonGte(other);
         }
 
         public override (RuntimeValue?, Error?) CastTo(TypeDescriptor targetType)
         {
             var tn = targetType?.Name?.ToString() ?? "";
+
+            if (string.Equals(tn, "decimal", StringComparison.Ordinal) ||
+                string.Equals(tn, "f128", StringComparison.Ordinal))
+            {
+                return (new DecimalValue(Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
 
             if (string.Equals(tn, "short", StringComparison.Ordinal) ||
                 string.Equals(tn, "int16", StringComparison.Ordinal) ||

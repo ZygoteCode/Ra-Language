@@ -1042,6 +1042,110 @@ namespace RaLanguage.Interpreter.Values
                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'uint128'", Context));
             }
 
+            if (string.Equals(tn, "decimal", StringComparison.Ordinal) ||
+                string.Equals(tn, "f128", StringComparison.Ordinal))
+            {
+                if (Type == RuntimeValueType.Decimal)
+                {
+                    return (Copy().SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Short)
+                {
+                    return (new DecimalValue(((ShortValue)this).Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.UnsignedShort)
+                {
+                    return (new DecimalValue(((UnsignedShortValue)this).Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Integer)
+                {
+                    return (new DecimalValue(((IntegerValue)this).Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.UnsignedInteger)
+                {
+                    return (new DecimalValue(((UnsignedIntegerValue)this).Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Long)
+                {
+                    return (new DecimalValue(((LongValue)this).Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.UnsignedLong)
+                {
+                    return (new DecimalValue(((UnsignedLongValue)this).Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Int128)
+                {
+                    var v = ((Int128Value)this).Value;
+                    if (!decimal.TryParse(v.ToString(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast int128 to decimal without overflow", Context));
+
+                    return (new DecimalValue(d).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.UnsignedInt128)
+                {
+                    var v = ((UnsignedInt128Value)this).Value;
+                    if (!decimal.TryParse(v.ToString(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast uint128 to decimal without overflow", Context));
+
+                    return (new DecimalValue(d).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Float)
+                {
+                    var f = ((FloatValue)this).Value;
+                    return (new DecimalValue((decimal)f).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Double)
+                {
+                    var d = ((DoubleValue)this).Value;
+                    if (double.IsNaN(d) || double.IsInfinity(d))
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast NaN/Infinity to decimal", Context));
+
+                    try
+                    {
+                        return (new DecimalValue((decimal)d).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                    }
+                    catch
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast double to decimal without overflow", Context));
+                    }
+                }
+
+                if (Type == RuntimeValueType.Number)
+                {
+                    var s = ((NumberValue)this).Value.ToString();
+                    if (!decimal.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var dec))
+                        return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast number '{s}' to decimal", Context));
+
+                    return (new DecimalValue(dec).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.String)
+                {
+                    var s = ((StringValue)this).Value;
+                    if (!decimal.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var dec))
+                        return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast string '{s}' to decimal", Context));
+
+                    return (new DecimalValue(dec).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Boolean)
+                {
+                    return (new DecimalValue(((BooleanValue)this).Value ? 1m : 0m).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'decimal'", Context));
+            }
+
             return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to '{targetType}'", Context));
         }
 
