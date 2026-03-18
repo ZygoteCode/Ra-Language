@@ -847,6 +847,7 @@ namespace RaLanguage.Interpreter
                 RuntimeValueType.Short => "short",
                 RuntimeValueType.UnsignedShort => "ushort",
                 RuntimeValueType.Int128 => "int128",
+                RuntimeValueType.UnsignedInt128 => "uint128",
                 _ => ""
             };
 
@@ -1156,7 +1157,7 @@ namespace RaLanguage.Interpreter
                     {
                         var n = (NumberValue)value;
 
-                        if (!double.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                        if (!uint.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
                         {
                             return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to uint", context));
                         }
@@ -1186,7 +1187,7 @@ namespace RaLanguage.Interpreter
                     {
                         var n = (NumberValue)value;
 
-                        if (!double.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                        if (!ulong.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
                         {
                             return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to ulong", context));
                         }
@@ -1224,9 +1225,9 @@ namespace RaLanguage.Interpreter
                     {
                         var n = (NumberValue)value;
 
-                        if (!double.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                        if (short.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
                         {
-                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to ulong", context));
+                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to short", context));
                         }
 
                         value = new ShortValue((short)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
@@ -1262,7 +1263,7 @@ namespace RaLanguage.Interpreter
                     {
                         var n = (NumberValue)value;
 
-                        if (!double.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                        if (!ushort.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
                         {
                             return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to ushort", context));
                         }
@@ -1308,12 +1309,58 @@ namespace RaLanguage.Interpreter
                     {
                         var n = (NumberValue)value;
 
-                        if (!double.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                        if (!Int128.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
                         {
-                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to ushort", context));
+                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to int128", context));
                         }
 
                         value = new Int128Value((Int128)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                }
+                else if (declaredType != null && (string.Equals(declaredType.Name?.ToString(), "uint128", StringComparison.Ordinal) || string.Equals(declaredType.Name?.ToString(), "ui128", StringComparison.Ordinal) || string.Equals(declaredType.Name?.ToString(), "unsignedinteger128", StringComparison.Ordinal)))
+                {
+                    if (value.Type == RuntimeValueType.Integer)
+                    {
+                        value = new UnsignedInt128Value((UInt128)((IntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Long)
+                    {
+                        value = new UnsignedInt128Value((UInt128)((LongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Float)
+                    {
+                        value = new UnsignedInt128Value((UInt128)((FloatValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Double)
+                    {
+                        value = new UnsignedInt128Value((UInt128)((DoubleValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.UnsignedInteger)
+                    {
+                        value = new UnsignedInt128Value((UInt128)((UnsignedIntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.UnsignedLong)
+                    {
+                        value = new UnsignedInt128Value((UInt128)((UnsignedLongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.UnsignedShort)
+                    {
+                        value = new UnsignedInt128Value((UInt128)((UnsignedShortValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Short)
+                    {
+                        value = new UnsignedInt128Value((UInt128)((ShortValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Number)
+                    {
+                        var n = (NumberValue)value;
+
+                        if (!UInt128.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                        {
+                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to uint128", context));
+                        }
+
+                        value = new UnsignedInt128Value((UInt128)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                     }
                 }
 
@@ -1624,6 +1671,52 @@ namespace RaLanguage.Interpreter
                     }
 
                     result = new Int128Value((Int128)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+            }
+            else if (entry != null && entry.DeclaredType != null && (string.Equals(entry.DeclaredType.Name?.ToString(), "uint128", StringComparison.Ordinal) || string.Equals(entry.DeclaredType.Name?.ToString(), "ui128", StringComparison.Ordinal) || string.Equals(entry.DeclaredType.Name?.ToString(), "unsignedinteger128", StringComparison.Ordinal)))
+            {
+                if (result.Type == RuntimeValueType.Integer)
+                {
+                    result = new UnsignedInt128Value((UInt128)((IntegerValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Long)
+                {
+                    result = new UnsignedInt128Value((UInt128)((LongValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Float)
+                {
+                    result = new UnsignedInt128Value((UInt128)((FloatValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Double)
+                {
+                    result = new UnsignedInt128Value((UInt128)((DoubleValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.UnsignedInteger)
+                {
+                    result = new UnsignedInt128Value((UInt128)((UnsignedIntegerValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.UnsignedLong)
+                {
+                    result = new UnsignedInt128Value((UInt128)((UnsignedLongValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.UnsignedShort)
+                {
+                    result = new UnsignedInt128Value((UInt128)((UnsignedShortValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Short)
+                {
+                    result = new UnsignedInt128Value((UInt128)((ShortValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Number)
+                {
+                    var n = (NumberValue)result;
+
+                    if (!UInt128.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                    {
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to uint128", context));
+                    }
+
+                    result = new UnsignedInt128Value((UInt128)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
             }
 

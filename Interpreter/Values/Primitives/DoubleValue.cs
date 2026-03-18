@@ -58,6 +58,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 RuntimeValueType.Short => ((ShortValue)other).Value,
                 RuntimeValueType.UnsignedShort => ((UnsignedShortValue)other).Value,
                 RuntimeValueType.Int128 => (double)((Int128Value)other).Value,
+                RuntimeValueType.UnsignedInt128 => (double)((UnsignedInt128Value)other).Value,
                 _ => throw new InvalidOperationException("Cannot convert runtime value to double")
             };
         }
@@ -74,7 +75,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 other.Type == RuntimeValueType.UnsignedLong ||
                 other.Type == RuntimeValueType.Short ||
                 other.Type == RuntimeValueType.UnsignedShort ||
-                other.Type == RuntimeValueType.Int128)
+                other.Type == RuntimeValueType.Int128 ||
+                other.Type == RuntimeValueType.UnsignedInt128)
             {
                 double result = Value + AsDouble(other);
                 if (!Finite(result))
@@ -101,7 +103,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 other.Type == RuntimeValueType.UnsignedLong ||
                 other.Type == RuntimeValueType.Short ||
                 other.Type == RuntimeValueType.UnsignedShort ||
-                other.Type == RuntimeValueType.Int128)
+                other.Type == RuntimeValueType.Int128 ||
+                other.Type == RuntimeValueType.UnsignedInt128)
             {
                 double result = Value - AsDouble(other);
                 if (!Finite(result))
@@ -128,7 +131,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 other.Type == RuntimeValueType.UnsignedLong ||
                 other.Type == RuntimeValueType.Short ||
                 other.Type == RuntimeValueType.UnsignedShort ||
-                other.Type == RuntimeValueType.Int128)
+                other.Type == RuntimeValueType.Int128 ||
+                other.Type == RuntimeValueType.UnsignedInt128)
             {
                 double result = Value * AsDouble(other);
                 if (!Finite(result))
@@ -155,7 +159,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 other.Type == RuntimeValueType.UnsignedLong ||
                 other.Type == RuntimeValueType.Short ||
                 other.Type == RuntimeValueType.UnsignedShort ||
-                other.Type == RuntimeValueType.Int128)
+                other.Type == RuntimeValueType.Int128 ||
+                other.Type == RuntimeValueType.UnsignedInt128)
             {
                 double divisor = AsDouble(other);
                 if (divisor == 0.0)
@@ -186,7 +191,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 other.Type == RuntimeValueType.UnsignedLong ||
                 other.Type == RuntimeValueType.Short ||
                 other.Type == RuntimeValueType.UnsignedShort ||
-                other.Type == RuntimeValueType.Int128)
+                other.Type == RuntimeValueType.Int128 ||
+                other.Type == RuntimeValueType.UnsignedInt128)
             {
                 double exponent = AsDouble(other);
                 double result = Math.Pow(Value, exponent);
@@ -215,7 +221,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 other.Type == RuntimeValueType.UnsignedLong ||
                 other.Type == RuntimeValueType.Short ||
                 other.Type == RuntimeValueType.UnsignedShort ||
-                other.Type == RuntimeValueType.Int128)
+                other.Type == RuntimeValueType.Int128 ||
+                other.Type == RuntimeValueType.UnsignedInt128)
             {
                 double divisor = AsDouble(other);
                 if (divisor == 0.0)
@@ -246,7 +253,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 other.Type == RuntimeValueType.UnsignedLong ||
                 other.Type == RuntimeValueType.Short ||
                 other.Type == RuntimeValueType.UnsignedShort ||
-                other.Type == RuntimeValueType.Int128)
+                other.Type == RuntimeValueType.Int128 ||
+                other.Type == RuntimeValueType.UnsignedInt128)
             {
                 return (new BooleanValue(Value == AsDouble(other)).SetContext(Context), null);
             }
@@ -282,7 +290,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 other.Type == RuntimeValueType.UnsignedLong ||
                 other.Type == RuntimeValueType.Short ||
                 other.Type == RuntimeValueType.UnsignedShort ||
-                other.Type == RuntimeValueType.Int128)
+                other.Type == RuntimeValueType.Int128 ||
+                other.Type == RuntimeValueType.UnsignedInt128)
             {
                 return (new BooleanValue(Value != AsDouble(other)).SetContext(Context), null);
             }
@@ -318,7 +327,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 other.Type == RuntimeValueType.UnsignedLong ||
                 other.Type == RuntimeValueType.Short ||
                 other.Type == RuntimeValueType.UnsignedShort ||
-                other.Type == RuntimeValueType.Int128)
+                other.Type == RuntimeValueType.Int128 ||
+                other.Type == RuntimeValueType.UnsignedInt128)
             {
                 return (new BooleanValue(Value < AsDouble(other)).SetContext(Context), null);
             }
@@ -342,7 +352,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 other.Type == RuntimeValueType.UnsignedLong ||
                 other.Type == RuntimeValueType.Short ||
                 other.Type == RuntimeValueType.UnsignedShort ||
-                other.Type == RuntimeValueType.Int128)
+                other.Type == RuntimeValueType.Int128 ||
+                other.Type == RuntimeValueType.UnsignedInt128)
             {
                 return (new BooleanValue(Value > AsDouble(other)).SetContext(Context), null);
             }
@@ -366,7 +377,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 other.Type == RuntimeValueType.UnsignedLong ||
                 other.Type == RuntimeValueType.Short ||
                 other.Type == RuntimeValueType.UnsignedShort ||
-                other.Type == RuntimeValueType.Int128)
+                other.Type == RuntimeValueType.Int128 ||
+                other.Type == RuntimeValueType.UnsignedInt128)
             {
                 return (new BooleanValue(Value <= AsDouble(other)).SetContext(Context), null);
             }
@@ -390,7 +402,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 other.Type == RuntimeValueType.UnsignedLong ||
                 other.Type == RuntimeValueType.Short ||
                 other.Type == RuntimeValueType.UnsignedShort ||
-                other.Type == RuntimeValueType.Int128)
+                other.Type == RuntimeValueType.Int128 ||
+                other.Type == RuntimeValueType.UnsignedInt128)
             {
                 return (new BooleanValue(Value >= AsDouble(other)).SetContext(Context), null);
             }
@@ -446,6 +459,19 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public override (RuntimeValue?, Error?) CastTo(TypeDescriptor targetType)
         {
             var tn = targetType?.Name?.ToString() ?? "";
+
+            if (string.Equals(tn, "uint128", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(tn, "i128", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(tn, "unsignedinteger128", StringComparison.OrdinalIgnoreCase))
+            {
+                if (Math.Abs(Value - Math.Truncate(Value)) > 0.000001d ||
+                    (UInt128)Value < UInt128.MinValue || (UInt128)Value > UInt128.MaxValue)
+                {
+                    return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer double to uint128", Context));
+                }
+
+                return (new UnsignedInt128Value((UInt128)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
 
             if (string.Equals(tn, "int128", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(tn, "i128", StringComparison.OrdinalIgnoreCase) ||

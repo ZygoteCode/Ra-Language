@@ -1,6 +1,6 @@
-var a: int128 = 7;
-var b: int128 = 13;
-var c: int128 = a + b;
+var a: uint128 = 7;
+var b: uint128 = 13;
+var c: uint128 = a + b;
 print(c);
 print(typeof(c));
 c = 7;

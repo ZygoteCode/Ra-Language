@@ -20,6 +20,7 @@
         UnsignedLong,
         Short,
         UnsignedShort,
-        Int128
+        Int128,
+        UnsignedInt128
     }
 }

@@ -938,6 +938,110 @@ namespace RaLanguage.Interpreter.Values
                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'int128'", Context));
             }
 
+            if (string.Equals(tn, "uint128", StringComparison.Ordinal) ||
+                string.Equals(tn, "ui128", StringComparison.Ordinal) ||
+                string.Equals(tn, "unsignedinteger128", StringComparison.Ordinal))
+            {
+                if (Type == RuntimeValueType.UnsignedInt128)
+                {
+                    return (Copy().SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Short)
+                {
+                    short s = ((ShortValue)this).Value;
+                    if (s < 0) return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast negative short to uint128", Context));
+                    return (new UnsignedInt128Value((UInt128)s).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.UnsignedShort)
+                {
+                    return (new UnsignedInt128Value((UInt128)((UnsignedShortValue)this).Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Integer)
+                {
+                    int i = ((IntegerValue)this).Value;
+                    if (i < 0) return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast negative int to uint128", Context));
+                    return (new UnsignedInt128Value((UInt128)(uint)i).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.UnsignedInteger)
+                {
+                    return (new UnsignedInt128Value((UInt128)((UnsignedIntegerValue)this).Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Long)
+                {
+                    long l = ((LongValue)this).Value;
+                    if (l < 0) return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast negative long to uint128", Context));
+                    return (new UnsignedInt128Value((UInt128)(ulong)l).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.UnsignedLong)
+                {
+                    return (new UnsignedInt128Value((UInt128)((UnsignedLongValue)this).Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Int128)
+                {
+                    var v = ((Int128Value)this).Value;
+                    if (v < 0) return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast negative int128 to uint128", Context));
+                    if (!UInt128.TryParse(v.ToString(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var u))
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast int128 to uint128", Context));
+                    return (new UnsignedInt128Value(u).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Float)
+                {
+                    float f = ((FloatValue)this).Value;
+                    if (f < 0f || f > (float)UInt128.MaxValue || MathF.Abs(f - MathF.Truncate(f)) > 0.000001f)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer float to uint128", Context));
+
+                    if (!UInt128.TryParse(((ulong)f).ToString(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var u))
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast float to uint128", Context));
+
+                    return (new UnsignedInt128Value(u).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Double)
+                {
+                    double d = ((DoubleValue)this).Value;
+                    if (d < 0d || d > (double)UInt128.MaxValue || Math.Abs(d - Math.Truncate(d)) > 0.000001d)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer double to uint128", Context));
+
+                    if (!UInt128.TryParse(((ulong)d).ToString(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var u))
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast double to uint128", Context));
+
+                    return (new UnsignedInt128Value(u).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Number)
+                {
+                    var s = ((NumberValue)this).Value.ToString();
+                    if (!UInt128.TryParse(s, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var u))
+                        return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast number '{s}' to uint128", Context));
+
+                    return (new UnsignedInt128Value(u).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.String)
+                {
+                    var s = ((StringValue)this).Value;
+                    if (!UInt128.TryParse(s, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var u))
+                        return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast string '{s}' to uint128", Context));
+
+                    return (new UnsignedInt128Value(u).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Boolean)
+                {
+                    return (new UnsignedInt128Value(((BooleanValue)this).Value ? (UInt128)1 : (UInt128)0).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'uint128'", Context));
+            }
+
             return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to '{targetType}'", Context));
         }
 

@@ -23,6 +23,7 @@ namespace RaLanguage.Types
                 case RuntimeValueType.Short:
                 case RuntimeValueType.UnsignedShort:
                 case RuntimeValueType.Int128:
+                case RuntimeValueType.UnsignedInt128:
                     return string.Equals(target.Name, "number", StringComparison.Ordinal)
                         || string.Equals(target.Name, "int", StringComparison.Ordinal)
                         || string.Equals(target.Name, "i32", StringComparison.Ordinal)
@@ -48,7 +49,10 @@ namespace RaLanguage.Types
                         || string.Equals(target.Name, "unsignedshort", StringComparison.Ordinal)
                         || string.Equals(target.Name, "int128", StringComparison.Ordinal)
                         || string.Equals(target.Name, "i128", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "integer128", StringComparison.Ordinal);
+                        || string.Equals(target.Name, "integer128", StringComparison.Ordinal)
+                        || string.Equals(target.Name, "uint128", StringComparison.Ordinal)
+                        || string.Equals(target.Name, "ui128", StringComparison.Ordinal)
+                        || string.Equals(target.Name, "unsignedinteger128", StringComparison.Ordinal);
                 case RuntimeValueType.String:
                     return string.Equals(target.Name, "string", StringComparison.Ordinal);
                 case RuntimeValueType.Boolean:
@@ -158,6 +162,7 @@ namespace RaLanguage.Types
                 case RuntimeValueType.Short: return new TypeDescriptor("short");
                 case RuntimeValueType.UnsignedShort: return new TypeDescriptor("ushort");
                 case RuntimeValueType.Int128: return new TypeDescriptor("int128");
+                case RuntimeValueType.UnsignedInt128: return new TypeDescriptor("uint128");
                 case RuntimeValueType.List:
                     var l = (ListValue)val;
                     if (l.Elements.Count == 0) return new TypeDescriptor("list");
