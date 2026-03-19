@@ -1,0 +1,8 @@
+var a: decimal = 7;
+var b: decimal = 13;
+var c: decimal = a + b;
+print(c);
+print(typeof(c));
+c = 7;
+print(c);
+print(typeof(c));

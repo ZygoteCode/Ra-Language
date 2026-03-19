@@ -22,6 +22,7 @@
         UnsignedShort,
         Int128,
         UnsignedInt128,
-        Decimal
+        Decimal,
+        Byte
     }
 }

@@ -849,6 +849,7 @@ namespace RaLanguage.Interpreter
                 RuntimeValueType.Int128 => "int128",
                 RuntimeValueType.UnsignedInt128 => "uint128",
                 RuntimeValueType.Decimal => "decimal",
+                RuntimeValueType.Byte => "byte",
                 _ => ""
             };
 
@@ -1422,6 +1423,64 @@ namespace RaLanguage.Interpreter
                         value = new DecimalValue((decimal)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                     }
                 }
+                else if (declaredType != null && (string.Equals(declaredType.Name?.ToString(), "byte", StringComparison.Ordinal)))
+                {
+                    if (value.Type == RuntimeValueType.Integer)
+                    {
+                        value = new ByteValue((byte)((IntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Long)
+                    {
+                        value = new ByteValue((byte)((LongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Float)
+                    {
+                        value = new ByteValue((byte)((FloatValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Double)
+                    {
+                        value = new ByteValue((byte)((DoubleValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.UnsignedInteger)
+                    {
+                        value = new ByteValue((byte)((UnsignedIntegerValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.UnsignedLong)
+                    {
+                        value = new ByteValue((byte)((UnsignedLongValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.UnsignedShort)
+                    {
+                        value = new ByteValue((byte)((UnsignedShortValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Short)
+                    {
+                        value = new ByteValue((byte)((ShortValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Int128)
+                    {
+                        value = new ByteValue((byte)((Int128Value)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.UnsignedInt128)
+                    {
+                        value = new ByteValue((byte)((UnsignedInt128Value)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Decimal)
+                    {
+                        value = new ByteValue((byte)((DecimalValue)value).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                    else if (value.Type == RuntimeValueType.Number)
+                    {
+                        var n = (NumberValue)value;
+
+                        if (!byte.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                        {
+                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to byte", context));
+                        }
+
+                        value = new ByteValue((byte)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    }
+                }
 
                 context.SymbolTable.Set(varName, value, isLetFlag, declaredType, isStaticallyTyped);
                 values.Add(value);
@@ -1830,6 +1889,64 @@ namespace RaLanguage.Interpreter
                     }
 
                     result = new DecimalValue((decimal)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+            }
+            else if (entry != null && entry.DeclaredType != null && (string.Equals(entry.DeclaredType.Name?.ToString(), "byte", StringComparison.Ordinal)))
+            {
+                if (result.Type == RuntimeValueType.Integer)
+                {
+                    result = new ByteValue((byte)((IntegerValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Long)
+                {
+                    result = new ByteValue((byte)((LongValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Float)
+                {
+                    result = new ByteValue((byte)((FloatValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Double)
+                {
+                    result = new ByteValue((byte)((DoubleValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.UnsignedInteger)
+                {
+                    result = new ByteValue((byte)((UnsignedIntegerValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.UnsignedLong)
+                {
+                    result = new ByteValue((byte)((UnsignedLongValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.UnsignedShort)
+                {
+                    result = new ByteValue((byte)((UnsignedShortValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Short)
+                {
+                    result = new ByteValue((byte)((ShortValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Int128)
+                {
+                    result = new ByteValue((byte)((Int128Value)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.UnsignedInt128)
+                {
+                    result = new ByteValue((byte)((UnsignedInt128Value)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Decimal)
+                {
+                    result = new ByteValue((byte)((DecimalValue)result).Value).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                }
+                else if (result.Type == RuntimeValueType.Number)
+                {
+                    var n = (NumberValue)result;
+
+                    if (!byte.TryParse(n.Value.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d))
+                    {
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast number to byte", context));
+                    }
+
+                    result = new ByteValue((byte)d).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 }
             }
 

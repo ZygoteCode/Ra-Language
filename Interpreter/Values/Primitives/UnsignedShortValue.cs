@@ -64,6 +64,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return other.Type switch
             {
                 RuntimeValueType.UnsignedShort => ((UnsignedShortValue)other).Value,
+                RuntimeValueType.Byte => ((ByteValue)other).Value,
                 RuntimeValueType.Decimal => (ushort)((DecimalValue)other).Value,
                 RuntimeValueType.UnsignedInt128 => (ushort)((UnsignedInt128Value)other).Value,
                 RuntimeValueType.Short => ((ShortValue)other).Value,
@@ -83,6 +84,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return other.Type switch
             {
                 RuntimeValueType.UnsignedShort => ((UnsignedShortValue)other).Value,
+                RuntimeValueType.Byte => ((ByteValue)other).Value,
                 RuntimeValueType.Decimal => (double) ((DecimalValue)other).Value,
                 RuntimeValueType.Short => ((ShortValue)other).Value,
                 RuntimeValueType.Integer => ((IntegerValue)other).Value,
@@ -145,7 +147,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.Long
                 || other.Type == RuntimeValueType.UnsignedLong || other.Type == RuntimeValueType.Int128
-                || other.Type == RuntimeValueType.UnsignedInt128)
+                || other.Type == RuntimeValueType.UnsignedInt128 || other.Type == RuntimeValueType.Byte)
             {
                 try
                 {
@@ -185,7 +187,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.Long
                 || other.Type == RuntimeValueType.UnsignedLong || other.Type == RuntimeValueType.Int128
-                || other.Type == RuntimeValueType.UnsignedInt128)
+                || other.Type == RuntimeValueType.UnsignedInt128 || other.Type == RuntimeValueType.Byte)
             {
                 try
                 {
@@ -235,7 +237,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.Long
                 || other.Type == RuntimeValueType.UnsignedLong || other.Type == RuntimeValueType.Int128
-                || other.Type == RuntimeValueType.UnsignedInt128)
+                || other.Type == RuntimeValueType.UnsignedInt128 || other.Type == RuntimeValueType.Byte)
             {
                 try
                 {
@@ -277,7 +279,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.Long
                 || other.Type == RuntimeValueType.UnsignedLong || other.Type == RuntimeValueType.Int128
-                || other.Type == RuntimeValueType.UnsignedInt128)
+                || other.Type == RuntimeValueType.UnsignedInt128 || other.Type == RuntimeValueType.Byte)
             {
                 long rhs = AsLong(other);
                 if (rhs == 0) return (null, new RuntimeError(other.PositionStart, other.PositionEnd, "Division by zero", Context));
@@ -345,7 +347,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.Long
                 || other.Type == RuntimeValueType.UnsignedLong || other.Type == RuntimeValueType.Int128
-                || other.Type == RuntimeValueType.UnsignedInt128)
+                || other.Type == RuntimeValueType.UnsignedInt128 || other.Type == RuntimeValueType.Byte)
             {
                 long exp = AsLong(other);
                 if (exp < 0)
@@ -385,7 +387,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.Long
                 || other.Type == RuntimeValueType.UnsignedLong || other.Type == RuntimeValueType.Int128
-                || other.Type == RuntimeValueType.UnsignedInt128)
+                || other.Type == RuntimeValueType.UnsignedInt128 || other.Type == RuntimeValueType.Byte)
             {
                 long rhs = AsLong(other);
                 if (rhs == 0) return (null, new RuntimeError(other.PositionStart, other.PositionEnd, "Modulo by zero", Context));
@@ -438,7 +440,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.Long
                 || other.Type == RuntimeValueType.UnsignedLong || other.Type == RuntimeValueType.Int128
-                || other.Type == RuntimeValueType.UnsignedInt128)
+                || other.Type == RuntimeValueType.UnsignedInt128 || other.Type == RuntimeValueType.Byte)
                 return (PromoteIntegralResult((long)Value >> (int)AsLong(other)), null);
 
             return base.BitwiseRightShiftedBy(other);
@@ -452,7 +454,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.Long
                 || other.Type == RuntimeValueType.UnsignedLong || other.Type == RuntimeValueType.Int128
-                || other.Type == RuntimeValueType.UnsignedInt128)
+                || other.Type == RuntimeValueType.UnsignedInt128 || other.Type == RuntimeValueType.Byte)
                 return (PromoteIntegralResult((long)Value & AsLong(other)), null);
 
             return base.BitwiseAndedBy(other);
@@ -466,7 +468,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.Long
                 || other.Type == RuntimeValueType.UnsignedLong || other.Type == RuntimeValueType.Int128
-                || other.Type == RuntimeValueType.UnsignedInt128)
+                || other.Type == RuntimeValueType.UnsignedInt128 || other.Type == RuntimeValueType.Byte)
                 return (PromoteIntegralResult((long)Value | AsLong(other)), null);
 
             return base.BitwiseOredBy(other);
@@ -509,7 +511,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.Long
                 || other.Type == RuntimeValueType.UnsignedLong || other.Type == RuntimeValueType.Int128
-                || other.Type == RuntimeValueType.UnsignedInt128)
+                || other.Type == RuntimeValueType.UnsignedInt128 || other.Type == RuntimeValueType.Byte)
                 return (new BooleanValue((long)Value == AsLong(other)).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Float)
@@ -548,7 +550,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.Long
                 || other.Type == RuntimeValueType.UnsignedLong || other.Type == RuntimeValueType.Int128
-                || other.Type == RuntimeValueType.UnsignedInt128)
+                || other.Type == RuntimeValueType.UnsignedInt128 || other.Type == RuntimeValueType.Byte)
                 return (new BooleanValue((long)Value < AsLong(other)).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Float)
@@ -571,7 +573,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.Long
                 || other.Type == RuntimeValueType.UnsignedLong || other.Type == RuntimeValueType.Int128
-                || other.Type == RuntimeValueType.UnsignedInt128)
+                || other.Type == RuntimeValueType.UnsignedInt128 || other.Type == RuntimeValueType.Byte)
                 return (new BooleanValue((long)Value > AsLong(other)).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Float)
@@ -591,7 +593,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.Long
                 || other.Type == RuntimeValueType.UnsignedLong || other.Type == RuntimeValueType.Int128
-                || other.Type == RuntimeValueType.UnsignedInt128)
+                || other.Type == RuntimeValueType.UnsignedInt128 || other.Type == RuntimeValueType.Byte)
                 return (new BooleanValue((long)Value <= AsLong(other)).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Float)
@@ -614,7 +616,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.Integer
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.Long
                 || other.Type == RuntimeValueType.UnsignedLong || other.Type == RuntimeValueType.Int128
-                || other.Type == RuntimeValueType.UnsignedInt128)
+                || other.Type == RuntimeValueType.UnsignedInt128 || other.Type == RuntimeValueType.Byte)
                 return (new BooleanValue((long)Value >= AsLong(other)).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Float)
@@ -632,6 +634,14 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public override (RuntimeValue?, Error?) CastTo(TypeDescriptor targetType)
         {
             var tn = targetType?.Name?.ToString() ?? "";
+
+            if (string.Equals(tn, "byte", StringComparison.Ordinal))
+            {
+                if ((byte)Value > byte.MaxValue)
+                    return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast ushort to byte without overflow", Context));
+
+                return (new ByteValue((byte)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
 
             if (string.Equals(tn, "decimal", StringComparison.Ordinal) ||
                 string.Equals(tn, "f128", StringComparison.Ordinal))

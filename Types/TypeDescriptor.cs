@@ -23,6 +23,7 @@
         Int128,
         UnsignedInt128,
         Decimal,
+        Byte,
         Any,
         Unknown
     }

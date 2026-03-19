@@ -1146,6 +1146,138 @@ namespace RaLanguage.Interpreter.Values
                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'decimal'", Context));
             }
 
+            if (string.Equals(tn, "byte", StringComparison.Ordinal))
+            {
+                if (Type == RuntimeValueType.Byte)
+                {
+                    return (Copy().SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Short)
+                {
+                    short s = ((ShortValue)this).Value;
+                    if (s < byte.MinValue || s > byte.MaxValue)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast short to byte without overflow", Context));
+
+                    return (new ByteValue((byte)s).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.UnsignedShort)
+                {
+                    ushort us = ((UnsignedShortValue)this).Value;
+                    if (us > byte.MaxValue)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast ushort to byte without overflow", Context));
+
+                    return (new ByteValue((byte)us).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Integer)
+                {
+                    int i = ((IntegerValue)this).Value;
+                    if (i < byte.MinValue || i > byte.MaxValue)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast int to byte without overflow", Context));
+
+                    return (new ByteValue((byte)i).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.UnsignedInteger)
+                {
+                    uint u = ((UnsignedIntegerValue)this).Value;
+                    if (u > byte.MaxValue)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast uint to byte without overflow", Context));
+
+                    return (new ByteValue((byte)u).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Long)
+                {
+                    long l = ((LongValue)this).Value;
+                    if (l < byte.MinValue || l > byte.MaxValue)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast long to byte without overflow", Context));
+
+                    return (new ByteValue((byte)l).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.UnsignedLong)
+                {
+                    ulong ul = ((UnsignedLongValue)this).Value;
+                    if (ul > byte.MaxValue)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast ulong to byte without overflow", Context));
+
+                    return (new ByteValue((byte)ul).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Int128)
+                {
+                    var v = ((Int128Value)this).Value;
+                    if (v < 0 || v > 255)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast int128 to byte without overflow", Context));
+
+                    return (new ByteValue((byte)v).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.UnsignedInt128)
+                {
+                    var v = ((UnsignedInt128Value)this).Value;
+                    if (v > 255)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast uint128 to byte without overflow", Context));
+
+                    return (new ByteValue((byte)v).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Float)
+                {
+                    float f = ((FloatValue)this).Value;
+                    if (f < 0f || f > byte.MaxValue || MathF.Abs(f - MathF.Truncate(f)) > 0.000001f)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer float to byte", Context));
+
+                    return (new ByteValue((byte)f).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Double)
+                {
+                    double d = ((DoubleValue)this).Value;
+                    if (d < 0d || d > byte.MaxValue || Math.Abs(d - Math.Truncate(d)) > 0.000001d)
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer double to byte", Context));
+
+                    return (new ByteValue((byte)d).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Decimal)
+                {
+                    decimal d = ((DecimalValue)this).Value;
+                    if (d < 0m || d > byte.MaxValue || d != decimal.Truncate(d))
+                        return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer decimal to byte", Context));
+
+                    return (new ByteValue((byte)d).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Number)
+                {
+                    var s = ((NumberValue)this).Value.ToString();
+                    if (!byte.TryParse(s, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var b))
+                        return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast number '{s}' to byte", Context));
+
+                    return (new ByteValue(b).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.String)
+                {
+                    var s = ((StringValue)this).Value;
+                    if (!byte.TryParse(s, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var b))
+                        return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast string '{s}' to byte", Context));
+
+                    return (new ByteValue(b).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                if (Type == RuntimeValueType.Boolean)
+                {
+                    return (new ByteValue(((BooleanValue)this).Value ? (byte)1 : (byte)0).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                }
+
+                return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'byte'", Context));
+            }
+
             return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to '{targetType}'", Context));
         }
 

@@ -60,6 +60,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 RuntimeValueType.Int128 => (float)((Int128Value)other).Value,
                 RuntimeValueType.UnsignedInt128 => (float)((UnsignedInt128Value)other).Value,
                 RuntimeValueType.Decimal => (float)((DecimalValue)other).Value,
+                RuntimeValueType.Byte => (float)((ByteValue)other).Value,
                 _ => throw new InvalidOperationException("Cannot convert runtime value to float")
             };
         }
@@ -76,7 +77,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 float result = Value + AsFloat(other);
                 if (!EnsureFinite(result))
@@ -100,7 +101,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 float result = Value - AsFloat(other);
                 if (!EnsureFinite(result))
@@ -124,7 +125,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 float result = Value * AsFloat(other);
                 if (!EnsureFinite(result))
@@ -148,7 +149,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 float divisor = AsFloat(other);
                 if (divisor == 0f)
@@ -178,7 +179,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 float exponent = AsFloat(other);
                 float result = MathF.Pow(Value, exponent);
@@ -204,7 +205,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 float divisor = AsFloat(other);
                 if (divisor == 0f)
@@ -234,7 +235,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 return (new BooleanValue(Value == AsFloat(other)).SetContext(Context), null);
             }
@@ -267,7 +268,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 return (new BooleanValue(Value != AsFloat(other)).SetContext(Context), null);
             }
@@ -300,7 +301,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 return (new BooleanValue(Value < AsFloat(other)).SetContext(Context), null);
             }
@@ -321,7 +322,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 return (new BooleanValue(Value > AsFloat(other)).SetContext(Context), null);
             }
@@ -342,7 +343,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 return (new BooleanValue(Value <= AsFloat(other)).SetContext(Context), null);
             }
@@ -363,7 +364,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 return (new BooleanValue(Value >= AsFloat(other)).SetContext(Context), null);
             }
@@ -416,6 +417,17 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public override (RuntimeValue?, Error?) CastTo(TypeDescriptor targetType)
         {
             var tn = targetType?.Name?.ToString() ?? "";
+
+            if (string.Equals(tn, "byte", StringComparison.OrdinalIgnoreCase))
+            {
+                if (MathF.Abs(Value - MathF.Truncate(Value)) > 0.000001f ||
+                    Value < byte.MinValue || Value > byte.MaxValue)
+                {
+                    return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer float to byte", Context));
+                }
+
+                return (new ByteValue((byte)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
 
             if (string.Equals(tn, "decimal", StringComparison.Ordinal) ||
                 string.Equals(tn, "f128", StringComparison.Ordinal))

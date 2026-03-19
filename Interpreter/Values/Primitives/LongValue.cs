@@ -158,6 +158,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return new LongValue((long)((DecimalValue)other).Value);
             }
 
+            if (other.Type == RuntimeValueType.Byte)
+            {
+                return new LongValue((byte)((ByteValue)other).Value);
+            }
+
             throw new InvalidOperationException("Cannot promote value to long");
         }
 
@@ -167,7 +172,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Double
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 var o = Promote(other);
                 try
@@ -197,7 +202,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Double
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 var o = Promote(other);
                 try
@@ -228,7 +233,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 var o = Promote(other);
                 try
@@ -259,7 +264,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 var o = Promote(other);
 
@@ -286,7 +291,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 var o = Promote(other);
 
@@ -341,7 +346,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 var o = Promote(other);
 
@@ -368,7 +373,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 var o = Promote(other);
                 return (new LongValue(Value << (int)o.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
@@ -384,7 +389,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 var o = Promote(other);
                 return (new LongValue(Value >> (int)o.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
@@ -400,7 +405,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 var o = Promote(other);
                 return (new LongValue(Value & o.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
@@ -416,7 +421,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 var o = Promote(other);
                 return (new LongValue(Value | o.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
@@ -468,7 +473,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 var o = Promote(other);
                 return (new BooleanValue(Value == o.Value).SetContext(Context), null);
@@ -502,7 +507,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 var o = Promote(other);
                 return (new BooleanValue(Value != o.Value).SetContext(Context), null);
@@ -536,7 +541,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 var o = Promote(other);
                 return (new BooleanValue(Value < o.Value).SetContext(Context), null);
@@ -558,7 +563,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 var o = Promote(other);
                 return (new BooleanValue(Value > o.Value).SetContext(Context), null);
@@ -580,7 +585,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 var o = Promote(other);
                 return (new BooleanValue(Value <= o.Value).SetContext(Context), null);
@@ -602,7 +607,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
                 || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
                 || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
-                || other.Type == RuntimeValueType.Decimal)
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 var o = Promote(other);
                 return (new BooleanValue(Value >= o.Value).SetContext(Context), null);
@@ -620,6 +625,16 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public override (RuntimeValue?, Error?) CastTo(TypeDescriptor targetType)
         {
             var tn = targetType?.Name?.ToString() ?? "";
+
+            if (string.Equals(tn, "byte", StringComparison.Ordinal))
+            {
+                if (Value < byte.MinValue || Value > byte.MaxValue)
+                {
+                    return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast long to byte without overflow", Context));
+                }
+
+                return (new ByteValue((byte)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
 
             if (string.Equals(tn, "decimal", StringComparison.Ordinal) ||
                 string.Equals(tn, "f128", StringComparison.Ordinal))

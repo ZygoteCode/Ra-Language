@@ -98,6 +98,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 RuntimeValueType.Long => new BigInteger(((LongValue)value).Value),
                 RuntimeValueType.Integer => new BigInteger(((IntegerValue)value).Value),
                 RuntimeValueType.Short => new BigInteger(((ShortValue)value).Value),
+                RuntimeValueType.Byte => new BigInteger(((ByteValue)value).Value),
                 _ => throw new InvalidOperationException("Value is not integral")
             };
         }
@@ -450,7 +451,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort ||
                 other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.UnsignedInteger ||
                 other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.UnsignedLong ||
-                other.Type == RuntimeValueType.Int128)
+                other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.Byte)
             {
                 if (TryAsBigInteger(other, out var rhs))
                     return (new BooleanValue((BigInteger)Value == rhs).SetContext(Context), null);
@@ -496,7 +497,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort ||
                 other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.UnsignedInteger ||
                 other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.UnsignedLong ||
-                other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128)
+                other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128 ||
+                other.Type == RuntimeValueType.Byte)
             {
                 if (TryAsBigInteger(other, out var rhs))
                     return (new BooleanValue((BigInteger)Value < rhs).SetContext(Context), null);
@@ -522,7 +524,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort ||
                 other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.UnsignedInteger ||
                 other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.UnsignedLong ||
-                other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128)
+                other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128 ||
+                other.Type == RuntimeValueType.Byte)
             {
                 if (TryAsBigInteger(other, out var rhs))
                     return (new BooleanValue((BigInteger)Value > rhs).SetContext(Context), null);
@@ -550,6 +553,14 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public override (RuntimeValue?, Error?) CastTo(TypeDescriptor targetType)
         {
             var tn = targetType?.Name?.ToString() ?? "";
+
+            if (string.Equals(tn, "byte", StringComparison.Ordinal))
+            {
+                if (Value > byte.MaxValue)
+                    return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast uint128 to byte without overflow", Context));
+
+                return (new ByteValue((byte)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
 
             if (string.Equals(tn, "decimal", StringComparison.Ordinal) ||
                 string.Equals(tn, "f128", StringComparison.Ordinal))

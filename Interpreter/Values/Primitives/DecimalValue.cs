@@ -46,6 +46,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
             switch (value.Type)
             {
+                case RuntimeValueType.Byte:
+                    result = ((ByteValue)value).Value;
+                    return true;
+
                 case RuntimeValueType.Decimal:
                     result = ((DecimalValue)value).Value;
                     return true;
@@ -419,6 +423,14 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 string.Equals(tn, "f128", StringComparison.Ordinal))
             {
                 return (Copy().SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            if (string.Equals(tn, "byte", StringComparison.Ordinal))
+            {
+                if (!IsWhole(Value) || Value < byte.MinValue || Value > byte.MaxValue)
+                    return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast decimal to byte without overflow", Context));
+
+                return (new ByteValue((byte)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             if (string.Equals(tn, "short", StringComparison.Ordinal) ||

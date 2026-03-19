@@ -25,6 +25,7 @@ namespace RaLanguage.Types
                 case RuntimeValueType.Int128:
                 case RuntimeValueType.UnsignedInt128:
                 case RuntimeValueType.Decimal:
+                case RuntimeValueType.Byte:
                     return string.Equals(target.Name, "number", StringComparison.Ordinal)
                         || string.Equals(target.Name, "int", StringComparison.Ordinal)
                         || string.Equals(target.Name, "i32", StringComparison.Ordinal)
@@ -55,7 +56,8 @@ namespace RaLanguage.Types
                         || string.Equals(target.Name, "ui128", StringComparison.Ordinal)
                         || string.Equals(target.Name, "unsignedinteger128", StringComparison.Ordinal)
                         || string.Equals(target.Name, "decimal", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "f128", StringComparison.Ordinal);
+                        || string.Equals(target.Name, "f128", StringComparison.Ordinal)
+                        || string.Equals(target.Name, "byte", StringComparison.Ordinal);
                 case RuntimeValueType.String:
                     return string.Equals(target.Name, "string", StringComparison.Ordinal);
                 case RuntimeValueType.Boolean:
@@ -167,6 +169,7 @@ namespace RaLanguage.Types
                 case RuntimeValueType.Int128: return new TypeDescriptor("int128");
                 case RuntimeValueType.UnsignedInt128: return new TypeDescriptor("uint128");
                 case RuntimeValueType.Decimal: return new TypeDescriptor("decimal");
+                case RuntimeValueType.Byte: return new TypeDescriptor("byte");
                 case RuntimeValueType.List:
                     var l = (ListValue)val;
                     if (l.Elements.Count == 0) return new TypeDescriptor("list");
