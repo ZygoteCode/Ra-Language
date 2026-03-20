@@ -1,0 +1,27 @@
+﻿using RaLanguage.Interpreter.Architecture;
+using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Values;
+using RaLanguage.Interpreter.Values.Primitives;
+using RaLanguage.Parser.Nodes.Primitives;
+
+namespace RaLanguage.Interpreter.Visitors.Primitives
+{
+    public class TupleNodeVisitor : NodeVisitor<TupleNode>
+    {
+        protected override RuntimeResult VisitNode(TupleNode node, Context context, IInterpreter interpreter)
+        {
+            var res = new RuntimeResult();
+            var elements = new List<RuntimeValue>();
+
+            foreach (var elementNode in node.ElementNodes)
+            {
+                var val = res.Register(interpreter.Visit(elementNode, context));
+                if (res.Error != null) return res;
+                if (res.ShouldReturn()) return res;
+                elements.Add(val);
+            }
+
+            return res.Success(new TupleValue(elements).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+        }
+    }
+}

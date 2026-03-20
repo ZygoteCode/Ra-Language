@@ -1,0 +1,30 @@
+﻿using RaLanguage.Errors.Types;
+using RaLanguage.Interpreter.Architecture;
+using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Parser.Nodes.Variables;
+
+namespace RaLanguage.Interpreter.Visitors.Variables
+{
+    public class VariableAccessNodeVisitor : NodeVisitor<VariableAccessNode>
+    {
+        protected override RuntimeResult VisitNode(VariableAccessNode node, Context context, IInterpreter interpreter)
+        {
+            var res = new RuntimeResult();
+
+            var name = node.VarNameTok.Value?.ToString();
+
+            if (string.IsNullOrEmpty(name))
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Invalid variable name", context));
+
+            var entry = context.SymbolTable.GetEntry(name);
+            if (entry == null)
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{name}' is not defined", context));
+
+            if (entry.IsMoved)
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Variable '{name}' was moved", context));
+
+            var valueToReturn = entry.Value.IsCopy ? entry.Value.Copy() : entry.Value;
+            return res.Success(valueToReturn.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+        }
+    }
+}

@@ -1,0 +1,47 @@
+﻿using RaLanguage.Interpreter.Architecture;
+using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Values;
+using RaLanguage.Interpreter.Values.Primitives;
+using RaLanguage.Parser.Nodes.Primitives;
+using RaLanguage.Parser.Nodes.Special;
+
+namespace RaLanguage.Interpreter.Visitors.Special
+{
+    public class TypeofNodeVisitor : NodeVisitor<TypeofNode>
+    {
+        protected override RuntimeResult VisitNode(TypeofNode node, Context context, IInterpreter interpreter)
+        {
+            var res = new RuntimeResult();
+            var value = res.Register(interpreter.Visit(node.Node, context));
+            if (res.Error != null) return res;
+
+            string type = value.Type switch
+            {
+                RuntimeValueType.Number => "number",
+                RuntimeValueType.String => "string",
+                RuntimeValueType.List => "list",
+                RuntimeValueType.Function => "function",
+                RuntimeValueType.Null => "null",
+                RuntimeValueType.Boolean => "boolean",
+                RuntimeValueType.Set => "set",
+                RuntimeValueType.Map => "map",
+                RuntimeValueType.Tuple => "tuple",
+                RuntimeValueType.Integer => "integer",
+                RuntimeValueType.Long => "long",
+                RuntimeValueType.Double => "double",
+                RuntimeValueType.Float => "float",
+                RuntimeValueType.UnsignedInteger => "uint",
+                RuntimeValueType.UnsignedLong => "ulong",
+                RuntimeValueType.Short => "short",
+                RuntimeValueType.UnsignedShort => "ushort",
+                RuntimeValueType.Int128 => "int128",
+                RuntimeValueType.UnsignedInt128 => "uint128",
+                RuntimeValueType.Decimal => "decimal",
+                RuntimeValueType.Byte => "byte",
+                _ => ""
+            };
+
+            return res.Success(new StringValue(type).SetPos(node.PositionStart, node.PositionEnd).SetContext(context));
+        }
+    }
+}
