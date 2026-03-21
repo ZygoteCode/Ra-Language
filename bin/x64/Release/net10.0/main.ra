@@ -1,21 +1,19 @@
-retry for 5 times {
-    print("test");
-}
+var a = 0xF8f;
+print(typeof(a));
+print(a);
 
-retry for 5 times delay 200 {
-    print("test1");
-}
+var b = 0x523Fd;
+print(b);
+print(typeof(b));
 
-retry for 5 times {
-    print("test2");
-    var d = 1 / 0;
-} else {
-    print("test3");
-}
+var c = 0x523Fm;
+print(c);
+print(typeof(c));
 
-retry for 5 times delay 200 {
-    print("test4");
-    var k = 7 / 0;
-} else {
-    print("test5");
-}
+var d = 0x523Fi;
+print(d);
+print(typeof(d));
+
+var e = 0x523Fui;
+print(e);
+print(typeof(e));

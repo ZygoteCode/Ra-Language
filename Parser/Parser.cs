@@ -51,22 +51,6 @@ namespace RaLanguage.Parser
             return _currentToken;
         }
 
-        private Token Peek(int index = 1)
-        {
-            return _tokens[_tokenIndex + index];
-        }
-
-        private Token SkipMultiLines(ParserResult result)
-        {
-            while (_currentToken.Type == TokenType.NEWLINE)
-            {
-                result.RegisterAdvancement();
-                Advance();
-            }
-
-            return _currentToken;
-        }
-
         private Token Reverse(int amount = 1)
         {
             _tokenIndex -= amount;

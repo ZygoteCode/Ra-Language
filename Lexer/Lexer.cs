@@ -492,12 +492,96 @@ namespace RaLanguage.Lexer
             return sb.ToString();
         }
 
+        private bool TryReadNumberSuffix(ReadOnlySpan<char> span, ref string? suffix, ref bool isFloat)
+        {
+            int remaining = span.Length - _idx;
+            if (remaining <= 0)
+                return false;
+
+            if (remaining >= 2)
+            {
+                char c0 = span[_idx];
+                char c1 = span[_idx + 1];
+
+                if ((c0 == 'u' || c0 == 'U') && (c1 == 'i' || c1 == 'I'))
+                {
+                    suffix = "ui";
+                    AdvanceMultiple(2, span);
+                    return true;
+                }
+
+                if ((c0 == 'u' || c0 == 'U') && (c1 == 'l' || c1 == 'L'))
+                {
+                    suffix = "ul";
+                    AdvanceMultiple(2, span);
+                    return true;
+                }
+
+                if ((c0 == 'u' || c0 == 'U') && (c1 == 's' || c1 == 'S'))
+                {
+                    suffix = "us";
+                    AdvanceMultiple(2, span);
+                    return true;
+                }
+            }
+
+            char c = span[_idx];
+
+            if (c == 'i' || c == 'I')
+            {
+                suffix = "i";
+                Advance(c);
+                return true;
+            }
+
+            if (c == 'l' || c == 'L')
+            {
+                suffix = "l";
+                Advance(c);
+                return true;
+            }
+
+            if (c == 'd' || c == 'D')
+            {
+                suffix = "d";
+                isFloat = true;
+                Advance(c);
+                return true;
+            }
+
+            if (c == 'f' || c == 'F')
+            {
+                suffix = "f";
+                isFloat = true;
+                Advance(c);
+                return true;
+            }
+
+            if (c == 'm' || c == 'M')
+            {
+                suffix = "m";
+                isFloat = true;
+                Advance(c);
+                return true;
+            }
+
+            if (c == 's' || c == 'S')
+            {
+                suffix = "s";
+                Advance(c);
+                return true;
+            }
+
+            return false;
+        }
+
         private Error? ProcessNumber(ReadOnlySpan<char> span, List<Token> tokens)
         {
             var posStart = GetPos();
             int startIdx = _idx;
             int dotCount = 0;
             bool isFloat = false;
+            string? suffix = null;
 
             if (span[_idx] == '0' && _idx + 1 < span.Length)
             {
@@ -515,16 +599,20 @@ namespace RaLanguage.Lexer
                         bool isValid = p == 'x' ? Utils.IsHexDigit(c) :
                                        p == 'b' ? Utils.IsBinaryDigit(c) :
                                                   Utils.IsOctalDigit(c);
+
                         if (!isValid) break;
 
                         anyDigit = true;
                         Advance(c);
                     }
 
-                    if (!anyDigit) return new InvalidSyntaxError(posStart, GetPos(), "Invalid prefixed integer literal");
+                    if (!anyDigit)
+                        return new InvalidSyntaxError(posStart, GetPos(), "Invalid prefixed integer literal");
+
+                    TryReadNumberSuffix(span, ref suffix, ref isFloat);
 
                     string numValStr = BuildStringNoUnderscores(_text.Substring(startIdx, _idx - startIdx));
-                    tokens.Add(new Token(TokenType.INT, numValStr, posStart, GetPos()));
+                    tokens.Add(new Token(isFloat ? TokenType.FLOAT : TokenType.INT, numValStr, posStart, GetPos()));
                     return null;
                 }
             }
@@ -543,8 +631,11 @@ namespace RaLanguage.Lexer
                 }
                 else if (c == '.')
                 {
-                    if (_idx + 1 < span.Length && span[_idx + 1] == '.') break;
-                    if (dotCount == 1) break;
+                    if (_idx + 1 < span.Length && span[_idx + 1] == '.')
+                        break;
+
+                    if (dotCount == 1)
+                        break;
 
                     dotCount++;
                     isFloat = true;
@@ -554,9 +645,16 @@ namespace RaLanguage.Lexer
                 {
                     isFloat = true;
                     Advance(c);
-                    if (_idx < span.Length && (span[_idx] == '+' || span[_idx] == '-')) Advance(span[_idx]);
-                    if (_idx >= span.Length || !char.IsAsciiDigit(span[_idx])) return new InvalidSyntaxError(posStart, GetPos(), "Expected digits after exponent");
-                    while (_idx < span.Length && char.IsAsciiDigit(span[_idx])) Advance(span[_idx]);
+
+                    if (_idx < span.Length && (span[_idx] == '+' || span[_idx] == '-'))
+                        Advance(span[_idx]);
+
+                    if (_idx >= span.Length || !char.IsAsciiDigit(span[_idx]))
+                        return new InvalidSyntaxError(posStart, GetPos(), "Expected digits after exponent");
+
+                    while (_idx < span.Length && char.IsAsciiDigit(span[_idx]))
+                        Advance(span[_idx]);
+
                     break;
                 }
                 else
@@ -565,6 +663,7 @@ namespace RaLanguage.Lexer
                 }
             }
 
+            TryReadNumberSuffix(span, ref suffix, ref isFloat);
             string finalNum = BuildStringNoUnderscores(_text.Substring(startIdx, _idx - startIdx));
             tokens.Add(new Token(isFloat ? TokenType.FLOAT : TokenType.INT, finalNum, posStart, GetPos()));
             return null;
