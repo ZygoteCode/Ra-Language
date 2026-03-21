@@ -782,6 +782,9 @@ namespace RaLanguage.Lexer
                 case "try": return Keyword.Try;
                 case "catch": return Keyword.Catch;
                 case "finally": return Keyword.Finally;
+                case "retry": return Keyword.Retry;
+                case "times": return Keyword.Times;
+                case "delay": return Keyword.Delay;
                 default: return null;
             }
         }

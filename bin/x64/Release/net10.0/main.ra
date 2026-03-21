@@ -1,8 +1,21 @@
-var a: byte = 7;
-var b: byte = 13;
-var c: byte = a + b;
-print(c);
-print(typeof(c));
-c = 7;
-print(c);
-print(typeof(c));
+retry for 5 times {
+    print("test");
+}
+
+retry for 5 times delay 200 {
+    print("test1");
+}
+
+retry for 5 times {
+    print("test2");
+    var d = 1 / 0;
+} else {
+    print("test3");
+}
+
+retry for 5 times delay 200 {
+    print("test4");
+    var k = 7 / 0;
+} else {
+    print("test5");
+}

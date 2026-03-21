@@ -16,8 +16,6 @@ This is constantly updated list, I am expanding with new ideas and concepts for 
 
 I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
   
-  - [ ] Add "str" as alias of "string" and "bool" as alias of "boolean".
-  - [ ] Add a new innovative statement: "retry for 5 times delay 200ms / else" (something similar).
   - [ ] Implement structs into the language. Can instatiate new objects as instance of single structs.
   - [ ] Implement enums in the language.
   - [ ] Import source files with a intelligent path system.
@@ -38,6 +36,7 @@ New ideas coming soon!
   - [x] Implemented uint128/ui128/unsignedinteger128 as a new primitive value type of the language.
   - [x] Implemented decimal/f128 as a new primitive value type of the language.
   - [x] Implemented byte as a new primitive value type of the language.
+  - [x] Add a new innovative statement: "retry for 5 times delay 200ms / else".
 
 ## Finished Phase 1: The Language Essentials
 

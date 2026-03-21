@@ -71,6 +71,7 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.SuperFor] = new SuperForNodeVisitor();
             _visitors[(int)AstNodeType.Label] = new LabelNodeVisitor();
             _visitors[(int)AstNodeType.Goto] = new GotoNodeVisitor();
+            _visitors[(int)AstNodeType.Retry] = new RetryNodeVisitor();
         }
 
         public RuntimeResult Visit(AstNode node, Context context)

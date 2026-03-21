@@ -40,6 +40,9 @@
         As,
         Try,
         Catch,
-        Finally
+        Finally,
+        Retry,
+        Times,
+        Delay
     }
 }

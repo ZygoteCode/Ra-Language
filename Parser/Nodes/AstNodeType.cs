@@ -45,6 +45,7 @@
         Cast,
         Argument,
         Try,
-        SuperFor
+        SuperFor,
+        Retry
     }
 }

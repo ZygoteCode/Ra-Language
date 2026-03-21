@@ -309,6 +309,83 @@ namespace RaLanguage.Parser
             return AssignmentTokens.Contains(type);
         }
 
+        private ParserResult ParseRetryStatement()
+        {
+            var res = new ParserResult();
+            var positionStart = _currentToken.PositionStart.Copy();
+
+            res.RegisterAdvancement();
+            Advance();
+
+            if (!_currentToken.Matches(Keyword.For))
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'for' after 'retry'"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            var countNode = res.Register(ParseExpression());
+            if (res.Error != null) return res;
+
+            if (!_currentToken.Matches(Keyword.Times))
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'times' after retry count"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            AstNode? delayNode = null;
+            if (_currentToken.Matches(Keyword.Delay))
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                delayNode = res.Register(ParseExpression());
+                if (res.Error != null) return res;
+            }
+
+            if (_currentToken.Type != TokenType.LBRACKET)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{'"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            var bodyNode = res.Register(ParseStatements());
+            if (res.Error != null) return res;
+
+            if (_currentToken.Type != TokenType.RBRACKET)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}' after retry body"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            AstNode? elseNode = null;
+            if (_currentToken.Matches(Keyword.Else))
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                if (_currentToken.Type != TokenType.LBRACKET)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{' after 'else'"));
+
+                res.RegisterAdvancement();
+                Advance();
+
+                elseNode = res.Register(ParseStatements());
+                if (res.Error != null) return res;
+
+                if (_currentToken.Type != TokenType.RBRACKET)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}' after retry else-body"));
+
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            var node = new RetryNode(countNode, bodyNode, delayNode, elseNode);
+            node.PositionStart = positionStart;
+            node.PositionEnd = elseNode?.PositionEnd ?? bodyNode.PositionEnd;
+
+            return res.Success(node);
+        }
+
         private TypeDescriptor? ParseType(ParserResult res)
         {
             if (!(_currentToken.Type == TokenType.IDENTIFIER || _currentToken.Type == TokenType.KEYWORD))
@@ -1041,6 +1118,10 @@ namespace RaLanguage.Parser
                     var ifExpr = res.Register(ParseIfExpression());
                     if (res.Error != null) return res;
                     return res.Success(ifExpr);
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Retry:
+                    var retryExpr = res.Register(ParseRetryStatement());
+                    if (res.Error != null) return res;
+                    return res.Success(retryExpr);
                 case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.For:
                     var forExpr = res.Register(ParseForExpression());
                     if (res.Error != null) return res;
