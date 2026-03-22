@@ -176,7 +176,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                         if (expected.IsTypeParameter()) continue;
 
                         var actual = finalAssigned[formalNames[i]];
-                        if (!TypeSystem.IsAssignable(expected, actual))
+                        if (!TypeSystem.IsAssignable(execCtx, expected, actual))
                         {
                             return (null, new RuntimeError(PositionStart, PositionEnd, $"Type mismatch for argument '{formalNames[i]}': expected '{expected}', got '{actual.Type}'", Context));
                         }
@@ -194,7 +194,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                     {
                         foreach (var e in extras)
                         {
-                            if (!TypeSystem.IsAssignable(varArgType, e))
+                            if (!TypeSystem.IsAssignable(execCtx, varArgType, e))
                             {
                                 string vname = varArgNameTok?.Value?.ToString() ?? "<vararg>";
                                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Type mismatch for variadic argument '{vname}': expected '{varArgType}', got '{e.Type}'", Context));
@@ -241,7 +241,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                     var expected = (i < argTypes.Count) ? argTypes[i] : null;
                     if (expected != null)
                     {
-                        if (!expected.IsTypeParameter() && !TypeSystem.IsAssignable(expected, args[i]))
+                        if (!expected.IsTypeParameter() && !TypeSystem.IsAssignable(execCtx, expected, args[i]))
                         {
                             return res.Failure(new RuntimeError(PositionStart, PositionEnd,
                                 $"Type mismatch for argument '{argNames[i]}': expected '{expected}', got '{args[i].Type}'", Context));
@@ -253,7 +253,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                 {
                     for (int i = argNames.Count; i < args.Count; i++)
                     {
-                        if (!TypeSystem.IsAssignable(varArgType, args[i]))
+                        if (!TypeSystem.IsAssignable(execCtx, varArgType, args[i]))
                         {
                             string varArgName = varArgNameTok?.Value?.ToString() ?? "<varargs>";
                             return res.Failure(new RuntimeError(PositionStart, PositionEnd,

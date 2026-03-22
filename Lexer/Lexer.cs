@@ -884,6 +884,7 @@ namespace RaLanguage.Lexer
                 case "retry": return Keyword.Retry;
                 case "times": return Keyword.Times;
                 case "delay": return Keyword.Delay;
+                case "enum": return Keyword.Enum;
                 default: return null;
             }
         }

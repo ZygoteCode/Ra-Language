@@ -39,7 +39,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
 
                 if (declaredType != null)
                 {
-                    if (!TypeSystem.IsAssignable(declaredType, value))
+                    if (!TypeSystem.IsAssignable(context, declaredType, value))
                         return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Type mismatch: cannot assign value of type '{value.Type}' to '{declaredType}'", context));
                 }
 

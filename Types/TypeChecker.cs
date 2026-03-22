@@ -14,7 +14,7 @@ namespace RaLanguage.Types
 
             string targetType = declaredType.Name.ToString().ToLowerInvariant();
             if (!TryGetRawValue(value, out object? rawValue))
-                return null;
+                return value;
 
             RuntimeValue? newValue = targetType switch
             {

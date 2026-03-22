@@ -46,6 +46,8 @@
         Argument,
         Try,
         SuperFor,
-        Retry
+        Retry,
+        EnumDefinition,
+        EnumAccess
     }
 }

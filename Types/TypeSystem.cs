@@ -1,15 +1,24 @@
-﻿using RaLanguage.Interpreter.Values;
+﻿using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Primitives;
 
 namespace RaLanguage.Types
 {
     public static class TypeSystem
     {
-        public static bool IsAssignable(TypeDescriptor target, RuntimeValue value)
+        public static bool IsAssignable(Context context, TypeDescriptor target, RuntimeValue value)
         {
             if (target == null) return true;
             if (string.Equals(target.Name, "any", StringComparison.Ordinal)) return true;
             if (target.IsTypeParameter) return true;
+
+            var symbol = context?.SymbolTable?.Get(target.Name);
+            if (symbol is EnumTypeValue enumType)
+            {
+                if (value.Type != RuntimeValueType.Enum) return false;
+                var ev = (EnumValue)value;
+                return string.Equals(ev.EnumName, enumType.EnumName, StringComparison.Ordinal);
+            }
 
             switch (value.Type)
             {
@@ -70,7 +79,7 @@ namespace RaLanguage.Types
                     if (target.GenericArgs.Count == 0) return true;
                     var inner = target.GenericArgs[0];
                     foreach (var el in l.Elements)
-                        if (!IsAssignable(inner.Substitute(new Dictionary<string, TypeDescriptor>()), el)) return false;
+                        if (!IsAssignable(context, inner.Substitute(new Dictionary<string, TypeDescriptor>()), el)) return false;
                     return true;
                 case RuntimeValueType.Set:
                     if (!string.Equals(target.Name, "set", StringComparison.Ordinal)) return false;
@@ -78,7 +87,7 @@ namespace RaLanguage.Types
                     if (target.GenericArgs.Count == 0) return true;
                     var sin = target.GenericArgs[0];
                     foreach (var el in s.Elements)
-                        if (!IsAssignable(sin, el)) return false;
+                        if (!IsAssignable(context, sin, el)) return false;
                     return true;
                 case RuntimeValueType.Map:
                     if (!string.Equals(target.Name, "map", StringComparison.Ordinal)) return false;
@@ -88,7 +97,7 @@ namespace RaLanguage.Types
                     var vT = target.GenericArgs[1];
                     foreach (var kv in m.Pairs)
                     {
-                        if (!IsAssignable(kT, kv.Key) || !IsAssignable(vT, kv.Value)) return false;
+                        if (!IsAssignable(context, kT, kv.Key) || !IsAssignable(context, vT, kv.Value)) return false;
                     }
                     return true;
                 case RuntimeValueType.Tuple:
@@ -97,7 +106,7 @@ namespace RaLanguage.Types
                     if (target.GenericArgs.Count == 0) return true;
                     if (target.GenericArgs.Count != t.Elements.Count) return false;
                     for (int i = 0; i < t.Elements.Count; i++)
-                        if (!IsAssignable(target.GenericArgs[i], t.Elements[i])) return false;
+                        if (!IsAssignable(context, target.GenericArgs[i], t.Elements[i])) return false;
                     return true;
                 case RuntimeValueType.Function:
                     return string.Equals(target.Name, "function", StringComparison.Ordinal);

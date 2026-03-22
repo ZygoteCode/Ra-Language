@@ -143,7 +143,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                 var retVal = bodyRes.FuncReturnValue;
                 if (instantiatedReturnType != null && !instantiatedReturnType.IsTypeParameter())
                 {
-                    if (!TypeSystem.IsAssignable(instantiatedReturnType, retVal))
+                    if (!TypeSystem.IsAssignable(execCtx, instantiatedReturnType, retVal))
                         return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Return type mismatch in function '{Name}': expected '{instantiatedReturnType}', got '{retVal.Type}'", Context));
                 }
                 return res.Success(retVal.SetContext(Context).SetPos(PositionStart, PositionEnd));
@@ -154,7 +154,7 @@ namespace RaLanguage.Interpreter.Values.Functions
 
             if (instantiatedReturnType != null && !instantiatedReturnType.IsTypeParameter())
             {
-                if (!TypeSystem.IsAssignable(instantiatedReturnType, retValue))
+                if (!TypeSystem.IsAssignable(execCtx, instantiatedReturnType, retValue))
                     return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Return type mismatch in function '{Name}': expected '{instantiatedReturnType}', got '{retValue.Type}'", Context));
             }
 

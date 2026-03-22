@@ -2,6 +2,7 @@
 using RaLanguage.Lexer;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes;
+using RaLanguage.Parser.Nodes.Enums;
 using RaLanguage.Parser.Nodes.Functions;
 using RaLanguage.Parser.Nodes.Iterations;
 using RaLanguage.Parser.Nodes.Operations;
@@ -872,6 +873,7 @@ namespace RaLanguage.Parser
 
             while (_currentToken.Type == TokenType.LPAREN
                 || _currentToken.Type == TokenType.LSQUARE
+                || _currentToken.Type == TokenType.DOT
                 || _currentToken.Matches(Keyword.Not))
             {
                 if (_currentToken.Matches(Keyword.Not))
@@ -955,6 +957,20 @@ namespace RaLanguage.Parser
                     Advance();
 
                     resultNode = new ListAccessNode(resultNode, indexNode, resultNode.PositionStart, rBracketEndPos);
+                }
+                else if (_currentToken.Type == TokenType.DOT)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    if (_currentToken.Type != TokenType.IDENTIFIER)
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected enum member name after '.'"));
+
+                    Token memberTok = _currentToken;
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    resultNode = new EnumAccessNode(resultNode, memberTok);
                 }
             }
 
@@ -1130,9 +1146,85 @@ namespace RaLanguage.Parser
                     var tryExpr = res.Register(ParseTryExpression());
                     if (res.Error != null) return res;
                     return res.Success(tryExpr);
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Enum:
+                    var enumExpr = res.Register(ParseEnumDefinition());
+                    if (res.Error != null) return res;
+                    return res.Success(enumExpr);
             }
 
             return res.Failure(new InvalidSyntaxError(tok.PositionStart, tok.PositionEnd, "Expected int, float, identifier, '+', '-', '(', '[', 'if', 'for', 'while', 'fn'"));
+        }
+
+        private ParserResult ParseEnumDefinition()
+        {
+            var res = new ParserResult();
+
+            if (!_currentToken.Matches(Keyword.Enum))
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'enum'"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            if (_currentToken.Type != TokenType.IDENTIFIER)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected enum name"));
+
+            Token nameTok = _currentToken;
+            res.RegisterAdvancement();
+            Advance();
+
+            if (_currentToken.Type != TokenType.LBRACKET)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{'"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            var members = new List<(Token MemberTok, AstNode? ValueNode)>();
+
+            if (_currentToken.Type != TokenType.RBRACKET)
+            {
+                while (true)
+                {
+                    if (_currentToken.Type != TokenType.IDENTIFIER)
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected enum member name"));
+
+                    Token memberTok = _currentToken;
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    AstNode? valueNode = null;
+                    if (_currentToken.Type == TokenType.EQ)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        valueNode = res.Register(ParseExpression());
+                        if (res.Error != null) return res;
+                    }
+
+                    members.Add((memberTok, valueNode));
+
+                    if (_currentToken.Type == TokenType.COMMA)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        if (_currentToken.Type == TokenType.RBRACKET)
+                            break;
+
+                        continue;
+                    }
+
+                    break;
+                }
+            }
+
+            if (_currentToken.Type != TokenType.RBRACKET)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}'"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            return res.Success(new EnumDefinitionNode(nameTok, members));
         }
 
         private ParserResult ParseTryExpression()

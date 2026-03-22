@@ -94,24 +94,33 @@
             private readonly string _s;
             private int _i;
             public _StringParser(string s) { _s = s.Trim(); _i = 0; }
-            public TypeDescriptor ParseType()
+            public TypeDescriptor ParseType(HashSet<string>? genericParams = null)
             {
                 var name = ParseIdentifier();
+
                 if (Peek() == '<')
                 {
                     Consume('<');
                     var args = new List<TypeDescriptor>();
+
                     while (true)
                     {
-                        args.Add(ParseType());
-                        if (Peek() == ',') { Consume(','); continue; }
+                        args.Add(ParseType(genericParams));
+                        if (Peek() == ',')
+                        {
+                            Consume(',');
+                            continue;
+                        }
                         break;
                     }
+
                     Consume('>');
                     return new TypeDescriptor(name, args);
                 }
 
-                if (!string.IsNullOrEmpty(name) && char.IsUpper(name[0]) && name.Length <= 5) return TypeParameter(name);
+                if (genericParams != null && genericParams.Contains(name))
+                    return TypeDescriptor.TypeParameter(name);
+
                 return new TypeDescriptor(name);
             }
 

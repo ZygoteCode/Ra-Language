@@ -80,7 +80,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
 
             if (entry.IsStaticallyTyped && entry.DeclaredType != null)
             {
-                if (!TypeSystem.IsAssignable(entry.DeclaredType, result!))
+                if (!TypeSystem.IsAssignable(context, entry.DeclaredType, result!))
                     return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Type mismatch: cannot assign value of type '{result.Type.ToString().ToLower()}' to variable '{varName}' of type '{entry.DeclaredType}'", context));
             }
 

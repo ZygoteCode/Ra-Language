@@ -1,0 +1,19 @@
+var a = 0xF8f;
+print(typeof(a));
+print(a);
+
+var b = 0x523Fd;
+print(b);
+print(typeof(b));
+
+var c = 0x523Fm;
+print(c);
+print(typeof(c));
+
+var d = 0x523Fi;
+print(d);
+print(typeof(d));
+
+var e = 0x523Fui;
+print(e);
+print(typeof(e));

@@ -23,6 +23,8 @@
         Int128,
         UnsignedInt128,
         Decimal,
-        Byte
+        Byte,
+        EnumType,
+        Enum
     }
 }

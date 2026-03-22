@@ -1,6 +1,8 @@
 ﻿using RaLanguage.Errors.Types;
+using RaLanguage.Interpreter;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Values;
 using RaLanguage.Parser.Nodes.Variables;
 
 namespace RaLanguage.Interpreter.Visitors.Variables

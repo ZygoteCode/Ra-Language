@@ -43,6 +43,7 @@
         Finally,
         Retry,
         Times,
-        Delay
+        Delay,
+        Enum
     }
 }

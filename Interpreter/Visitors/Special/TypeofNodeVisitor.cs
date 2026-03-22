@@ -2,7 +2,6 @@
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Primitives;
-using RaLanguage.Parser.Nodes.Primitives;
 using RaLanguage.Parser.Nodes.Special;
 
 namespace RaLanguage.Interpreter.Visitors.Special
@@ -38,6 +37,8 @@ namespace RaLanguage.Interpreter.Visitors.Special
                 RuntimeValueType.UnsignedInt128 => "uint128",
                 RuntimeValueType.Decimal => "decimal",
                 RuntimeValueType.Byte => "byte",
+                RuntimeValueType.EnumType => "enum",
+                RuntimeValueType.Enum => ((EnumValue)value).EnumName,
                 _ => ""
             };
 

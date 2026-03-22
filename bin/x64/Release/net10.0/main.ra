@@ -1,19 +1,8 @@
-var a = 0xF8f;
+enum Mode { Off, On = 5, Auto }
+
+var a: Mode = Mode.On;
+print(a);          // Mode.On
+print(a as int);   // 5
+
+print(typeof(Mode));
 print(typeof(a));
-print(a);
-
-var b = 0x523Fd;
-print(b);
-print(typeof(b));
-
-var c = 0x523Fm;
-print(c);
-print(typeof(c));
-
-var d = 0x523Fi;
-print(d);
-print(typeof(d));
-
-var e = 0x523Fui;
-print(e);
-print(typeof(e));
