@@ -25,6 +25,15 @@ namespace RaLanguage.Interpreter.Visitors.Variables
             if (entry.IsMoved)
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Variable '{name}' was moved", context));
 
+            var value = entry.Value;
+
+            if (value.Type == RuntimeValueType.StructInstance ||
+                value.Type == RuntimeValueType.Enum ||
+                value.Type == RuntimeValueType.EnumType)
+            {
+                return res.Success(value.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+            }
+
             var valueToReturn = entry.Value.IsCopy ? entry.Value.Copy() : entry.Value;
             return res.Success(valueToReturn.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }

@@ -9,6 +9,7 @@ using RaLanguage.Parser.Nodes.Operations;
 using RaLanguage.Parser.Nodes.Primitives;
 using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Statements;
+using RaLanguage.Parser.Nodes.Structs;
 using RaLanguage.Parser.Nodes.Variables;
 using RaLanguage.Types;
 
@@ -432,78 +433,9 @@ namespace RaLanguage.Parser
 
             if (_currentToken.Matches(Keyword.Var) || _currentToken.Matches(Keyword.Const) || _currentToken.Matches(Keyword.Final) || _currentToken.Matches(Keyword.Let))
             {
-                VariableDeclarationType variableDeclarationType = VariableDeclarationType.VARIABLE;
-
-                if (_currentToken.Matches(Keyword.Const))
-                {
-                    variableDeclarationType = VariableDeclarationType.CONST;
-                }
-                else if (_currentToken.Matches(Keyword.Final))
-                {
-                    variableDeclarationType = VariableDeclarationType.FINAL;
-                }
-                else if (_currentToken.Matches(Keyword.Let))
-                {
-                    variableDeclarationType = VariableDeclarationType.LET;
-                }
-
-                res.RegisterAdvancement();
-                Advance();
-
-                List<(Token, AstNode?, TypeDescriptor?)> declarations = new List<(Token, AstNode?, TypeDescriptor?)>();
-
-                if (_currentToken.Type != TokenType.IDENTIFIER)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier"));
-
-                while (_currentToken.Type == TokenType.IDENTIFIER)
-                {
-                    var varName = _currentToken;
-                    res.RegisterAdvancement();
-                    Advance();
-
-                    TypeDescriptor? declaredType = null;
-
-                    if (_currentToken.Type == TokenType.COLON)
-                    {
-                        res.RegisterAdvancement();
-                        Advance();
-
-                        var parsedType = ParseType(res);
-                        if (parsedType == null)
-                        {
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':'"));
-                        }
-                        declaredType = parsedType;
-                    }
-
-                    AstNode? expr = null;
-
-                    if (_currentToken.Type == TokenType.EQ)
-                    {
-                        res.RegisterAdvancement();
-                        Advance();
-                        expr = res.Register(ParseExpression());
-
-                        if (res.Error != null)
-                        {
-                            return res;
-                        }
-                    }
-
-                    declarations.Add((varName, expr, declaredType));
-
-                    if (_currentToken.Type == TokenType.COMMA)
-                    {
-                        res.RegisterAdvancement();
-                        Advance();
-                    }
-                    else
-                    {
-                        break;
-                    }
-                }
-
-                return res.Success(new VariableDeclarationNode(variableDeclarationType, declarations));
+                var variableDeclaration = res.Register(ParseVariableDeclaration());
+                if (res.Error != null) return res;
+                return res.Success(variableDeclaration);
             }
             else if (_currentToken.Matches(Keyword.TypeOf))
             {
@@ -637,6 +569,11 @@ namespace RaLanguage.Parser
                 {
                     ListAccessNode listAccess = (ListAccessNode)leftNode;
                     return res.Success(new ListAssignmentNode(listAccess, assignmentToken, rightNode));
+                }
+                else if (leftNode.NodeType == AstNodeType.MemberAccess)
+                {
+                    MemberAccessNode memberAccess = (MemberAccessNode)leftNode;
+                    return res.Success(new MemberAssignmentNode(memberAccess, assignmentToken, rightNode));
                 }
                 else
                 {
@@ -964,13 +901,13 @@ namespace RaLanguage.Parser
                     Advance();
 
                     if (_currentToken.Type != TokenType.IDENTIFIER)
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected enum member name after '.'"));
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected member name after '.'"));
 
                     Token memberTok = _currentToken;
                     res.RegisterAdvancement();
                     Advance();
 
-                    resultNode = new EnumAccessNode(resultNode, memberTok);
+                    resultNode = new MemberAccessNode(resultNode, memberTok);
                 }
             }
 
@@ -1030,6 +967,10 @@ namespace RaLanguage.Parser
                     res.RegisterAdvancement();
                     Advance();
                     return res.Success(new NullNode(tok));
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Self:
+                    res.RegisterAdvancement();
+                    Advance();
+                    return res.Success(new SelfNode(tok.PositionStart, tok.PositionEnd));
                 case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.True:
                 case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.False:
                     res.RegisterAdvancement();
@@ -1150,6 +1091,14 @@ namespace RaLanguage.Parser
                     var enumExpr = res.Register(ParseEnumDefinition());
                     if (res.Error != null) return res;
                     return res.Success(enumExpr);
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Struct:
+                    var structExpr = res.Register(ParseStructDefinition());
+                    if (res.Error != null) return res;
+                    return res.Success(structExpr);
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Pub:
+                    var structExpr1 = res.Register(ParseStructDefinition());
+                    if (res.Error != null) return res;
+                    return res.Success(structExpr1);
             }
 
             return res.Failure(new InvalidSyntaxError(tok.PositionStart, tok.PositionEnd, "Expected int, float, identifier, '+', '-', '(', '[', 'if', 'for', 'while', 'fn'"));
@@ -2159,11 +2108,25 @@ namespace RaLanguage.Parser
             return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' or '{'"));
         }
 
-        private ParserResult ParseFunctionDefinition()
+        private ParserResult ParseFunctionDefinition(string? ownerStructName = null, bool isPublic = false, bool isDeclaringConstructor = false)
         {
             var res = new ParserResult();
-            res.RegisterAdvancement();
-            Advance();
+
+            if (!isDeclaringConstructor)
+            {
+                if (!_currentToken.Matches(Keyword.Fn))
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'fn'"));
+
+                res.RegisterAdvancement();
+                Advance();
+            }
+            else
+            {
+                if (_currentToken.Matches(Keyword.Fn))
+                {
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "The keyword 'fn' is not expected for constructors"));
+                }
+            }
 
             Token? varNameTok = null;
             var genericTypeParams = new List<string>();
@@ -2314,6 +2277,7 @@ namespace RaLanguage.Parser
                             var parsed = ParseType(res);
                             if (parsed == null)
                                 return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':'"));
+
                             ptype = parsed;
                         }
                         argTypes.Add(ptype);
@@ -2328,13 +2292,11 @@ namespace RaLanguage.Parser
                             defaultExpr = res.Register(ParseExpression());
                             if (res.Error != null) return res;
                         }
-                        else
+                        else if (sawDefault)
                         {
-                            if (sawDefault)
-                            {
-                                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Parameters without default cannot appear after parameters with default"));
-                            }
+                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Parameters without default cannot appear after parameters with default"));
                         }
+
                         paramDefaults.Add(defaultExpr);
 
                         if (_currentToken.Type == TokenType.COMMA)
@@ -2370,19 +2332,23 @@ namespace RaLanguage.Parser
 
                 var parsed = ParseType(res);
                 if (parsed == null)
-                {
                     return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected return type after ':'"));
-                }
 
                 returnType = parsed;
             }
+
+            bool isConstructor = ownerStructName != null
+                                 && varNameTok != null
+                                 && string.Equals(varNameTok.Value?.ToString(), ownerStructName, StringComparison.Ordinal);
 
             if (_currentToken.Type == TokenType.ARROW)
             {
                 res.RegisterAdvancement();
                 Advance();
+
                 var body = res.Register(ParseExpression());
                 if (res.Error != null) return res;
+
                 return res.Success(new FunctionDefinitionNode(
                     varNameTok,
                     argNameToks,
@@ -2394,7 +2360,9 @@ namespace RaLanguage.Parser
                     returnType,
                     body,
                     true,
-                    genericTypeParams
+                    genericTypeParams,
+                    isPublic,
+                    isConstructor
                 ));
             }
 
@@ -2412,6 +2380,7 @@ namespace RaLanguage.Parser
 
             res.RegisterAdvancement();
             Advance();
+
             return res.Success(new FunctionDefinitionNode(
                 varNameTok,
                 argNameToks,
@@ -2423,8 +2392,204 @@ namespace RaLanguage.Parser
                 returnType,
                 bodyStmts,
                 false,
-                genericTypeParams
+                genericTypeParams,
+                isPublic,
+                isConstructor
             ));
+        }
+
+        private ParserResult ParseStructDefinition()
+        {
+            var res = new ParserResult();
+            bool isPublic = false;
+
+            if (_currentToken.Matches(Keyword.Pub))
+            {
+                isPublic = true;
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            if (!_currentToken.Matches(Keyword.Struct))
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'struct'"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            if (_currentToken.Type != TokenType.IDENTIFIER)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected struct name"));
+
+            var nameTok = _currentToken;
+            var structName = nameTok.Value?.ToString() ?? "";
+
+            res.RegisterAdvancement();
+            Advance();
+
+            if (_currentToken.Type != TokenType.LBRACKET)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{'"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            var fields = new List<StructFieldDefinitionNode>();
+            var methods = new List<StructMethodDefinitionNode>();
+
+            while (_currentToken.Type != TokenType.RBRACKET)
+            {
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type == TokenType.RBRACKET)
+                    break;
+
+                bool memberPublic = false;
+
+                if (_currentToken.Matches(Keyword.Pub))
+                {
+                    memberPublic = true;
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                }
+
+                if (_currentToken.Matches(Keyword.Var) ||
+                    _currentToken.Matches(Keyword.Const) ||
+                    _currentToken.Matches(Keyword.Final) ||
+                    _currentToken.Matches(Keyword.Let))
+                {
+                    var declRes = ParseVariableDeclaration(memberPublic);
+                    if (declRes.Error != null) return declRes;
+
+                    var declNode = (VariableDeclarationNode)declRes.Node!;
+                    foreach (var d in declNode.Declarations)
+                    {
+                        fields.Add(new StructFieldDefinitionNode(
+                            declNode.IsPublic,
+                            d.Item1,
+                            d.Item3,
+                            d.Item2
+                        ));
+                    }
+
+                    if (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    continue;
+                }
+
+                if (_currentToken.Matches(Keyword.Fn) || (_currentToken.Type == TokenType.IDENTIFIER && _currentToken.Value.ToString() == structName))
+                {
+                    var fnRes = ParseFunctionDefinition(ownerStructName: structName, isPublic: memberPublic, _currentToken.Type == TokenType.IDENTIFIER && _currentToken.Value.ToString() == structName);
+                    if (fnRes.Error != null) return fnRes;
+
+                    methods.Add(new StructMethodDefinitionNodeFromFunctionDefinition((FunctionDefinitionNode)fnRes.Node!));
+                    if (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    continue;
+                }
+
+                return res.Failure(new InvalidSyntaxError(
+                    _currentToken.PositionStart,
+                    _currentToken.PositionEnd,
+                    "Expected field declaration or 'fn'"));
+            }
+
+            res.RegisterAdvancement();
+            Advance();
+
+            return res.Success(new StructDefinitionNode(nameTok, isPublic, fields, methods));
+        }
+
+        private ParserResult ParseVariableDeclaration(bool isPublic = false)
+        {
+            ParserResult res = new ParserResult();
+            VariableDeclarationType variableDeclarationType = VariableDeclarationType.VARIABLE;
+
+            if (_currentToken.Matches(Keyword.Const))
+            {
+                variableDeclarationType = VariableDeclarationType.CONST;
+            }
+            else if (_currentToken.Matches(Keyword.Final))
+            {
+                variableDeclarationType = VariableDeclarationType.FINAL;
+            }
+            else if (_currentToken.Matches(Keyword.Let))
+            {
+                variableDeclarationType = VariableDeclarationType.LET;
+            }
+
+            res.RegisterAdvancement();
+            Advance();
+
+            List<(Token, AstNode?, TypeDescriptor?)> declarations = new List<(Token, AstNode?, TypeDescriptor?)>();
+
+            if (_currentToken.Type != TokenType.IDENTIFIER)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier"));
+
+            while (_currentToken.Type == TokenType.IDENTIFIER)
+            {
+                var varName = _currentToken;
+                res.RegisterAdvancement();
+                Advance();
+
+                TypeDescriptor? declaredType = null;
+
+                if (_currentToken.Type == TokenType.COLON)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    var parsedType = ParseType(res);
+                    if (parsedType == null)
+                    {
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':'"));
+                    }
+                    declaredType = parsedType;
+                }
+
+                AstNode? expr = null;
+
+                if (_currentToken.Type == TokenType.EQ)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                    expr = res.Register(ParseExpression());
+
+                    if (res.Error != null)
+                    {
+                        return res;
+                    }
+                }
+
+                declarations.Add((varName, expr, declaredType));
+
+                if (_currentToken.Type == TokenType.COMMA)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            return res.Success(new VariableDeclarationNode(variableDeclarationType, declarations, isPublic));
         }
 
         private ParserResult ParseBinaryOperation(Func<ParserResult> funcA, List<(TokenType, Keyword?)> ops, Func<ParserResult>? funcB = null)

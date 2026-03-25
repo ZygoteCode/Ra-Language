@@ -28,7 +28,7 @@ namespace RaLanguage.Interpreter.Visitors.Functions
                 .SetContext(context)
                 .SetPos(node.PositionStart, node.PositionEnd);
 
-            if (node.VarNameTok != null) context.SymbolTable.Set(funcName, funcValue);
+            if (node.VarNameTok != null) context.SymbolTable.Set(funcName, funcValue, isPublic: node.IsPublic);
             return res.Success(funcValue);
         }
     }

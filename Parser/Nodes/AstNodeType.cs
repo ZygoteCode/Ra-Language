@@ -48,6 +48,12 @@
         SuperFor,
         Retry,
         EnumDefinition,
-        EnumAccess
+        EnumAccess,
+        StructDefinition,
+        StructFieldDefinition,
+        StructMethodDefinition,
+        Self,
+        MemberAccess,
+        MemberAssignment
     }
 }

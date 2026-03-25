@@ -1,0 +1,8 @@
+enum Mode { Off, On = 5, Auto }
+
+var a: Mode = Mode.On;
+print(a);          // Mode.On
+print(a as int);   // 5
+
+print(typeof(Mode));
+print(typeof(a));

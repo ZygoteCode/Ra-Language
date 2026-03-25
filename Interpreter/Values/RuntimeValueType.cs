@@ -25,6 +25,8 @@
         Decimal,
         Byte,
         EnumType,
-        Enum
+        Enum,
+        StructType,
+        StructInstance
     }
 }

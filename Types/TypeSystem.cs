@@ -1,6 +1,7 @@
 ﻿using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Primitives;
+using RaLanguage.Interpreter.Values.Structs;
 
 namespace RaLanguage.Types
 {
@@ -13,11 +14,18 @@ namespace RaLanguage.Types
             if (target.IsTypeParameter) return true;
 
             var symbol = context?.SymbolTable?.Get(target.Name);
+
             if (symbol is EnumTypeValue enumType)
             {
                 if (value.Type != RuntimeValueType.Enum) return false;
                 var ev = (EnumValue)value;
                 return string.Equals(ev.EnumName, enumType.EnumName, StringComparison.Ordinal);
+            }
+
+            if (symbol is StructTypeValue structType)
+            {
+                return value.Type == RuntimeValueType.StructInstance &&
+                       string.Equals(((StructInstanceValue)value).Definition.StructName, structType.StructName, StringComparison.Ordinal);
             }
 
             switch (value.Type)

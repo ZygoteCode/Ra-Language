@@ -1,8 +1,9 @@
-﻿using System.Globalization;
-using RaLanguage.Interpreter.Runtime;
+﻿using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Primitives;
+using RaLanguage.Interpreter.Values.Structs;
 using RaLanguage.Parser.Nodes;
+using System.Globalization;
 
 namespace RaLanguage.Types
 {
@@ -10,6 +11,36 @@ namespace RaLanguage.Types
     {
         public static RuntimeValue? GetNewType(TypeDescriptor? declaredType, RuntimeValue value, Context context, AstNode node)
         {
+            if (declaredType != null)
+            {
+                var declName = declaredType.Name;
+
+                var symbol = context.SymbolTable.Get(declName);
+                if (symbol is StructTypeValue)
+                {
+                    if (value.Type != RuntimeValueType.StructInstance)
+                        return null;
+
+                    var inst = (StructInstanceValue)value;
+                    if (!string.Equals(inst.Definition.StructName, declName, StringComparison.Ordinal))
+                        return null;
+
+                    return value;
+                }
+
+                if (symbol is EnumTypeValue)
+                {
+                    if (value.Type != RuntimeValueType.Enum)
+                        return null;
+
+                    var ev = (EnumValue)value;
+                    if (!string.Equals(ev.EnumName, declName, StringComparison.Ordinal))
+                        return null;
+
+                    return value;
+                }
+            }
+
             if (declaredType?.Name == null) return value;
 
             string targetType = declaredType.Name.ToString().ToLowerInvariant();
@@ -18,6 +49,8 @@ namespace RaLanguage.Types
 
             RuntimeValue? newValue = targetType switch
             {
+                "int" or "i32" or "integer" => new IntegerValue(Convert.ToInt32(rawValue)),
+                "number" => new NumberValue(BigNumber.Parse(rawValue.ToString())),
                 "long" or "i64" => new LongValue(Convert.ToInt64(rawValue)),
                 "float" or "f32" => new FloatValue(Convert.ToSingle(rawValue)),
                 "double" or "f64" => new DoubleValue(Convert.ToDouble(rawValue)),

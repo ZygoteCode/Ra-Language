@@ -6,10 +6,12 @@ using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Visitors.Enums;
 using RaLanguage.Interpreter.Visitors.Functions;
 using RaLanguage.Interpreter.Visitors.Iterations;
+using RaLanguage.Interpreter.Visitors.Members;
 using RaLanguage.Interpreter.Visitors.Operations;
 using RaLanguage.Interpreter.Visitors.Primitives;
 using RaLanguage.Interpreter.Visitors.Special;
 using RaLanguage.Interpreter.Visitors.Statements;
+using RaLanguage.Interpreter.Visitors.Structs;
 using RaLanguage.Interpreter.Visitors.Variables;
 using RaLanguage.Lexer;
 using RaLanguage.Parser.Nodes;
@@ -75,6 +77,10 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.Retry] = new RetryNodeVisitor();
             _visitors[(int)AstNodeType.EnumAccess] = new EnumAccessNodeVisitor();
             _visitors[(int)AstNodeType.EnumDefinition] = new EnumDefinitionNodeVisitor();
+            _visitors[(int)AstNodeType.StructDefinition] = new StructDefinitionNodeVisitor();
+            _visitors[(int)AstNodeType.Self] = new SelfNodeVisitor();
+            _visitors[(int)AstNodeType.MemberAccess] = new MemberAccessNodeVisitor();
+            _visitors[(int)AstNodeType.MemberAssignment] = new MemberAssignmentNodeVisitor();
         }
 
         public RuntimeResult Visit(AstNode node, Context context)

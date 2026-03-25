@@ -44,6 +44,9 @@
         Retry,
         Times,
         Delay,
-        Enum
+        Enum,
+        Struct,
+        Pub,
+        Self
     }
 }

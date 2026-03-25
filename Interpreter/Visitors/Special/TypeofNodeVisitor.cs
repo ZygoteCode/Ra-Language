@@ -2,6 +2,7 @@
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Primitives;
+using RaLanguage.Interpreter.Values.Structs;
 using RaLanguage.Parser.Nodes.Special;
 
 namespace RaLanguage.Interpreter.Visitors.Special
@@ -39,6 +40,8 @@ namespace RaLanguage.Interpreter.Visitors.Special
                 RuntimeValueType.Byte => "byte",
                 RuntimeValueType.EnumType => "enum",
                 RuntimeValueType.Enum => ((EnumValue)value).EnumName,
+                RuntimeValueType.StructInstance => ((StructInstanceValue)value).Definition.StructName,
+                RuntimeValueType.StructType => "struct",
                 _ => ""
             };
 

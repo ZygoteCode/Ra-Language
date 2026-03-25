@@ -63,7 +63,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                 }
 
                 value = newValue;
-                context.SymbolTable.Set(varName, value, isLetFlag, declaredType, isStaticallyTyped);
+                context.SymbolTable.Set(varName, value, isLetFlag, declaredType, isStaticallyTyped, node.IsPublic);
                 values.Add(value);
             }
 

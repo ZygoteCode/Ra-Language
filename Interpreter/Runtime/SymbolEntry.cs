@@ -5,23 +5,27 @@ namespace RaLanguage.Interpreter.Runtime
 {
     public class SymbolEntry : IDisposable
     {
-        public RuntimeValue? Value { get; set; }
+        private bool _disposed;
+        public RuntimeValue Value { get; set; }
         public bool IsLet { get; set; }
         public bool IsMoved { get; set; }
-
+        public bool IsPublic { get; set; }
+        public bool IsStaticallyTyped { get; set; }
         public TypeDescriptor? DeclaredType { get; set; }
-        public bool IsStaticallyTyped { get; set; } = false;
 
-        private bool _disposed;
-
-        public SymbolEntry(RuntimeValue value, bool isLet = false)
+        public SymbolEntry(
+            RuntimeValue value,
+            bool isLet = false,
+            bool isPublic = true,
+            TypeDescriptor? declaredType = null,
+            bool isStaticallyTyped = false)
         {
             Value = value;
             IsLet = isLet;
             IsMoved = false;
-            DeclaredType = null;
-            IsStaticallyTyped = false;
-            _disposed = false;
+            IsPublic = isPublic;
+            DeclaredType = declaredType;
+            IsStaticallyTyped = isStaticallyTyped;
         }
 
         public SymbolEntry(RuntimeValue value, bool isLet, TypeDescriptor? declaredType, bool isStaticallyTyped)

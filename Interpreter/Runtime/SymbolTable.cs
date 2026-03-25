@@ -32,7 +32,7 @@ namespace RaLanguage.Interpreter.Runtime
             return Parent?.GetEntry(name);
         }
 
-        public void Set(string name, RuntimeValue value, bool isLet = false, TypeDescriptor? declaredType = null, bool isStaticallyTyped = false)
+        public void Set(string name, RuntimeValue value, bool isLet = false, TypeDescriptor? declaredType = null, bool isStaticallyTyped = false, bool isPublic = true)
         {
             SymbolTable? st = this;
             SymbolTable? owner = null;
@@ -51,8 +51,11 @@ namespace RaLanguage.Interpreter.Runtime
                 owner._symbols[name].Value = value;
                 if (owner._symbols[name].DeclaredType == null && declaredType != null)
                 {
+                    owner._symbols[name].Value = value;
+                    owner._symbols[name].IsLet = isLet;
                     owner._symbols[name].DeclaredType = declaredType;
                     owner._symbols[name].IsStaticallyTyped = isStaticallyTyped;
+                    owner._symbols[name].IsPublic = isPublic;
                 }
             }
             else

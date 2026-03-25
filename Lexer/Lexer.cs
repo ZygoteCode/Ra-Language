@@ -885,6 +885,9 @@ namespace RaLanguage.Lexer
                 case "times": return Keyword.Times;
                 case "delay": return Keyword.Delay;
                 case "enum": return Keyword.Enum;
+                case "struct": return Keyword.Struct;
+                case "pub": return Keyword.Pub;
+                case "self": return Keyword.Self;
                 default: return null;
             }
         }
