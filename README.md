@@ -16,7 +16,16 @@ This is constantly updated list, I am expanding with new ideas and concepts for 
 
 I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
   
-  - [ ] Import source files with a intelligent path system.
+  - [ ] Convert the monolithic Parser to a modular Parser with an even efficient code.
+  - [ ] Implement classes with access to "self".
+  - [ ] Implement interfaces / traits.
+  - [ ] Implement classes polymorphism.
+  - [ ] Implement classes inheritance.
+  - [ ] Implement mixins.
+  - [ ] Implement abstract classes.
+  - [ ] Implement the "static" keyword for objects (structs, classes, enums), fields and methods.
+  - [ ] Implement namespaces.
+  - [ ] Implement the "import" directive to import functions, classes, enums, fields, methods and so on, with a intelligent path system.
 
 New ideas coming soon!
 
@@ -37,7 +46,6 @@ New ideas coming soon!
   - [x] Add a new innovative statement: "retry for 5 times delay 200ms / else".
   - [x] Implemented enums in the language.
   - [x] Implement structs into the language. Can create new instances of structs using constructors.
-
 
 ## Finished Phase 1: The Language Essentials
 
