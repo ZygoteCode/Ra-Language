@@ -1880,68 +1880,112 @@ namespace RaLanguage.Parser
                     conditionExpressions = new List<AstNode>(),
                     stepExpressions = new List<AstNode>();
 
-                var initializationExpr = res.Register(ParseExpression());
-                if (res.Error != null) return res;
-                initializationExpressions.Add(initializationExpr);
+                bool skipCheck_1 = false;
 
-                while (_currentToken.Type == TokenType.COMMA)
+                if (_currentToken.Type == TokenType.NEWLINE)
                 {
                     res.RegisterAdvancement();
                     Advance();
-                    initializationExpr = res.Register(ParseExpression());
+                    skipCheck_1 = true;
+                }
+                else
+                {
+                    var initializationExpr = res.Register(ParseExpression());
                     if (res.Error != null) return res;
                     initializationExpressions.Add(initializationExpr);
                 }
 
-                if (_currentToken.Type != TokenType.NEWLINE)
-                {
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ';'"));
-                }
-
-                res.RegisterAdvancement();
-                Advance();
-
-                var conditionExpr = res.Register(ParseExpression());
-                if (res.Error != null) return res;
-                conditionExpressions.Add(conditionExpr);
 
                 while (_currentToken.Type == TokenType.COMMA)
                 {
                     res.RegisterAdvancement();
                     Advance();
-                    conditionExpr = res.Register(ParseExpression());
+                    var initializationExpr = res.Register(ParseExpression());
+                    if (res.Error != null) return res;
+                    initializationExpressions.Add(initializationExpr);
+                }
+
+                if (!skipCheck_1 && _currentToken.Type != TokenType.NEWLINE)
+                {
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ';'"));
+                }
+
+                if (!skipCheck_1)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                bool skipCheck_2 = false;
+
+                if (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                    skipCheck_2 = true;
+                }
+                else
+                {
+                    var conditionExpr = res.Register(ParseExpression());
+                    if (res.Error != null) return res;
+                    conditionExpressions.Add(conditionExpr);
+                }
+                
+
+                while (_currentToken.Type == TokenType.COMMA)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                    var conditionExpr = res.Register(ParseExpression());
                     if (res.Error != null) return res;
                     conditionExpressions.Add(conditionExpr);
                 }
 
-                if (_currentToken.Type != TokenType.NEWLINE)
+                if (!skipCheck_2 && _currentToken.Type != TokenType.NEWLINE)
                 {
                     return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ';'"));
                 }
 
-                res.RegisterAdvancement();
-                Advance();
+                if (!skipCheck_2)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
 
-                var stepExpr = res.Register(ParseExpression());
-                if (res.Error != null) return res;
-                stepExpressions.Add(stepExpr);
+                bool skipCheck_3 = false;
+
+                if (_currentToken.Type == TokenType.RPAREN)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                    skipCheck_3 = true;
+                }
+                else
+                {
+                    var stepExpr = res.Register(ParseExpression());
+                    if (res.Error != null) return res;
+                    stepExpressions.Add(stepExpr);
+                }
 
                 while (_currentToken.Type == TokenType.COMMA)
                 {
                     res.RegisterAdvancement();
                     Advance();
-                    stepExpr = res.Register(ParseExpression());
+                    var stepExpr = res.Register(ParseExpression());
                     if (res.Error != null) return res;
                     stepExpressions.Add(stepExpr);
                 }
 
-                if (_currentToken.Type != TokenType.RPAREN)
+                if (!skipCheck_3 && _currentToken.Type != TokenType.RPAREN)
                 {
                     return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ')'"));
                 }
 
-                res.RegisterAdvancement();
-                Advance();
+                if (!skipCheck_3)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
 
                 if (_currentToken.Type == TokenType.COLON)
                 {
