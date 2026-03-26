@@ -51,6 +51,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 Context actualContext = newContext.Copy();
                 if (res.Error != null) return res;
                 context.ApplyChangesFrom(actualContext);
+                actualContext.Dispose();
 
                 if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak) return res;
                 if (res.LoopShouldContinue) continue;

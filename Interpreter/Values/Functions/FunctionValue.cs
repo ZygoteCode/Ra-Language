@@ -43,7 +43,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             VarArgType = varArgType;
             ReturnType = returnType;
             ShouldAutoReturn = shouldAutoReturn;
-            if (genericTypeParams != null) GenericTypeParams = new List<string>(genericTypeParams);
+            if (genericTypeParams != null) GenericTypeParams = genericTypeParams;
         }
 
         public sealed override RuntimeResult Execute(List<RuntimeValue> args)
@@ -146,6 +146,8 @@ namespace RaLanguage.Interpreter.Values.Functions
                     if (!TypeSystem.IsAssignable(execCtx, instantiatedReturnType, retVal))
                         return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Return type mismatch in function '{Name}': expected '{instantiatedReturnType}', got '{retVal.Type}'", Context));
                 }
+
+                execCtx.Dispose();
                 return res.Success(retVal.SetContext(Context).SetPos(PositionStart, PositionEnd));
             }
 
@@ -158,6 +160,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                     return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Return type mismatch in function '{Name}': expected '{instantiatedReturnType}', got '{retValue.Type}'", Context));
             }
 
+            execCtx.Dispose();
             return res.Success(retValue.SetContext(Context).SetPos(PositionStart, PositionEnd));
         }
 
@@ -166,15 +169,15 @@ namespace RaLanguage.Interpreter.Values.Functions
             return new FunctionValue(
                 Name,
                 BodyNode,
-                new List<string>(ArgNames),
-                ArgTypes == null ? null : new List<TypeDescriptor?>(ArgTypes),
-                ParamDefaults == null ? null : new List<AstNode?>(ParamDefaults),
+                ArgNames,
+                ArgTypes == null ? null : ArgTypes,
+                ParamDefaults == null ? null : ParamDefaults,
                 HasVarArgs,
                 VarArgNameTok,
                 VarArgType,
                 ReturnType,
                 ShouldAutoReturn,
-                new List<string>(GenericTypeParams)
+                GenericTypeParams
             ).SetContext(Context).SetPos(PositionStart, PositionEnd);
         }
 
