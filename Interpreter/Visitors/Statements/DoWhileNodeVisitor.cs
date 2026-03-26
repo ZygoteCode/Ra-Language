@@ -12,7 +12,6 @@ namespace RaLanguage.Interpreter.Visitors.Statements
         {
             var res = new RuntimeResult();
             bool firstTime = true;
-            List<RuntimeValue> elements = new List<RuntimeValue>();
             Context newContext = context.Copy();
 
             while (true)
@@ -29,17 +28,15 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 if (res.Error != null) return res;
                 newContext.ApplyChangesFrom(iterationContext);
                 context.ApplyChangesFrom(newContext);
+                iterationContext.Dispose();
 
                 if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak) return res;
                 if (res.LoopShouldContinue) continue;
                 if (res.LoopShouldBreak) break;
-
-                elements.Add(value);
             }
 
-            return res.Success(
-                node.ShouldReturnNull ? new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd) : new ListValue(elements).SetContext(context).SetPos(node.PositionStart, node.PositionEnd)
-            );
+            newContext.Dispose();
+            return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
     }
 }

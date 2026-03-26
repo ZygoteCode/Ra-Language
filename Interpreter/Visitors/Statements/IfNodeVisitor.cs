@@ -30,6 +30,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                     var exprValue = res.Register(interpreter.Visit(expr, realCaseContext));
                     if (res.Error != null) return res;
                     context.ApplyChangesFrom(realCaseContext);
+                    realCaseContext.Dispose();
 
                     if (res.ShouldReturn()) return res;
                     return res.Success(shouldReturnNull ? new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd) : exprValue);
@@ -38,6 +39,8 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 {
                     context.ApplyChangesFrom(caseContext);
                 }
+
+                caseContext.Dispose();
             }
 
             if (node.ElseCase != null)
@@ -47,10 +50,12 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 var exprValue = res.Register(interpreter.Visit(expr, elseCaseContext));
                 if (res.Error != null) return res;
                 context.ApplyChangesFrom(elseCaseContext);
+                elseCaseContext.Dispose();
                 if (res.ShouldReturn()) return res;
                 return res.Success(shouldReturnNull ? new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd) : exprValue);
             }
 
+            newContext.Dispose();
             return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
     }

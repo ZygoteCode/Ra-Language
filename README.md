@@ -16,6 +16,7 @@ This is constantly updated list, I am expanding with new ideas and concepts for 
 
 I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
   
+  - [ ] Optimize the interpreter project with IDisposable + Dispose + intelligent use of the Garbage Collector - we can implement sorta in the language too.
   - [ ] Convert the monolithic Parser to a modular Parser with an even efficient code.
   - [ ] Implement classes with access to "self".
   - [ ] Implement interfaces / traits.

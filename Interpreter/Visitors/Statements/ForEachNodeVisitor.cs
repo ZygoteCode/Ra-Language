@@ -22,7 +22,6 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 ));
             }
 
-            var elements = new List<RuntimeValue>();
             var newContext = context.Copy();
             var collection = res.Register(interpreter.Visit(node.CollectionNode, newContext));
             if (res.Error != null) return res;
@@ -75,13 +74,10 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak) return res;
                 if (res.LoopShouldContinue) continue;
                 if (res.LoopShouldBreak) break;
-
-                elements.Add(value);
             }
 
-            return res.Success(
-                node.ShouldReturnNull ? new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd) : new ListValue(elements).SetContext(context).SetPos(node.PositionStart, node.PositionEnd)
-            );
+            newContext.Dispose();
+            return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
     }
 }

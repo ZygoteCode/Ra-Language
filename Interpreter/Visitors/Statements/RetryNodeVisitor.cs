@@ -171,6 +171,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
                 if (bodyRes.Error == null)
                 {
                     context.ApplyChangesFrom(attemptContext);
+                    attemptContext.Dispose();
 
                     if (bodyRes.FuncReturnValue != null)
                         return res.SuccessReturn(bodyRes.FuncReturnValue);
@@ -185,6 +186,10 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
                         return res.SuccessYield(bodyRes.YieldValue!);
 
                     return res.Success(bodyRes.Value);
+                }
+                else
+                {
+                    attemptContext.Dispose();
                 }
 
                 if (bodyRes.FuncReturnValue != null || bodyRes.LoopShouldBreak || bodyRes.LoopShouldContinue || bodyRes.ShouldYield)

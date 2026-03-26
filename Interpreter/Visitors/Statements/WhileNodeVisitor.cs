@@ -11,7 +11,6 @@ namespace RaLanguage.Interpreter.Visitors.Statements
         protected override RuntimeResult VisitNode(WhileNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
-            var elements = new List<RuntimeValue>();
             Context newContext = context.Copy();
 
             while (true)
@@ -22,19 +21,18 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 if (!condition.IsTrue()) break;
 
                 Context actualContext = newContext.Copy();
-                var value = res.Register(interpreter.Visit(node.BodyNode, actualContext));
+                res.Register(interpreter.Visit(node.BodyNode, actualContext));
                 if (res.Error != null) return res;
                 context.ApplyChangesFrom(actualContext);
+                actualContext.Dispose();
 
                 if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak) return res;
                 if (res.LoopShouldContinue) continue;
                 if (res.LoopShouldBreak) break;
-                elements.Add(value);
             }
 
-            return res.Success(
-               node.ShouldReturnNull ? new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd) : new ListValue(elements).SetContext(context).SetPos(node.PositionStart, node.PositionEnd)
-           );
+            newContext.Dispose();
+            return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
     }
 }
