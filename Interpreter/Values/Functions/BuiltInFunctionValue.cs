@@ -143,7 +143,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                 if (!System.IO.File.Exists(s.Value)) return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, $"File not found: {s.Value}", c));
                 string script = System.IO.File.ReadAllText(s.Value);
                 var (val, err) = Program.Run(s.Value, script);
-                if (err != null) return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, $"Failed to finish executing script \"{s.Value}\"\n" + err.AsString(), c));
+                if (err != null) return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, $"Failed to finish executing script \"{s.Value}\"\n" + err.ToString(), c));
                 return new RuntimeResult().Success(new NullValue().SetContext(ctx).SetPos(PositionStart, PositionEnd));
             }
             catch (Exception ex)

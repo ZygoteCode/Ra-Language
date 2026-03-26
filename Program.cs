@@ -172,7 +172,7 @@ namespace RaLanguage
 
                 if (error != null)
                 {
-                    Console.WriteLine(error.AsString());
+                    Console.WriteLine(error.ToString());
                 }
 
                 Console.WriteLine($"[Ra Language] Execution took {sw.ElapsedMilliseconds}ms / {sw.ElapsedTicks} ticks / {sw.Elapsed.TotalNanoseconds}ns.");

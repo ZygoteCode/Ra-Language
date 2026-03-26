@@ -18,17 +18,12 @@ namespace RaLanguage.Errors
             Details = details;
         }
 
-        public virtual string AsString()
+        public override string ToString()
         {
             var result = $"{ErrorName}: {Details}\n";
             result += $"File {PositionStart.Fn}, line {PositionStart.Ln + 1}";
             result += "\n\n" + Utils.StringWithArrows(PositionStart.Ftxt, PositionStart, PositionEnd);
             return result;
-        }
-
-        public override string ToString()
-        {
-            return AsString();
         }
     }
 }

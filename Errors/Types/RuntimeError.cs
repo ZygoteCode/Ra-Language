@@ -14,7 +14,7 @@ namespace RaLanguage.Errors.Types
             Context = context;
         }
 
-        public override string AsString()
+        public override string ToString()
         {
             var result = GenerateTraceback();
             result += $"{ErrorName}: {Details}";
