@@ -160,7 +160,7 @@ namespace RaLanguage.Parser
                         }
                     }
 
-                    statements.AddRange(new ListNode(scopeStatements, _positionStart, _currentToken.PositionStart.Copy(), true));
+                    statements.AddRange(new ScopeNode(scopeStatements, _positionStart, _currentToken.PositionStart.Copy()));
                     continue;
                 }
                 else
@@ -183,7 +183,7 @@ namespace RaLanguage.Parser
                 statements.Add(stmt);
             }
 
-            return res.Success(new ListNode(
+            return res.Success(new ScopeNode(
                 statements,
                 positionStart,
                 _currentToken.PositionEnd.Copy()
@@ -1994,7 +1994,7 @@ namespace RaLanguage.Parser
                             stmtList.Add(stmt);
                         }
 
-                        var blockNode = new ListNode(stmtList, firstLabel.PositionStart.Copy(), (stmtList.Count > 0 ? stmtList.Last().PositionEnd.Copy() : _currentToken.PositionStart.Copy()));
+                        var blockNode = new ScopeNode(stmtList, firstLabel.PositionStart.Copy(), (stmtList.Count > 0 ? stmtList.Last().PositionEnd.Copy() : _currentToken.PositionStart.Copy()));
                         cases.Add(new SwitchCaseNode(labels, false, SwitchCaseSeparator.Colon, blockNode, firstLabel.PositionStart.Copy(), _currentToken.PositionEnd.Copy()));
                     }
                     else if (_currentToken.Type == TokenType.ARROW_RIGHT)
@@ -2078,7 +2078,7 @@ namespace RaLanguage.Parser
                             stmtList.Add(stmt);
                         }
 
-                        var blockNode = new ListNode(stmtList, positionStart.Copy(), (stmtList.Count > 0 ? stmtList.Last().PositionEnd.Copy() : _currentToken.PositionStart.Copy()));
+                        var blockNode = new ScopeNode(stmtList, positionStart.Copy(), (stmtList.Count > 0 ? stmtList.Last().PositionEnd.Copy() : _currentToken.PositionStart.Copy()));
                         cases.Add(new SwitchCaseNode(new List<AstNode>(), true, SwitchCaseSeparator.Colon, blockNode, positionStart.Copy(), _currentToken.PositionEnd.Copy()));
                     }
                     else if (_currentToken.Type == TokenType.ARROW_RIGHT)

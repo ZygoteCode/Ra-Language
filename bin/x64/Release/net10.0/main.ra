@@ -168,3 +168,6 @@ while true
         continue;
     }
 }
+
+var yyy = 1_000_000;
+while (yyy > 0): yyy--;

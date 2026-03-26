@@ -66,8 +66,10 @@ namespace RaLanguage
         public static void Main(string[] args)
         {
             Console.Title = "Ra Language | Made by https://github.com/ZygoteCode/";
-            Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.RealTime;
-            Process.GetCurrentProcess().PriorityBoostEnabled = true;
+
+            var currentProcess = Process.GetCurrentProcess();
+            currentProcess.PriorityClass = ProcessPriorityClass.RealTime;
+            currentProcess.PriorityBoostEnabled = true;
 
             Console.WriteLine("[Ra Language] Support the project on GitHub: https://github.com/ZygoteCode/RaLanguage/");
             Console.WriteLine("[Ra Language] Warming up JIT...");
@@ -77,146 +79,107 @@ namespace RaLanguage
                 Run("<stdin>", "var a = 5; var b = [5, 3, 2]; fn c() => var eee = 7; var d = c; d(); if 5 == 5 && 6 == 6 or 7 == 7: var bbb = 5 else: var bbb = 7; typeof null; nameof a; var aaa = \"testing\"; const nevertouch = 7; final bbbbbbb;");
             }
 
-            while (true)
+            bool exitProgram = false;
+            while (!exitProgram)
             {
-                start: Console.WriteLine("Please, choose from the following execution methods:\r\n" +
-                 "\r\n[1] Execute one time" +
-                 "\r\n[2] Execute every time you press ENTER" +
-                 "\r\n[3] Hot restart execution");
+                Console.WriteLine("Please, choose from the following execution methods:\r\n" +
+                                 "\r\n[1] Execute one time" +
+                                 "\r\n[2] Execute every time you press ENTER" +
+                                 "\r\n[3] Hot restart execution" +
+                                 "\r\n[0] Exit");
 
                 string input = Console.ReadLine();
 
-                if (input != "1" && input != "2" && input != "3")
-                {
-                    continue;
-                }
+                if (input == "0") break;
+                if (input != "1" && input != "2" && input != "3") continue;
 
                 Console.Clear();
 
                 switch (input)
                 {
                     case "1":
-                        InitializeSymbolTable();
-                        string text = File.ReadAllText("main.ra");
-                        Stopwatch stopwatch = new Stopwatch();
-                        stopwatch.Start();
-
-                        var (result, error) = Run("<stdin>", text);
-
-                        if (error != null)
-                        {
-                            Console.WriteLine(error.AsString());
-                        }
-                        else
-                        {
-                            if (result is ListValue l && l.Elements.Count == 1)
-                            {
-                                Console.WriteLine(l.Elements[0]);
-                            }
-                            else
-                            {
-                                Console.WriteLine(result);
-                            }
-                        }
-
-                        Console.WriteLine($"[Ra Language] Execution of \"main.ra\" took {stopwatch.ElapsedMilliseconds}ms / {stopwatch.ElapsedTicks} ticks / {stopwatch.Elapsed.TotalNanoseconds} nanoseconds.");
+                        ExecuteMainFile();
+                        Console.WriteLine("\nPress ENTER to return to menu...");
                         Console.ReadLine();
                         Console.Clear();
-                        continue;
+                        break;
+
                     case "2":
-                        repeat: InitializeSymbolTable();
-                        string text1 = File.ReadAllText("main.ra");
-                        Stopwatch stopwatch1 = new Stopwatch();
-                        stopwatch1.Start();
-
-                        var (result1, error1) = Run("<stdin>", text1);
-
-                        if (error1 != null)
+                        bool backToMenu = false;
+                        while (!backToMenu)
                         {
-                            Console.WriteLine(error1.AsString());
-                        }
-                        else
-                        {
-                            if (result1 is ListValue l && l.Elements.Count == 1)
+                            ExecuteMainFile();
+                            Console.WriteLine("\n[Ra Language] Press ENTER to execute again, or DEL/BACKSPACE to go back.");
+
+                            bool validKey = false;
+                            while (!validKey)
                             {
-                                Console.WriteLine(l.Elements[0]);
+                                ConsoleKey readKey = Console.ReadKey(true).Key;
+                                if (readKey == ConsoleKey.Enter)
+                                {
+                                    Console.Clear();
+                                    validKey = true;
+                                }
+                                else if (readKey == ConsoleKey.Delete || readKey == ConsoleKey.Backspace)
+                                {
+                                    Console.Clear();
+                                    validKey = true;
+                                    backToMenu = true;
+                                }
                             }
-                            else
-                            {
-                                Console.WriteLine(result1);
-                            }
                         }
+                        break;
 
-                        Console.WriteLine($"[Ra Language] Execution of \"main.ra\" took {stopwatch1.ElapsedMilliseconds}ms / {stopwatch1.ElapsedTicks} ticks / {stopwatch1.Elapsed.TotalNanoseconds} nanoseconds.");
-                        Console.WriteLine("[Ra Language] Press ENTER to execute again, or DEL/BACKSPACE to go back.");
-                        console:  ConsoleKey readKey = Console.ReadKey().Key;
-                        
-                        if (readKey.Equals(ConsoleKey.Enter))
-                        {
-                            Console.Clear();
-                            goto repeat;
-                        }
-                        else if (readKey.Equals(ConsoleKey.Delete) || readKey.Equals(ConsoleKey.Backspace))
-                        {
-                            Console.Clear();
-                            goto start;
-                        }
-
-                        goto console;
                     case "3":
-                        string originalText = "";
-
+                        Console.WriteLine("[Ra Language] Hot Restart active. Monitoring 'main.ra'...");
+                        string lastContent = "";
                         while (true)
                         {
-                            Thread.Sleep(1);
-
+                            Thread.Sleep(100);
                             try
                             {
-                                string newText = File.ReadAllText("main.ra");
-
-                                if (newText != originalText)
+                                string currentContent = File.ReadAllText("main.ra");
+                                if (currentContent != lastContent)
                                 {
-                                    originalText = newText;
+                                    Console.Clear();
+                                    lastContent = currentContent;
+                                    ExecuteMainFile(currentContent);
                                 }
-                                else
-                                {
-                                    continue;
-                                }
-
-                                Console.Clear();
-                                InitializeSymbolTable();
-                                Stopwatch stopwatch2 = new Stopwatch();
-                                stopwatch2.Start();
-
-                                var (result2, error2) = Run("<stdin>", originalText);
-
-                                if (error2 != null)
-                                {
-                                    Console.WriteLine(error2.AsString());
-                                }
-                                else
-                                {
-                                    if (result2 is ListValue l && l.Elements.Count == 1)
-                                    {
-                                        Console.WriteLine(l.Elements[0]);
-                                    }
-                                    else
-                                    {
-                                        Console.WriteLine(result2);
-                                    }
-                                }
-
-                                Console.WriteLine($"[Ra Language] Execution of \"main.ra\" took {stopwatch2.ElapsedMilliseconds}ms / {stopwatch2.ElapsedTicks} ticks / {stopwatch2.Elapsed.TotalNanoseconds} nanoseconds.");
                             }
                             catch
                             {
 
                             }
                         }
+
                     default:
-                        Process.GetCurrentProcess().Kill();
+                        currentProcess.Kill();
                         break;
                 }
+            }
+        }
+
+        private static void ExecuteMainFile(string content = null)
+        {
+            InitializeSymbolTable();
+            try
+            {
+                string text = content ?? File.ReadAllText("main.ra");
+                Stopwatch sw = Stopwatch.StartNew();
+
+                var (result, error) = Run("<stdin>", text);
+                sw.Stop();
+
+                if (error != null)
+                {
+                    Console.WriteLine(error.AsString());
+                }
+
+                Console.WriteLine($"[Ra Language] Execution took {sw.ElapsedMilliseconds}ms / {sw.ElapsedTicks} ticks / {sw.Elapsed.TotalNanoseconds}ns.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Error] Could not read file: {ex.Message}");
             }
         }
     }

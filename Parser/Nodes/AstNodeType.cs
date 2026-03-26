@@ -54,6 +54,7 @@
         StructMethodDefinition,
         Self,
         MemberAccess,
-        MemberAssignment
+        MemberAssignment,
+        Scope
     }
 }

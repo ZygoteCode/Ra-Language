@@ -5,13 +5,11 @@ namespace RaLanguage.Parser.Nodes.Primitives
     public class ListNode : AstNode
     {
         public List<AstNode> ElementNodes { get; }
-        public bool IsNewContext { get; }
-        public ListNode(List<AstNode> elementNodes, Position positionStart, Position positionEnd, bool isNewContext = false) : base(AstNodeType.List)
+        public ListNode(List<AstNode> elementNodes, Position positionStart, Position positionEnd) : base(AstNodeType.List)
         {
             ElementNodes = elementNodes;
             PositionStart = positionStart;
             PositionEnd = positionEnd;
-            IsNewContext = isNewContext;
         }
     }
 }

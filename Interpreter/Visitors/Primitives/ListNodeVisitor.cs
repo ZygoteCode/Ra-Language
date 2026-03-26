@@ -16,72 +16,33 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
             var res = new RuntimeResult();
             var elements = new List<RuntimeValue>();
 
-            if (node.IsNewContext)
+            foreach (var elementNode in node.ElementNodes)
             {
-                Context newContext = context.Copy();
-
-                foreach (var elementNode in node.ElementNodes)
+                if (elementNode.NodeType == AstNodeType.Spread)
                 {
-                    if (elementNode.NodeType == AstNodeType.Spread)
-                    {
-                        SpreadNode spread = (SpreadNode)elementNode;
-                        var val = res.Register(interpreter.Visit(spread.Expression, newContext));
-                        if (res.Error != null) return res;
-                        if (res.ShouldReturn()) return res;
+                    SpreadNode spread = (SpreadNode)elementNode;
+                    var val = res.Register(interpreter.Visit(spread.Expression, context));
+                    if (res.Error != null) return res;
+                    if (res.ShouldReturn()) return res;
 
-                        if (val.Type != RuntimeValueType.List)
-                        {
-                            return res.Failure(new RuntimeError(
-                                spread.PositionStart,
-                                spread.PositionEnd,
-                                "Spread target must be an iterable (e.g. list)",
-                                context));
-                        }
-
-                        ListValue l = (ListValue)val;
-                        elements.AddRange(l.Elements);
-                    }
-                    else
+                    if (val.Type != RuntimeValueType.List)
                     {
-                        var val = res.Register(interpreter.Visit(elementNode, newContext));
-                        if (res.Error != null) return res;
-                        if (res.ShouldReturn()) return res;
-                        elements.Add(val);
+                        return res.Failure(new RuntimeError(
+                            spread.PositionStart,
+                            spread.PositionEnd,
+                            "Spread target must be an iterable (e.g. list)",
+                            context));
                     }
+
+                    ListValue l = (ListValue)val;
+                    elements.AddRange(l.Elements);
                 }
-
-                context.ApplyChangesFrom(newContext);
-            }
-            else
-            {
-                foreach (var elementNode in node.ElementNodes)
+                else
                 {
-                    if (elementNode.NodeType == AstNodeType.Spread)
-                    {
-                        SpreadNode spread = (SpreadNode)elementNode;
-                        var val = res.Register(interpreter.Visit(spread.Expression, context));
-                        if (res.Error != null) return res;
-                        if (res.ShouldReturn()) return res;
-
-                        if (val.Type != RuntimeValueType.List)
-                        {
-                            return res.Failure(new RuntimeError(
-                                spread.PositionStart,
-                                spread.PositionEnd,
-                                "Spread target must be an iterable (e.g. list)",
-                                context));
-                        }
-
-                        ListValue l = (ListValue)val;
-                        elements.AddRange(l.Elements);
-                    }
-                    else
-                    {
-                        var val = res.Register(interpreter.Visit(elementNode, context));
-                        if (res.Error != null) return res;
-                        if (res.ShouldReturn()) return res;
-                        elements.Add(val);
-                    }
+                    var val = res.Register(interpreter.Visit(elementNode, context));
+                    if (res.Error != null) return res;
+                    if (res.ShouldReturn()) return res;
+                    elements.Add(val);
                 }
             }
 

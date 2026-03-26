@@ -81,6 +81,7 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.Self] = new SelfNodeVisitor();
             _visitors[(int)AstNodeType.MemberAccess] = new MemberAccessNodeVisitor();
             _visitors[(int)AstNodeType.MemberAssignment] = new MemberAssignmentNodeVisitor();
+            _visitors[(int)AstNodeType.Scope] = new ScopeNodeVisitor();
         }
 
         public RuntimeResult Visit(AstNode node, Context context)
