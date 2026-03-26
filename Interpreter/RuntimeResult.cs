@@ -1,9 +1,10 @@
 ﻿using RaLanguage.Errors;
 using RaLanguage.Interpreter.Values;
+using System;
 
 namespace RaLanguage.Interpreter
 {
-    public class RuntimeResult
+    public class RuntimeResult : IDisposable
     {
         public RuntimeValue? Value { get; private set; }
         public Error? Error { get; private set; }
@@ -15,6 +16,8 @@ namespace RaLanguage.Interpreter
         public RuntimeValue? YieldValue { get; private set; }
         public bool ShouldYield { get; private set; }
 
+        private bool _disposed;
+
         public void Reset()
         {
             Value = null;
@@ -24,6 +27,71 @@ namespace RaLanguage.Interpreter
             LoopShouldBreak = false;
             YieldValue = null;
             ShouldYield = false;
+        }
+
+        private void DisposeInternal()
+        {
+            if (!_disposed)
+            {
+                Reset();
+                _disposed = true;
+            }
+        }
+
+        public void Dispose()
+        {
+            DisposeInternal();
+            GC.SuppressFinalize(this);
+        }
+
+        public RuntimeResult Success(RuntimeValue? value)
+        {
+            DisposeInternal();
+            _disposed = false;
+            Value = value;
+            return this;
+        }
+
+        public RuntimeResult SuccessReturn(RuntimeValue value)
+        {
+            DisposeInternal();
+            _disposed = false;
+            FuncReturnValue = value;
+            return this;
+        }
+
+        public RuntimeResult SuccessContinue()
+        {
+            DisposeInternal();
+            _disposed = false;
+            LoopShouldContinue = true;
+            return this;
+        }
+
+        public RuntimeResult SuccessBreak()
+        {
+            DisposeInternal();
+            _disposed = false;
+            LoopShouldBreak = true;
+            return this;
+        }
+
+        public RuntimeResult SuccessYield(RuntimeValue value)
+        {
+            DisposeInternal();
+            _disposed = false;
+            YieldValue = value;
+            ShouldYield = true;
+            Value = value;
+            return this;
+        }
+
+        public RuntimeResult Failure(Error error)
+        {
+            DisposeInternal();
+            _disposed = false;
+            Error = error;
+            return this;
         }
 
         public RuntimeValue? Register(RuntimeResult res, bool propagateLoopControl = true)
@@ -38,50 +106,6 @@ namespace RaLanguage.Interpreter
             }
 
             return res.Value;
-        }
-
-        public RuntimeResult Success(RuntimeValue? value)
-        {
-            Reset();
-            Value = value;
-            return this;
-        }
-
-        public RuntimeResult SuccessReturn(RuntimeValue value)
-        {
-            Reset();
-            FuncReturnValue = value;
-            return this;
-        }
-
-        public RuntimeResult SuccessContinue()
-        {
-            Reset();
-            LoopShouldContinue = true;
-            return this;
-        }
-
-        public RuntimeResult SuccessBreak()
-        {
-            Reset();
-            LoopShouldBreak = true;
-            return this;
-        }
-
-        public RuntimeResult SuccessYield(RuntimeValue value)
-        {
-            Reset();
-            YieldValue = value;
-            ShouldYield = true;
-            Value = value;
-            return this;
-        }
-
-        public RuntimeResult Failure(Error error)
-        {
-            Reset();
-            Error = error;
-            return this;
         }
 
         public bool ShouldReturn()

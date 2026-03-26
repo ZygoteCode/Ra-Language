@@ -10,7 +10,7 @@ namespace RaLanguage.Interpreter.Visitors.Operations
 {
     public class CastNodeVisitor : NodeVisitor<CastNode>
     {
-        protected override RuntimeResult VisitNode(CastNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(CastNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var val = res.Register(interpreter.Visit(node.Expression, context));

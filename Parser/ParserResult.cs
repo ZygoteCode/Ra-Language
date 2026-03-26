@@ -3,13 +3,15 @@ using RaLanguage.Parser.Nodes;
 
 namespace RaLanguage.Parser
 {
-    public class ParserResult
+    public class ParserResult : IDisposable
     {
         public Error? Error { get; private set; }
         public AstNode? Node { get; private set; }
         public int LastRegisteredAdvanceCount { get; private set; } = 0;
         public int AdvanceCount { get; private set; } = 0;
         public int ToReverseCount { get; private set; } = 0;
+
+        private bool _disposed;
 
         public void RegisterAdvancement()
         {
@@ -22,7 +24,7 @@ namespace RaLanguage.Parser
             LastRegisteredAdvanceCount = res.AdvanceCount;
             AdvanceCount += res.AdvanceCount;
             if (res.Error != null) Error = res.Error;
-            return res.Node;
+            return res.Node!;
         }
 
         public AstNode? TryRegister(ParserResult res)
@@ -35,18 +37,38 @@ namespace RaLanguage.Parser
             return Register(res);
         }
 
+        private void DisposeInternal()
+        {
+            if (!_disposed)
+            {
+                Node = null;
+                Error = null;
+                LastRegisteredAdvanceCount = 0;
+                AdvanceCount = 0;
+                ToReverseCount = 0;
+                _disposed = true;
+            }
+        }
+
+        public void Dispose()
+        {
+            DisposeInternal();
+            GC.SuppressFinalize(this);
+        }
+
         public ParserResult Success(AstNode node)
         {
-            Node = node;
+            var resultNode = node;
+            DisposeInternal();
+            Node = resultNode;
             return this;
         }
 
         public ParserResult Failure(Error error)
         {
-            if (Error == null || LastRegisteredAdvanceCount == 0)
-            {
-                Error = error;
-            }
+            var resultError = error;
+            DisposeInternal();
+            Error = resultError;
             return this;
         }
     }

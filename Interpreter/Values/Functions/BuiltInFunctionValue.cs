@@ -6,11 +6,11 @@ namespace RaLanguage.Interpreter.Values.Functions
 {
     public class BuiltInFunctionValue : BaseFunctionValue
     {
-        public override RuntimeValueType Type => RuntimeValueType.Function;
+        public sealed override RuntimeValueType Type => RuntimeValueType.Function;
         public BuiltInFunctionValue(string name) : base(name) { }
 
 
-        public override RuntimeResult Execute(List<RuntimeValue> args)
+        public sealed override RuntimeResult Execute(List<RuntimeValue> args)
         {
             var res = new RuntimeResult();
             var execCtx = GenerateNewContext();
@@ -152,11 +152,11 @@ namespace RaLanguage.Interpreter.Values.Functions
             }
         });
 
-        public override RuntimeValue Copy()
+        public sealed override RuntimeValue Copy()
         {
             return new BuiltInFunctionValue(Name).SetContext(Context).SetPos(PositionStart, PositionEnd);
         }
 
-        public override string ToString() => $"<built-in function {Name}>";
+        public sealed override string ToString() => $"<built-in function {Name}>";
     }
 }

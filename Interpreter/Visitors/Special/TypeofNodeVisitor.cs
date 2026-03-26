@@ -9,7 +9,7 @@ namespace RaLanguage.Interpreter.Visitors.Special
 {
     public class TypeofNodeVisitor : NodeVisitor<TypeofNode>
     {
-        protected override RuntimeResult VisitNode(TypeofNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(TypeofNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var value = res.Register(interpreter.Visit(node.Node, context));

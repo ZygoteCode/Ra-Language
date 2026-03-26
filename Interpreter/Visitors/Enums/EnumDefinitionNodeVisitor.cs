@@ -11,7 +11,7 @@ namespace RaLanguage.Interpreter.Visitors.Enums
 {
     public class EnumDefinitionNodeVisitor : NodeVisitor<EnumDefinitionNode>
     {
-        protected override RuntimeResult VisitNode(EnumDefinitionNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(EnumDefinitionNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

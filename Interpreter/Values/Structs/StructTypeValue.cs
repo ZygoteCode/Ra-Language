@@ -15,8 +15,8 @@ namespace RaLanguage.Interpreter.Values.Structs
         public List<StructFieldDefinitionNode> Fields { get; }
         public List<StructMethodDefinitionNode> Methods { get; }
 
-        public override RuntimeValueType Type => RuntimeValueType.StructType;
-        public override bool IsCopy => true;
+        public sealed override RuntimeValueType Type => RuntimeValueType.StructType;
+        public sealed override bool IsCopy => true;
 
         public StructTypeValue(string structName, bool isPublic, List<StructFieldDefinitionNode> fields, List<StructMethodDefinitionNode> methods)
         {
@@ -55,7 +55,7 @@ namespace RaLanguage.Interpreter.Values.Structs
         public StructFieldDefinitionNode? GetField(string name)
             => Fields.FirstOrDefault(f => string.Equals(f.NameTok.Value?.ToString(), name, StringComparison.Ordinal));
 
-        public override RuntimeResult Execute(List<RuntimeValue> args)
+        public sealed override RuntimeResult Execute(List<RuntimeValue> args)
             => ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
 
         public RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
@@ -101,13 +101,13 @@ namespace RaLanguage.Interpreter.Values.Structs
             return res.Success(instance);
         }
 
-        public override RuntimeValue Copy()
+        public sealed override RuntimeValue Copy()
         {
             return new StructTypeValue(StructName, IsPublic, Fields, Methods)
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
         }
 
-        public override string ToString() => $"<struct {StructName}>";
+        public sealed override string ToString() => $"<struct {StructName}>";
     }
 }

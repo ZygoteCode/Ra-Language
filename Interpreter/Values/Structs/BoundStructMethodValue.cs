@@ -16,7 +16,7 @@ namespace RaLanguage.Interpreter.Values.Structs
         public StructInstanceValue SelfInstance { get; }
         public StructMethodDefinitionNode MethodNode { get; }
 
-        public override RuntimeValueType Type => RuntimeValueType.BaseFunction;
+        public sealed override RuntimeValueType Type => RuntimeValueType.BaseFunction;
 
         public BoundStructMethodValue(StructTypeValue definition, StructInstanceValue selfInstance, StructMethodDefinitionNode methodNode)
             : base(methodNode.NameTok.Value?.ToString() ?? "<method>")
@@ -26,10 +26,10 @@ namespace RaLanguage.Interpreter.Values.Structs
             MethodNode = methodNode;
         }
 
-        public override RuntimeResult Execute(List<RuntimeValue> args)
+        public sealed override RuntimeResult Execute(List<RuntimeValue> args)
             => ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
 
-        public override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
+        public sealed override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
         {
             var res = new RuntimeResult();
             var interpreter = new Interpreter();
@@ -75,13 +75,13 @@ namespace RaLanguage.Interpreter.Values.Structs
             return res.Success(retValue);
         }
 
-        public override RuntimeValue Copy()
+        public sealed override RuntimeValue Copy()
         {
             return new BoundStructMethodValue(Definition, SelfInstance, MethodNode)
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
         }
 
-        public override string ToString() => $"<bound method {Definition.StructName}.{Name}>";
+        public sealed override string ToString() => $"<bound method {Definition.StructName}.{Name}>";
     }
 }

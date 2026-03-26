@@ -10,9 +10,9 @@ namespace RaLanguage.Interpreter.Values
 {
     public abstract class RuntimeValue
     {
-        public Position PositionStart { get; set; }
-        public Position PositionEnd { get; set; }
-        public Context Context { get; set; }
+        public Position PositionStart { get; private set; }
+        public Position PositionEnd { get; private set; }
+        public Context Context { get; private set; }
         public VariableDeclarationType VariableDeclarationType { get; set; } = VariableDeclarationType.VARIABLE;
         public abstract RuntimeValueType Type { get; }
         public virtual bool IsCopy => false;

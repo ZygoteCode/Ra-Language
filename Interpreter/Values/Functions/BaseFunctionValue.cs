@@ -299,30 +299,26 @@ namespace RaLanguage.Interpreter.Values.Functions
             if (td == null) return false;
             try
             {
-                var prop = td.GetType().GetProperty("IsTypeParameter");
-                if (prop != null) return (bool)prop.GetValue(td);
+                return td != null && td.IsTypeParameter;
             }
             catch { }
             return !string.IsNullOrEmpty(td.Name) && char.IsUpper(td.Name[0]) && td.GenericArgs.Count == 0;
         }
 
-        public static TypeDescriptor SubstituteBindings(this TypeDescriptor? td, Dictionary<string, TypeDescriptor> bindings)
+        public static TypeDescriptor? SubstituteBindings(this TypeDescriptor? td, Dictionary<string, TypeDescriptor> bindings)
         {
             if (td == null) return null;
             try
             {
-                var method = td.GetType().GetMethod("Substitute");
-                if (method != null)
-                {
-                    var result = method.Invoke(td, new object[] { bindings });
-                    return (TypeDescriptor)result;
-                }
+                return td.Substitute(bindings);
             }
             catch { }
             if (td.IsTypeParameter() && bindings.TryGetValue(td.Name, out var bound)) return bound;
             if (td.GenericArgs == null || td.GenericArgs.Count == 0) return td;
             var newArgs = td.GenericArgs.Select(a => a.SubstituteBindings(bindings)).ToList();
-            return new TypeDescriptor(td.Name, newArgs);
+
+            if (newArgs == null) return null;
+            return new TypeDescriptor(td.Name, newArgs!);
         }
     }
 }

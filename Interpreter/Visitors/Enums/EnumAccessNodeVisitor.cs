@@ -9,7 +9,7 @@ namespace RaLanguage.Interpreter.Visitors.Enums
 {
     public class EnumAccessNodeVisitor : NodeVisitor<EnumAccessNode>
     {
-        protected override RuntimeResult VisitNode(EnumAccessNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(EnumAccessNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

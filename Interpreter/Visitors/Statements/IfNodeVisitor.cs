@@ -7,7 +7,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 {
     public class IfNodeVisitor : NodeVisitor<IfNode>
     {
-        protected override RuntimeResult VisitNode(IfNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(IfNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var newContext = context.Copy();

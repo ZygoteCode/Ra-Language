@@ -8,7 +8,7 @@ namespace RaLanguage.Interpreter.Visitors.Special
 {
     public class GotoNodeVisitor : NodeVisitor<GotoNode>
     {
-        protected override RuntimeResult VisitNode(GotoNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(GotoNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             string varName = node.VarName.Value.ToString();

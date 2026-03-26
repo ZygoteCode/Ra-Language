@@ -9,8 +9,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
     {
         public string Value { get; private set; }
         public StringValue(string value) { Value = value; }
-        public override RuntimeValueType Type => RuntimeValueType.String;
-        public override bool IsCopy => false;
+        public sealed override RuntimeValueType Type => RuntimeValueType.String;
+        public sealed override bool IsCopy => false;
 
         private string NormalizeNFC(string s) => s?.Normalize(NormalizationForm.FormC) ?? s;
 
@@ -41,7 +41,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return (int)nv.Value;
         }
 
-        public override (RuntimeValue?, Error?) AddedTo(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) AddedTo(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.String)
             {
@@ -61,7 +61,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.AddedTo(other);
         }
 
-        public override (RuntimeValue?, Error?) SubbedBy(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) SubbedBy(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.String)
             {
@@ -83,7 +83,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.SubbedBy(other);
         }
 
-        public override (RuntimeValue?, Error?) MultedBy(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) MultedBy(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Number)
             {
@@ -97,7 +97,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.MultedBy(other);
         }
 
-        public override (RuntimeValue?, Error?) DivedBy(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) DivedBy(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.String)
             {
@@ -138,7 +138,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.DivedBy(other);
         }
 
-        public override (RuntimeValue?, Error?) PowedBy(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) PowedBy(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Number)
             {
@@ -161,7 +161,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.PowedBy(other);
         }
 
-        public override (RuntimeValue?, Error?) ModuledBy(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) ModuledBy(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Number)
             {
@@ -181,7 +181,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.ModuledBy(other);
         }
 
-        public override (RuntimeValue?, Error?) BitwiseLeftShiftedBy(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) BitwiseLeftShiftedBy(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Number)
             {
@@ -195,7 +195,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.BitwiseLeftShiftedBy(other);
         }
 
-        public override (RuntimeValue?, Error?) BitwiseRightShiftedBy(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) BitwiseRightShiftedBy(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Number)
             {
@@ -209,7 +209,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.BitwiseRightShiftedBy(other);
         }
 
-        public override (RuntimeValue?, Error?) BitwiseAndedBy(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) BitwiseAndedBy(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.String)
             {
@@ -249,7 +249,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.BitwiseAndedBy(other);
         }
 
-        public override (RuntimeValue?, Error?) BitwiseOredBy(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) BitwiseOredBy(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.String)
             {
@@ -287,7 +287,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.BitwiseOredBy(other);
         }
 
-        public override (RuntimeValue?, Error?) ListAccess(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) ListAccess(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Number)
             {
@@ -301,7 +301,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.ListAccess(other);
         }
 
-        public override (RuntimeValue?, Error?) ListSet(RuntimeValue index, RuntimeValue value)
+        public sealed override (RuntimeValue?, Error?) ListSet(RuntimeValue index, RuntimeValue value)
         {
             if (index.Type == RuntimeValueType.Number && value.Type == RuntimeValueType.String)
             {
@@ -378,7 +378,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.ListSet(index, value);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonLt(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonLt(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.String)
             {
@@ -391,7 +391,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.GetComparisonLt(other);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonGt(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonGt(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.String)
             {
@@ -404,7 +404,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.GetComparisonGt(other);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonLte(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonLte(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.String)
             {
@@ -417,7 +417,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.GetComparisonLte(other);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonGte(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonGte(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.String)
             {
@@ -430,24 +430,24 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.GetComparisonGte(other);
         }
 
-        public override (RuntimeValue?, Error?) Notted()
+        public sealed override (RuntimeValue?, Error?) Notted()
         {
             return (new BooleanValue(!IsTrue()).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
         }
 
-        public override (RuntimeValue?, Error?) BitwiseNotted()
+        public sealed override (RuntimeValue?, Error?) BitwiseNotted()
         {
             return (new StringValue(Strings.StrReverse(Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
         }
 
-        public override bool IsTrue() => Value.Length > 0 && (Value == "true" || Value == "1");
+        public sealed override bool IsTrue() => Value.Length > 0 && (Value == "true" || Value == "1");
 
-        public override RuntimeValue Copy()
+        public sealed override RuntimeValue Copy()
         {
             return new StringValue(Value).SetPos(PositionStart, PositionEnd).SetContext(Context);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.String)
             {
@@ -471,7 +471,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.GetComparisonEq(other);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
         {
             var eqRes = GetComparisonEq(other).Item1;
             if (eqRes != null && eqRes.Type == RuntimeValueType.Boolean)
@@ -482,7 +482,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.GetComparisonNe(other);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonStrictEq(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonStrictEq(RuntimeValue other)
         {
             if (other.Type != RuntimeValueType.String)
             {
@@ -493,7 +493,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return (new BooleanValue(s.Value == Value).SetContext(Context), null);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonStrictNe(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonStrictNe(RuntimeValue other)
         {
             if (other.Type != RuntimeValueType.String)
             {
@@ -504,7 +504,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return (new BooleanValue(s.Value != Value).SetContext(Context), null);
         }
 
-        public override string ToString() => Value;
+        public sealed override string ToString() => Value;
         public string ToRepr() => $"\"{Value}\"";
     }
 }

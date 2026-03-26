@@ -8,7 +8,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
 {
     public class NumberNodeVisitor : NodeVisitor<NumberNode>
     {
-        protected override RuntimeResult VisitNode(NumberNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(NumberNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var numberString = node.Tok.Value.ToString().ToLower();

@@ -171,3 +171,10 @@ while true
 
 var yyy = 1_000_000;
 while (yyy > 0): yyy--;
+
+var list = 1..=80;
+
+for key in list
+{
+    print(key);
+}

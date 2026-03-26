@@ -9,7 +9,7 @@ namespace RaLanguage.Interpreter.Visitors.Operations
 {
     public class BinaryOperationNodeVisitor : NodeVisitor<BinaryOperationNode>
     {
-        protected override RuntimeResult VisitNode(BinaryOperationNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(BinaryOperationNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var left = res.Register(interpreter.Visit(node.LeftNode, context));

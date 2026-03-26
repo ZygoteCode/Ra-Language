@@ -10,7 +10,7 @@ namespace RaLanguage.Interpreter.Visitors.Functions
 {
     public class ReturnNodeVisitor : NodeVisitor<ReturnNode>
     {
-        protected override RuntimeResult VisitNode(ReturnNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(ReturnNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             RuntimeValue value = new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);

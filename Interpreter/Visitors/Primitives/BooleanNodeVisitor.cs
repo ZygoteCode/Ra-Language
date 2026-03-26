@@ -9,7 +9,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
 {
     public class BooleanNodeVisitor : NodeVisitor<BooleanNode>
     {
-        protected override RuntimeResult VisitNode(BooleanNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(BooleanNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

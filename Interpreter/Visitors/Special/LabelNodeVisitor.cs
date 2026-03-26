@@ -7,7 +7,7 @@ namespace RaLanguage.Interpreter.Visitors.Special
 {
     public class LabelNodeVisitor : NodeVisitor<LabelNode>
     {
-        protected override RuntimeResult VisitNode(LabelNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(LabelNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             string varName = node.Token.Value.ToString();

@@ -12,7 +12,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
 {
     public class VariableAssignmentNodeVisitor : NodeVisitor<VariableAssignmentNode>
     {
-        protected override RuntimeResult VisitNode(VariableAssignmentNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(VariableAssignmentNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var varName = node.VarNameTok.Value?.ToString();

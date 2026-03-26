@@ -15,6 +15,5 @@ namespace RaLanguage.Parser.Nodes.Operations
             PositionStart = leftNode.PositionStart;
             PositionEnd = rightNode.PositionEnd;
         }
-        public override string ToString() => $"({LeftNode}, {OpTok}, {RightNode})";
     }
 }

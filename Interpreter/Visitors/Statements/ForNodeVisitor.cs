@@ -8,7 +8,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 {
     public class ForNodeVisitor : NodeVisitor<ForNode>
     {
-        protected override RuntimeResult VisitNode(ForNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(ForNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var initializationContext = context.Copy();

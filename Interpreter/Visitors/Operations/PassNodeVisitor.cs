@@ -7,7 +7,7 @@ namespace RaLanguage.Interpreter.Visitors.Operations
 {
     public class PassNodeVisitor : NodeVisitor<PassNode>
     {
-        protected override RuntimeResult VisitNode(PassNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(PassNode node, Context context, IInterpreter interpreter)
         {
             return new RuntimeResult().Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }

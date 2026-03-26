@@ -7,7 +7,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
 {
     public class MapNodeVisitor : NodeVisitor<MapNode>
     {
-        protected override RuntimeResult VisitNode(MapNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(MapNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var map = new MapValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);

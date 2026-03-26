@@ -11,8 +11,8 @@ namespace RaLanguage.Interpreter.Values.Structs
         public Dictionary<string, RuntimeValue> Fields { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, bool> FieldPublicity { get; } = new(StringComparer.Ordinal);
 
-        public override RuntimeValueType Type => RuntimeValueType.StructInstance;
-        public override bool IsCopy => true;
+        public sealed override RuntimeValueType Type => RuntimeValueType.StructInstance;
+        public sealed override bool IsCopy => true;
 
         public StructInstanceValue(StructTypeValue definition)
         {
@@ -43,7 +43,7 @@ namespace RaLanguage.Interpreter.Values.Structs
             Fields[name] = value.IsCopy ? value.Copy() : value;
         }
 
-        public override RuntimeValue Copy()
+        public sealed override RuntimeValue Copy()
         {
             var copy = new StructInstanceValue(Definition);
             foreach (var kv in Fields)
@@ -55,7 +55,7 @@ namespace RaLanguage.Interpreter.Values.Structs
             return copy.SetContext(Context).SetPos(PositionStart, PositionEnd);
         }
 
-        public override string ToString()
+        public sealed override string ToString()
             => $"{Definition.StructName}{{{string.Join(", ", Fields.Select(kv => $"{kv.Key}: {kv.Value}"))}}}";
     }
 }

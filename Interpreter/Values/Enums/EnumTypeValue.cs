@@ -11,7 +11,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public string EnumName { get; }
         public Dictionary<string, Int128> Members { get; }
 
-        public override RuntimeValueType Type => RuntimeValueType.EnumType;
+        public sealed override RuntimeValueType Type => RuntimeValueType.EnumType;
 
         public EnumTypeValue(string enumName, Dictionary<string, Int128> members)
         {
@@ -28,13 +28,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 .SetPos(PositionStart, PositionEnd);
         }
 
-        public override RuntimeValue Copy()
+        public sealed override RuntimeValue Copy()
         {
             return new EnumTypeValue(EnumName, new Dictionary<string, Int128>(Members))
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
         }
 
-        public override string ToString() => $"<enum {EnumName}>";
+        public sealed override string ToString() => $"<enum {EnumName}>";
     }
 }

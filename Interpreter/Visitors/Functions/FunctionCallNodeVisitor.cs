@@ -10,7 +10,7 @@ namespace RaLanguage.Interpreter.Visitors.Functions
 {
     public class FunctionCallNodeVisitor : NodeVisitor<FunctionCallNode>
     {
-        protected override RuntimeResult VisitNode(FunctionCallNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(FunctionCallNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

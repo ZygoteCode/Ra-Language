@@ -1,6 +1,7 @@
 ﻿using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Lexer;
 using RaLanguage.Utilities;
+using System.Runtime.CompilerServices;
 
 namespace RaLanguage.Errors.Types
 {
@@ -14,7 +15,7 @@ namespace RaLanguage.Errors.Types
             Context = context;
         }
 
-        public override string ToString()
+        public sealed override string ToString()
         {
             var result = GenerateTraceback();
             result += $"{ErrorName}: {Details}";
@@ -22,6 +23,7 @@ namespace RaLanguage.Errors.Types
             return result;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private string GenerateTraceback()
         {
             var result = "";

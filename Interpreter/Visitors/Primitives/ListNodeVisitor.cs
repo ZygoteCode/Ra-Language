@@ -11,7 +11,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
 {
     public class ListNodeVisitor : NodeVisitor<ListNode>
     {
-        protected override RuntimeResult VisitNode(ListNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(ListNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var elements = new List<RuntimeValue>();

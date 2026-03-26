@@ -7,7 +7,7 @@ namespace RaLanguage.Interpreter.Visitors.Iterations
 {
     public class YieldNodeVisitor : NodeVisitor<YieldNode>
     {
-        protected override RuntimeResult VisitNode(YieldNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(YieldNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

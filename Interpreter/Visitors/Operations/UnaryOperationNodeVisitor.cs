@@ -13,7 +13,7 @@ namespace RaLanguage.Interpreter.Visitors.Operations
 {
     public class UnaryOperationNodeVisitor : NodeVisitor<UnaryOperationNode>
     {
-        protected override RuntimeResult VisitNode(UnaryOperationNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(UnaryOperationNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var value = res.Register(interpreter.Visit(node.Node, context));

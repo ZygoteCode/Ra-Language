@@ -4,15 +4,13 @@ using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Interpreter.Values.Structs;
-using RaLanguage.Parser.Nodes;
 using RaLanguage.Parser.Nodes.Structs;
-using RaLanguage.Parser.Nodes.Variables;
 
 namespace RaLanguage.Interpreter.Visitors.Members
 {
     public class MemberAccessNodeVisitor : NodeVisitor<MemberAccessNode>
     {
-        protected override RuntimeResult VisitNode(MemberAccessNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(MemberAccessNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

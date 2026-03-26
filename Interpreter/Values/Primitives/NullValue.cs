@@ -4,16 +4,16 @@ namespace RaLanguage.Interpreter.Values.Primitives
 {
     public class NullValue : RuntimeValue
     {
-        public override RuntimeValueType Type => RuntimeValueType.Null;
+        public sealed override RuntimeValueType Type => RuntimeValueType.Null;
         public static NullValue Null => new NullValue();
-        public override bool IsCopy => true;
+        public sealed override bool IsCopy => true;
 
-        public override RuntimeValue Copy()
+        public sealed override RuntimeValue Copy()
         {
             return new NullValue().SetPos(PositionStart, PositionEnd).SetContext(Context);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Null)
             {
@@ -28,7 +28,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return (new BooleanValue(true).SetContext(Context), null);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
         {
             if (other.Type != RuntimeValueType.Null)
             {
@@ -43,17 +43,17 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return (new BooleanValue(false).SetContext(Context), null);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonStrictEq(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonStrictEq(RuntimeValue other)
         {
             return (new BooleanValue(other.Type == RuntimeValueType.Null).SetContext(Context), null);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonStrictNe(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonStrictNe(RuntimeValue other)
         {
             return (new BooleanValue(other.Type != RuntimeValueType.Null).SetContext(Context), null);
         }
 
-        public override bool IsTrue() => false;
-        public override string ToString() => "null";
+        public sealed override bool IsTrue() => false;
+        public sealed override string ToString() => "null";
     }
 }

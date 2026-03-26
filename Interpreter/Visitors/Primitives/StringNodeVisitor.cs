@@ -9,7 +9,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
 {
     public class StringNodeVisitor : NodeVisitor<StringNode>
     {
-        protected override RuntimeResult VisitNode(StringNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(StringNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var sb = new System.Text.StringBuilder();

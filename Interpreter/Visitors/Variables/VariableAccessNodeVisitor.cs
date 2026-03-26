@@ -8,7 +8,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
 {
     public class VariableAccessNodeVisitor : NodeVisitor<VariableAccessNode>
     {
-        protected override RuntimeResult VisitNode(VariableAccessNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(VariableAccessNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

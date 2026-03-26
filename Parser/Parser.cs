@@ -2329,6 +2329,12 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
             if (_currentToken.Type == TokenType.EQ)
             {
                 res.RegisterAdvancement();
@@ -2387,8 +2393,20 @@ namespace RaLanguage.Parser
                 res.RegisterAdvancement();
                 Advance();
 
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
                 var collectionExpr = res.Register(ParseExpression());
                 if (res.Error != null) return res;
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
 
                 if (_currentToken.Type == TokenType.COLON)
                 {

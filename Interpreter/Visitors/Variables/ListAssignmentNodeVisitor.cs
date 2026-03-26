@@ -11,7 +11,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
 {
     public class ListAssignmentNodeVisitor : NodeVisitor<ListAssignmentNode>
     {
-        protected override RuntimeResult VisitNode(ListAssignmentNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(ListAssignmentNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

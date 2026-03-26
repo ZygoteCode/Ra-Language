@@ -1,6 +1,5 @@
 ﻿using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
-using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Parser.Nodes.Statements;
 
@@ -8,7 +7,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 {
     public class DoWhileNodeVisitor : NodeVisitor<DoWhileNode>
     {
-        protected override RuntimeResult VisitNode(DoWhileNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(DoWhileNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             bool firstTime = true;

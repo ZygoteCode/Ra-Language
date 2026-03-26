@@ -7,7 +7,7 @@ namespace RaLanguage.Interpreter.Visitors.Special
 {
     public class ScopeNodeVisitor : NodeVisitor<ScopeNode>
     {
-        protected override RuntimeResult VisitNode(ScopeNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(ScopeNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             Context newContext = context.Copy();

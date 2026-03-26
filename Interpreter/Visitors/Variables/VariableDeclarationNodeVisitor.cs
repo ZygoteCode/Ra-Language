@@ -12,7 +12,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
 {
     public class VariableDeclarationNodeVisitor : NodeVisitor<VariableDeclarationNode>
     {
-        protected override RuntimeResult VisitNode(VariableDeclarationNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(VariableDeclarationNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var values = new List<RuntimeValue>();
@@ -32,7 +32,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
 
                 if (declaration.Item2 != null)
                 {
-                    value = res.Register(interpreter.Visit(declaration.Item2, context));
+                    value = res.Register(interpreter.Visit(declaration.Item2, context))!;
                     if (res.Error != null) return res;
                     if (res.ShouldReturn()) continue;
                 }

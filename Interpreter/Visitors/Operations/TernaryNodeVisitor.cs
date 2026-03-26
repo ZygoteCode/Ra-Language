@@ -8,7 +8,7 @@ namespace RaLanguage.Interpreter.Visitors.Operations
 {
     public class TernaryNodeVisitor : NodeVisitor<TernaryNode>
     {
-        protected override RuntimeResult VisitNode(TernaryNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(TernaryNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

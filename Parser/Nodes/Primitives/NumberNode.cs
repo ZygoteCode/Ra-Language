@@ -11,6 +11,5 @@ namespace RaLanguage.Parser.Nodes.Primitives
             PositionStart = tok.PositionStart;
             PositionEnd = tok.PositionEnd;
         }
-        public override string ToString() => Tok.ToString();
     }
 }

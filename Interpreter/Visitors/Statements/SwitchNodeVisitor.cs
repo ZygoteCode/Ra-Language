@@ -9,7 +9,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 {
     public class SwitchNodeVisitor : NodeVisitor<SwitchNode>
     {
-        protected override RuntimeResult VisitNode(SwitchNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(SwitchNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

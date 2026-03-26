@@ -12,7 +12,5 @@ namespace RaLanguage.Parser.Nodes.Primitives
             PositionStart = start;
             PositionEnd = end;
         }
-
-        public override string ToString() => "(" + string.Join(", ", ElementNodes) + ")";
     }
 }

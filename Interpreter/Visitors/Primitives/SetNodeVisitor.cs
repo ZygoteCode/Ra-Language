@@ -8,7 +8,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
 {
     public class SetNodeVisitor : NodeVisitor<SetNode>
     {
-        protected override RuntimeResult VisitNode(SetNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(SetNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var elements = new HashSet<RuntimeValue>();

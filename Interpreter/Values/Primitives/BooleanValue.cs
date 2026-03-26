@@ -7,20 +7,20 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public bool Value { get; }
         public static BooleanValue True => new BooleanValue(true);
         public static BooleanValue False => new BooleanValue(false);
-        public override RuntimeValueType Type => RuntimeValueType.Boolean;
-        public override bool IsCopy => true;
+        public sealed override RuntimeValueType Type => RuntimeValueType.Boolean;
+        public sealed override bool IsCopy => true;
 
         public BooleanValue(bool value)
         {
             Value = value;
         }
 
-        public override RuntimeValue Copy()
+        public sealed override RuntimeValue Copy()
         {
             return new BooleanValue(Value).SetPos(PositionStart, PositionEnd).SetContext(Context);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Boolean)
             {
@@ -36,7 +36,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.GetComparisonEq(other);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Boolean)
             {
@@ -52,7 +52,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.GetComparisonNe(other);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonStrictEq(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonStrictEq(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Boolean)
             {
@@ -63,7 +63,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return (new BooleanValue(false).SetContext(Context), null);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonStrictNe(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonStrictNe(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Boolean)
             {
@@ -74,12 +74,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return (new BooleanValue(true).SetContext(Context), null);
         }
 
-        public override (RuntimeValue?, Error?) Notted()
+        public sealed override (RuntimeValue?, Error?) Notted()
         {
             return (new BooleanValue(!Value).SetContext(Context), null);
         }
 
-        public override bool IsTrue() => Value;
-        public override string ToString() => Value.ToString().ToLower();
+        public sealed override bool IsTrue() => Value;
+        public sealed override string ToString() => Value.ToString().ToLower();
     }
 }

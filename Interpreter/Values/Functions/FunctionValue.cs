@@ -18,7 +18,7 @@ namespace RaLanguage.Interpreter.Values.Functions
         public TypeDescriptor? ReturnType { get; }
         public bool ShouldAutoReturn { get; }
         public List<string> GenericTypeParams { get; } = new List<string>();
-        public override RuntimeValueType Type => RuntimeValueType.Function;
+        public sealed override RuntimeValueType Type => RuntimeValueType.Function;
 
         public FunctionValue(
             string name,
@@ -46,12 +46,12 @@ namespace RaLanguage.Interpreter.Values.Functions
             if (genericTypeParams != null) GenericTypeParams = new List<string>(genericTypeParams);
         }
 
-        public override RuntimeResult Execute(List<RuntimeValue> args)
+        public sealed override RuntimeResult Execute(List<RuntimeValue> args)
         {
             return ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
         }
 
-        public override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs)
+        public sealed override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs)
         {
             var res = new RuntimeResult();
             var bindings = new Dictionary<string, TypeDescriptor>(StringComparer.Ordinal);
@@ -161,7 +161,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             return res.Success(retValue.SetContext(Context).SetPos(PositionStart, PositionEnd));
         }
 
-        public override RuntimeValue Copy()
+        public sealed override RuntimeValue Copy()
         {
             return new FunctionValue(
                 Name,
@@ -178,6 +178,6 @@ namespace RaLanguage.Interpreter.Values.Functions
             ).SetContext(Context).SetPos(PositionStart, PositionEnd);
         }
 
-        public override string ToString() => $"<function {Name}>";
+        public sealed override string ToString() => $"<function {Name}>";
     }
 }

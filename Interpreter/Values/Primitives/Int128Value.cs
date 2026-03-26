@@ -9,8 +9,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
     {
         public Int128 Value { get; }
 
-        public override RuntimeValueType Type => RuntimeValueType.Int128;
-        public override bool IsCopy => true;
+        public sealed override RuntimeValueType Type => RuntimeValueType.Int128;
+        public sealed override bool IsCopy => true;
 
         public Int128Value(Int128 value)
         {
@@ -174,24 +174,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return new Int128Value(value).SetContext(Context).SetPos(PositionStart, PositionEnd);
         }
 
-        private RuntimeValue PromoteUnsignedResult(UInt128 value)
-        {
-            if (value <= ushort.MaxValue)
-                return new UnsignedShortValue((ushort)value).SetContext(Context).SetPos(PositionStart, PositionEnd);
-
-            if (value <= uint.MaxValue)
-                return new UnsignedIntegerValue((uint)value).SetContext(Context).SetPos(PositionStart, PositionEnd);
-
-            if (value <= ulong.MaxValue)
-                return new UnsignedLongValue((ulong)value).SetContext(Context).SetPos(PositionStart, PositionEnd);
-
-            if (value <= UInt128.MaxValue)
-                return new Int128Value((Int128)value).SetContext(Context).SetPos(PositionStart, PositionEnd);
-
-            return new DoubleValue((double)value).SetContext(Context).SetPos(PositionStart, PositionEnd);
-        }
-
-        public override (RuntimeValue?, Error?) AddedTo(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) AddedTo(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Int128)
             {
@@ -242,7 +225,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.AddedTo(other);
         }
 
-        public override (RuntimeValue?, Error?) SubbedBy(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) SubbedBy(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Int128)
             {
@@ -293,7 +276,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.SubbedBy(other);
         }
 
-        public override (RuntimeValue?, Error?) MultedBy(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) MultedBy(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Int128)
             {
@@ -344,7 +327,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.MultedBy(other);
         }
 
-        public override (RuntimeValue?, Error?) DivedBy(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) DivedBy(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Int128)
             {
@@ -386,7 +369,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.DivedBy(other);
         }
 
-        public override (RuntimeValue?, Error?) PowedBy(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) PowedBy(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Int128 && ((Int128Value)other).Value >= 0 && ((Int128Value)other).Value <= int.MaxValue)
             {
@@ -468,7 +451,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.PowedBy(other);
         }
 
-        public override (RuntimeValue?, Error?) ModuledBy(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) ModuledBy(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Int128)
             {
@@ -510,7 +493,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.ModuledBy(other);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Int128 && ((Int128Value)other).Value == Value)
                 return (new BooleanValue(true).SetContext(Context), null);
@@ -546,14 +529,14 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.GetComparisonEq(other);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
         {
             var eq = GetComparisonEq(other).Item1;
             if (eq is BooleanValue b) return (new BooleanValue(!b.Value).SetContext(Context), null);
             return base.GetComparisonNe(other);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonLt(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonLt(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Int128 && ((Int128Value)other).Value == Value)
                 return (new BooleanValue(false).SetContext(Context), null);
@@ -580,7 +563,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.GetComparisonLt(other);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonGt(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonGt(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Int128 && ((Int128Value)other).Value == Value)
                 return (new BooleanValue(false).SetContext(Context), null);
@@ -607,21 +590,21 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.GetComparisonGt(other);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonLte(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonLte(RuntimeValue other)
         {
             var gt = GetComparisonGt(other).Item1;
             if (gt is BooleanValue b) return (new BooleanValue(!b.Value).SetContext(Context), null);
             return base.GetComparisonLte(other);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonGte(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonGte(RuntimeValue other)
         {
             var lt = GetComparisonLt(other).Item1;
             if (lt is BooleanValue b) return (new BooleanValue(!b.Value).SetContext(Context), null);
             return base.GetComparisonGte(other);
         }
 
-        public override (RuntimeValue?, Error?) CastTo(TypeDescriptor targetType)
+        public sealed override (RuntimeValue?, Error?) CastTo(TypeDescriptor targetType)
         {
             var tn = targetType?.Name?.ToString() ?? "";
 
@@ -746,13 +729,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.CastTo(targetType);
         }
 
-        public override RuntimeValue Copy()
+        public sealed override RuntimeValue Copy()
         {
             return new Int128Value(Value).SetPos(PositionStart, PositionEnd).SetContext(Context);
         }
 
-        public override bool IsTrue() => Value != 0;
+        public sealed override bool IsTrue() => Value != 0;
 
-        public override string ToString() => Value.ToString();
+        public sealed override string ToString() => Value.ToString();
     }
 }

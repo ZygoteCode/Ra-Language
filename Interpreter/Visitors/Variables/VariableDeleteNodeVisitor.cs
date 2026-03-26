@@ -9,7 +9,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
 {
     public class VariableDeleteNodeVisitor : NodeVisitor<VariableDeleteNode>
     {
-        protected override RuntimeResult VisitNode(VariableDeleteNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(VariableDeleteNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

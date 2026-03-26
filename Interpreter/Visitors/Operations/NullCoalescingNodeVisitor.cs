@@ -9,7 +9,7 @@ namespace RaLanguage.Interpreter.Visitors.Operations
 {
     public class NullCoalescingNodeVisitor : NodeVisitor<NullCoalescingNode>
     {
-        protected override RuntimeResult VisitNode(NullCoalescingNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(NullCoalescingNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

@@ -7,7 +7,7 @@ namespace RaLanguage.Interpreter.Visitors.Special
 {
     public class TryNodeVisitor : NodeVisitor<TryNode>
     {
-        protected override RuntimeResult VisitNode(TryNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(TryNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var tryRes = interpreter.Visit(node.TryBody, context);

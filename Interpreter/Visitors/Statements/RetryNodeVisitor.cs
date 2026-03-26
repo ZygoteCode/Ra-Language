@@ -11,7 +11,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
 {
     public class RetryNodeVisitor : NodeVisitor<RetryNode>
     {
-        protected override RuntimeResult VisitNode(RetryNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(RetryNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

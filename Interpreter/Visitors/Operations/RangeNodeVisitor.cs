@@ -5,13 +5,12 @@ using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes.Operations;
-using RaLanguage.Parser.Nodes.Primitives;
 
 namespace RaLanguage.Interpreter.Visitors.Operations
 {
     public class RangeNodeVisitor : NodeVisitor<RangeNode>
     {
-        protected override RuntimeResult VisitNode(RangeNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(RangeNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var start = res.Register(interpreter.Visit(node.Start, context));

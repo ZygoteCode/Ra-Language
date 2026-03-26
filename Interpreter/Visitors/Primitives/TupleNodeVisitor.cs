@@ -8,7 +8,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
 {
     public class TupleNodeVisitor : NodeVisitor<TupleNode>
     {
-        protected override RuntimeResult VisitNode(TupleNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(TupleNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var elements = new List<RuntimeValue>();

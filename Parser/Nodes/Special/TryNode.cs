@@ -19,7 +19,5 @@ namespace RaLanguage.Parser.Nodes.Special
             PositionStart = tryBody.PositionStart;
             PositionEnd = (finallyBody ?? catchBody ?? tryBody).PositionEnd;
         }
-
-        public override string ToString() => $"try {{ {TryBody} }} catch({CatchVarTok}) {{ {CatchBody} }} finally {{ {FinallyBody} }}";
     }
 }

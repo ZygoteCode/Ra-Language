@@ -15,7 +15,5 @@ namespace RaLanguage.Parser.Nodes.Operations
             PositionStart = expression.PositionStart;
             PositionEnd = expression.PositionEnd;
         }
-
-        public override string ToString() => $"({Expression} as {TargetType})";
     }
 }

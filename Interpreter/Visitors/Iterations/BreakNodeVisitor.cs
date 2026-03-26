@@ -6,7 +6,7 @@ namespace RaLanguage.Interpreter.Visitors.Iterations
 {
     public class BreakNodeVisitor : NodeVisitor<BreakNode>
     {
-        protected override RuntimeResult VisitNode(BreakNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(BreakNode node, Context context, IInterpreter interpreter)
         {
             return new RuntimeResult().SuccessBreak();
         }

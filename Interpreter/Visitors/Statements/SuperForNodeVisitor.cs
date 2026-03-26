@@ -7,7 +7,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 {
     public class SuperForNodeVisitor : NodeVisitor<SuperForNode>
     {
-        protected override RuntimeResult VisitNode(SuperForNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(SuperForNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var newContext = context.Copy();

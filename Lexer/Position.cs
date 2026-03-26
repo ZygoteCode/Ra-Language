@@ -36,9 +36,6 @@ namespace RaLanguage.Lexer
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public Position Copy() => this;
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public override readonly string ToString() => $"{Fn}:{Ln}:{Col}";
     }
 }

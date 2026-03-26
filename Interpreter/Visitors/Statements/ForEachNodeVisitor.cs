@@ -9,7 +9,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 {
     public class ForEachNodeVisitor : NodeVisitor<ForEachNode>
     {
-        protected override RuntimeResult VisitNode(ForEachNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(ForEachNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             string varName = node.VarNameToken.Value?.ToString();

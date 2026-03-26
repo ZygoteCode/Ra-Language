@@ -10,8 +10,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public string MemberName { get; }
         public Int128 UnderlyingValue { get; }
 
-        public override RuntimeValueType Type => RuntimeValueType.Enum;
-        public override bool IsCopy => true;
+        public sealed override RuntimeValueType Type => RuntimeValueType.Enum;
+        public sealed override bool IsCopy => true;
 
         public EnumValue(string enumName, string memberName, Int128 underlyingValue)
         {
@@ -20,7 +20,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             UnderlyingValue = underlyingValue;
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Enum)
             {
@@ -31,7 +31,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.GetComparisonEq(other);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
+        public sealed override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
         {
             var eq = GetComparisonEq(other).Item1;
             if (eq is BooleanValue b)
@@ -40,7 +40,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.GetComparisonNe(other);
         }
 
-        public override (RuntimeValue?, Error?) CastTo(TypeDescriptor targetType)
+        public sealed override (RuntimeValue?, Error?) CastTo(TypeDescriptor targetType)
         {
             var tn = targetType?.Name?.ToString() ?? "";
 
@@ -83,15 +83,15 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.CastTo(targetType);
         }
 
-        public override RuntimeValue Copy()
+        public sealed override RuntimeValue Copy()
         {
             return new EnumValue(EnumName, MemberName, UnderlyingValue)
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
         }
 
-        public override bool IsTrue() => UnderlyingValue != 0;
+        public sealed override bool IsTrue() => UnderlyingValue != 0;
 
-        public override string ToString() => $"{EnumName}.{MemberName}";
+        public sealed override string ToString() => $"{EnumName}.{MemberName}";
     }
 }

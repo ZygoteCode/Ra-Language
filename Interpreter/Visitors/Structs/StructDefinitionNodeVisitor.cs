@@ -1,7 +1,6 @@
 ﻿using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
-using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Interpreter.Values.Structs;
 using RaLanguage.Parser.Nodes.Structs;
 using RaLanguage.Types;
@@ -10,7 +9,7 @@ namespace RaLanguage.Interpreter.Visitors.Structs
 {
     public class StructDefinitionNodeVisitor : NodeVisitor<StructDefinitionNode>
     {
-        protected override RuntimeResult VisitNode(StructDefinitionNode node, Context context, IInterpreter interpreter)
+        protected sealed override RuntimeResult VisitNode(StructDefinitionNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var name = node.NameTok.Value?.ToString() ?? "";
