@@ -13,8 +13,8 @@ namespace RaLanguage.Parser.Nodes.Variables
             Target = target;
             AssignmentToken = assignmentToken;
             Value = value;
-            PositionStart = target.PositionStart.Copy();
-            PositionEnd = value.PositionEnd.Copy();
+            PositionStart = target.PositionStart;
+            PositionEnd = value.PositionEnd;
         }
     }
 }

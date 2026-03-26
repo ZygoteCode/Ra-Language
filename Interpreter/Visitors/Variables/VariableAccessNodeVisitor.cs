@@ -1,5 +1,4 @@
 ﻿using RaLanguage.Errors.Types;
-using RaLanguage.Interpreter;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;

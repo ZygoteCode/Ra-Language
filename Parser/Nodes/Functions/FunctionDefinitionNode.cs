@@ -49,7 +49,7 @@ namespace RaLanguage.Parser.Nodes.Functions
             IsPublic = isPublic;
             IsConstructor = isConstructor;
 
-            if (varNameTok != null) PositionStart = varNameTok.PositionStart;
+            if (varNameTok != null) PositionStart = varNameTok.Value.PositionStart;
             else if (ArgNameToks.Count > 0) PositionStart = ArgNameToks[0].PositionStart;
             else PositionStart = bodyNode.PositionStart;
 

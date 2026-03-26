@@ -15,6 +15,25 @@
             StepNodes = stepNodes;
             BodyNode = bodyNode;
             ShouldReturnNull = shouldReturnNull;
+           
+            if (initializationNodes.Count > 0)
+            {
+                PositionStart = initializationNodes[0].PositionStart;
+            }
+            else if (conditionNodes.Count > 0)
+            {
+                PositionStart = conditionNodes[0].PositionStart;
+            }
+            else if (stepNodes.Count > 0)
+            {
+                PositionStart = stepNodes[0].PositionStart;
+            }
+            else
+            {
+                PositionStart = bodyNode.PositionStart;
+            }
+
+            PositionEnd = bodyNode.PositionEnd;
         }
     }
 }

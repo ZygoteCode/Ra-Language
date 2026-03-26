@@ -8,7 +8,7 @@ namespace RaLanguage.Parser.Nodes.Structs
             : base(
                 fn.IsPublic,
                 fn.IsConstructor,
-                fn.VarNameTok!,
+                fn.VarNameTok!.Value,
                 fn.ArgNameToks,
                 fn.ArgTypes,
                 fn.ParamDefaults,

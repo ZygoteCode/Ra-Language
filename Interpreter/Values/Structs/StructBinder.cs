@@ -39,7 +39,7 @@ namespace RaLanguage.Interpreter.Values.Structs
 
             foreach (var kv in namedArgs)
             {
-                if (hasVarArgs && varArgNameTok != null && string.Equals(kv.Key, varArgNameTok.Value?.ToString(), StringComparison.Ordinal))
+                if (hasVarArgs && varArgNameTok != null && string.Equals(kv.Key, varArgNameTok.Value.ToString(), StringComparison.Ordinal))
                 {
                     if (kv.Value.Type != RuntimeValueType.List)
                         return false;

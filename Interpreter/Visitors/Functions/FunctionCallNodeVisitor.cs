@@ -40,7 +40,7 @@ namespace RaLanguage.Interpreter.Visitors.Functions
 
                     if (argNode.NameTok != null)
                     {
-                        string name = argNode.NameTok.Value?.ToString() ?? "";
+                        string name = argNode.NameTok.Value.ToString() ?? "";
                         if (namedArgs.ContainsKey(name))
                         {
                             return res.Failure(new RuntimeError(argNode.PositionStart, argNode.PositionEnd, $"Duplicate named argument '{name}'", context));

@@ -16,9 +16,7 @@
             ElseNode = elseNode;
 
             PositionStart = countNode.PositionStart;
-            PositionEnd = elseNode?.PositionEnd
-                         ?? bodyNode.PositionEnd
-                         ?? countNode.PositionEnd;
+            PositionEnd = elseNode == null ? (delayNode != null ? delayNode.PositionEnd : bodyNode.PositionEnd) : elseNode.PositionEnd;
         }
     }
 }

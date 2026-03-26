@@ -1,10 +1,12 @@
-﻿namespace RaLanguage.Lexer
+﻿using System.Runtime.CompilerServices;
+
+namespace RaLanguage.Lexer
 {
-    public class Position
+    public readonly struct Position
     {
-        public int Idx { get; private set; }
-        public int Ln { get; private set; }
-        public int Col { get; private set; }
+        public int Idx { get; }
+        public int Ln { get; }
+        public int Col { get; }
         public string Fn { get; }
         public string Ftxt { get; }
 
@@ -17,22 +19,26 @@
             Ftxt = ftxt;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public Position Advance(char? currentChar = null)
         {
-            Idx++;
-            Col++;
+            int newIdx = Idx + 1;
+            int newCol = Col + 1;
+            int newLn = Ln;
 
             if (currentChar == '\n')
             {
-                Ln++;
-                Col = 0;
+                newLn++;
+                newCol = 0;
             }
-            return this;
+
+            return new Position(newIdx, newLn, newCol, Fn, Ftxt);
         }
 
-        public Position Copy()
-        {
-            return new Position(Idx, Ln, Col, Fn, Ftxt);
-        }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public Position Copy() => this;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override readonly string ToString() => $"{Fn}:{Ln}:{Col}";
     }
 }

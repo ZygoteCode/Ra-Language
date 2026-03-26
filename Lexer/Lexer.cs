@@ -9,11 +9,35 @@ namespace RaLanguage.Lexer
 {
     public class Lexer
     {
-        private readonly string _text;
         private readonly string _fn;
+        private readonly string _text;
         private int _idx;
         private int _ln;
         private int _col;
+
+        private static readonly bool[] s_isDigit = CreateDigitTable();
+        private static readonly bool[] s_isLetterOrDigit = CreateLetterOrDigitTable();
+
+        private static bool[] CreateDigitTable()
+        {
+            var table = new bool[128];
+            for (char c = '0'; c <= '9'; c++)
+                table[c] = true;
+            return table;
+        }
+
+        private static bool[] CreateLetterOrDigitTable()
+        {
+            var table = new bool[128];
+            for (char c = 'a'; c <= 'z'; c++)
+                table[c] = true;
+            for (char c = 'A'; c <= 'Z'; c++)
+                table[c] = true;
+            for (char c = '0'; c <= '9'; c++)
+                table[c] = true;
+            table['_'] = true;
+            return table;
+        }
 
         public Lexer(string fn, string text)
         {
@@ -39,11 +63,9 @@ namespace RaLanguage.Lexer
             }
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void AdvanceMultiple(int count, ReadOnlySpan<char> span)
         {
-            int len = span.Length;
-            int end = Math.Min(_idx + count, len);
+            int end = Math.Min(_idx + count, span.Length);
             int col = _col;
             int ln = _ln;
 
@@ -71,7 +93,7 @@ namespace RaLanguage.Lexer
 
         public (List<Token> Tokens, Error? Error) MakeTokens()
         {
-            var tokens = new List<Token>(Math.Min(_text.Length / 4, 2048));
+            var tokens = new List<Token>(Math.Max(256, _text.Length / 8));
             ReadOnlySpan<char> span = _text.AsSpan();
 
             while (_idx < span.Length)
@@ -104,7 +126,6 @@ namespace RaLanguage.Lexer
                         break;
 
                     case '$':
-                        var posStartDollar = GetPos();
                         if (_idx + 1 < span.Length && (span[_idx + 1] == '"' || span[_idx + 1] == '\'' || span[_idx + 1] == '`'))
                         {
                             char quoteChar = span[_idx + 1];
@@ -115,7 +136,7 @@ namespace RaLanguage.Lexer
                         else
                         {
                             Advance(c);
-                            return (new List<Token>(), new IllegalCharacterError(posStartDollar, GetPos(), "$"));
+                            return (new List<Token>(), new IllegalCharacterError(GetPos(), GetPos(), "$"));
                         }
                         break;
 
@@ -148,12 +169,12 @@ namespace RaLanguage.Lexer
                     case ',': tokens.Add(new Token(TokenType.COMMA, null, GetPos())); Advance(c); break;
 
                     default:
-                        if (char.IsAsciiDigit(c))
+                        if (c < 128 && s_isDigit[c])
                         {
                             var errNum = ProcessNumber(span, tokens);
                             if (errNum != null) return (new List<Token>(), errNum);
                         }
-                        else if (char.IsAsciiLetter(c) || c == '_')
+                        else if (c < 128 && s_isLetterOrDigit[c])
                         {
                             ProcessIdentifier(span, tokens);
                         }
@@ -171,22 +192,27 @@ namespace RaLanguage.Lexer
             return (tokens, null);
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void SkipComment(ReadOnlySpan<char> span)
         {
-            int newLineIdx = span.Slice(_idx).IndexOf('\n');
-            if (newLineIdx == -1)
+            int remaining = span.Length - _idx;
+            int newLinePos = span.Slice(_idx).IndexOf('\n');
+            
+            if (newLinePos == -1)
             {
-                AdvanceMultiple(span.Length - _idx, span);
+                _idx = span.Length;
+                _col += remaining;
             }
             else
             {
-                AdvanceMultiple(newLineIdx + 1, span);
+                _idx += newLinePos + 1;
+                _ln++;
+                _col = 0;
             }
         }
 
         #region Operators Processing
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void ProcessPlus(ReadOnlySpan<char> span, List<Token> tokens)
         {
             var posStart = GetPos();
@@ -199,6 +225,7 @@ namespace RaLanguage.Lexer
             tokens.Add(new Token(TokenType.PLUS, null, posStart, GetPos()));
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void ProcessMinus(ReadOnlySpan<char> span, List<Token> tokens)
         {
             var posStart = GetPos();
@@ -218,6 +245,7 @@ namespace RaLanguage.Lexer
             tokens.Add(new Token(TokenType.MINUS, null, posStart, GetPos()));
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void ProcessMul(ReadOnlySpan<char> span, List<Token> tokens)
         {
             var posStart = GetPos();
@@ -241,6 +269,7 @@ namespace RaLanguage.Lexer
             tokens.Add(new Token(TokenType.MUL, null, posStart, GetPos()));
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void ProcessDiv(ReadOnlySpan<char> span, List<Token> tokens)
         {
             var posStart = GetPos();
@@ -269,6 +298,7 @@ namespace RaLanguage.Lexer
             tokens.Add(new Token(TokenType.DIV, null, posStart, GetPos()));
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void ProcessModulo(ReadOnlySpan<char> span, List<Token> tokens)
         {
             var posStart = GetPos();
@@ -277,6 +307,7 @@ namespace RaLanguage.Lexer
             tokens.Add(new Token(TokenType.MODULO, null, posStart, GetPos()));
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void ProcessPow(ReadOnlySpan<char> span, List<Token> tokens)
         {
             var posStart = GetPos();
@@ -285,6 +316,7 @@ namespace RaLanguage.Lexer
             tokens.Add(new Token(TokenType.POW, null, posStart, GetPos()));
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void ProcessEquals(ReadOnlySpan<char> span, List<Token> tokens)
         {
             var posStart = GetPos();
@@ -308,6 +340,7 @@ namespace RaLanguage.Lexer
             tokens.Add(new Token(TokenType.EQ, null, posStart, GetPos()));
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void ProcessNot(ReadOnlySpan<char> span, List<Token> tokens)
         {
             var posStart = GetPos();
@@ -327,6 +360,7 @@ namespace RaLanguage.Lexer
             tokens.Add(new Token(TokenType.KEYWORD, Keyword.Not, posStart, GetPos()));
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private Error? ProcessLessThan(ReadOnlySpan<char> span, List<Token> tokens)
         {
             var posStart = GetPos();
@@ -365,6 +399,7 @@ namespace RaLanguage.Lexer
             return null;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void ProcessGreaterThan(ReadOnlySpan<char> span, List<Token> tokens)
         {
             var posStart = GetPos();
@@ -388,6 +423,7 @@ namespace RaLanguage.Lexer
             tokens.Add(new Token(TokenType.GT, null, posStart, GetPos()));
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void ProcessAnd(ReadOnlySpan<char> span, List<Token> tokens)
         {
             var posStart = GetPos();
@@ -411,6 +447,7 @@ namespace RaLanguage.Lexer
             tokens.Add(new Token(TokenType.BITWISE_AND, null, posStart, GetPos()));
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void ProcessOr(ReadOnlySpan<char> span, List<Token> tokens)
         {
             var posStart = GetPos();
@@ -434,6 +471,7 @@ namespace RaLanguage.Lexer
             tokens.Add(new Token(TokenType.BITWISE_OR, null, posStart, GetPos()));
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void ProcessColon(ReadOnlySpan<char> span, List<Token> tokens)
         {
             var posStart = GetPos();
@@ -442,6 +480,7 @@ namespace RaLanguage.Lexer
             tokens.Add(new Token(TokenType.COLON, null, posStart, GetPos()));
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void ProcessDot(ReadOnlySpan<char> span, List<Token> tokens)
         {
             var posStart = GetPos();
@@ -460,6 +499,7 @@ namespace RaLanguage.Lexer
             tokens.Add(new Token(TokenType.DOT, null, posStart, GetPos()));
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void ProcessQuestionMark(ReadOnlySpan<char> span, List<Token> tokens)
         {
             var posStart = GetPos();
@@ -485,13 +525,19 @@ namespace RaLanguage.Lexer
 
         private static string BuildStringNoUnderscores(ReadOnlySpan<char> span)
         {
-            if (!span.Contains('_')) return span.ToString();
-            var sb = new StringBuilder(span.Length);
-            foreach (var ch in span)
+            int idx = span.IndexOf('_');
+            if (idx == -1) return span.ToString();
+            
+            var sb = new StringBuilder(span.Length - 1);
+            for (int i = 0; i < span.Length; i++)
+            {
+                char ch = span[i];
                 if (ch != '_') sb.Append(ch);
+            }
             return sb.ToString();
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool TryReadNumberSuffix(ReadOnlySpan<char> span, ref string? suffix, ref bool isFloat)
         {
             int remaining = span.Length - _idx;
@@ -503,73 +549,50 @@ namespace RaLanguage.Lexer
                 char c0 = span[_idx];
                 char c1 = span[_idx + 1];
 
-                if ((c0 == 'u' || c0 == 'U') && (c1 == 'i' || c1 == 'I'))
+                if ((c0 | 0x20) == 'u')
                 {
-                    suffix = "ui";
-                    AdvanceMultiple(2, span);
-                    return true;
-                }
-
-                if ((c0 == 'u' || c0 == 'U') && (c1 == 'l' || c1 == 'L'))
-                {
-                    suffix = "ul";
-                    AdvanceMultiple(2, span);
-                    return true;
-                }
-
-                if ((c0 == 'u' || c0 == 'U') && (c1 == 's' || c1 == 'S'))
-                {
-                    suffix = "us";
-                    AdvanceMultiple(2, span);
-                    return true;
+                    char c1Lower = (char)(c1 | 0x20);
+                    if (c1Lower == 'i' || c1Lower == 'l' || c1Lower == 's')
+                    {
+                        suffix = new string(new[] { c0, c1 });
+                        AdvanceMultiple(2, span);
+                        return true;
+                    }
                 }
             }
 
             char c = span[_idx];
+            char cLower = (char)(c | 0x20);
 
-            if (c == 'i' || c == 'I')
+            switch (cLower)
             {
-                suffix = "i";
-                Advance(c);
-                return true;
-            }
-
-            if (c == 'l' || c == 'L')
-            {
-                suffix = "l";
-                Advance(c);
-                return true;
-            }
-
-            if (c == 'd' || c == 'D')
-            {
-                suffix = "d";
-                isFloat = true;
-                Advance(c);
-                return true;
-            }
-
-            if (c == 'f' || c == 'F')
-            {
-                suffix = "f";
-                isFloat = true;
-                Advance(c);
-                return true;
-            }
-
-            if (c == 'm' || c == 'M')
-            {
-                suffix = "m";
-                isFloat = true;
-                Advance(c);
-                return true;
-            }
-
-            if (c == 's' || c == 'S')
-            {
-                suffix = "s";
-                Advance(c);
-                return true;
+                case 'i':
+                    suffix = "i";
+                    Advance(c);
+                    return true;
+                case 'l':
+                    suffix = "l";
+                    Advance(c);
+                    return true;
+                case 'd':
+                    suffix = "d";
+                    isFloat = true;
+                    Advance(c);
+                    return true;
+                case 'f':
+                    suffix = "f";
+                    isFloat = true;
+                    Advance(c);
+                    return true;
+                case 'm':
+                    suffix = "m";
+                    isFloat = true;
+                    Advance(c);
+                    return true;
+                case 's':
+                    suffix = "s";
+                    Advance(c);
+                    return true;
             }
 
             return false;
@@ -585,20 +608,22 @@ namespace RaLanguage.Lexer
 
             if (span[_idx] == '0' && _idx + 1 < span.Length)
             {
-                char p = char.ToLowerInvariant(span[_idx + 1]);
-                if (p == 'x' || p == 'b' || p == 'o')
+                char p = span[_idx + 1];
+                if ((p | 0x20) == 'x' || (p | 0x20) == 'b' || (p | 0x20) == 'o')
                 {
                     AdvanceMultiple(2, span);
                     bool anyDigit = false;
+                    bool isHex = (p | 0x20) == 'x';
+                    bool isBinary = (p | 0x20) == 'b';
 
                     while (_idx < span.Length)
                     {
                         char c = span[_idx];
                         if (c == '_') { Advance(c); continue; }
 
-                        bool isValid = p == 'x' ? Utils.IsHexDigit(c) :
-                                       p == 'b' ? Utils.IsBinaryDigit(c) :
-                                                  Utils.IsOctalDigit(c);
+                        bool isValid = isHex ? Utils.IsHexDigit(c) :
+                                       isBinary ? Utils.IsBinaryDigit(c) :
+                                                Utils.IsOctalDigit(c);
 
                         if (!isValid) break;
 
@@ -621,7 +646,7 @@ namespace RaLanguage.Lexer
             {
                 char c = span[_idx];
 
-                if (char.IsAsciiDigit(c))
+                if (c < 128 && s_isDigit[c])
                 {
                     Advance(c);
                 }
@@ -641,7 +666,7 @@ namespace RaLanguage.Lexer
                     isFloat = true;
                     Advance(c);
                 }
-                else if (c == 'e' || c == 'E')
+                else if ((c | 0x20) == 'e')
                 {
                     isFloat = true;
                     Advance(c);
@@ -649,10 +674,10 @@ namespace RaLanguage.Lexer
                     if (_idx < span.Length && (span[_idx] == '+' || span[_idx] == '-'))
                         Advance(span[_idx]);
 
-                    if (_idx >= span.Length || !char.IsAsciiDigit(span[_idx]))
+                    if (_idx >= span.Length || !s_isDigit[span[_idx]])
                         return new InvalidSyntaxError(posStart, GetPos(), "Expected digits after exponent");
 
-                    while (_idx < span.Length && char.IsAsciiDigit(span[_idx]))
+                    while (_idx < span.Length && s_isDigit[span[_idx]])
                         Advance(span[_idx]);
 
                     break;
@@ -772,19 +797,73 @@ namespace RaLanguage.Lexer
             return null;
         }
 
+        private static readonly Dictionary<string, Keyword> s_keywords = CreateKeywordTable();
+
+        private static Dictionary<string, Keyword> CreateKeywordTable()
+        {
+            return new Dictionary<string, Keyword>(StringComparer.Ordinal)
+            {
+                { "var", Keyword.Var },
+                { "and", Keyword.And },
+                { "or", Keyword.Or },
+                { "not", Keyword.Not },
+                { "if", Keyword.If },
+                { "elif", Keyword.Elif },
+                { "else", Keyword.Else },
+                { "for", Keyword.For },
+                { "to", Keyword.To },
+                { "step", Keyword.Step },
+                { "while", Keyword.While },
+                { "fn", Keyword.Fn },
+                { "ret", Keyword.Ret },
+                { "is", Keyword.Is },
+                { "continue", Keyword.Continue },
+                { "break", Keyword.Break },
+                { "pass", Keyword.Pass },
+                { "const", Keyword.Const },
+                { "final", Keyword.Final },
+                { "del", Keyword.Del },
+                { "do", Keyword.Do },
+                { "typeof", Keyword.TypeOf },
+                { "nameof", Keyword.NameOf },
+                { "null", Keyword.Null },
+                { "true", Keyword.True },
+                { "false", Keyword.False },
+                { "in", Keyword.In },
+                { "switch", Keyword.Switch },
+                { "case", Keyword.Case },
+                { "default", Keyword.Default },
+                { "yield", Keyword.Yield },
+                { "goto", Keyword.Goto },
+                { "let", Keyword.Let },
+                { "auto", Keyword.Auto },
+                { "as", Keyword.As },
+                { "try", Keyword.Try },
+                { "catch", Keyword.Catch },
+                { "finally", Keyword.Finally },
+                { "retry", Keyword.Retry },
+                { "times", Keyword.Times },
+                { "delay", Keyword.Delay },
+                { "enum", Keyword.Enum },
+                { "struct", Keyword.Struct },
+                { "pub", Keyword.Pub },
+                { "self", Keyword.Self }
+            };
+        }
+
         private void ProcessIdentifier(ReadOnlySpan<char> span, List<Token> tokens)
         {
             var posStart = GetPos();
             int startIdx = _idx;
 
-            while (_idx < span.Length && (char.IsAsciiLetterOrDigit(span[_idx]) || span[_idx] == '_'))
+            while (_idx < span.Length && (s_isLetterOrDigit[span[_idx]]))
             {
                 Advance(span[_idx]);
             }
 
             var idSpan = span.Slice(startIdx, _idx - startIdx);
 
-            if (idSpan.SequenceEqual("is"))
+            if (idSpan.Length == 2 && idSpan.SequenceEqual("is"))
             {
                 int peekIdx = _idx;
                 while (peekIdx < span.Length && (span[peekIdx] == ' ' || span[peekIdx] == '\t')) peekIdx++;
@@ -815,7 +894,7 @@ namespace RaLanguage.Lexer
                 return;
             }
 
-            if (idSpan.SequenceEqual("not"))
+            if (idSpan.Length == 3 && idSpan.SequenceEqual("not"))
             {
                 int peekIdx = _idx;
                 while (peekIdx < span.Length && (span[peekIdx] == ' ' || span[peekIdx] == '\t')) peekIdx++;
@@ -828,67 +907,14 @@ namespace RaLanguage.Lexer
                 }
             }
 
-            Keyword? keyword = GetKeyword(idSpan);
-            if (keyword.HasValue)
+            string idStr = idSpan.ToString();
+            if (s_keywords.TryGetValue(idStr, out Keyword keyword))
             {
-                tokens.Add(new Token(TokenType.KEYWORD, keyword.Value, posStart, GetPos()));
+                tokens.Add(new Token(TokenType.KEYWORD, keyword, posStart, GetPos()));
             }
             else
             {
-                tokens.Add(new Token(TokenType.IDENTIFIER, idSpan.ToString(), posStart, GetPos()));
-            }
-        }
-
-        private static Keyword? GetKeyword(ReadOnlySpan<char> ident)
-        {
-            switch (ident)
-            {
-                case "var": return Keyword.Var;
-                case "and": return Keyword.And;
-                case "or": return Keyword.Or;
-                case "not": return Keyword.Not;
-                case "if": return Keyword.If;
-                case "elif": return Keyword.Elif;
-                case "else": return Keyword.Else;
-                case "for": return Keyword.For;
-                case "to": return Keyword.To;
-                case "step": return Keyword.Step;
-                case "while": return Keyword.While;
-                case "fn": return Keyword.Fn;
-                case "ret": return Keyword.Ret;
-                case "is": return Keyword.Is;
-                case "continue": return Keyword.Continue;
-                case "break": return Keyword.Break;
-                case "pass": return Keyword.Pass;
-                case "const": return Keyword.Const;
-                case "final": return Keyword.Final;
-                case "del": return Keyword.Del;
-                case "do": return Keyword.Do;
-                case "typeof": return Keyword.TypeOf;
-                case "nameof": return Keyword.NameOf;
-                case "null": return Keyword.Null;
-                case "true": return Keyword.True;
-                case "false": return Keyword.False;
-                case "in": return Keyword.In;
-                case "switch": return Keyword.Switch;
-                case "case": return Keyword.Case;
-                case "default": return Keyword.Default;
-                case "yield": return Keyword.Yield;
-                case "goto": return Keyword.Goto;
-                case "let": return Keyword.Let;
-                case "auto": return Keyword.Auto;
-                case "as": return Keyword.As;
-                case "try": return Keyword.Try;
-                case "catch": return Keyword.Catch;
-                case "finally": return Keyword.Finally;
-                case "retry": return Keyword.Retry;
-                case "times": return Keyword.Times;
-                case "delay": return Keyword.Delay;
-                case "enum": return Keyword.Enum;
-                case "struct": return Keyword.Struct;
-                case "pub": return Keyword.Pub;
-                case "self": return Keyword.Self;
-                default: return null;
+                tokens.Add(new Token(TokenType.IDENTIFIER, idStr, posStart, GetPos()));
             }
         }
 

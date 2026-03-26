@@ -101,7 +101,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                     var name = kv.Key;
                     var value = kv.Value;
 
-                    if (hasVarArgs && varArgNameTok != null && name == varArgNameTok.Value?.ToString())
+                    if (hasVarArgs && varArgNameTok != null && name == varArgNameTok.Value.ToString())
                     {
                         if (value.Type != RuntimeValueType.List)
                         {

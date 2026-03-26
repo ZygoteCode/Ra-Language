@@ -1,6 +1,8 @@
-﻿namespace RaLanguage.Lexer.Tokens
+﻿using System.Runtime.CompilerServices;
+
+namespace RaLanguage.Lexer.Tokens
 {
-    public class Token
+    public readonly struct Token
     {
         public TokenType Type { get; }
         public object? Value { get; }
@@ -11,24 +13,29 @@
         {
             Type = type;
             Value = value;
-
-            PositionStart = positionStart.Copy();
-            PositionEnd = positionEnd?.Copy() ?? positionStart.Copy();
-
-            if (positionEnd == null)
+            PositionStart = positionStart;
+            
+            if (positionEnd.HasValue)
             {
-                PositionEnd.Advance();
+                PositionEnd = positionEnd.Value;
+            }
+            else
+            {
+                PositionEnd = positionStart.Advance();
             }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool Matches(Keyword value)
         {
-            return Type == TokenType.KEYWORD && (Keyword)Value! == value;
+            return Type == TokenType.KEYWORD &&
+                   Value is Keyword k &&
+                   k == value;
         }
 
         public override string ToString()
         {
-            return Value != null ? $"{Type}:{Value}" : $"{Type}";
+            return Value != null ? $"{Value}" : $"{Type}";
         }
     }
 }

@@ -11,8 +11,8 @@ namespace RaLanguage.Parser.Nodes.Variables
         {
             Target = target;
             Index = index;
-            PositionStart = positionStart.Copy();
-            PositionEnd = positionEnd.Copy();
+            PositionStart = positionStart;
+            PositionEnd = positionEnd;
         }
     }
 }

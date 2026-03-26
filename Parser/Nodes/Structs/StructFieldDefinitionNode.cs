@@ -16,6 +16,8 @@ namespace RaLanguage.Parser.Nodes.Structs
             NameTok = nameTok;
             FieldType = fieldType;
             DefaultValueNode = defaultValueNode;
+            PositionStart = nameTok.PositionStart;
+            PositionEnd = defaultValueNode != null ? defaultValueNode.PositionEnd : nameTok.PositionEnd;
         }
     }
 }

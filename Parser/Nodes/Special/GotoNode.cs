@@ -11,7 +11,7 @@ namespace RaLanguage.Parser.Nodes.Special
         {
             VarName = varName;
             PositionStart = start;
-            PositionEnd = varName.PositionEnd.Copy();
+            PositionEnd = varName.PositionEnd;
         }
     }
 }

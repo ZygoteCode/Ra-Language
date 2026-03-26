@@ -11,8 +11,8 @@ namespace RaLanguage.Parser.Nodes.Operations
         {
             SpreadToken = spreadToken;
             Expression = expression;
-            PositionStart = spreadToken.PositionStart.Copy();
-            PositionEnd = expression.PositionEnd.Copy();
+            PositionStart = spreadToken.PositionStart;
+            PositionEnd = expression.PositionEnd;
         }
     }
 }

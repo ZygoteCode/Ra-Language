@@ -11,7 +11,7 @@ namespace RaLanguage.Parser.Nodes.Functions
         {
             NameTok = nameTok;
             Expr = expr;
-            PositionStart = nameTok != null ? (nameTok.PositionStart != null ? nameTok.PositionStart : expr.PositionStart) : expr.PositionStart;
+            PositionStart = nameTok != null ? (nameTok != null ? nameTok.Value.PositionStart : expr.PositionStart) : expr.PositionStart;
             PositionEnd = expr.PositionEnd;
         }
     }

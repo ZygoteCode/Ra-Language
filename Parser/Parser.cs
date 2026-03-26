@@ -83,7 +83,7 @@ namespace RaLanguage.Parser
         {
             var res = new ParserResult();
             var statements = new List<AstNode>();
-            var positionStart = _currentToken.PositionStart.Copy();
+            var positionStart = _currentToken.PositionStart;
 
             while (_currentToken.Type == TokenType.NEWLINE)
             {
@@ -122,7 +122,7 @@ namespace RaLanguage.Parser
 
                 if (_currentToken.Type == TokenType.LBRACKET)
                 {
-                    Position _positionStart = _currentToken.PositionStart.Copy();
+                    Position _positionStart = _currentToken.PositionStart;
                     res.RegisterAdvancement();
                     Advance();
 
@@ -160,7 +160,7 @@ namespace RaLanguage.Parser
                         }
                     }
 
-                    statements.AddRange(new ScopeNode(scopeStatements, _positionStart, _currentToken.PositionStart.Copy()));
+                    statements.AddRange(new ScopeNode(scopeStatements, _positionStart, _currentToken.PositionStart));
                     continue;
                 }
                 else
@@ -186,14 +186,14 @@ namespace RaLanguage.Parser
             return res.Success(new ScopeNode(
                 statements,
                 positionStart,
-                _currentToken.PositionEnd.Copy()
+                _currentToken.PositionEnd
             ));
         }
 
         private ParserResult ParseStatement()
         {
             var res = new ParserResult();
-            var positionStart = _currentToken.PositionStart.Copy();
+            var positionStart = _currentToken.PositionStart;
 
             if (_currentToken.Type == TokenType.KEYWORD)
             {
@@ -204,25 +204,25 @@ namespace RaLanguage.Parser
                         Advance();
                         var expr = res.TryRegister(ParseExpression());
                         if (expr == null) Reverse(res.ToReverseCount);
-                        return res.Success(new ReturnNode(expr, positionStart, _currentToken.PositionStart.Copy()));
+                        return res.Success(new ReturnNode(expr, positionStart, _currentToken.PositionStart));
                     case Keyword.Yield:
                         res.RegisterAdvancement();
                         Advance();
                         var expr2 = res.Register(ParseExpression());
                         if (res.Error != null) Reverse(res.ToReverseCount);
-                        return res.Success(new YieldNode(expr2, positionStart, _currentToken.PositionStart.Copy()));
+                        return res.Success(new YieldNode(expr2, positionStart, _currentToken.PositionStart));
                     case Keyword.Continue:
                         res.RegisterAdvancement();
                         Advance();
-                        return res.Success(new ContinueNode(positionStart, _currentToken.PositionStart.Copy()));
+                        return res.Success(new ContinueNode(positionStart, _currentToken.PositionStart));
                     case Keyword.Break:
                         res.RegisterAdvancement();
                         Advance();
-                        return res.Success(new BreakNode(positionStart, _currentToken.PositionStart.Copy()));
+                        return res.Success(new BreakNode(positionStart, _currentToken.PositionStart));
                     case Keyword.Pass:
                         res.RegisterAdvancement();
                         Advance();
-                        return res.Success(new PassNode(positionStart, _currentToken.PositionStart.Copy()));
+                        return res.Success(new PassNode(positionStart, _currentToken.PositionStart));
                     case Keyword.Del:
                         res.RegisterAdvancement();
                         Advance();
@@ -298,7 +298,7 @@ namespace RaLanguage.Parser
         private ParserResult ParseRetryStatement()
         {
             var res = new ParserResult();
-            var positionStart = _currentToken.PositionStart.Copy();
+            var positionStart = _currentToken.PositionStart;
 
             res.RegisterAdvancement();
             Advance();
@@ -548,7 +548,7 @@ namespace RaLanguage.Parser
 
                     var castNode = new CastNode(leftNode, parsedType);
                     castNode.PositionStart = leftNode.PositionStart;
-                    castNode.PositionEnd = _currentToken.PositionEnd.Copy();
+                    castNode.PositionEnd = _currentToken.PositionEnd;
                     leftNode = castNode;
                 }
             }
@@ -955,7 +955,7 @@ namespace RaLanguage.Parser
                     if (_currentToken.Type != TokenType.RSQUARE)
                         return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ']'"));
 
-                    var rBracketEndPos = _currentToken.PositionEnd.Copy();
+                    var rBracketEndPos = _currentToken.PositionEnd;
                     res.RegisterAdvancement();
                     Advance();
 
@@ -994,8 +994,8 @@ namespace RaLanguage.Parser
                     return res.Success(new NumberNode(tok));
                 case TokenType.STRING_TEXT:
                     var parts = new List<AstNode>();
-                    var posStart = tok.PositionStart.Copy();
-                    var posEnd = tok.PositionEnd.Copy();
+                    var posStart = tok.PositionStart;
+                    var posEnd = tok.PositionEnd;
 
                     while (_currentToken.Type == TokenType.STRING_TEXT || _currentToken.Type == TokenType.INTERP_START)
                     {
@@ -1004,8 +1004,8 @@ namespace RaLanguage.Parser
                             var textTok = _currentToken;
                             res.RegisterAdvancement();
                             Advance();
-                            parts.Add(new StringTextNode(textTok.Value?.ToString() ?? "", textTok.PositionStart.Copy(), textTok.PositionEnd.Copy()));
-                            posEnd = textTok.PositionEnd.Copy();
+                            parts.Add(new StringTextNode(textTok.Value?.ToString() ?? "", textTok.PositionStart, textTok.PositionEnd));
+                            posEnd = textTok.PositionEnd;
                         }
                         else if (_currentToken.Type == TokenType.INTERP_START)
                         {
@@ -1024,7 +1024,7 @@ namespace RaLanguage.Parser
                             Advance();
 
                             parts.Add(expr2);
-                            posEnd = expr2.PositionEnd.Copy();
+                            posEnd = expr2.PositionEnd;
                         }
                     }
 
@@ -1060,13 +1060,13 @@ namespace RaLanguage.Parser
                     res.RegisterAdvancement();
                     Advance();
 
-                    var positionStart = tok.PositionStart.Copy();
+                    var positionStart = tok.PositionStart;
 
                     if (_currentToken.Type == TokenType.RPAREN)
                     {
                         res.RegisterAdvancement();
                         Advance();
-                        return res.Success(new TupleNode(new List<AstNode>(), positionStart, _currentToken.PositionEnd.Copy()));
+                        return res.Success(new TupleNode(new List<AstNode>(), positionStart, _currentToken.PositionEnd));
                     }
 
                     var firstExpr = res.Register(ParseExpression());
@@ -1096,7 +1096,7 @@ namespace RaLanguage.Parser
                             return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ')' after tuple"));
                         }
 
-                        var tupleEndPos = _currentToken.PositionEnd.Copy();
+                        var tupleEndPos = _currentToken.PositionEnd;
                         res.RegisterAdvancement();
                         Advance();
 
@@ -1436,7 +1436,7 @@ namespace RaLanguage.Parser
         private ParserResult ParseDoWhileExpression()
         {
             var res = new ParserResult();
-            var positionStart = _currentToken.PositionStart.Copy();
+            var positionStart = _currentToken.PositionStart;
 
             res.RegisterAdvancement();
             Advance();
@@ -1522,7 +1522,7 @@ namespace RaLanguage.Parser
         private ParserResult ParseSetExpression()
         {
             var res = new ParserResult();
-            var positionStart = _currentToken.PositionStart.Copy();
+            var positionStart = _currentToken.PositionStart;
 
             if (_currentToken.Type != TokenType.LBRACKET)
                 return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{'"));
@@ -1534,7 +1534,7 @@ namespace RaLanguage.Parser
             {
                 res.RegisterAdvancement();
                 Advance();
-                return res.Success(new SetNode(new List<AstNode>(), positionStart, _currentToken.PositionEnd.Copy()));
+                return res.Success(new SetNode(new List<AstNode>(), positionStart, _currentToken.PositionEnd));
             }
 
             var rawElements = new List<(AstNode? Key, AstNode? Value, bool IsPair)>();
@@ -1595,7 +1595,7 @@ namespace RaLanguage.Parser
             if (_currentToken.Type != TokenType.RBRACKET)
                 return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ',' or '}'"));
 
-            var rBracketEndPos = _currentToken.PositionEnd.Copy();
+            var rBracketEndPos = _currentToken.PositionEnd;
             res.RegisterAdvancement();
             Advance();
 
@@ -1627,7 +1627,7 @@ namespace RaLanguage.Parser
         {
             var res = new ParserResult();
             var elementNodes = new List<AstNode>();
-            var positionStart = _currentToken.PositionStart.Copy();
+            var positionStart = _currentToken.PositionStart;
 
             if (_currentToken.Type != TokenType.LSQUARE)
                 return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '['"));
@@ -1695,7 +1695,7 @@ namespace RaLanguage.Parser
                 Advance();
             }
 
-            return res.Success(new ListNode(elementNodes, positionStart, _currentToken.PositionEnd.Copy()));
+            return res.Success(new ListNode(elementNodes, positionStart, _currentToken.PositionEnd));
         }
 
         private ParserResult ParseIfExpression()
@@ -1865,7 +1865,7 @@ namespace RaLanguage.Parser
         private ParserResult ParseSwitchExpression()
         {
             var res = new ParserResult();
-            var positionStart = _currentToken.PositionStart.Copy();
+            var positionStart = _currentToken.PositionStart;
             res.RegisterAdvancement();
             Advance();
 
@@ -1994,8 +1994,8 @@ namespace RaLanguage.Parser
                             stmtList.Add(stmt);
                         }
 
-                        var blockNode = new ScopeNode(stmtList, firstLabel.PositionStart.Copy(), (stmtList.Count > 0 ? stmtList.Last().PositionEnd.Copy() : _currentToken.PositionStart.Copy()));
-                        cases.Add(new SwitchCaseNode(labels, false, SwitchCaseSeparator.Colon, blockNode, firstLabel.PositionStart.Copy(), _currentToken.PositionEnd.Copy()));
+                        var blockNode = new ScopeNode(stmtList, firstLabel.PositionStart, (stmtList.Count > 0 ? stmtList.Last().PositionEnd : _currentToken.PositionStart));
+                        cases.Add(new SwitchCaseNode(labels, false, SwitchCaseSeparator.Colon, blockNode, firstLabel.PositionStart, _currentToken.PositionEnd));
                     }
                     else if (_currentToken.Type == TokenType.ARROW_RIGHT)
                     {
@@ -2029,7 +2029,7 @@ namespace RaLanguage.Parser
                             if (res.Error != null) return res;
                         }
 
-                        cases.Add(new SwitchCaseNode(labels, false, SwitchCaseSeparator.Arrow, body, firstLabel.PositionStart.Copy(), (body ?? firstLabel).PositionEnd.Copy()));
+                        cases.Add(new SwitchCaseNode(labels, false, SwitchCaseSeparator.Arrow, body, firstLabel.PositionStart, (body ?? firstLabel).PositionEnd));
                         if (_currentToken.Type == TokenType.COLON)
                         {
                             res.RegisterAdvancement();
@@ -2078,8 +2078,8 @@ namespace RaLanguage.Parser
                             stmtList.Add(stmt);
                         }
 
-                        var blockNode = new ScopeNode(stmtList, positionStart.Copy(), (stmtList.Count > 0 ? stmtList.Last().PositionEnd.Copy() : _currentToken.PositionStart.Copy()));
-                        cases.Add(new SwitchCaseNode(new List<AstNode>(), true, SwitchCaseSeparator.Colon, blockNode, positionStart.Copy(), _currentToken.PositionEnd.Copy()));
+                        var blockNode = new ScopeNode(stmtList, positionStart, (stmtList.Count > 0 ? stmtList.Last().PositionEnd : _currentToken.PositionStart));
+                        cases.Add(new SwitchCaseNode(new List<AstNode>(), true, SwitchCaseSeparator.Colon, blockNode, positionStart, _currentToken.PositionEnd));
                     }
                     else if (_currentToken.Type == TokenType.ARROW_RIGHT)
                     {
@@ -2118,7 +2118,7 @@ namespace RaLanguage.Parser
                             if (res.Error != null) return res;
                         }
 
-                        cases.Add(new SwitchCaseNode(new List<AstNode>(), true, SwitchCaseSeparator.Arrow, body, positionStart.Copy(), body == null ? positionStart : body.PositionEnd.Copy()));
+                        cases.Add(new SwitchCaseNode(new List<AstNode>(), true, SwitchCaseSeparator.Arrow, body, positionStart, body == null ? positionStart : body.PositionEnd));
 
                         while (_currentToken.Type == TokenType.NEWLINE)
                         {
@@ -2152,7 +2152,7 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            var switchNode = new SwitchNode(expr, cases, positionStart, _currentToken.PositionEnd.Copy());
+            var switchNode = new SwitchNode(expr, cases, positionStart, _currentToken.PositionEnd);
             return res.Success(switchNode);
         }
 
@@ -2863,7 +2863,7 @@ namespace RaLanguage.Parser
 
             bool isConstructor = ownerStructName != null
                                  && varNameTok != null
-                                 && string.Equals(varNameTok.Value?.ToString(), ownerStructName, StringComparison.Ordinal);
+                                 && string.Equals(varNameTok.Value.ToString(), ownerStructName, StringComparison.Ordinal);
 
             while (_currentToken.Type == TokenType.NEWLINE)
             {
