@@ -850,7 +850,9 @@ namespace RaLanguage.Lexer
                 { "self", Keyword.Self },
                 { "class", Keyword.Class },
                 { "super", Keyword.Super },
-                { "override", Keyword.Override }
+                { "override", Keyword.Override },
+                { "interface", Keyword.Interface },
+                { "impl", Keyword.Impl }
             };
         }
 

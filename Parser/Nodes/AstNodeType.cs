@@ -57,6 +57,8 @@
         MemberAssignment,
         Scope,
         ClassDefinition,
-        Super
+        Super,
+        InterfaceDefinition,
+        InterfaceMethodSignature
     }
 }

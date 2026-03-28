@@ -1,6 +1,6 @@
 ﻿using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
-using RaLanguage.Interpreter.Values.Classes;
+using RaLanguage.Interpreter.Values.Interfaces;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Interpreter.Values.Structs;
 
@@ -38,6 +38,11 @@ namespace RaLanguage.Types
                 }
 
                 return false;
+            }
+
+            if (symbol is InterfaceTypeValue iface)
+            {
+                return SatisfiesInterface(context, iface, value);
             }
 
             switch (value.Type)
@@ -232,6 +237,29 @@ namespace RaLanguage.Types
                 default:
                     return new TypeDescriptor(val.Type.ToString().ToLower());
             }
+        }
+
+        public static bool SatisfiesInterface(Context context, InterfaceTypeValue iface, RuntimeValue value)
+        {
+            if (value.Type == RuntimeValueType.ClassInstance)
+            {
+                var inst = (ClassInstanceValue)value;
+                return ClassSatisfiesInterface(inst.Definition, iface);
+            }
+
+            return false;
+        }
+
+        private static bool ClassSatisfiesInterface(ClassTypeValue classType, InterfaceTypeValue iface)
+        {
+            foreach (var required in iface.Methods)
+            {
+                var candidates = classType.GetAllMethodsByName(required.NameTok.Value?.ToString() ?? "");
+                if (!candidates.Any(m => InterfaceCompatibility.AreCompatible(m, required)))
+                    return false;
+            }
+
+            return true;
         }
     }
 }

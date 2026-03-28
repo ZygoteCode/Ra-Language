@@ -2,6 +2,7 @@
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
+using RaLanguage.Interpreter.Values.Interfaces;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Parser.Nodes.Classes;
 using RaLanguage.Parser.Nodes.Functions;
@@ -34,7 +35,6 @@ namespace RaLanguage.Interpreter.Visitors.Classes
                 if (string.Equals(baseClass.ClassName, className, StringComparison.Ordinal))
                     return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "A class cannot inherit from itself", context));
 
-                // cycle check
                 var cursor = baseClass.BaseClass;
                 while (cursor != null)
                 {
@@ -50,6 +50,22 @@ namespace RaLanguage.Interpreter.Visitors.Classes
                 .SetPos(node.PositionStart, node.PositionEnd);
 
             classValue.BaseClass = baseClass;
+
+            foreach (var ifaceDesc in node.ImplementedInterfaces)
+            {
+                var ifaceSymbol = context.SymbolTable.Get(ifaceDesc.Name) as InterfaceTypeValue;
+                if (ifaceSymbol == null)
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Interface '{ifaceDesc.Name}' not found", context));
+
+                if (!classValue.ImplementsInterface(ifaceSymbol))
+                {
+                    return res.Failure(new RuntimeError(
+                        node.PositionStart,
+                        node.PositionEnd,
+                        $"Class '{className}' does not implement interface '{ifaceSymbol.InterfaceName}'",
+                        context));
+                }
+            }
 
             ValidateOverrides(node, classValue, context, ref res);
             if (res.Error != null) return res;

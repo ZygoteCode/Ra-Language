@@ -10,6 +10,7 @@ namespace RaLanguage.Parser.Nodes.Classes
         public Token NameTok { get; }
         public bool IsPublic { get; }
         public TypeDescriptor? BaseType { get; }
+        public List<TypeDescriptor> ImplementedInterfaces { get; }
         public List<StructFieldDefinitionNode> Fields { get; }
         public List<FunctionDefinitionNode> Methods { get; }
 
@@ -17,6 +18,7 @@ namespace RaLanguage.Parser.Nodes.Classes
             Token nameTok,
             bool isPublic,
             TypeDescriptor? baseType,
+            List<TypeDescriptor> implementedInterfaces,
             List<StructFieldDefinitionNode> fields,
             List<FunctionDefinitionNode> methods
         ) : base(AstNodeType.ClassDefinition)
@@ -26,6 +28,7 @@ namespace RaLanguage.Parser.Nodes.Classes
             BaseType = baseType;
             Fields = fields;
             Methods = methods;
+            ImplementedInterfaces = implementedInterfaces;
 
             PositionStart = nameTok.PositionStart;
             PositionEnd = methods.Count > 0

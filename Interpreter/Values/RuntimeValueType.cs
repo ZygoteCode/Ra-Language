@@ -30,6 +30,7 @@
         StructInstance,
         ClassType,
         ClassInstance,
-        Super
+        Super,
+        InterfaceType
     }
 }

@@ -5,6 +5,7 @@ using RaLanguage.Parser.Nodes;
 using RaLanguage.Parser.Nodes.Classes;
 using RaLanguage.Parser.Nodes.Enums;
 using RaLanguage.Parser.Nodes.Functions;
+using RaLanguage.Parser.Nodes.Interfaces;
 using RaLanguage.Parser.Nodes.Iterations;
 using RaLanguage.Parser.Nodes.Operations;
 using RaLanguage.Parser.Nodes.Primitives;
@@ -1158,11 +1159,69 @@ namespace RaLanguage.Parser
                     var enumExpr = res.Register(ParseEnumDefinition());
                     if (res.Error != null) return res;
                     return res.Success(enumExpr);
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Pub:
+                    var pubExpr = res.Register(ParserPubDefinition());
+                    if (res.Error != null) return res;
+                    return res.Success(pubExpr);
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Super:
+                    res.RegisterAdvancement();
+                    Advance();
+                    return res.Success(new SuperNode(tok.PositionStart, tok.PositionEnd));
                 case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Struct:
                     var structExpr = res.Register(ParseStructDefinition(false));
                     if (res.Error != null) return res;
                     return res.Success(structExpr);
-                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Pub:
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Class:
+                    var classExpr = res.Register(ParseClassDefinition(false));
+                    if (res.Error != null) return res;
+                    return res.Success(classExpr);
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Interface:
+                    var interfaceExpr = res.Register(ParseInterfaceDefinition(false));
+                    if (res.Error != null) return res;
+                    return res.Success(interfaceExpr);
+            }
+
+            return res.Failure(new InvalidSyntaxError(tok.PositionStart, tok.PositionEnd, "Expected int, float, identifier, '+', '-', '(', '[', 'if', 'for', 'while', 'fn'"));
+        }
+
+        private ParserResult ParseInterfaceDefinition(bool isPublic)
+        {
+            var res = new ParserResult();
+
+            if (!_currentToken.Matches(Keyword.Interface))
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'interface'"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            if (_currentToken.Type != TokenType.IDENTIFIER)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected interface name"));
+
+            Token nameTok = _currentToken;
+            res.RegisterAdvancement();
+            Advance();
+
+            if (_currentToken.Type != TokenType.LBRACKET)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{'"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            var methods = new List<InterfaceMethodSignatureNode>();
+
+            while (_currentToken.Type != TokenType.RBRACKET)
+            {
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type == TokenType.RBRACKET)
+                    break;
+
+                if (_currentToken.Matches(Keyword.Pub))
+                {
                     res.RegisterAdvancement();
                     Advance();
 
@@ -1171,38 +1230,140 @@ namespace RaLanguage.Parser
                         res.RegisterAdvancement();
                         Advance();
                     }
+                }
 
-                    if (_currentToken.Matches(Keyword.Struct))
+                if (!_currentToken.Matches(Keyword.Fn))
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'fn' inside interface"));
+
+                res.RegisterAdvancement();
+                Advance();
+
+                if (_currentToken.Type != TokenType.IDENTIFIER)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected method name"));
+
+                Token methodNameTok = _currentToken;
+                res.RegisterAdvancement();
+                Advance();
+
+                if (_currentToken.Type != TokenType.LPAREN)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '('"));
+
+                res.RegisterAdvancement();
+                Advance();
+
+                var argNameToks = new List<Token>();
+                var argTypes = new List<TypeDescriptor?>();
+
+                if (_currentToken.Type != TokenType.RPAREN)
+                {
+                    while (true)
                     {
-                        var structExpr1 = res.Register(ParseStructDefinition(true));
-                        if (res.Error != null) return res;
-                        return res.Success(structExpr1);
-                    }
-                    else if (_currentToken.Matches(Keyword.Class))
-                    {
-                        var classExpr1 = res.Register(ParseClassDefinition(true));
-                        if (res.Error != null) return res;
-                        return res.Success(classExpr1);
+                        if (_currentToken.Type != TokenType.IDENTIFIER)
+                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected parameter name"));
+
+                        var argTok = _currentToken;
+                        argNameToks.Add(argTok);
+
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        TypeDescriptor? argType = null;
+                        if (_currentToken.Type == TokenType.COLON)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+
+                            var parsedType = ParseType(res);
+                            if (parsedType == null)
+                                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':'"));
+
+                            argType = parsedType;
+                        }
+
+                        argTypes.Add(argType);
+
+                        if (_currentToken.Type == TokenType.COMMA)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                            continue;
+                        }
+
+                        break;
                     }
 
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'struct' or 'class'."));
-                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Class:
-                    var classExpr = res.Register(ParseClassDefinition(false));
-                    if (res.Error != null) return res;
-                    return res.Success(classExpr);
-                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Super:
+                    if (_currentToken.Type != TokenType.RPAREN)
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ',' or ')'"));
+                }
+
+                res.RegisterAdvancement();
+                Advance();
+
+                TypeDescriptor? returnType = null;
+                if (_currentToken.Type == TokenType.COLON)
+                {
                     res.RegisterAdvancement();
                     Advance();
-                    return res.Success(new SuperNode(tok.PositionStart, tok.PositionEnd));
+
+                    var parsedType = ParseType(res);
+                    if (parsedType == null)
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected return type after ':'"));
+
+                    returnType = parsedType;
+                }
+
+                methods.Add(new InterfaceMethodSignatureNode(methodNameTok, argNameToks, argTypes, returnType));
+
+                if (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
             }
 
-            return res.Failure(new InvalidSyntaxError(tok.PositionStart, tok.PositionEnd, "Expected int, float, identifier, '+', '-', '(', '[', 'if', 'for', 'while', 'fn'"));
+            res.RegisterAdvancement();
+            Advance();
+
+            return res.Success(new InterfaceDefinitionNode(nameTok, isPublic, methods));
+        }
+
+        private ParserResult ParserPubDefinition()
+        {
+            var res = new ParserResult();
+            res.RegisterAdvancement();
+            Advance();
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            if (_currentToken.Matches(Keyword.Struct))
+            {
+                var structDef = res.Register(ParseStructDefinition(true));
+                if (res.Error != null) return res;
+                return res.Success(structDef);
+            }
+            else if (_currentToken.Matches(Keyword.Class))
+            {
+                var classDef = res.Register(ParseClassDefinition(true));
+                if (res.Error != null) return res;
+                return res.Success(classDef);
+            }
+            else if (_currentToken.Matches(Keyword.Interface))
+            {
+                var interfaceDef = res.Register(ParseInterfaceDefinition(true));
+                if (res.Error != null) return res;
+                return res.Success(interfaceDef);
+            }
+
+            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'struct' or 'class'."));
         }
 
         private ParserResult ParseClassDefinition(bool isPublic)
         {
             var res = new ParserResult();
-
             res.RegisterAdvancement();
             Advance();
 
@@ -1227,14 +1388,56 @@ namespace RaLanguage.Parser
             Advance();
 
             TypeDescriptor? baseType = null;
-            if (_currentToken.Type == TokenType.COLON)
-            {
-                res.RegisterAdvancement();
-                Advance();
+            var implementedInterfaces = new List<TypeDescriptor>();
 
-                baseType = ParseType(res);
-                if (baseType == null)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected base class name after ':'"));
+            while (_currentToken.Type != TokenType.LBRACKET)
+            {
+                if (_currentToken.Type == TokenType.COLON)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    baseType = ParseType(res);
+                    if (baseType == null)
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected base class after ':'"));
+
+                    continue;
+                }
+
+                if (_currentToken.Matches(Keyword.Impl))
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    while (true)
+                    {
+                        var ifaceType = ParseType(res);
+                        if (ifaceType == null)
+                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected interface name after 'impl'"));
+
+                        implementedInterfaces.Add(ifaceType);
+
+                        if (_currentToken.Type == TokenType.COMMA)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                            continue;
+                        }
+
+                        break;
+                    }
+
+                    continue;
+                }
+
+                if (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                    continue;
+                }
+
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' base class, 'impl' interfaces, or '{'"));
             }
 
             if (_currentToken.Type != TokenType.LBRACKET)
@@ -1365,7 +1568,7 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            return res.Success(new ClassDefinitionNode(nameTok, isPublic, baseType, fields, methods));
+            return res.Success(new ClassDefinitionNode(nameTok, isPublic, baseType, implementedInterfaces, fields, methods));
         }
 
         private ParserResult ParseEnumDefinition()

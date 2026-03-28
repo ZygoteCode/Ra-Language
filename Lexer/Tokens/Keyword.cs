@@ -50,6 +50,8 @@
         Self,
         Class,
         Super,
-        Override
+        Override,
+        Interface,
+        Impl
     }
 }

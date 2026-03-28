@@ -4,6 +4,7 @@ using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Classes;
 using RaLanguage.Interpreter.Values.Classes;
 using RaLanguage.Interpreter.Values.Functions;
+using RaLanguage.Interpreter.Values.Interfaces;
 using RaLanguage.Parser.Nodes.Classes;
 using RaLanguage.Parser.Nodes.Functions;
 using RaLanguage.Parser.Nodes.Structs;
@@ -54,7 +55,6 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public FunctionDefinitionNode? ResolveMethod(string name, List<RuntimeValue> args, Dictionary<string, RuntimeValue> namedArgs)
         {
-            // derived-first lookup
             var local = Methods
                 .Where(m => string.Equals(m.VarNameTok?.Value?.ToString(), name, StringComparison.Ordinal))
                 .ToList();
@@ -89,10 +89,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
 
-            // init campi della catena base -> derived
             InitializeFieldChain(instance, Context, this);
 
-            // 1) prova prima i costruttori della classe corrente
             var ownCtor = ResolveOwnConstructor(positionalArgs, namedArgs);
             if (ownCtor != null)
             {
@@ -106,7 +104,6 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return res.Success(instance);
             }
 
-            // 2) se la classe corrente NON ha alcun costruttore, prova la catena base
             if (!Methods.Any(m => m.IsConstructor) && BaseClass != null)
             {
                 var baseCtorMatch = BaseClass.ResolveOwnConstructor(positionalArgs, namedArgs);
@@ -122,7 +119,6 @@ namespace RaLanguage.Interpreter.Values.Primitives
                     return res.Success(instance);
                 }
 
-                // se il base ha costruttori ma nessuno compatibile, errore chiaro
                 if (BaseClass.Methods.Any(m => m.IsConstructor))
                 {
                     return res.Failure(new RuntimeError(
@@ -133,7 +129,6 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 }
             }
 
-            // nessun costruttore dichiarato e nessun base compatibile
             return res.Success(instance);
         }
 
@@ -155,6 +150,25 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
                 instance.SetField(field.NameTok.Value?.ToString() ?? "", value, field.IsPublic, field.FieldType);
             }
+        }
+
+        public List<FunctionDefinitionNode> GetAllMethodsByName(string name)
+        {
+            var own = Methods.Where(m => string.Equals(m.VarNameTok?.Value?.ToString(), name, StringComparison.Ordinal));
+            var baseMethods = BaseClass?.GetAllMethodsByName(name) ?? Enumerable.Empty<FunctionDefinitionNode>();
+            return own.Concat(baseMethods).ToList();
+        }
+
+        public bool ImplementsInterface(InterfaceTypeValue iface)
+        {
+            foreach (var required in iface.Methods)
+            {
+                var candidates = GetAllMethodsByName(required.NameTok.Value?.ToString() ?? "");
+                if (!candidates.Any(m => InterfaceCompatibility.AreCompatible(m, required)))
+                    return false;
+            }
+
+            return true;
         }
 
         public override RuntimeValue Copy()
