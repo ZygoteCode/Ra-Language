@@ -29,10 +29,15 @@ namespace RaLanguage.Types
                        string.Equals(((StructInstanceValue)value).Definition.StructName, structType.StructName, StringComparison.Ordinal);
             }
 
-            if (symbol is ClassTypeValue)
+            if (symbol is ClassTypeValue targetClass)
             {
-                return value.Type == RuntimeValueType.ClassInstance &&
-                       string.Equals(((ClassInstanceValue)value).Definition.ClassName, target.Name, StringComparison.Ordinal);
+                if (value.Type == RuntimeValueType.ClassInstance)
+                {
+                    var inst = (ClassInstanceValue)value;
+                    return inst.Definition.InheritsFrom(targetClass.ClassName);
+                }
+
+                return false;
             }
 
             switch (value.Type)

@@ -29,6 +29,7 @@
         StructType,
         StructInstance,
         ClassType,
-        ClassInstance
+        ClassInstance,
+        Super
     }
 }

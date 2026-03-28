@@ -1,0 +1,56 @@
+﻿using RaLanguage.Errors;
+using RaLanguage.Errors.Types;
+using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Values.Primitives;
+using RaLanguage.Parser.Nodes.Functions;
+using RaLanguage.Types;
+
+namespace RaLanguage.Interpreter.Values.Classes
+{
+    public class SuperProxyValue : RuntimeValue
+    {
+        public ClassInstanceValue Instance { get; }
+        public ClassTypeValue CurrentClass { get; }
+        public ClassTypeValue? BaseClass => CurrentClass.BaseClass;
+
+        public override RuntimeValueType Type => RuntimeValueType.Super;
+        public override bool IsCopy => false;
+
+        public SuperProxyValue(ClassInstanceValue instance, ClassTypeValue currentClass)
+        {
+            Instance = instance;
+            CurrentClass = currentClass;
+        }
+
+        public override RuntimeResult Execute(List<RuntimeValue> args)
+            => ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
+
+        public RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
+        {
+            var res = new RuntimeResult();
+
+            if (BaseClass == null)
+                return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Class '{CurrentClass.ClassName}' has no base class", Context));
+
+            if (Context?.SymbolTable?.GetEntry("__in_constructor__") == null)
+                return res.Failure(new RuntimeError(PositionStart, PositionEnd, "'super(...)' can only be used inside a constructor", Context));
+
+            var ctor = BaseClass.ResolveOwnConstructor(positionalArgs, namedArgs);
+            if (ctor == null)
+                return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"No matching base constructor found for '{BaseClass.ClassName}'", Context));
+
+            var boundCtor = (BoundClassMethodValue) new BoundClassMethodValue(BaseClass, Instance, ctor)
+                .SetContext(Context)
+                .SetPos(PositionStart, PositionEnd);
+
+            return boundCtor.ExecuteWithNamedArgs(positionalArgs, namedArgs);
+        }
+
+        public override RuntimeValue Copy()
+            => new SuperProxyValue(Instance, CurrentClass)
+                .SetContext(Context)
+                .SetPos(PositionStart, PositionEnd);
+
+        public override string ToString() => "<super>";
+    }
+}

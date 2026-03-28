@@ -18,6 +18,7 @@ namespace RaLanguage.Parser.Nodes.Functions
         public List<string> GenericTypeParams { get; }
         public bool IsPublic { get; }
         public bool IsConstructor { get; }
+        public bool IsOverride { get; }
 
         public FunctionDefinitionNode(
             Token? varNameTok,
@@ -32,7 +33,8 @@ namespace RaLanguage.Parser.Nodes.Functions
             bool shouldAutoReturn,
             List<string>? genericTypeParams = null,
             bool isPublic = false,
-            bool isConstructor = false
+            bool isConstructor = false,
+            bool isOverride = false
         ) : base(AstNodeType.FunctionDefinition)
         {
             VarNameTok = varNameTok;
@@ -48,6 +50,7 @@ namespace RaLanguage.Parser.Nodes.Functions
             GenericTypeParams = genericTypeParams ?? new List<string>();
             IsPublic = isPublic;
             IsConstructor = isConstructor;
+            IsOverride = isOverride;
 
             if (varNameTok != null) PositionStart = varNameTok.Value.PositionStart;
             else if (ArgNameToks.Count > 0) PositionStart = ArgNameToks[0].PositionStart;

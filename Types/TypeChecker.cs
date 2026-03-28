@@ -1,6 +1,5 @@
 ﻿using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
-using RaLanguage.Interpreter.Values.Classes;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Interpreter.Values.Structs;
 using RaLanguage.Parser.Nodes;
@@ -14,42 +13,26 @@ namespace RaLanguage.Types
         {
             if (declaredType != null)
             {
-                var declName = declaredType.Name;
-
-                var symbol = context.SymbolTable.Get(declName);
+                var symbol = context.SymbolTable.Get(declaredType.Name);
 
                 if (symbol is ClassTypeValue)
                 {
-                    if (value.Type != RuntimeValueType.ClassInstance)
-                        return null;
-
-                    if (!string.Equals(((ClassInstanceValue)value).Definition.ClassName, declaredType.Name, StringComparison.Ordinal))
-                        return null;
-
+                    if (value.Type != RuntimeValueType.ClassInstance) return null;
+                    if (!string.Equals(((ClassInstanceValue)value).Definition.ClassName, declaredType.Name, StringComparison.Ordinal)) return null;
                     return value;
                 }
 
                 if (symbol is StructTypeValue)
                 {
-                    if (value.Type != RuntimeValueType.StructInstance)
-                        return null;
-
-                    var inst = (StructInstanceValue)value;
-                    if (!string.Equals(inst.Definition.StructName, declName, StringComparison.Ordinal))
-                        return null;
-
+                    if (value.Type != RuntimeValueType.StructInstance) return null;
+                    if (!string.Equals(((StructInstanceValue)value).Definition.StructName, declaredType.Name, StringComparison.Ordinal)) return null;
                     return value;
                 }
 
                 if (symbol is EnumTypeValue)
                 {
-                    if (value.Type != RuntimeValueType.Enum)
-                        return null;
-
-                    var ev = (EnumValue)value;
-                    if (!string.Equals(ev.EnumName, declName, StringComparison.Ordinal))
-                        return null;
-
+                    if (value.Type != RuntimeValueType.Enum) return null;
+                    if (!string.Equals(((EnumValue)value).EnumName, declaredType.Name, StringComparison.Ordinal)) return null;
                     return value;
                 }
             }

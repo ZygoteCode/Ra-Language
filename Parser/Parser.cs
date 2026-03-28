@@ -1190,6 +1190,10 @@ namespace RaLanguage.Parser
                     var classExpr = res.Register(ParseClassDefinition(false));
                     if (res.Error != null) return res;
                     return res.Success(classExpr);
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Super:
+                    res.RegisterAdvancement();
+                    Advance();
+                    return res.Success(new SuperNode(tok.PositionStart, tok.PositionEnd));
             }
 
             return res.Failure(new InvalidSyntaxError(tok.PositionStart, tok.PositionEnd, "Expected int, float, identifier, '+', '-', '(', '[', 'if', 'for', 'while', 'fn'"));
@@ -1221,6 +1225,17 @@ namespace RaLanguage.Parser
             string className = nameTok.Value?.ToString() ?? "";
             res.RegisterAdvancement();
             Advance();
+
+            TypeDescriptor? baseType = null;
+            if (_currentToken.Type == TokenType.COLON)
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                baseType = ParseType(res);
+                if (baseType == null)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected base class name after ':'"));
+            }
 
             if (_currentToken.Type != TokenType.LBRACKET)
                 return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{'"));
@@ -1297,9 +1312,38 @@ namespace RaLanguage.Parser
                     Advance();
                 }
 
+                bool isFunctionPublic = false;
+                bool isFunctionOverride = false;
+
+                while (_currentToken.Matches(Keyword.Pub) || _currentToken.Matches(Keyword.Override))
+                {
+                    if (_currentToken.Matches(Keyword.Pub))
+                    {
+                        if (isFunctionPublic)
+                        {
+                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Function is already public"));
+                        }
+
+                        isFunctionPublic = true;
+                    }
+
+                    if (_currentToken.Matches(Keyword.Override))
+                    {
+                        if (isFunctionOverride)
+                        {
+                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Function is already override"));
+                        }
+
+                        isFunctionOverride = true;
+                    }
+
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
                 if (_currentToken.Matches(Keyword.Fn) || (_currentToken.Type == TokenType.IDENTIFIER && _currentToken.Value.ToString() == className))
                 {
-                    var fnRes = ParseFunctionDefinition(ownerTypeName: className, isPublic: memberPublic, _currentToken.Type == TokenType.IDENTIFIER && _currentToken.Value.ToString() == className);
+                    var fnRes = ParseFunctionDefinition(ownerTypeName: className, isPublic: isFunctionPublic, isOverride: isFunctionOverride, _currentToken.Type == TokenType.IDENTIFIER && _currentToken.Value.ToString() == className);
                     if (fnRes.Error != null) return fnRes;
 
                     methods.Add((FunctionDefinitionNode) fnRes.Node!);
@@ -1321,7 +1365,7 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            return res.Success(new ClassDefinitionNode(nameTok, isPublic, fields, methods));
+            return res.Success(new ClassDefinitionNode(nameTok, isPublic, baseType, fields, methods));
         }
 
         private ParserResult ParseEnumDefinition()
@@ -2636,7 +2680,7 @@ namespace RaLanguage.Parser
             return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' or '{'"));
         }
 
-        private ParserResult ParseFunctionDefinition(string? ownerTypeName = null, bool isPublic = false, bool isDeclaringConstructor = false)
+        private ParserResult ParseFunctionDefinition(string? ownerTypeName = null, bool isPublic = false, bool isOverride = false, bool isDeclaringConstructor = false)
         {
             var res = new ParserResult();
 
@@ -3070,7 +3114,8 @@ namespace RaLanguage.Parser
                     true,
                     genericTypeParams,
                     isPublic,
-                    isConstructor
+                    isConstructor,
+                    isOverride
                 ));
             }
 
@@ -3108,7 +3153,8 @@ namespace RaLanguage.Parser
                 false,
                 genericTypeParams,
                 isPublic,
-                isConstructor
+                isConstructor,
+                isOverride
             ));
         }
 

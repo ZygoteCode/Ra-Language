@@ -52,6 +52,7 @@ namespace RaLanguage.Interpreter.Values.Structs
                 MethodNode.VarArgNameTok,
                 MethodNode.VarArgType));
 
+            if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
 
             var bodyRes = interpreter.Visit(MethodNode.BodyNode, execCtx);

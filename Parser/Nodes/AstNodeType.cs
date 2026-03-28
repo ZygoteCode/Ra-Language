@@ -56,6 +56,7 @@
         MemberAccess,
         MemberAssignment,
         Scope,
-        ClassDefinition
+        ClassDefinition,
+        Super
     }
 }

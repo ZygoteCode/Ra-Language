@@ -1,6 +1,7 @@
-﻿using RaLanguage.Types;
+﻿using RaLanguage.Errors;
+using RaLanguage.Types;
 
-namespace RaLanguage.Interpreter.Values.Classes
+namespace RaLanguage.Interpreter.Values.Primitives
 {
     public class ClassInstanceValue : RuntimeValue
     {
@@ -13,9 +14,11 @@ namespace RaLanguage.Interpreter.Values.Classes
         public override bool IsCopy => false;
 
         public ClassInstanceValue(ClassTypeValue definition)
-            : this(definition, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal),
-                        new Dictionary<string, bool>(StringComparer.Ordinal),
-                        new Dictionary<string, TypeDescriptor?>(StringComparer.Ordinal))
+            : this(
+                definition,
+                new Dictionary<string, RuntimeValue>(StringComparer.Ordinal),
+                new Dictionary<string, bool>(StringComparer.Ordinal),
+                new Dictionary<string, TypeDescriptor?>(StringComparer.Ordinal))
         {
         }
 
@@ -39,7 +42,6 @@ namespace RaLanguage.Interpreter.Values.Classes
         }
 
         public bool HasField(string name) => Fields.ContainsKey(name);
-
         public bool IsFieldPublic(string name) => FieldPublicity.TryGetValue(name, out var p) && p;
 
         public TypeDescriptor? GetFieldType(string name)
@@ -60,12 +62,9 @@ namespace RaLanguage.Interpreter.Values.Classes
         }
 
         public override RuntimeValue Copy()
-        {
-            // reference copy: stessa state, nuovo wrapper
-            return new ClassInstanceValue(Definition, Fields, FieldPublicity, FieldTypes)
+            => new ClassInstanceValue(Definition, Fields, FieldPublicity, FieldTypes)
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
-        }
 
         public override string ToString()
             => $"{Definition.ClassName}{{{string.Join(", ", Fields.Select(kv => $"{kv.Key}: {kv.Value}"))}}}";

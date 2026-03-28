@@ -48,6 +48,8 @@
         Struct,
         Pub,
         Self,
-        Class
+        Class,
+        Super,
+        Override
     }
 }

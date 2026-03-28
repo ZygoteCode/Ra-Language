@@ -848,7 +848,9 @@ namespace RaLanguage.Lexer
                 { "struct", Keyword.Struct },
                 { "pub", Keyword.Pub },
                 { "self", Keyword.Self },
-                { "class", Keyword.Class }
+                { "class", Keyword.Class },
+                { "super", Keyword.Super },
+                { "override", Keyword.Override }
             };
         }
 
