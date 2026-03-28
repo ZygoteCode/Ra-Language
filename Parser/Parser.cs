@@ -12,6 +12,7 @@ using RaLanguage.Parser.Nodes.Primitives;
 using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Statements;
 using RaLanguage.Parser.Nodes.Structs;
+using RaLanguage.Parser.Nodes.Traits;
 using RaLanguage.Parser.Nodes.Variables;
 using RaLanguage.Types;
 
@@ -1179,9 +1180,275 @@ namespace RaLanguage.Parser
                     var interfaceExpr = res.Register(ParseInterfaceDefinition(false));
                     if (res.Error != null) return res;
                     return res.Success(interfaceExpr);
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Trait:
+                    var traitExpr = res.Register(ParseTraitDefinition(false));
+                    if (res.Error != null) return res;
+                    return res.Success(traitExpr);
             }
 
             return res.Failure(new InvalidSyntaxError(tok.PositionStart, tok.PositionEnd, "Expected int, float, identifier, '+', '-', '(', '[', 'if', 'for', 'while', 'fn'"));
+        }
+
+        private ParserResult ParseCallableSignatureAfterName(bool allowReturnType)
+        {
+            var res = new ParserResult();
+
+            var argNameToks = new List<Token>();
+            var argTypes = new List<TypeDescriptor?>();
+            var paramDefaults = new List<AstNode?>();
+
+            bool hasVarArgs = false;
+            Token? varArgNameTok = null;
+            TypeDescriptor? varArgType = null;
+            TypeDescriptor? returnType = null;
+
+            bool sawDefault = false;
+
+            if (_currentToken.Type != TokenType.LPAREN)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '('"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            if (_currentToken.Type == TokenType.IDENTIFIER || _currentToken.Type == TokenType.SPREAD)
+            {
+                while (true)
+                {
+                    if (_currentToken.Type == TokenType.SPREAD)
+                    {
+                        hasVarArgs = true;
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        if (_currentToken.Type != TokenType.IDENTIFIER)
+                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier after '...'"));
+
+                        varArgNameTok = _currentToken;
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        if (_currentToken.Type == TokenType.COLON)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+
+                            var parsed = ParseType(res);
+                            if (parsed == null)
+                                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':' for vararg"));
+
+                            varArgType = parsed;
+                        }
+
+                        if (_currentToken.Type != TokenType.RPAREN)
+                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Variadic parameter must be the last parameter"));
+
+                        break;
+                    }
+
+                    if (_currentToken.Type != TokenType.IDENTIFIER)
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected parameter name"));
+
+                    var paramTok = _currentToken;
+                    argNameToks.Add(paramTok);
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    TypeDescriptor? ptype = null;
+                    if (_currentToken.Type == TokenType.COLON)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        var parsed = ParseType(res);
+                        if (parsed == null)
+                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':'"));
+
+                        ptype = parsed;
+                    }
+                    argTypes.Add(ptype);
+
+                    AstNode? defaultExpr = null;
+                    if (_currentToken.Type == TokenType.EQ)
+                    {
+                        sawDefault = true;
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        defaultExpr = res.Register(ParseExpression());
+                        if (res.Error != null) return res;
+                    }
+                    else if (sawDefault)
+                    {
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Parameters without default cannot appear after parameters with default"));
+                    }
+
+                    paramDefaults.Add(defaultExpr);
+
+                    if (_currentToken.Type == TokenType.COMMA)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        if (_currentToken.Type == TokenType.RPAREN) break;
+                        continue;
+                    }
+
+                    break;
+                }
+
+                if (_currentToken.Type != TokenType.RPAREN)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ',' or ')'"));
+            }
+            else
+            {
+                if (_currentToken.Type != TokenType.RPAREN)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier or ')'"));
+            }
+
+            res.RegisterAdvancement();
+            Advance();
+
+            if (allowReturnType && _currentToken.Type == TokenType.COLON)
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                var parsed = ParseType(res);
+                if (parsed == null)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected return type after ':'"));
+
+                returnType = parsed;
+            }
+
+            return res.Success(new CallableSignatureNode(
+                argNameToks,
+                argTypes,
+                paramDefaults,
+                hasVarArgs,
+                varArgNameTok,
+                varArgType,
+                returnType
+            ));
+        }
+
+        private ParserResult ParseTraitDefinition(bool isPublic)
+        {
+            var res = new ParserResult();
+
+            if (!_currentToken.Matches(Keyword.Trait))
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'trait'"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            if (_currentToken.Type != TokenType.IDENTIFIER)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected trait name"));
+
+            var nameTok = _currentToken;
+            res.RegisterAdvancement();
+            Advance();
+
+            if (_currentToken.Type != TokenType.LBRACKET)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{'"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            var methods = new List<TraitMethodDefinitionNode>();
+
+            while (_currentToken.Type != TokenType.RBRACKET)
+            {
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type == TokenType.RBRACKET)
+                    break;
+
+                if (_currentToken.Matches(Keyword.Pub))
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                }
+
+                if (!_currentToken.Matches(Keyword.Fn))
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'fn' inside trait"));
+
+                res.RegisterAdvancement();
+                Advance();
+
+                if (_currentToken.Type != TokenType.IDENTIFIER)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected method name"));
+
+                var methodNameTok = _currentToken;
+                res.RegisterAdvancement();
+                Advance();
+
+                var sigRes = ParseCallableSignatureAfterName(true);
+                if (sigRes.Error != null) return sigRes;
+                var sigNode = (CallableSignatureNode)sigRes.Node!;
+
+                AstNode? bodyNode = null;
+
+                if (_currentToken.Type == TokenType.ARROW)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    bodyNode = res.Register(ParseExpression());
+                    if (res.Error != null) return res;
+                }
+                else if (_currentToken.Type == TokenType.LBRACKET)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    bodyNode = res.Register(ParseStatements());
+                    if (res.Error != null) return res;
+
+                    if (_currentToken.Type != TokenType.RBRACKET)
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}'"));
+
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+                else
+                {
+                    bodyNode = null;
+                }
+
+                methods.Add(new TraitMethodDefinitionNode(
+                    methodNameTok,
+                    sigNode.ArgNameToks,
+                    sigNode.ArgTypes,
+                    sigNode.ParamDefaults,
+                    sigNode.HasVarArgs,
+                    sigNode.VarArgNameTok,
+                    sigNode.VarArgType,
+                    sigNode.ReturnType,
+                    bodyNode,
+                    bodyNode != null
+                ));
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+            }
+
+            res.RegisterAdvancement();
+            Advance();
+
+            return res.Success(new TraitDefinitionNode(nameTok, isPublic, methods));
         }
 
         private ParserResult ParseInterfaceDefinition(bool isPublic)
@@ -1357,6 +1624,12 @@ namespace RaLanguage.Parser
                 if (res.Error != null) return res;
                 return res.Success(interfaceDef);
             }
+            else if (_currentToken.Matches(Keyword.Trait))
+            {
+                var traitDef = res.Register(ParseTraitDefinition(true));
+                if (res.Error != null) return res;
+                return res.Success(traitDef);
+            }
 
             return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'struct' or 'class'."));
         }
@@ -1389,6 +1662,7 @@ namespace RaLanguage.Parser
 
             TypeDescriptor? baseType = null;
             var implementedInterfaces = new List<TypeDescriptor>();
+            var withTraits = new List<TypeDescriptor>();
 
             while (_currentToken.Type != TokenType.LBRACKET)
             {
@@ -1400,6 +1674,32 @@ namespace RaLanguage.Parser
                     baseType = ParseType(res);
                     if (baseType == null)
                         return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected base class after ':'"));
+
+                    continue;
+                }
+
+                if (_currentToken.Matches(Keyword.With))
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    while (true)
+                    {
+                        var ifaceType = ParseType(res);
+                        if (ifaceType == null)
+                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected interface name after 'impl'"));
+
+                        withTraits.Add(ifaceType);
+
+                        if (_currentToken.Type == TokenType.COMMA)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                            continue;
+                        }
+
+                        break;
+                    }
 
                     continue;
                 }
@@ -1568,7 +1868,7 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            return res.Success(new ClassDefinitionNode(nameTok, isPublic, baseType, implementedInterfaces, fields, methods));
+            return res.Success(new ClassDefinitionNode(nameTok, isPublic, baseType, implementedInterfaces, withTraits, fields, methods));
         }
 
         private ParserResult ParseEnumDefinition()

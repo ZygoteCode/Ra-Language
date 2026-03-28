@@ -5,6 +5,7 @@ using RaLanguage.Interpreter.Runtime.Classes;
 using RaLanguage.Interpreter.Values.Classes;
 using RaLanguage.Interpreter.Values.Functions;
 using RaLanguage.Interpreter.Values.Interfaces;
+using RaLanguage.Interpreter.Values.Traits;
 using RaLanguage.Parser.Nodes.Classes;
 using RaLanguage.Parser.Nodes.Functions;
 using RaLanguage.Parser.Nodes.Structs;
@@ -18,6 +19,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public bool IsPublic { get; }
         public TypeDescriptor? BaseType { get; }
         public ClassTypeValue? BaseClass { get; set; }
+        public List<TraitTypeValue> Traits { get; set; } = new();
         public List<StructFieldDefinitionNode> Fields { get; }
         public List<FunctionDefinitionNode> Methods { get; }
 
@@ -31,6 +33,94 @@ namespace RaLanguage.Interpreter.Values.Primitives
             BaseType = baseType;
             Fields = fields;
             Methods = methods;
+        }
+
+        public bool SatisfiesTrait(TraitTypeValue trait)
+        {
+            foreach (var required in trait.GetRequiredMethods())
+            {
+                if (!HasMethodSignatureInHierarchy(required))
+                    return false;
+            }
+            return true;
+        }
+
+        public bool HasInheritedOrTraitMethodSignature(ICallableMethodDefinition method)
+        {
+            // base/trait only, no local class methods
+            if (BaseClass != null && BaseClass.HasMethodSignatureInHierarchy(method))
+                return true;
+
+            foreach (var trait in Traits)
+            {
+                if (trait.GetDefaultMethodsByName(MethodSignature.NameOf(method))
+                    .Any(m => MethodSignature.MatchesSignature(m, method)))
+                    return true;
+            }
+
+            return false;
+        }
+
+        public bool HasMethodSignatureInHierarchy(ICallableMethodDefinition method)
+        {
+            // class local
+            foreach (var m in Methods.Where(m => string.Equals(m.VarNameTok?.Value?.ToString(), MethodSignature.NameOf(method), StringComparison.Ordinal)))
+            {
+                if (MethodSignature.MatchesSignature(m, method))
+                    return true;
+            }
+
+            // trait defaults on this class
+            foreach (var trait in Traits)
+            {
+                foreach (var m in trait.GetDefaultMethodsByName(MethodSignature.NameOf(method)))
+                {
+                    if (MethodSignature.MatchesSignature(m, method))
+                        return true;
+                }
+            }
+
+            // base chain
+            return BaseClass?.HasMethodSignatureInHierarchy(method) ?? false;
+        }
+
+        public List<ICallableMethodDefinition> ResolveCandidates(string methodName)
+        {
+            var result = new List<ICallableMethodDefinition>();
+
+            // 1) runtime class methods
+            result.AddRange(Methods.Where(m => string.Equals(m.VarNameTok?.Value?.ToString(), methodName, StringComparison.Ordinal)));
+
+            // 2) trait fallback in declaration order
+            foreach (var trait in Traits)
+            {
+                result.AddRange(trait.GetDefaultMethodsByName(methodName));
+            }
+
+            // 3) base chain repeats same process
+            if (BaseClass != null)
+                result.AddRange(BaseClass.ResolveCandidates(methodName));
+
+            return result;
+        }
+
+        public List<ICallableMethodDefinition> ResolveBaseCandidates(string methodName)
+        {
+            if (BaseClass == null) return new List<ICallableMethodDefinition>();
+            return BaseClass.ResolveCandidates(methodName);
+        }
+
+        // constructors stay class-local + base fallback, not trait methods
+        public FunctionDefinitionNode? ResolveConstructor(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
+        {
+            var ctors = Methods.Where(m => m.IsConstructor).ToList();
+            foreach (var ctor in ctors)
+            {
+                if (MethodCallBinder.CanBind(ctor, positionalArgs, namedArgs, Context))
+                    return ctor;
+            }
+
+            return null;
         }
 
         public bool InheritsFrom(string ancestorName)

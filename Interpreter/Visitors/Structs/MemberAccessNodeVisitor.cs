@@ -5,6 +5,7 @@ using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Classes;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Interpreter.Values.Structs;
+using RaLanguage.Interpreter.Values.Traits;
 using RaLanguage.Parser.Nodes.Structs;
 
 namespace RaLanguage.Interpreter.Visitors.Members
@@ -56,12 +57,13 @@ namespace RaLanguage.Interpreter.Visitors.Members
             if (target.Type == RuntimeValueType.ClassInstance)
             {
                 var instance = (ClassInstanceValue)target;
+
                 if (instance.HasField(memberName))
                     return res.Success(instance.GetField(memberName).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
 
-                var method = instance.Definition.ResolveMethod(memberName, new List<RuntimeValue>(), new Dictionary<string, RuntimeValue>());
-                if (method != null)
-                    return res.Success(new BoundClassMethodValue(instance.Definition, instance, method).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                var candidates = instance.Definition.ResolveCandidates(memberName);
+                if (candidates.Count > 0)
+                    return res.Success(new BoundMethodGroupValue(memberName, instance, instance.Definition, candidates).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
 
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Class '{instance.Definition.ClassName}' has no member '{memberName}'", context));
             }
@@ -75,9 +77,9 @@ namespace RaLanguage.Interpreter.Visitors.Members
                 if (sup.Instance.HasField(memberName))
                     return res.Success(sup.Instance.GetField(memberName).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
 
-                var method = sup.BaseClass.ResolveMethod(memberName, new List<RuntimeValue>(), new Dictionary<string, RuntimeValue>());
-                if (method != null)
-                    return res.Success(new BoundClassMethodValue(sup.BaseClass, sup.Instance, method).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                var candidates = sup.BaseClass.ResolveCandidates(memberName);
+                if (candidates.Count > 0)
+                    return res.Success(new BoundMethodGroupValue(memberName, sup.Instance, sup.BaseClass, candidates).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
 
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Base class '{sup.BaseClass.ClassName}' has no member '{memberName}'", context));
             }

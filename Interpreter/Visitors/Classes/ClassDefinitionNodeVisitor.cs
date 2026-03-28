@@ -4,6 +4,7 @@ using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Interfaces;
 using RaLanguage.Interpreter.Values.Primitives;
+using RaLanguage.Interpreter.Values.Traits;
 using RaLanguage.Parser.Nodes.Classes;
 using RaLanguage.Parser.Nodes.Functions;
 using RaLanguage.Types;
@@ -49,7 +50,30 @@ namespace RaLanguage.Interpreter.Visitors.Classes
                 .SetContext(context)
                 .SetPos(node.PositionStart, node.PositionEnd);
 
+            var traits = new List<TraitTypeValue>();
+            foreach (var td in node.WithTraits)
+            {
+                var traitSymbol = context.SymbolTable.Get(td.Name) as TraitTypeValue;
+                if (traitSymbol == null)
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Trait '{td.Name}' not found", context));
+
+                traits.Add(traitSymbol);
+            }
+
+            classValue.Traits = traits;
             classValue.BaseClass = baseClass;
+
+            foreach (var trait in traits)
+            {
+                if (!classValue.SatisfiesTrait(trait))
+                {
+                    return res.Failure(new RuntimeError(
+                        node.PositionStart,
+                        node.PositionEnd,
+                        $"Class '{className}' does not satisfy trait '{trait.TraitName}'",
+                        context));
+                }
+            }
 
             foreach (var ifaceDesc in node.ImplementedInterfaces)
             {
@@ -63,6 +87,21 @@ namespace RaLanguage.Interpreter.Visitors.Classes
                         node.PositionStart,
                         node.PositionEnd,
                         $"Class '{className}' does not implement interface '{ifaceSymbol.InterfaceName}'",
+                        context));
+                }
+            }
+
+            foreach (var method in node.Methods.Where(m => m.IsOverride))
+            {
+                if (method.IsConstructor)
+                    return res.Failure(new RuntimeError(method.PositionStart, method.PositionEnd, "Constructors cannot be marked override", context));
+
+                if (!classValue.HasInheritedOrTraitMethodSignature(method))
+                {
+                    return res.Failure(new RuntimeError(
+                        method.PositionStart,
+                        method.PositionEnd,
+                        $"No base/trait method found to override for '{method.VarNameTok?.Value}'",
                         context));
                 }
             }

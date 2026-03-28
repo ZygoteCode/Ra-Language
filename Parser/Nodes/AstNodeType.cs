@@ -59,6 +59,9 @@
         ClassDefinition,
         Super,
         InterfaceDefinition,
-        InterfaceMethodSignature
+        InterfaceMethodSignature,
+        TraitDefinition,
+        TraitMethodDefinition,
+        CallableSignature
     }
 }

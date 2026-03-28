@@ -31,6 +31,7 @@
         ClassType,
         ClassInstance,
         Super,
-        InterfaceType
+        InterfaceType,
+        TraitType
     }
 }

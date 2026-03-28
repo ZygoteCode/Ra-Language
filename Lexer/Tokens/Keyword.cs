@@ -52,6 +52,8 @@
         Super,
         Override,
         Interface,
-        Impl
+        Impl,
+        Trait,
+        With
     }
 }

@@ -3,7 +3,7 @@ using RaLanguage.Types;
 
 namespace RaLanguage.Parser.Nodes.Functions
 {
-    public class FunctionDefinitionNode : AstNode
+    public class FunctionDefinitionNode : AstNode, ICallableMethodDefinition
     {
         public Token? VarNameTok { get; }
         public List<Token> ArgNameToks { get; }
@@ -19,6 +19,8 @@ namespace RaLanguage.Parser.Nodes.Functions
         public bool IsPublic { get; }
         public bool IsConstructor { get; }
         public bool IsOverride { get; }
+        public Token? NameTok => VarNameTok;
+        public bool HasBody => BodyNode != null;
 
         public FunctionDefinitionNode(
             Token? varNameTok,

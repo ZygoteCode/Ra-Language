@@ -16,8 +16,6 @@ This is constantly updated list, I am expanding with new ideas and concepts for 
 
 I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
   
-  - [ ] Implement traits.
-  - [ ] Implement mixins.
   - [ ] Implement abstract classes.
   - [ ] Implement the "static" keyword for objects (structs, classes, enums), fields and methods.
   - [ ] Implement namespaces.
@@ -48,6 +46,7 @@ New ideas coming soon!
   - [x] Implemented classes in the language.
   - [x] Implemented classes polymorphism and inheritance.
   - [x] Implemented interfaces.
+  - [x] Implemented traits.
 
 ## Finished Phase 1: The Language Essentials
 

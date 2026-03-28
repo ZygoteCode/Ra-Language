@@ -3,6 +3,7 @@ using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Interfaces;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Interpreter.Values.Structs;
+using RaLanguage.Interpreter.Values.Traits;
 
 namespace RaLanguage.Types
 {
@@ -43,6 +44,11 @@ namespace RaLanguage.Types
             if (symbol is InterfaceTypeValue iface)
             {
                 return SatisfiesInterface(context, iface, value);
+            }
+
+            if (symbol is TraitTypeValue trait)
+            {
+                return SatisfiesTrait(context, trait, value);
             }
 
             switch (value.Type)
@@ -256,6 +262,22 @@ namespace RaLanguage.Types
             {
                 var candidates = classType.GetAllMethodsByName(required.NameTok.Value?.ToString() ?? "");
                 if (!candidates.Any(m => InterfaceCompatibility.AreCompatible(m, required)))
+                    return false;
+            }
+
+            return true;
+        }
+
+        public static bool SatisfiesTrait(Context context, TraitTypeValue trait, RuntimeValue value)
+        {
+            if (value.Type != RuntimeValueType.ClassInstance)
+                return false;
+
+            var instance = (ClassInstanceValue)value;
+
+            foreach (var required in trait.GetRequiredMethods())
+            {
+                if (!instance.Definition.HasMethodSignatureInHierarchy(required))
                     return false;
             }
 

@@ -1,8 +1,14 @@
-pub interface Named {
+pub trait Named {
     fn get_name();
 }
 
-pub class Person impl Named {
+pub trait DefaultGreet {
+    fn greet() {
+        ret "hello";
+    }
+}
+
+pub class Person with Named, DefaultGreet {
     pub var name: string;
 
     pub fn get_name() {
@@ -11,9 +17,10 @@ pub class Person impl Named {
 }
 
 fn greet(x: Named) {
-    print(x.get_name());
+    print($"Hello, ${x.get_name()}!");
 }
 
 var p = Person();
-p.name = "Alessandro";
+p.name = "Gabriele";
 greet(p);
+print(p.greet());

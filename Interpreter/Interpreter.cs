@@ -14,6 +14,7 @@ using RaLanguage.Interpreter.Visitors.Primitives;
 using RaLanguage.Interpreter.Visitors.Special;
 using RaLanguage.Interpreter.Visitors.Statements;
 using RaLanguage.Interpreter.Visitors.Structs;
+using RaLanguage.Interpreter.Visitors.Traits;
 using RaLanguage.Interpreter.Visitors.Variables;
 using RaLanguage.Lexer;
 using RaLanguage.Parser.Nodes;
@@ -87,6 +88,7 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.ClassDefinition] = new ClassDefinitionNodeVisitor();
             _visitors[(int)AstNodeType.Super] = new SuperNodeVisitor();
             _visitors[(int)AstNodeType.InterfaceDefinition] = new InterfaceDefinitionNodeVisitor();
+            _visitors[(int)AstNodeType.TraitDefinition] = new TraitDefinitionNodeVisitor();
         }
 
         public RuntimeResult Visit(AstNode node, Context context)
