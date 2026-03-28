@@ -1,180 +1,35 @@
-fn
-    test
-        (
-            x
-            :
-            String
-        )
-        :
-        int
-    {
-        retry
-        for 5 times
-        delay 250
-        {
-            print("trying...");
-            5 / 0;
-        }
-        else
-        {
-            print("failed so bad");
-        }
+pub class Person {
+   pub var name: string;
+   pub var surname: string;
+   pub var age: int;
 
-        ret 5;
-    }
+   pub Person(name: string, surname: string) {
+       self.name = name;
+       self.surname = surname;
+       self.age = 0;
+   }
 
-test("2");
+   pub Person(name: string, surname: string, age: int) {
+       self.name = name;
+       self.surname = surname;
+       self.age = age;
+   }
 
-try
-{
-    print(
-        "yes"
-    );
-
-    5 / 0;
-    print("ah");
-}
-catch (e)
-{
-    print("put the helmet");
-}
-finally
-{
-    print(
-        "and then we'll talk about again"
-    );
+   pub fn get_name() {
+       ret self.name;
+   }
+   
+   pub fn set_name(name: string) {
+       self.name = name;
+   }
 }
 
-print("lol");
+var my_person = Person("Gabriele", "Favaro");
+print(my_person.get_name());
+my_person.set_name("Alessandro");
+print(my_person.get_name());
 
-enum
-            Fooling
-
-
-
-{
-    YOUR,
-
-
-    FATHER,
-
-
-
-    GOES,
-
-
-
-    TO,
-
-
-
-    JAIL = 3
-
-
-
-
-}
-
-print(Fooling);
-print(          Fooling.JAIL as int);
-
-pub
-    struct
-        yesfinally
-        {
-
-
-            pub fn yesfinally()
-            {
-                print("hello");
-            }
-        }
-
-var lol = yesfinally();
-var day = 3;
-
-switch (day)
-{
-    case 1:
-        print("Monday");
-        break;
-    case 2:
-        print("Tuesday");
-        break;
-    case 3:
-        print("Wednesday");
-        break;
-    default:
-        print("Another day");
-}
-
-switch (day)
-{
-    case 1 -> 
-        print("Monday");
-    case 2 ->
-        print("Tuesday");
-    case 3 ->
-    {
-        print("Wednesday");
-        print("Mid week!");
-    }
-    default ->
-        print("Another day!");
-}
-
-day = 3;
-
-var dayName = switch (day)
-{
-    case 1 ->
-        "Monday";
-    case 2 ->
-        "Tuesday";
-    case 3 ->
-    {
-        print("Wednesday!");
-        yield "Wednesday";
-    }
-    case 4, 5 ->
-        "Almost weekend";
-    default ->
-        "Weekend";
-};
-
-print(dayName);
-
-var n = 2;
-switch (n)
-{
-    case 1:
-        print("One");
-    case 2:
-        print("Two");
-        break;
-    case 3:
-        print("Three");
-}
-
-var x = 99;
-
-while true
-{
-    x--;
-
-    if (x == 1) {
-        break;
-    } else {
-        continue;
-    }
-}
-
-var yyy = 1_000_000;
-while (yyy > 0): yyy--;
-
-var list = 1..=80;
-
-for key in list
-{
-    print(key);
-}
+var a = Person("A", "B");
+var b = a;
+b.set_name("C");
+print(a.get_name()); // prints "C"

@@ -1,5 +1,6 @@
 ﻿using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
+using RaLanguage.Interpreter.Values.Classes;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Interpreter.Values.Structs;
 
@@ -26,6 +27,12 @@ namespace RaLanguage.Types
             {
                 return value.Type == RuntimeValueType.StructInstance &&
                        string.Equals(((StructInstanceValue)value).Definition.StructName, structType.StructName, StringComparison.Ordinal);
+            }
+
+            if (symbol is ClassTypeValue)
+            {
+                return value.Type == RuntimeValueType.ClassInstance &&
+                       string.Equals(((ClassInstanceValue)value).Definition.ClassName, target.Name, StringComparison.Ordinal);
             }
 
             switch (value.Type)
@@ -205,6 +212,18 @@ namespace RaLanguage.Types
                     var t = (TupleValue)val;
                     var args = t.Elements.Select(GetDescriptorFromRuntimeValue).ToList();
                     return new TypeDescriptor("tuple", args);
+                case RuntimeValueType.ClassInstance:
+                    return new TypeDescriptor(((ClassInstanceValue)val).Definition.ClassName);
+                case RuntimeValueType.ClassType:
+                    return new TypeDescriptor(((ClassTypeValue)val).ClassName);
+                case RuntimeValueType.StructInstance:
+                    return new TypeDescriptor(((StructInstanceValue)val).Definition.StructName);
+                case RuntimeValueType.StructType:
+                    return new TypeDescriptor(((StructTypeValue)val).StructName);
+                case RuntimeValueType.Enum:
+                    return new TypeDescriptor(((EnumValue)val).EnumName);
+                case RuntimeValueType.EnumType:
+                    return new TypeDescriptor(((EnumTypeValue)val).EnumName);
                 default:
                     return new TypeDescriptor(val.Type.ToString().ToLower());
             }

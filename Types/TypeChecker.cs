@@ -1,5 +1,6 @@
 ﻿using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
+using RaLanguage.Interpreter.Values.Classes;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Interpreter.Values.Structs;
 using RaLanguage.Parser.Nodes;
@@ -16,6 +17,18 @@ namespace RaLanguage.Types
                 var declName = declaredType.Name;
 
                 var symbol = context.SymbolTable.Get(declName);
+
+                if (symbol is ClassTypeValue)
+                {
+                    if (value.Type != RuntimeValueType.ClassInstance)
+                        return null;
+
+                    if (!string.Equals(((ClassInstanceValue)value).Definition.ClassName, declaredType.Name, StringComparison.Ordinal))
+                        return null;
+
+                    return value;
+                }
+
                 if (symbol is StructTypeValue)
                 {
                     if (value.Type != RuntimeValueType.StructInstance)

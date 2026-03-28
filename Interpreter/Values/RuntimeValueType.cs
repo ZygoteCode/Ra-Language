@@ -27,6 +27,8 @@
         EnumType,
         Enum,
         StructType,
-        StructInstance
+        StructInstance,
+        ClassType,
+        ClassInstance
     }
 }

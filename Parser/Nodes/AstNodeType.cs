@@ -55,6 +55,7 @@
         Self,
         MemberAccess,
         MemberAssignment,
-        Scope
+        Scope,
+        ClassDefinition
     }
 }

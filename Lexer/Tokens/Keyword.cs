@@ -47,6 +47,7 @@
         Enum,
         Struct,
         Pub,
-        Self
+        Self,
+        Class
     }
 }

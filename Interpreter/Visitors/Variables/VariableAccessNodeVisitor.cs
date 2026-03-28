@@ -27,6 +27,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
             var value = entry.Value;
 
             if (value.Type == RuntimeValueType.StructInstance ||
+                value.Type == RuntimeValueType.ClassInstance ||
                 value.Type == RuntimeValueType.Enum ||
                 value.Type == RuntimeValueType.EnumType)
             {

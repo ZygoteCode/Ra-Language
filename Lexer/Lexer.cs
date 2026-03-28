@@ -847,7 +847,8 @@ namespace RaLanguage.Lexer
                 { "enum", Keyword.Enum },
                 { "struct", Keyword.Struct },
                 { "pub", Keyword.Pub },
-                { "self", Keyword.Self }
+                { "self", Keyword.Self },
+                { "class", Keyword.Class }
             };
         }
 

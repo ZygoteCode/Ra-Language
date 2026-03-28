@@ -3,6 +3,7 @@ using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
+using RaLanguage.Interpreter.Visitors.Classes;
 using RaLanguage.Interpreter.Visitors.Enums;
 using RaLanguage.Interpreter.Visitors.Functions;
 using RaLanguage.Interpreter.Visitors.Iterations;
@@ -82,6 +83,7 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.MemberAccess] = new MemberAccessNodeVisitor();
             _visitors[(int)AstNodeType.MemberAssignment] = new MemberAssignmentNodeVisitor();
             _visitors[(int)AstNodeType.Scope] = new ScopeNodeVisitor();
+            _visitors[(int)AstNodeType.ClassDefinition] = new ClassDefinitionNodeVisitor();
         }
 
         public RuntimeResult Visit(AstNode node, Context context)
