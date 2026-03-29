@@ -16,6 +16,7 @@ This is constantly updated list, I am expanding with new ideas and concepts for 
 
 I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
   
+  - [ ] Remove aliases from types, must have a unique name.
   - [ ] Implement the "static" keyword for objects (structs, classes, enums), fields and methods.
   - [ ] Implement namespaces.
   - [ ] Implement the "import" directive to import functions, classes, enums, fields, methods and so on, with a intelligent path system.
