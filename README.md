@@ -20,6 +20,7 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [ ] Implement the "import" directive to import functions, classes, enums, fields, methods and so on, with a intelligent path system.
   - [ ] Implement basic methods (to_string, repr), in-classes methods for operators (==, <, >, ...).
   - [ ] Implement built-in functions for reflections and complex language operations (ex. native sys calls).
+  - [ ] Implement operator overloading.
 
 New ideas coming soon!
 
