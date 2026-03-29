@@ -59,11 +59,32 @@ namespace RaLanguage.Interpreter.Visitors.Members
                 var instance = (ClassInstanceValue)target;
 
                 if (instance.HasField(memberName))
+                {
                     return res.Success(instance.GetField(memberName).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                }
 
-                var candidates = instance.Definition.ResolveCandidates(memberName);
-                if (candidates.Count > 0)
-                    return res.Success(new BoundMethodGroupValue(memberName, instance, instance.Definition, candidates).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                var instanceMethods = instance.Definition.ResolveInstanceMethods(memberName);
+                if (instanceMethods.Count > 0)
+                {
+                    return res.Success(new BoundClassMethodValue(instance.Definition, instance, instanceMethods[0], isStatic: false)
+                        .SetContext(context)
+                        .SetPos(node.PositionStart, node.PositionEnd));
+                }
+
+                if (instance.Definition.HasStaticField(memberName))
+                {
+                    return res.Success(
+                        instance.Definition.StaticFields[memberName]
+                            .SetContext(context)
+                            .SetPos(node.PositionStart, node.PositionEnd));
+                }
+
+                if (instance.Definition.TryGetStaticMethodOwner(memberName, out var staticOwner, out var staticMethod) && staticMethod != null)
+                {
+                    return res.Success(new BoundClassMethodValue(staticOwner, null, staticMethod, isStatic: true)
+                        .SetContext(context)
+                        .SetPos(node.PositionStart, node.PositionEnd));
+                }
 
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Class '{instance.Definition.ClassName}' has no member '{memberName}'", context));
             }
@@ -82,6 +103,28 @@ namespace RaLanguage.Interpreter.Visitors.Members
                     return res.Success(new BoundMethodGroupValue(memberName, sup.Instance, sup.BaseClass, candidates).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
 
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Base class '{sup.BaseClass.ClassName}' has no member '{memberName}'", context));
+            }
+
+            if (target.Type == RuntimeValueType.ClassType)
+            {
+                var classType = (ClassTypeValue)target;
+
+                if (classType.HasStaticField(memberName))
+                {
+                    return res.Success(
+                        classType.StaticFields[memberName]
+                            .SetContext(context)
+                            .SetPos(node.PositionStart, node.PositionEnd));
+                }
+
+                if (classType.TryGetStaticMethodOwner(memberName, out var owner, out var method) && method != null)
+                {
+                    return res.Success(new BoundClassMethodValue(owner, null, method, isStatic: true)
+                        .SetContext(context)
+                        .SetPos(node.PositionStart, node.PositionEnd));
+                }
+
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Class '{classType.ClassName}' has no static member '{memberName}'", context));
             }
 
             return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Member access is only valid on structs or enum types", context));

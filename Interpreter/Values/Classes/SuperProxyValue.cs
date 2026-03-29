@@ -1,9 +1,5 @@
-﻿using RaLanguage.Errors;
-using RaLanguage.Errors.Types;
-using RaLanguage.Interpreter.Runtime;
+﻿using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Values.Primitives;
-using RaLanguage.Parser.Nodes.Functions;
-using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Classes
 {
@@ -39,7 +35,7 @@ namespace RaLanguage.Interpreter.Values.Classes
             if (ctor == null)
                 return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"No matching base constructor found for '{BaseClass.ClassName}'", Context));
 
-            var boundCtor = (BoundClassMethodValue) new BoundClassMethodValue(BaseClass, Instance, ctor)
+            var boundCtor = (BoundClassMethodValue) new BoundClassMethodValue(BaseClass, Instance, ctor, false)
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
 

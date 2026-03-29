@@ -106,6 +106,33 @@ namespace RaLanguage.Interpreter.Visitors.Classes
                 }
             }
 
+            foreach (var field in node.Fields.Where(f => f.IsStatic))
+            {
+                RuntimeValue value = new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+
+                if (field.DefaultValueNode != null)
+                {
+                    var initRes = interpreter.Visit(field.DefaultValueNode, context);
+                    if (initRes.Error != null) return res.Failure(initRes.Error);
+                    value = initRes.Value ?? value;
+                }
+
+                if (field.FieldType != null && !TypeSystem.IsAssignable(context, field.FieldType, value))
+                {
+                    return res.Failure(new RuntimeError(
+                        field.NameTok.PositionStart,
+                        field.NameTok.PositionEnd,
+                        $"Type mismatch for static field '{field.NameTok.Value?.ToString()}'",
+                        context));
+                }
+
+                classValue.SetStaticField(
+                    field.NameTok.Value?.ToString() ?? "",
+                    value,
+                    field.IsPublic,
+                    field.FieldType);
+            }
+
             ValidateOverrides(node, classValue, context, ref res);
             if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;

@@ -8,6 +8,7 @@ using RaLanguage.Interpreter.Values.Interfaces;
 using RaLanguage.Interpreter.Values.Traits;
 using RaLanguage.Parser.Nodes.Functions;
 using RaLanguage.Parser.Nodes.Structs;
+using RaLanguage.Parser.Nodes.Traits;
 using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Primitives
@@ -25,6 +26,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override RuntimeValueType Type => RuntimeValueType.ClassType;
 
+        public Dictionary<string, RuntimeValue> StaticFields { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, bool> StaticFieldPublicity { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, TypeDescriptor?> StaticFieldTypes { get; } = new(StringComparer.Ordinal);
+
+        public override bool IsCopy => false;
+        public override RuntimeValue Copy() => this;
+
         public ClassTypeValue(
             string className,
             bool isPublic,
@@ -41,6 +49,99 @@ namespace RaLanguage.Interpreter.Values.Primitives
             BaseType = baseType;
             Fields = fields;
             Methods = methods;
+        }
+
+        public void SetStaticField(string name, RuntimeValue value, bool isPublic, TypeDescriptor? fieldType = null)
+        {
+            StaticFields[name] = value.IsCopy ? value.Copy() : value;
+            StaticFieldPublicity[name] = isPublic;
+            StaticFieldTypes[name] = fieldType;
+        }
+
+        public bool HasStaticField(string name) => StaticFields.ContainsKey(name);
+
+        public bool IsStaticFieldPublic(string name)
+            => StaticFieldPublicity.TryGetValue(name, out var p) && p;
+
+        public TypeDescriptor? GetStaticFieldType(string name)
+            => StaticFieldTypes.TryGetValue(name, out var t) ? t : null;
+
+        public bool TryGetStaticFieldOwner(string name, out ClassTypeValue owner)
+        {
+            if (StaticFields.ContainsKey(name))
+            {
+                owner = this;
+                return true;
+            }
+
+            if (BaseClass != null)
+                return BaseClass.TryGetStaticFieldOwner(name, out owner);
+
+            owner = null!;
+            return false;
+        }
+
+        public bool TryGetStaticMethodOwner(string name, out ClassTypeValue owner, out FunctionDefinitionNode? method)
+        {
+            var local = Methods.FirstOrDefault(m =>
+                m.IsStatic &&
+                string.Equals(m.VarNameTok?.Value?.ToString(), name, StringComparison.Ordinal));
+
+            if (local != null)
+            {
+                owner = this;
+                method = local;
+                return true;
+            }
+
+            if (BaseClass != null)
+                return BaseClass.TryGetStaticMethodOwner(name, out owner, out method);
+
+            owner = null!;
+            method = null;
+            return false;
+        }
+
+        public List<FunctionDefinitionNode> ResolveInstanceMethods(string name)
+        {
+            var result = Methods
+                .Where(m => !m.IsStatic && !m.IsAbstract &&
+                            string.Equals(m.VarNameTok?.Value?.ToString(), name, StringComparison.Ordinal))
+                .ToList();
+
+            if (result.Count > 0) return result;
+
+            foreach (var trait in Traits)
+            {
+                List<TraitMethodDefinitionNode> methods = trait.GetDefaultMethodsByName(name).ToList();
+
+                foreach (var method in methods)
+                {
+                    result.Add(new FunctionDefinitionNode(method.NameTok, method.ArgNameToks, method.ArgTypes, method.ParamDefaults, method.HasVarArgs, method.VarArgNameTok, method.VarArgType, method.ReturnType, method.BodyNode, method.ShouldAutoReturn, null, true, method.IsConstructor, method.IsOverride, method.IsAbstract, false));
+                }
+
+                result.AddRange();
+            }
+
+            if (BaseClass != null)
+                result.AddRange(BaseClass.ResolveInstanceMethods(name));
+
+            return result;
+        }
+
+        public List<FunctionDefinitionNode> ResolveStaticMethods(string name)
+        {
+            var result = Methods
+                .Where(m => m.IsStatic && !m.IsAbstract &&
+                            string.Equals(m.VarNameTok?.Value?.ToString(), name, StringComparison.Ordinal))
+                .ToList();
+
+            if (result.Count > 0) return result;
+
+            if (BaseClass != null)
+                result.AddRange(BaseClass.ResolveStaticMethods(name));
+
+            return result;
         }
 
         public List<ICallableMethodDefinition> ResolveCandidates(string methodName)
@@ -132,7 +233,6 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public bool HasInheritedOrTraitMethodSignature(ICallableMethodDefinition method)
         {
-            // base/trait only, no local class methods
             if (BaseClass != null && BaseClass.HasMethodSignatureInHierarchy(method))
                 return true;
 
@@ -148,14 +248,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public bool HasMethodSignatureInHierarchy(ICallableMethodDefinition method)
         {
-            // class local
             foreach (var m in Methods.Where(m => string.Equals(m.VarNameTok?.Value?.ToString(), MethodSignature.NameOf(method), StringComparison.Ordinal)))
             {
                 if (MethodSignature.MatchesSignature(m, method))
                     return true;
             }
 
-            // trait defaults on this class
             foreach (var trait in Traits)
             {
                 foreach (var m in trait.GetDefaultMethodsByName(MethodSignature.NameOf(method)))
@@ -165,7 +263,6 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 }
             }
 
-            // base chain
             return BaseClass?.HasMethodSignatureInHierarchy(method) ?? false;
         }
 
@@ -175,7 +272,6 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return BaseClass.ResolveCandidates(methodName);
         }
 
-        // constructors stay class-local + base fallback, not trait methods
         public FunctionDefinitionNode? ResolveConstructor(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
         {
             var ctors = Methods.Where(m => m.IsConstructor).ToList();
@@ -233,7 +329,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                     Context));
             }
 
-            var instance = (ClassInstanceValue) new ClassInstanceValue(this)
+            var instance = (ClassInstanceValue)new ClassInstanceValue(this)
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
 
@@ -242,7 +338,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             var ownCtor = ResolveOwnConstructor(positionalArgs, namedArgs);
             if (ownCtor != null)
             {
-                var boundCtor = (BoundClassMethodValue) new BoundClassMethodValue(this, instance, ownCtor)
+                var boundCtor = (BoundClassMethodValue)new BoundClassMethodValue(this, instance, ownCtor, false)
                     .SetContext(Context)
                     .SetPos(PositionStart, PositionEnd);
 
@@ -257,7 +353,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var baseCtorMatch = BaseClass.ResolveOwnConstructor(positionalArgs, namedArgs);
                 if (baseCtorMatch != null)
                 {
-                    var boundBaseCtor = (BoundClassMethodValue) new BoundClassMethodValue(BaseClass, instance, baseCtorMatch)
+                    var boundBaseCtor = (BoundClassMethodValue)new BoundClassMethodValue(BaseClass, instance, baseCtorMatch, false)
                         .SetContext(Context)
                         .SetPos(PositionStart, PositionEnd);
 
@@ -318,12 +414,5 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
             return true;
         }
-
-        public override RuntimeValue Copy()
-            => new ClassTypeValue(ClassName, IsPublic, IsAbstract, BaseType, null, Fields, Methods)
-                .SetContext(Context)
-                .SetPos(PositionStart, PositionEnd);
-
-        public override string ToString() => $"<class {ClassName}>";
     }
 }

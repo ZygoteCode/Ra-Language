@@ -20,6 +20,7 @@ namespace RaLanguage.Parser.Nodes.Functions
         public bool IsConstructor { get; }
         public bool IsOverride { get; }
         public bool IsAbstract { get; }
+        public bool IsStatic { get; }
 
         Token? ICallableMethodDefinition.NameTok => VarNameTok;
         bool ICallableMethodDefinition.HasBody => BodyNode != null && !IsAbstract;
@@ -44,7 +45,8 @@ namespace RaLanguage.Parser.Nodes.Functions
             bool isPublic = false,
             bool isConstructor = false,
             bool isOverride = false,
-            bool isAbstract = false
+            bool isAbstract = false,
+            bool isStatic = false
         ) : base(AstNodeType.FunctionDefinition)
         {
             VarNameTok = varNameTok;
@@ -62,6 +64,7 @@ namespace RaLanguage.Parser.Nodes.Functions
             IsConstructor = isConstructor;
             IsOverride = isOverride;
             IsAbstract = isAbstract || bodyNode == null;
+            IsStatic = isStatic;
 
             if (varNameTok != null) PositionStart = varNameTok.Value.PositionStart;
             else if (ArgNameToks.Count > 0) PositionStart = ArgNameToks[0].PositionStart;

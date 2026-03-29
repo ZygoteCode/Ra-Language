@@ -10,6 +10,7 @@ namespace RaLanguage.Parser.Nodes.Classes
         public Token NameTok { get; }
         public bool IsPublic { get; }
         public bool IsAbstract { get; }
+        public bool IsStatic { get; }
         public TypeDescriptor? BaseType { get; }
         public List<TypeDescriptor> ImplementedInterfaces { get; }
         public List<TypeDescriptor> WithTraits { get; }
@@ -20,6 +21,7 @@ namespace RaLanguage.Parser.Nodes.Classes
             Token nameTok,
             bool isPublic,
             bool isAbstract,
+            bool isStatic,
             TypeDescriptor? baseType,
             List<TypeDescriptor> implementedInterfaces,
             List<TypeDescriptor> withTraits,
@@ -29,6 +31,8 @@ namespace RaLanguage.Parser.Nodes.Classes
         {
             NameTok = nameTok;
             IsPublic = isPublic;
+            IsStatic = isStatic;
+            IsAbstract = isAbstract;
             BaseType = baseType;
             Fields = fields;
             Methods = methods;

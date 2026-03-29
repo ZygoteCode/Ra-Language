@@ -55,6 +55,7 @@
         Impl,
         Trait,
         With,
-        Abstract
+        Abstract,
+        Static
     }
 }

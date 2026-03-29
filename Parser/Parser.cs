@@ -1173,7 +1173,7 @@ namespace RaLanguage.Parser
                     if (res.Error != null) return res;
                     return res.Success(structExpr);
                 case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Class:
-                    var classExpr = res.Register(ParseClassDefinition(false, false));
+                    var classExpr = res.Register(ParseClassDefinition(false, false, false));
                     if (res.Error != null) return res;
                     return res.Success(classExpr);
                 case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Interface:
@@ -1682,6 +1682,7 @@ namespace RaLanguage.Parser
         {
             var res = new ParserResult();
             bool isAbstract = false;
+            bool isStatic = false;
 
             res.RegisterAdvancement();
             Advance();
@@ -1692,16 +1693,32 @@ namespace RaLanguage.Parser
                 Advance();
             }
 
-            if (_currentToken.Matches(Keyword.Abstract))
+            while (_currentToken.Matches(Keyword.Abstract) || _currentToken.Matches(Keyword.Static))
             {
-                isAbstract = false;
-                res.RegisterAdvancement();
-                Advance();
-
-                while (_currentToken.Type == TokenType.NEWLINE)
+                if (_currentToken.Matches(Keyword.Abstract))
                 {
+                    isAbstract = false;
                     res.RegisterAdvancement();
                     Advance();
+
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                }
+
+                if (_currentToken.Matches(Keyword.Static))
+                {
+                    isStatic = false;
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
                 }
             }
 
@@ -1713,7 +1730,7 @@ namespace RaLanguage.Parser
             }
             else if (_currentToken.Matches(Keyword.Class))
             {
-                var classDef = res.Register(ParseClassDefinition(true, isAbstract));
+                var classDef = res.Register(ParseClassDefinition(true, isAbstract, isStatic));
                 if (res.Error != null) return res;
                 return res.Success(classDef);
             }
@@ -1733,7 +1750,7 @@ namespace RaLanguage.Parser
             return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'struct' or 'class'."));
         }
 
-        private ParserResult ParseClassDefinition(bool isPublic, bool isAbstract)
+        private ParserResult ParseClassDefinition(bool isPublic, bool isAbstract, bool isStatic)
         {
             var res = new ParserResult();
             res.RegisterAdvancement();
@@ -1883,25 +1900,61 @@ namespace RaLanguage.Parser
                 if (_currentToken.Type == TokenType.RBRACKET)
                     break;
 
-                bool memberPublic = false;
-
                 while (_currentToken.Type == TokenType.NEWLINE)
                 {
                     res.RegisterAdvancement();
                     Advance();
                 }
 
-                if (_currentToken.Matches(Keyword.Pub))
+                bool isMemberPublic = false,
+                    isMemberOverride = false,
+                    isMemberAbstract = false,
+                    isMemberStatic = false;
+
+                while (_currentToken.Matches(Keyword.Pub) || _currentToken.Matches(Keyword.Override) || _currentToken.Matches(Keyword.Abstract) || _currentToken.Matches(Keyword.Static))
                 {
-                    memberPublic = true;
+                    if (_currentToken.Matches(Keyword.Pub))
+                    {
+                        if (isMemberPublic)
+                        {
+                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Member is already public"));
+                        }
+
+                        isMemberPublic = true;
+                    }
+
+                    if (_currentToken.Matches(Keyword.Override))
+                    {
+                        if (isMemberOverride)
+                        {
+                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Member is already override"));
+                        }
+
+                        isMemberOverride = true;
+                    }
+
+                    if (_currentToken.Matches(Keyword.Abstract))
+                    {
+                        if (isMemberAbstract)
+                        {
+                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Member is already abstract"));
+                        }
+
+                        isMemberAbstract = true;
+                    }
+
+                    if (_currentToken.Matches(Keyword.Static))
+                    {
+                        if (isMemberStatic)
+                        {
+                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Member is already static"));
+                        }
+
+                        isMemberStatic = true;
+                    }
+
                     res.RegisterAdvancement();
                     Advance();
-
-                    while (_currentToken.Type == TokenType.NEWLINE)
-                    {
-                        res.RegisterAdvancement();
-                        Advance();
-                    }
                 }
 
                 if (_currentToken.Matches(Keyword.Var) ||
@@ -1909,17 +1962,18 @@ namespace RaLanguage.Parser
                     _currentToken.Matches(Keyword.Final) ||
                     _currentToken.Matches(Keyword.Let))
                 {
-                    var declRes = ParseVariableDeclaration(memberPublic);
+                    var declRes = ParseVariableDeclaration(isMemberPublic, isMemberStatic);
                     if (declRes.Error != null) return declRes;
 
                     var declNode = (VariableDeclarationNode)declRes.Node!;
                     foreach (var d in declNode.Declarations)
                     {
                         fields.Add(new StructFieldDefinitionNode(
-                            declNode.IsPublic,
+                            isMemberPublic,
                             d.Item1,
                             d.Item3,
-                            d.Item2
+                            d.Item2,
+                            isMemberStatic
                         ));
                     }
 
@@ -1938,49 +1992,9 @@ namespace RaLanguage.Parser
                     Advance();
                 }
 
-                bool isFunctionPublic = false,
-                    isFunctionOverride = false,
-                    isFunctionAbstract = false;
-
-                while (_currentToken.Matches(Keyword.Pub) || _currentToken.Matches(Keyword.Override) || _currentToken.Matches(Keyword.Abstract))
-                {
-                    if (_currentToken.Matches(Keyword.Pub))
-                    {
-                        if (isFunctionPublic)
-                        {
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Function is already public"));
-                        }
-
-                        isFunctionPublic = true;
-                    }
-
-                    if (_currentToken.Matches(Keyword.Override))
-                    {
-                        if (isFunctionOverride)
-                        {
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Function is already override"));
-                        }
-
-                        isFunctionOverride = true;
-                    }
-
-                    if (_currentToken.Matches(Keyword.Abstract))
-                    {
-                        if (isFunctionOverride)
-                        {
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Function is already abstract"));
-                        }
-
-                        isFunctionAbstract = true;
-                    }
-
-                    res.RegisterAdvancement();
-                    Advance();
-                }
-
                 if (_currentToken.Matches(Keyword.Fn) || (_currentToken.Type == TokenType.IDENTIFIER && _currentToken.Value.ToString() == className))
                 {
-                    var fnRes = ParseFunctionDefinition(ownerTypeName: className, isPublic: isFunctionPublic, isOverride: isFunctionOverride, isAbstract: isFunctionAbstract, _currentToken.Type == TokenType.IDENTIFIER && _currentToken.Value.ToString() == className);
+                    var fnRes = ParseFunctionDefinition(ownerTypeName: className, isPublic: isMemberPublic, isOverride: isMemberOverride, isAbstract: isMemberAbstract, isStatic: isMemberStatic, _currentToken.Type == TokenType.IDENTIFIER && _currentToken.Value.ToString() == className);
                     if (fnRes.Error != null) return fnRes;
 
                     methods.Add((FunctionDefinitionNode) fnRes.Node!);
@@ -2002,7 +2016,7 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            return res.Success(new ClassDefinitionNode(nameTok, isPublic, isAbstract, baseType, implementedInterfaces, withTraits, fields, methods));
+            return res.Success(new ClassDefinitionNode(nameTok, isPublic, isAbstract, isStatic, baseType, implementedInterfaces, withTraits, fields, methods));
         }
 
         private ParserResult ParseEnumDefinition()
@@ -3317,7 +3331,7 @@ namespace RaLanguage.Parser
             return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' or '{'"));
         }
 
-        private ParserResult ParseFunctionDefinition(string? ownerTypeName = null, bool isPublic = false, bool isOverride = false, bool isAbstract = false, bool isDeclaringConstructor = false)
+        private ParserResult ParseFunctionDefinition(string? ownerTypeName = null, bool isPublic = false, bool isOverride = false, bool isAbstract = false, bool isStatic = false, bool isDeclaringConstructor = false)
         {
             var res = new ParserResult();
 
@@ -3685,7 +3699,7 @@ namespace RaLanguage.Parser
                     return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier or ')'"));
             }
 
-        otherRparen:  res.RegisterAdvancement();
+            otherRparen:  res.RegisterAdvancement();
             Advance();
 
             while (_currentToken.Type == TokenType.NEWLINE)
@@ -3758,7 +3772,8 @@ namespace RaLanguage.Parser
                     isPublic,
                     isConstructor,
                     isOverride,
-                    isAbstract
+                    isAbstract,
+                    isStatic
                 ));
             }
 
@@ -3785,7 +3800,8 @@ namespace RaLanguage.Parser
                     isPublic,
                     isConstructor,
                     isOverride,
-                    isAbstract
+                    isAbstract,
+                    isStatic
                 ));
             }
 
@@ -3816,7 +3832,8 @@ namespace RaLanguage.Parser
                 isPublic,
                 isConstructor,
                 isOverride,
-                isAbstract
+                isAbstract,
+                isStatic
             ));
         }
 
@@ -3909,7 +3926,8 @@ namespace RaLanguage.Parser
                             declNode.IsPublic,
                             d.Item1,
                             d.Item3,
-                            d.Item2
+                            d.Item2,
+                            false
                         ));
                     }
 
@@ -3955,7 +3973,7 @@ namespace RaLanguage.Parser
             return res.Success(new StructDefinitionNode(nameTok, isPublic, fields, methods));
         }
 
-        private ParserResult ParseVariableDeclaration(bool isPublic = false)
+        private ParserResult ParseVariableDeclaration(bool isPublic = false, bool isStatic = false)
         {
             ParserResult res = new ParserResult();
             VariableDeclarationType variableDeclarationType = VariableDeclarationType.VARIABLE;
@@ -4029,7 +4047,7 @@ namespace RaLanguage.Parser
                 }
             }
 
-            return res.Success(new VariableDeclarationNode(variableDeclarationType, declarations, isPublic));
+            return res.Success(new VariableDeclarationNode(variableDeclarationType, declarations, isPublic, isStatic));
         }
 
         private ParserResult ParseBinaryOperation(Func<ParserResult> funcA, List<(TokenType, Keyword?)> ops, Func<ParserResult>? funcB = null)

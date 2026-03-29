@@ -8,16 +8,19 @@ namespace RaLanguage.Parser.Nodes.Variables
         public VariableDeclarationType DeclarationType { get; }
         public List<(Token, AstNode?, TypeDescriptor?)> Declarations { get; }
         public bool IsPublic { get; }
+        public bool IsStatic { get; }
 
         public VariableDeclarationNode(
             VariableDeclarationType declarationType,
             List<(Token, AstNode?, TypeDescriptor?)> declarations,
-            bool isPublic = false
+            bool isPublic = false,
+            bool isStatic = false
         ) : base(AstNodeType.VariableDeclaration)
         {
             DeclarationType = declarationType;
             Declarations = declarations;
             IsPublic = isPublic;
+            IsStatic = isStatic;
 
             PositionStart = Declarations[0].Item1.PositionStart;
             PositionEnd = Declarations[Declarations.Count - 1].Item1.PositionEnd;

@@ -13,12 +13,15 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override RuntimeValueType Type => RuntimeValueType.BaseFunction;
 
-        public BoundClassMethodValue(ClassTypeValue definition, ClassInstanceValue selfInstance, FunctionDefinitionNode methodNode)
+        public bool IsStatic { get; }
+
+        public BoundClassMethodValue(ClassTypeValue definition, ClassInstanceValue selfInstance, FunctionDefinitionNode methodNode, bool isStatic)
             : base(methodNode.VarNameTok?.Value?.ToString() ?? "<method>")
         {
             Definition = definition;
             SelfInstance = selfInstance;
             MethodNode = methodNode;
+            IsStatic = isStatic;
         }
 
         public override RuntimeResult Execute(List<RuntimeValue> args)
@@ -31,13 +34,16 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
             var execCtx = GenerateNewContext();
 
-            execCtx.SymbolTable.Set(
-                "self",
-                SelfInstance,
-                isLet: true,
-                declaredType: new TypeDescriptor(Definition.ClassName),
-                isStaticallyTyped: true,
-                isPublic: false);
+            if (!IsStatic && SelfInstance != null)
+            {
+                execCtx.SymbolTable.Set(
+                    "self",
+                    SelfInstance,
+                    isLet: true,
+                    declaredType: new TypeDescriptor(Definition.ClassName),
+                    isStaticallyTyped: true,
+                    isPublic: false);
+            }
 
             if (MethodNode.IsConstructor)
             {
@@ -63,14 +69,17 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 MethodNode.VarArgNameTok,
                 MethodNode.VarArgType);
 
-            bindRes.execCtx.SymbolTable.Set(
-                "self",
-                SelfInstance,
-                isLet: true,
-                declaredType: new TypeDescriptor(Definition.ClassName),
-                isStaticallyTyped: true,
-                isPublic: false
-            );
+            if (!IsStatic && SelfInstance != null)
+            {
+                bindRes.execCtx.SymbolTable.Set(
+                    "self",
+                    SelfInstance,
+                    isLet: true,
+                    declaredType: new TypeDescriptor(Definition.ClassName),
+                    isStaticallyTyped: true,
+                    isPublic: false
+                );
+            }
 
             if (MethodNode.IsConstructor)
             {
@@ -118,7 +127,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
         }
 
         public override RuntimeValue Copy()
-            => new BoundClassMethodValue(Definition, SelfInstance, MethodNode)
+            => new BoundClassMethodValue(Definition, SelfInstance, MethodNode, IsStatic)
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
 

@@ -38,15 +38,24 @@ namespace RaLanguage.Interpreter.Visitors.Members
             if (owner.Type == RuntimeValueType.ClassInstance)
             {
                 var instance = (ClassInstanceValue)owner;
-                if (!instance.HasField(memberName))
-                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Class '{instance.Definition.ClassName}' has no field '{memberName}'", context));
 
-                var fieldType = instance.GetFieldType(memberName);
-                if (fieldType != null && !TypeSystem.IsAssignable(context, fieldType, value))
-                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Type mismatch for field '{memberName}'", context));
+                if (instance.HasField(memberName))
+                {
+                    instance.SetMember(memberName, value);
+                    return res.Success(value.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                }
 
-                instance.SetMember(memberName, value);
-                return res.Success(value.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                if (instance.Definition.HasStaticField(memberName))
+                {
+                    var fieldType = instance.Definition.GetStaticFieldType(memberName);
+                    if (fieldType != null && !TypeSystem.IsAssignable(context, fieldType, value))
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Type mismatch for static field '{memberName}'", context));
+
+                    instance.Definition.SetStaticField(memberName, value, instance.Definition.IsStaticFieldPublic(memberName), fieldType);
+                    return res.Success(value.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                }
+
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Class '{instance.Definition.ClassName}' has no field or static field '{memberName}'", context));
             }
 
             if (owner.Type == RuntimeValueType.Super)
@@ -60,6 +69,23 @@ namespace RaLanguage.Interpreter.Visitors.Members
 
                 sup.Instance.SetMember(memberName, value);
                 return res.Success(value.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+            }
+
+            if (owner.Type == RuntimeValueType.ClassType)
+            {
+                var classType = (ClassTypeValue)owner;
+
+                if (classType.HasStaticField(memberName))
+                {
+                    var fieldType = classType.GetStaticFieldType(memberName);
+                    if (fieldType != null && !TypeSystem.IsAssignable(context, fieldType, value))
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Type mismatch for static field '{memberName}'", context));
+
+                    classType.SetStaticField(memberName, value, classType.IsStaticFieldPublic(memberName), fieldType);
+                    return res.Success(value.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                }
+
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Class '{classType.ClassName}' has no static field '{memberName}'", context));
             }
 
             return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Left side of assignment must be a struct/class field", context));
