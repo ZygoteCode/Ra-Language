@@ -54,6 +54,7 @@
         Interface,
         Impl,
         Trait,
-        With
+        With,
+        Abstract
     }
 }

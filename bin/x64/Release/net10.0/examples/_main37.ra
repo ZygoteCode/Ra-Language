@@ -1,0 +1,26 @@
+pub trait Named {
+    fn get_name();
+}
+
+pub trait DefaultGreet {
+    fn greet() {
+        ret "hello";
+    }
+}
+
+pub class Person with Named, DefaultGreet {
+    pub var name: string;
+
+    pub fn get_name() {
+        ret self.name;
+    }
+}
+
+fn greet(x: Named) {
+    print($"Hello, ${x.get_name()}!");
+}
+
+var p = Person();
+p.name = "Gabriele";
+greet(p);
+print(p.greet());

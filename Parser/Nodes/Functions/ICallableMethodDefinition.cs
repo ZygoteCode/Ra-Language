@@ -15,10 +15,11 @@ namespace RaLanguage.Parser.Nodes.Functions
         TypeDescriptor? VarArgType { get; }
         TypeDescriptor? ReturnType { get; }
         AstNode? BodyNode { get; }
-        bool ShouldAutoReturn { get; }
 
         bool HasBody { get; }
+        bool IsAbstract { get; }
         bool IsOverride { get; }
         bool IsConstructor { get; }
+        bool ShouldAutoReturn { get; }
     }
 }

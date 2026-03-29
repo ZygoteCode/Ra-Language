@@ -18,13 +18,12 @@ namespace RaLanguage.Interpreter.Values.Traits
             Methods = methods;
         }
 
-        public IEnumerable<TraitMethodDefinitionNode> GetDefaultMethodsByName(string name)
-            => Methods.Where(m =>
-                m.HasBody &&
-                string.Equals(m.NameTok.Value.ToString(), name, StringComparison.Ordinal));
-
         public IEnumerable<TraitMethodDefinitionNode> GetRequiredMethods()
             => Methods.Where(m => !m.HasBody);
+
+        public IEnumerable<TraitMethodDefinitionNode> GetDefaultMethodsByName(string name)
+            => Methods.Where(m => m.HasBody &&
+                                 string.Equals(m.NameTok.Value.ToString(), name, StringComparison.Ordinal));
 
         public override RuntimeValue Copy()
             => new TraitTypeValue(TraitName, IsPublic, Methods)

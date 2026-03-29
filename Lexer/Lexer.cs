@@ -854,7 +854,8 @@ namespace RaLanguage.Lexer
                 { "interface", Keyword.Interface },
                 { "impl", Keyword.Impl },
                 { "trait", Keyword.Trait },
-                { "with", Keyword.With }
+                { "with", Keyword.With },
+                { "abstract", Keyword.Abstract }
             };
         }
 

@@ -16,6 +16,7 @@ namespace RaLanguage.Parser.Nodes.Traits
         public TypeDescriptor? ReturnType { get; }
         public AstNode? BodyNode { get; }
         public bool ShouldAutoReturn { get; }
+        public bool IsAbstract { get; }
 
         public Token? NameTokAlias => NameTok;
         public bool HasBody => BodyNode != null;
@@ -32,7 +33,8 @@ namespace RaLanguage.Parser.Nodes.Traits
             TypeDescriptor? varArgType,
             TypeDescriptor? returnType,
             AstNode? bodyNode,
-            bool shouldAutoReturn)
+            bool shouldAutoReturn,
+            bool isAbstract)
             : base(AstNodeType.TraitMethodDefinition)
         {
             NameTok = nameTok;
@@ -45,6 +47,7 @@ namespace RaLanguage.Parser.Nodes.Traits
             ReturnType = returnType;
             BodyNode = bodyNode;
             ShouldAutoReturn = shouldAutoReturn;
+            IsAbstract = isAbstract;
 
             PositionStart = nameTok.PositionStart;
             PositionEnd = bodyNode?.PositionEnd ?? nameTok.PositionEnd;

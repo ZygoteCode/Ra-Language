@@ -1,0 +1,35 @@
+pub class Person {
+   pub var name: string;
+   pub var surname: string;
+   pub var age: int;
+
+   pub Person(name: string, surname: string) {
+       self.name = name;
+       self.surname = surname;
+       self.age = 0;
+   }
+
+   pub Person(name: string, surname: string, age: int) {
+       self.name = name;
+       self.surname = surname;
+       self.age = age;
+   }
+
+   pub fn get_name() {
+       ret self.name;
+   }
+   
+   pub fn set_name(name: string) {
+       self.name = name;
+   }
+}
+
+var my_person = Person("Gabriele", "Favaro");
+print(my_person.get_name());
+my_person.set_name("Alessandro");
+print(my_person.get_name());
+
+var a = Person("A", "B");
+var b = a;
+b.set_name("C");
+print(a.get_name()); // prints "C"

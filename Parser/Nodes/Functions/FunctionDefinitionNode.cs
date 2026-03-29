@@ -13,14 +13,21 @@ namespace RaLanguage.Parser.Nodes.Functions
         public Token? VarArgNameTok { get; }
         public TypeDescriptor? VarArgType { get; }
         public TypeDescriptor? ReturnType { get; }
-        public AstNode BodyNode { get; }
+        public AstNode? BodyNode { get; }
         public bool ShouldAutoReturn { get; }
         public List<string> GenericTypeParams { get; }
         public bool IsPublic { get; }
         public bool IsConstructor { get; }
         public bool IsOverride { get; }
-        public Token? NameTok => VarNameTok;
-        public bool HasBody => BodyNode != null;
+        public bool IsAbstract { get; }
+
+        Token? ICallableMethodDefinition.NameTok => VarNameTok;
+        bool ICallableMethodDefinition.HasBody => BodyNode != null && !IsAbstract;
+        bool ICallableMethodDefinition.IsAbstract => IsAbstract;
+        bool ICallableMethodDefinition.IsOverride => IsOverride;
+        bool ICallableMethodDefinition.IsConstructor => IsConstructor;
+        bool ICallableMethodDefinition.ShouldAutoReturn => ShouldAutoReturn;
+        AstNode? ICallableMethodDefinition.BodyNode => BodyNode;
 
         public FunctionDefinitionNode(
             Token? varNameTok,
@@ -31,12 +38,13 @@ namespace RaLanguage.Parser.Nodes.Functions
             Token? varArgNameTok,
             TypeDescriptor? varArgType,
             TypeDescriptor? returnType,
-            AstNode bodyNode,
+            AstNode? bodyNode,
             bool shouldAutoReturn,
             List<string>? genericTypeParams = null,
             bool isPublic = false,
             bool isConstructor = false,
-            bool isOverride = false
+            bool isOverride = false,
+            bool isAbstract = false
         ) : base(AstNodeType.FunctionDefinition)
         {
             VarNameTok = varNameTok;
@@ -53,12 +61,13 @@ namespace RaLanguage.Parser.Nodes.Functions
             IsPublic = isPublic;
             IsConstructor = isConstructor;
             IsOverride = isOverride;
+            IsAbstract = isAbstract || bodyNode == null;
 
             if (varNameTok != null) PositionStart = varNameTok.Value.PositionStart;
             else if (ArgNameToks.Count > 0) PositionStart = ArgNameToks[0].PositionStart;
-            else PositionStart = bodyNode.PositionStart;
+            else if (bodyNode != null) PositionStart = bodyNode.PositionStart;
 
-            PositionEnd = bodyNode.PositionEnd;
+            PositionEnd = bodyNode?.PositionEnd ?? PositionStart;
         }
     }
 }

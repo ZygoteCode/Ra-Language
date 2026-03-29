@@ -6,7 +6,6 @@ using RaLanguage.Interpreter.Values.Classes;
 using RaLanguage.Interpreter.Values.Functions;
 using RaLanguage.Interpreter.Values.Interfaces;
 using RaLanguage.Interpreter.Values.Traits;
-using RaLanguage.Parser.Nodes.Classes;
 using RaLanguage.Parser.Nodes.Functions;
 using RaLanguage.Parser.Nodes.Structs;
 using RaLanguage.Types;
@@ -17,22 +16,108 @@ namespace RaLanguage.Interpreter.Values.Primitives
     {
         public string ClassName { get; }
         public bool IsPublic { get; }
+        public bool IsAbstract { get; set; }
         public TypeDescriptor? BaseType { get; }
         public ClassTypeValue? BaseClass { get; set; }
-        public List<TraitTypeValue> Traits { get; set; } = new();
+        public List<TraitTypeValue> Traits { get; set; } = new List<TraitTypeValue>();
         public List<StructFieldDefinitionNode> Fields { get; }
         public List<FunctionDefinitionNode> Methods { get; }
 
         public override RuntimeValueType Type => RuntimeValueType.ClassType;
 
-        public ClassTypeValue(string className, bool isPublic, TypeDescriptor? baseType, List<StructFieldDefinitionNode> fields, List<FunctionDefinitionNode> methods)
-            : base(className)
+        public ClassTypeValue(
+            string className,
+            bool isPublic,
+            bool isAbstract,
+            TypeDescriptor? baseType,
+            List<TypeDescriptor> withTraits,
+            List<StructFieldDefinitionNode> fields,
+            List<FunctionDefinitionNode> methods
+        ) : base(className)
         {
             ClassName = className;
             IsPublic = isPublic;
+            IsAbstract = isAbstract;
             BaseType = baseType;
             Fields = fields;
             Methods = methods;
+        }
+
+        public List<ICallableMethodDefinition> ResolveCandidates(string methodName)
+        {
+            var result = new List<ICallableMethodDefinition>();
+
+            result.AddRange(Methods.Where(m =>
+                !m.IsAbstract &&
+                string.Equals(m.VarNameTok?.Value?.ToString(), methodName, StringComparison.Ordinal)));
+
+            foreach (var trait in Traits)
+            {
+                result.AddRange(trait.GetDefaultMethodsByName(methodName));
+            }
+
+            if (BaseClass != null)
+            {
+                result.AddRange(BaseClass.ResolveCandidates(methodName));
+            }
+
+            return result;
+        }
+
+        public IEnumerable<ICallableMethodDefinition> GetAbstractRequirementsInHierarchy()
+        {
+            var all = new List<ICallableMethodDefinition>();
+
+            CollectAbstractRequirements(this, all);
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var req in all)
+            {
+                var key = MethodSignature.KeyOf(req);
+                if (seen.Add(key))
+                    yield return req;
+            }
+        }
+
+        private static void CollectAbstractRequirements(ClassTypeValue type, List<ICallableMethodDefinition> output)
+        {
+            output.AddRange(type.Methods.Where(m => m.IsAbstract));
+
+            foreach (var trait in type.Traits)
+                output.AddRange(trait.GetRequiredMethods());
+
+            if (type.BaseClass != null)
+                CollectAbstractRequirements(type.BaseClass, output);
+        }
+
+        public bool HasConcreteImplementation(ICallableMethodDefinition requirement)
+        {
+            return ResolveCandidates(MethodSignature.NameOf(requirement))
+                .Any(c => MethodSignature.MatchesSignature(c, requirement));
+        }
+
+        public List<ICallableMethodDefinition> GetUnresolvedAbstractRequirements()
+        {
+            return GetAbstractRequirementsInHierarchy()
+                .Where(req => !HasConcreteImplementation(req))
+                .ToList();
+        }
+
+        public bool InheritsFrom(string ancestorName)
+        {
+            if (string.Equals(ClassName, ancestorName, StringComparison.Ordinal))
+                return true;
+
+            var current = BaseClass;
+            while (current != null)
+            {
+                if (string.Equals(current.ClassName, ancestorName, StringComparison.Ordinal))
+                    return true;
+
+                current = current.BaseClass;
+            }
+
+            return false;
         }
 
         public bool SatisfiesTrait(TraitTypeValue trait)
@@ -84,26 +169,6 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return BaseClass?.HasMethodSignatureInHierarchy(method) ?? false;
         }
 
-        public List<ICallableMethodDefinition> ResolveCandidates(string methodName)
-        {
-            var result = new List<ICallableMethodDefinition>();
-
-            // 1) runtime class methods
-            result.AddRange(Methods.Where(m => string.Equals(m.VarNameTok?.Value?.ToString(), methodName, StringComparison.Ordinal)));
-
-            // 2) trait fallback in declaration order
-            foreach (var trait in Traits)
-            {
-                result.AddRange(trait.GetDefaultMethodsByName(methodName));
-            }
-
-            // 3) base chain repeats same process
-            if (BaseClass != null)
-                result.AddRange(BaseClass.ResolveCandidates(methodName));
-
-            return result;
-        }
-
         public List<ICallableMethodDefinition> ResolveBaseCandidates(string methodName)
         {
             if (BaseClass == null) return new List<ICallableMethodDefinition>();
@@ -121,23 +186,6 @@ namespace RaLanguage.Interpreter.Values.Primitives
             }
 
             return null;
-        }
-
-        public bool InheritsFrom(string ancestorName)
-        {
-            if (string.Equals(ClassName, ancestorName, StringComparison.Ordinal))
-                return true;
-
-            var current = BaseClass;
-            while (current != null)
-            {
-                if (string.Equals(current.ClassName, ancestorName, StringComparison.Ordinal))
-                    return true;
-
-                current = current.BaseClass;
-            }
-
-            return false;
         }
 
         public StructFieldDefinitionNode? GetField(string name)
@@ -175,6 +223,16 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
         {
             var res = new RuntimeResult();
+
+            if (IsAbstract)
+            {
+                return res.Failure(new RuntimeError(
+                    PositionStart,
+                    PositionEnd,
+                    $"Cannot instantiate abstract class '{ClassName}'",
+                    Context));
+            }
+
             var instance = (ClassInstanceValue) new ClassInstanceValue(this)
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
@@ -262,7 +320,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
         }
 
         public override RuntimeValue Copy()
-            => new ClassTypeValue(ClassName, IsPublic, BaseType, Fields, Methods)
+            => new ClassTypeValue(ClassName, IsPublic, IsAbstract, BaseType, null, Fields, Methods)
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
 
