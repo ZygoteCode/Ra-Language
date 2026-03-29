@@ -264,5 +264,38 @@ namespace RaLanguage.Types
 
             return true;
         }
+
+        public static string GetExtensionTargetName(RuntimeValue value)
+        {
+            return value.Type switch
+            {
+                RuntimeValueType.String => "string",
+                RuntimeValueType.Boolean => "bool",
+                RuntimeValueType.Number => "number",
+                RuntimeValueType.Integer => "int",
+                RuntimeValueType.Long => "long",
+                RuntimeValueType.Float => "float",
+                RuntimeValueType.Double => "double",
+                RuntimeValueType.UnsignedInteger => "uint",
+                RuntimeValueType.UnsignedLong => "ulong",
+                RuntimeValueType.Short => "short",
+                RuntimeValueType.UnsignedShort => "ushort",
+                RuntimeValueType.Int128 => "int128",
+                RuntimeValueType.UnsignedInt128 => "uint128",
+                RuntimeValueType.Decimal => "decimal",
+                RuntimeValueType.Byte => "byte",
+                RuntimeValueType.List => "list",
+                RuntimeValueType.Set => "set",
+                RuntimeValueType.Map => "map",
+                RuntimeValueType.Tuple => "tuple",
+                RuntimeValueType.Null => "null",
+                RuntimeValueType.StructInstance => ((StructInstanceValue)value).Definition.StructName,
+                RuntimeValueType.ClassInstance => ((ClassInstanceValue)value).Definition.ClassName,
+                RuntimeValueType.Enum => ((EnumValue)value).EnumName,
+                RuntimeValueType.EnumType => ((EnumTypeValue)value).EnumName,
+                RuntimeValueType.TraitType => "trait",
+                _ => value.Type.ToString()
+            };
+        }
     }
 }

@@ -56,6 +56,7 @@
         Trait,
         With,
         Abstract,
-        Static
+        Static,
+        Extend
     }
 }

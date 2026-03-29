@@ -62,6 +62,7 @@
         InterfaceMethodSignature,
         TraitDefinition,
         TraitMethodDefinition,
-        CallableSignature
+        CallableSignature,
+        ExtensionDefinition
     }
 }

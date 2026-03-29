@@ -1,0 +1,366 @@
+﻿using RaLanguage.Errors.Types;
+using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Values.Functions;
+using RaLanguage.Interpreter.Values.Primitives;
+using RaLanguage.Parser.Nodes;
+using RaLanguage.Parser.Nodes.Functions;
+using RaLanguage.Types;
+
+namespace RaLanguage.Interpreter.Values.Classes
+{
+    public class BoundClassMethodGroupValue : BaseFunctionValue
+    {
+        public ClassTypeValue Definition { get; }
+        public ClassInstanceValue SelfInstance { get; }
+        public List<FunctionDefinitionNode> Candidates { get; }
+
+        public override RuntimeValueType Type => RuntimeValueType.BaseFunction;
+
+        public BoundClassMethodGroupValue(
+            ClassTypeValue definition,
+            ClassInstanceValue selfInstance,
+            List<FunctionDefinitionNode> candidates
+        ) : base(candidates.Count > 0
+                ? (candidates[0].VarNameTok?.Value?.ToString() ?? "<method>")
+                : "<method>")
+        {
+            Definition = definition;
+            SelfInstance = selfInstance;
+            Candidates = candidates ?? new List<FunctionDefinitionNode>();
+        }
+
+        public override RuntimeResult Execute(List<RuntimeValue> args)
+            => ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
+
+        public override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
+        {
+            var res = new RuntimeResult();
+            var interpreter = new Interpreter();
+
+            var selected = Candidates.FirstOrDefault(c =>
+                c != null &&
+                !c.IsAbstract &&
+                c.BodyNode != null &&
+                CanBindSignature(c, positionalArgs, namedArgs, Context));
+
+            if (selected == null)
+            {
+                return res.Failure(new RuntimeError(
+                    PositionStart,
+                    PositionEnd,
+                    $"No matching overload found for '{Name}'",
+                    Context));
+            }
+
+            var execCtx = GenerateNewContext();
+
+            execCtx.SymbolTable.Set(
+                "self",
+                SelfInstance,
+                isLet: true,
+                declaredType: new TypeDescriptor(Definition.ClassName),
+                isStaticallyTyped: true,
+                isPublic: false);
+
+            var bindError = BindArgumentsIntoContext(
+                selected,
+                execCtx,
+                positionalArgs,
+                namedArgs,
+                out RuntimeResult? bindResult);
+
+            if (bindError != null)
+            {
+                return res.Failure(bindError);
+            }
+
+            var bodyRes = interpreter.Visit(selected.BodyNode!, bindResult!.Value!.Context);
+            if (bodyRes.Error != null)
+            {
+                return res.Failure(bodyRes.Error);
+            }
+
+            if (bodyRes.FuncReturnValue != null)
+            {
+                if (selected.ReturnType != null && !TypeSystem.IsAssignable(bindResult.Value.Context, selected.ReturnType, bodyRes.FuncReturnValue))
+                {
+                    return res.Failure(new RuntimeError(
+                        PositionStart,
+                        PositionEnd,
+                        $"Return type mismatch in method '{Name}'",
+                        Context));
+                }
+
+                return res.Success(bodyRes.FuncReturnValue);
+            }
+
+            var retValue = selected.ShouldAutoReturn
+                ? (bodyRes.Value ?? new NullValue().SetContext(Context).SetPos(PositionStart, PositionEnd))
+                : new NullValue().SetContext(Context).SetPos(PositionStart, PositionEnd);
+
+            if (selected.ReturnType != null && !TypeSystem.IsAssignable(bindResult.Value.Context, selected.ReturnType, retValue))
+            {
+                return res.Failure(new RuntimeError(
+                    PositionStart,
+                    PositionEnd,
+                    $"Return type mismatch in method '{Name}'",
+                    Context));
+            }
+
+            return res.Success(retValue);
+        }
+
+        private bool CanBindSignature(
+            FunctionDefinitionNode method,
+            List<RuntimeValue> positionalArgs,
+            Dictionary<string, RuntimeValue> namedArgs,
+            Context context)
+        {
+            var argNames = method.ArgNameToks.Select(t => t.Value?.ToString() ?? "").ToList();
+            int formalCount = argNames.Count;
+
+            if (!method.HasVarArgs && positionalArgs.Count > formalCount)
+                return false;
+
+            var assigned = new HashSet<string>(StringComparer.Ordinal);
+
+            for (int i = 0; i < positionalArgs.Count && i < formalCount; i++)
+            {
+                assigned.Add(argNames[i]);
+
+                var expected = i < method.ArgTypes.Count ? method.ArgTypes[i] : null;
+                if (expected != null && !TypeSystem.IsAssignable(context, expected, positionalArgs[i]))
+                    return false;
+            }
+
+            foreach (var kv in namedArgs)
+            {
+                if (method.HasVarArgs && method.VarArgNameTok != null &&
+                    string.Equals(kv.Key, method.VarArgNameTok.Value.ToString(), StringComparison.Ordinal))
+                {
+                    if (kv.Value.Type != RuntimeValueType.List)
+                        return false;
+
+                    if (method.VarArgType != null)
+                    {
+                        var list = (ListValue)kv.Value;
+                        foreach (var el in list.Elements)
+                        {
+                            if (!TypeSystem.IsAssignable(context, method.VarArgType, el))
+                                return false;
+                        }
+                    }
+
+                    continue;
+                }
+
+                if (!argNames.Contains(kv.Key, StringComparer.Ordinal))
+                    return false;
+
+                if (!assigned.Add(kv.Key))
+                    return false;
+
+                int index = argNames.IndexOf(kv.Key);
+                var expected = index >= 0 && index < method.ArgTypes.Count ? method.ArgTypes[index] : null;
+                if (expected != null && !TypeSystem.IsAssignable(context, expected, kv.Value))
+                    return false;
+            }
+
+            for (int i = 0; i < formalCount; i++)
+            {
+                var name = argNames[i];
+                if (assigned.Contains(name))
+                    continue;
+
+                if (i >= method.ParamDefaults.Count || method.ParamDefaults[i] == null)
+                    return false;
+            }
+
+            if (method.HasVarArgs && method.VarArgType != null)
+            {
+                for (int i = formalCount; i < positionalArgs.Count; i++)
+                {
+                    if (!TypeSystem.IsAssignable(context, method.VarArgType, positionalArgs[i]))
+                        return false;
+                }
+            }
+
+            return true;
+        }
+
+        private RuntimeError? BindArgumentsIntoContext(
+            FunctionDefinitionNode method,
+            Context execCtx,
+            List<RuntimeValue> positionalArgs,
+            Dictionary<string, RuntimeValue> namedArgs,
+            out RuntimeResult? bindResult)
+        {
+            bindResult = new RuntimeResult();
+            var interpreter = new Interpreter();
+
+            var argNames = method.ArgNameToks.Select(t => t.Value?.ToString() ?? "").ToList();
+            var finalAssigned = new Dictionary<string, RuntimeValue>(StringComparer.Ordinal);
+            var extras = new List<RuntimeValue>();
+
+            int formalCount = argNames.Count;
+
+            for (int i = 0; i < positionalArgs.Count; i++)
+            {
+                if (i < formalCount)
+                {
+                    var name = argNames[i];
+
+                    if (finalAssigned.ContainsKey(name))
+                    {
+                        return new RuntimeError(
+                            PositionStart,
+                            PositionEnd,
+                            $"Argument for parameter '{name}' provided multiple times",
+                            Context);
+                    }
+
+                    finalAssigned[name] = positionalArgs[i];
+                }
+                else
+                {
+                    if (!method.HasVarArgs)
+                    {
+                        return new RuntimeError(
+                            PositionStart,
+                            PositionEnd,
+                            $"{positionalArgs.Count - formalCount} too many args passed into {Name}",
+                            Context);
+                    }
+
+                    extras.Add(positionalArgs[i]);
+                }
+            }
+
+            foreach (var kv in namedArgs)
+            {
+                if (method.HasVarArgs && method.VarArgNameTok != null &&
+                    string.Equals(kv.Key, method.VarArgNameTok.Value.ToString(), StringComparison.Ordinal))
+                {
+                    if (kv.Value.Type != RuntimeValueType.List)
+                    {
+                        return new RuntimeError(
+                            PositionStart,
+                            PositionEnd,
+                            $"Variadic named argument '{kv.Key}' must be a list",
+                            Context);
+                    }
+
+                    extras.AddRange(((ListValue)kv.Value).Elements);
+                    continue;
+                }
+
+                if (!argNames.Contains(kv.Key, StringComparer.Ordinal))
+                {
+                    return new RuntimeError(
+                        PositionStart,
+                        PositionEnd,
+                        $"Unknown named argument '{kv.Key}'",
+                        Context);
+                }
+
+                if (finalAssigned.ContainsKey(kv.Key))
+                {
+                    return new RuntimeError(
+                        PositionStart,
+                        PositionEnd,
+                        $"Argument for parameter '{kv.Key}' provided multiple times",
+                        Context);
+                }
+
+                finalAssigned[kv.Key] = kv.Value;
+            }
+
+            for (int i = 0; i < formalCount; i++)
+            {
+                var name = argNames[i];
+                if (finalAssigned.ContainsKey(name))
+                    continue;
+
+                AstNode? defAst = i < method.ParamDefaults.Count ? method.ParamDefaults[i] : null;
+                if (defAst == null)
+                {
+                    return new RuntimeError(
+                        PositionStart,
+                        PositionEnd,
+                        $"Missing required argument '{name}' for method '{Name}'",
+                        Context);
+                }
+
+                var defRes = interpreter.Visit(defAst, execCtx);
+                if (defRes.Error != null)
+                    return (RuntimeError) defRes.Error;
+
+                finalAssigned[name] = defRes.Value ?? new NullValue().SetContext(execCtx).SetPos(defAst.PositionStart, defAst.PositionEnd);
+            }
+
+            for (int i = 0; i < formalCount; i++)
+            {
+                var name = argNames[i];
+                var actual = finalAssigned[name];
+                var expected = i < method.ArgTypes.Count ? method.ArgTypes[i] : null;
+
+                if (expected != null && !TypeSystem.IsAssignable(execCtx, expected, actual))
+                {
+                    return new RuntimeError(
+                        PositionStart,
+                        PositionEnd,
+                        $"Type mismatch for argument '{name}'",
+                        Context);
+                }
+            }
+
+            if (method.HasVarArgs && method.VarArgType != null)
+            {
+                for (int i = 0; i < extras.Count; i++)
+                {
+                    if (!TypeSystem.IsAssignable(execCtx, method.VarArgType, extras[i]))
+                    {
+                        return new RuntimeError(
+                            PositionStart,
+                            PositionEnd,
+                            $"Type mismatch for variadic argument '{method.VarArgNameTok?.Value?.ToString() ?? "params"}'",
+                            Context);
+                    }
+                }
+            }
+
+            foreach (var kv in finalAssigned)
+            {
+                var value = kv.Value;
+                value.SetContext(execCtx);
+                execCtx.SymbolTable.Set(kv.Key, value);
+            }
+
+            if (method.HasVarArgs)
+            {
+                var varArgList = new ListValue(extras)
+                    .SetContext(execCtx)
+                    .SetPos(PositionStart, PositionEnd);
+
+                execCtx.SymbolTable.Set(method.VarArgNameTok?.Value?.ToString() ?? "params", varArgList);
+            }
+
+            bindResult = resSuccess(execCtx);
+            return null;
+
+            RuntimeResult resSuccess(Context ctx)
+            {
+                var rr = new RuntimeResult();
+                rr.Success(new NullValue().SetContext(ctx).SetPos(PositionStart, PositionEnd));
+                return rr;
+            }
+        }
+
+        public override RuntimeValue Copy()
+            => new BoundClassMethodGroupValue(Definition, SelfInstance, Candidates)
+                .SetContext(Context)
+                .SetPos(PositionStart, PositionEnd);
+
+        public override string ToString() => $"<bound method {Name}>";
+    }
+}

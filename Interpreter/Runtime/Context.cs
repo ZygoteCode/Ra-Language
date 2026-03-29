@@ -12,18 +12,21 @@ namespace RaLanguage.Interpreter.Runtime
 
         private bool _disposed;
 
-        public Context(string displayName, Context? parent = null, Position? parentEntryPos = null)
+        public ExtensionRegistry Extensions { get; }
+
+        public Context(string displayName, Context? parent = null, Position? parentEntryPos = null, ExtensionRegistry? extensions = null)
         {
             DisplayName = displayName;
             Parent = parent;
             ParentEntryPos = parentEntryPos;
             SymbolTable = new SymbolTable(parent?.SymbolTable);
-            _disposed = false;
+            Extensions = extensions ?? parent?.Extensions ?? new ExtensionRegistry();
         }
 
         public Context Copy()
         {
-            var newCtx = new Context(DisplayName, this);
+            var newCtx = new Context(DisplayName, this, ParentEntryPos, Extensions);
+            newCtx.SymbolTable = new SymbolTable(newCtx.Parent?.SymbolTable);
             return newCtx;
         }
 

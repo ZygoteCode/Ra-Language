@@ -18,10 +18,8 @@ I'll take a look at that as soon as possible! These are the things that I want t
   
   - [ ] Implement namespaces.
   - [ ] Implement the "import" directive to import functions, classes, enums, fields, methods and so on, with a intelligent path system.
-  - [ ] Implement delegates, callbacks, function piece into functions parameters, extensions to types/classes/structs/interfaces/traits, basic methods (to_string, repr), in-classes methods for operators (==, <, >, ...).
+  - [ ] Implement basic methods (to_string, repr), in-classes methods for operators (==, <, >, ...).
   - [ ] Implement built-in functions for reflections and complex language operations (ex. native sys calls).
-
-  NOTES FOR EXTENSIONS: method must be in a static class, the method should be static, the first parameter must have self, need to import the namespace with "using/import".
 
 New ideas coming soon!
 

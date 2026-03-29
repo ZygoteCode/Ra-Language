@@ -476,7 +476,7 @@ namespace RaLanguage.Lexer
         {
             var posStart = GetPos();
             Advance(span[_idx]);
-            if (_idx < span.Length && span[_idx] == ':') { Advance(span[_idx]); tokens.Add(new Token(TokenType.DOUBLE_COLON, null, posStart, GetPos())); return; }
+            if (_idx < span.Length && span[_idx] == ':') { Advance(span[_idx]); tokens.Add(new Token(TokenType.KEYWORD, Keyword.As, posStart, GetPos())); return; }
             tokens.Add(new Token(TokenType.COLON, null, posStart, GetPos()));
         }
 
@@ -856,7 +856,8 @@ namespace RaLanguage.Lexer
                 { "trait", Keyword.Trait },
                 { "with", Keyword.With },
                 { "abstract", Keyword.Abstract },
-                { "static", Keyword.Static }
+                { "static", Keyword.Static },
+                { "extend", Keyword.Extend }
             };
         }
 

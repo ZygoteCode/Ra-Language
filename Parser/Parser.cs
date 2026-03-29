@@ -1180,13 +1180,94 @@ namespace RaLanguage.Parser
                     var interfaceExpr = res.Register(ParseInterfaceDefinition(false));
                     if (res.Error != null) return res;
                     return res.Success(interfaceExpr);
-                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Trait:
-                    var traitExpr = res.Register(ParseTraitDefinition(false));
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Extend:
+                    var extensionDef = res.Register(ParseExtensionDefinition());
                     if (res.Error != null) return res;
-                    return res.Success(traitExpr);
+                    return res.Success(extensionDef);
             }
 
             return res.Failure(new InvalidSyntaxError(tok.PositionStart, tok.PositionEnd, "Expected int, float, identifier, '+', '-', '(', '[', 'if', 'for', 'while', 'fn'"));
+        }
+
+        private ParserResult ParseExtensionDefinition()
+        {
+            var res = new ParserResult();
+            bool isPublic = false;
+
+            if (_currentToken.Matches(Keyword.Pub))
+            {
+                isPublic = true;
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            if (!_currentToken.Matches(Keyword.Extend))
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'extend'"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            var targetType = ParseType(res);
+            if (targetType == null)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected target type after 'extend'"));
+
+            if (_currentToken.Type != TokenType.LBRACKET)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{'"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            var methods = new List<FunctionDefinitionNode>();
+
+            while (_currentToken.Type != TokenType.RBRACKET)
+            {
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type == TokenType.RBRACKET)
+                    break;
+
+                bool methodPublic = false;
+                if (_currentToken.Matches(Keyword.Pub))
+                {
+                    methodPublic = true;
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (!_currentToken.Matches(Keyword.Fn))
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'fn' inside extension"));
+
+                var fnRes = ParseFunctionDefinition(isPublic: methodPublic);
+                if (fnRes.Error != null) return fnRes;
+
+                var fnNode = (FunctionDefinitionNode)fnRes.Node!;
+
+                if (fnNode.IsConstructor)
+                    return res.Failure(new InvalidSyntaxError(fnNode.PositionStart, fnNode.PositionEnd, "Extensions cannot declare constructors"));
+
+                if (fnNode.IsAbstract)
+                    return res.Failure(new InvalidSyntaxError(fnNode.PositionStart, fnNode.PositionEnd, "Extension methods must have a body"));
+
+                if (fnNode.BodyNode == null)
+                    return res.Failure(new InvalidSyntaxError(fnNode.PositionStart, fnNode.PositionEnd, "Extension methods must have a body"));
+
+                methods.Add(fnNode);
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+            }
+
+            res.RegisterAdvancement();
+            Advance();
+
+            return res.Success(new ExtensionDefinitionNode(targetType, isPublic, methods));
         }
 
         private ParserResult ParseCallableSignatureAfterName(bool allowReturnType)

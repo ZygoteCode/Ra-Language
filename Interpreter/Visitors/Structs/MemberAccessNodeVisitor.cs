@@ -59,32 +59,15 @@ namespace RaLanguage.Interpreter.Visitors.Members
                 var instance = (ClassInstanceValue)target;
 
                 if (instance.HasField(memberName))
-                {
                     return res.Success(instance.GetField(memberName).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
-                }
 
-                var instanceMethods = instance.Definition.ResolveInstanceMethods(memberName);
-                if (instanceMethods.Count > 0)
-                {
-                    return res.Success(new BoundClassMethodValue(instance.Definition, instance, instanceMethods[0], isStatic: false)
-                        .SetContext(context)
-                        .SetPos(node.PositionStart, node.PositionEnd));
-                }
+                var native = instance.Definition.ResolveInstanceMethods(memberName);
+                if (native.Count > 0)
+                    return res.Success(new BoundClassMethodGroupValue(instance.Definition, instance, native).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
 
-                if (instance.Definition.HasStaticField(memberName))
-                {
-                    return res.Success(
-                        instance.Definition.StaticFields[memberName]
-                            .SetContext(context)
-                            .SetPos(node.PositionStart, node.PositionEnd));
-                }
-
-                if (instance.Definition.TryGetStaticMethodOwner(memberName, out var staticOwner, out var staticMethod) && staticMethod != null)
-                {
-                    return res.Success(new BoundClassMethodValue(staticOwner, null, staticMethod, isStatic: true)
-                        .SetContext(context)
-                        .SetPos(node.PositionStart, node.PositionEnd));
-                }
+                var ext = context.Extensions.Resolve(instance, memberName);
+                if (ext.Count > 0)
+                    return res.Success(new BoundExtensionMethodGroupValue(instance, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
 
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Class '{instance.Definition.ClassName}' has no member '{memberName}'", context));
             }
@@ -125,6 +108,24 @@ namespace RaLanguage.Interpreter.Visitors.Members
                 }
 
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Class '{classType.ClassName}' has no static member '{memberName}'", context));
+            }
+
+            if (target.Type == RuntimeValueType.Enum || target.Type == RuntimeValueType.EnumType ||
+                target.Type == RuntimeValueType.String || target.Type == RuntimeValueType.Number ||
+                target.Type == RuntimeValueType.Integer || target.Type == RuntimeValueType.Long ||
+                target.Type == RuntimeValueType.Float || target.Type == RuntimeValueType.Double ||
+                target.Type == RuntimeValueType.UnsignedInteger || target.Type == RuntimeValueType.UnsignedLong ||
+                target.Type == RuntimeValueType.Short || target.Type == RuntimeValueType.UnsignedShort ||
+                target.Type == RuntimeValueType.Int128 || target.Type == RuntimeValueType.UnsignedInt128 ||
+                target.Type == RuntimeValueType.Decimal || target.Type == RuntimeValueType.Byte ||
+                target.Type == RuntimeValueType.List || target.Type == RuntimeValueType.Set ||
+                target.Type == RuntimeValueType.Map || target.Type == RuntimeValueType.Tuple ||
+                target.Type == RuntimeValueType.Boolean || target.Type == RuntimeValueType.Null)
+            {
+                var ext = context.Extensions.Resolve(target, memberName);
+
+                if (ext.Count > 0)
+                    return res.Success(new BoundExtensionMethodGroupValue(target, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
             }
 
             return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Member access is only valid on structs or enum types", context));
