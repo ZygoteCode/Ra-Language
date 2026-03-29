@@ -53,17 +53,17 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 throw new FormatException("Unsigned integer cannot be negative");
             }
 
-            if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            if (s.StartsWith("0x", StringComparison.Ordinal))
             {
                 return ParseWithBase(s.Substring(2), 16);
             }
 
-            if (s.StartsWith("0b", StringComparison.OrdinalIgnoreCase))
+            if (s.StartsWith("0b", StringComparison.Ordinal))
             {
                 return ParseWithBase(s.Substring(2), 2);
             }
 
-            if (s.StartsWith("0o", StringComparison.OrdinalIgnoreCase))
+            if (s.StartsWith("0o", StringComparison.Ordinal))
             {
                 return ParseWithBase(s.Substring(2), 8);
             }
@@ -1243,7 +1243,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
         {
             var tn = targetType?.Name?.ToString() ?? "";
 
-            if (string.Equals(tn, "byte", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "byte", StringComparison.Ordinal))
             {
                 if (Value > byte.MaxValue)
                 {
@@ -1253,58 +1253,42 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new ByteValue((byte)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "decimal", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "f128", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "decimal", StringComparison.Ordinal))
             {
                 return (new DecimalValue(Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "int128", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "integer128", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "i128", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "int128", StringComparison.Ordinal))
             {
                 return (new Int128Value((Int128)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "uint128", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "unsignedinteger128", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "ui128", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "uint128", StringComparison.Ordinal))
             {
                 return (new UnsignedInt128Value((UInt128)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "ushort", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "uint16", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "ui16", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "unsignedshort", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "ushort", StringComparison.Ordinal))
             {
                 return (new ShortValue((short)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "ulong", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "unsignedlong", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "ui64", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "ulong", StringComparison.Ordinal))
             {
                 return (new UnsignedLongValue((ulong)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "short", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "int16", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "i16", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "short", StringComparison.Ordinal))
             {
                 return (new ShortValue((short)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "uint", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "unsignedinteger", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "ui32", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "uint", StringComparison.Ordinal))
             {
                 return (Copy().SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "int", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "integer", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "i32", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "int", StringComparison.Ordinal))
             {
                 if (Value > int.MaxValue)
                 {
@@ -1314,36 +1298,32 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new IntegerValue((int)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "long", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "i64", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "long", StringComparison.Ordinal))
             {
                 return (new LongValue(Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "float", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "f32", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "float", StringComparison.Ordinal))
             {
                 return (new FloatValue(Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "double", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "f64", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "double", StringComparison.Ordinal))
             {
                 return (new DoubleValue(Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "number", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "number", StringComparison.Ordinal))
             {
                 return (new NumberValue(BigNumber.Parse(Value.ToString())).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "string", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "string", StringComparison.Ordinal))
             {
                 return (new StringValue(Value.ToString()).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "boolean", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "bool", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "bool", StringComparison.Ordinal))
             {
                 return (new BooleanValue(Value != 0u).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }

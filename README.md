@@ -16,11 +16,11 @@ This is constantly updated list, I am expanding with new ideas and concepts for 
 
 I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
   
-  - [ ] Remove aliases from types, must have a unique name.
   - [ ] Implement the "static" keyword for objects (structs, classes, enums), fields and methods.
   - [ ] Implement namespaces.
   - [ ] Implement the "import" directive to import functions, classes, enums, fields, methods and so on, with a intelligent path system.
   - [ ] Implement delegates, callbacks, function piece into functions parameters, extensions to types/classes/structs/interfaces/traits, basic methods (to_string, repr), in-classes methods for operators (==, <, >, ...).
+  - [ ] Implement built-in functions for reflections and complex language operations (ex. native sys calls).
 
   NOTES FOR EXTENSIONS: method must be in a static class, the method should be static, the first parameter must have self, need to import the namespace with "using/import".
 
@@ -28,17 +28,17 @@ New ideas coming soon!
 
 ## Phase 2: Object Oriented Programming
 
-  - [x] Implemented integer/int/i32 as a new primitive value type of the language.
-  - [x] Implemented long/i64 as a new primitive value type of the language.
-  - [x] Implemented float/f32 as a new primitive value type of the language.
-  - [x] Implemented double/f64 as a new primitive value type of the language.
-  - [x] Implemented uint/ui32 as a new primitive value type of the language.
-  - [x] Implemented ulong/ui64 as a new primitive value type of the language.
-  - [x] Implemented short/i16 as a new primitive value type of the language.
-  - [x] Implemented ushort/ui16 as a new primitive value type of the language.
-  - [x] Implemented int128/i128/integer128 as a new primitive value type of the language.
-  - [x] Implemented uint128/ui128/unsignedinteger128 as a new primitive value type of the language.
-  - [x] Implemented decimal/f128 as a new primitive value type of the language.
+  - [x] Implemented int as a new primitive value type of the language.
+  - [x] Implemented long as a new primitive value type of the language.
+  - [x] Implemented float as a new primitive value type of the language.
+  - [x] Implemented double as a new primitive value type of the language.
+  - [x] Implemented uint as a new primitive value type of the language.
+  - [x] Implemented ulong as a new primitive value type of the language.
+  - [x] Implemented short as a new primitive value type of the language.
+  - [x] Implemented ushorti16 as a new primitive value type of the language.
+  - [x] Implemented int128 as a new primitive value type of the language.
+  - [x] Implemented uint128 as a new primitive value type of the language.
+  - [x] Implemented decimal as a new primitive value type of the language.
   - [x] Implemented byte as a new primitive value type of the language.
   - [x] Add a new innovative statement: "retry for 5 times delay 200ms / else".
   - [x] Implemented enums in the language.

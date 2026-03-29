@@ -486,7 +486,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
         {
             var tn = targetType?.Name?.ToString() ?? "";
 
-            if (string.Equals(tn, "byte", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "byte", StringComparison.Ordinal))
             {
                 if (Math.Abs(Value - Math.Truncate(Value)) > 0.000001d ||
                     Value < byte.MinValue || Value > byte.MaxValue)
@@ -497,8 +497,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new ByteValue((byte)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "decimal", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "f128", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "decimal", StringComparison.Ordinal))
             {
                 if ((decimal) Value < decimal.MinValue || (decimal) Value > decimal.MaxValue)
                 {
@@ -508,9 +507,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new DecimalValue((decimal)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "uint128", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "i128", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "unsignedinteger128", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "uint128", StringComparison.Ordinal))
             {
                 if (Math.Abs(Value - Math.Truncate(Value)) > 0.000001d ||
                     (UInt128)Value < UInt128.MinValue || (UInt128)Value > UInt128.MaxValue)
@@ -521,9 +518,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new UnsignedInt128Value((UInt128)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "int128", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "i128", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "integer128", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "int128", StringComparison.Ordinal))
             {
                 if (Math.Abs(Value - Math.Truncate(Value)) > 0.000001d ||
                     (Int128) Value < Int128.MinValue || (Int128) Value > Int128.MaxValue)
@@ -534,14 +529,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new Int128Value((Int128)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "double", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "f64", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "double", StringComparison.Ordinal))
             {
                 return (Copy().SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "float", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "f32", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "float", StringComparison.Ordinal))
             {
                 if (Value < float.MinValue || Value > float.MaxValue)
                 {
@@ -551,9 +544,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new FloatValue((float)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "int", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "integer", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "i32", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "int", StringComparison.Ordinal))
             {
                 if (Math.Abs(Value - Math.Truncate(Value)) > 0.000001d ||
                     Value < int.MinValue || Value > int.MaxValue)
@@ -564,8 +555,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new IntegerValue((int)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "long", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "i64", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "long", StringComparison.Ordinal))
             {
                 if (Math.Abs(Value - Math.Truncate(Value)) > 0.000001d ||
                     Value < long.MinValue || Value > long.MaxValue)
@@ -576,25 +566,22 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new LongValue((long)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "number", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "number", StringComparison.Ordinal))
             {
                 return (new NumberValue(BigNumber.Parse(Value.ToString("R", CultureInfo.InvariantCulture))).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "string", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "string", StringComparison.Ordinal))
             {
                 return (new StringValue(Value.ToString("R", CultureInfo.InvariantCulture)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "boolean", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "bool", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "bool", StringComparison.Ordinal))
             {
                 return (new BooleanValue(Value != 0.0).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "uint", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "unsignedinteger", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "ui32", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "uint", StringComparison.Ordinal))
             {
                 if (Math.Abs(Value - Math.Truncate(Value)) > 0.000001d ||
                     Value < uint.MinValue || Value > uint.MaxValue)
@@ -605,9 +592,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new UnsignedIntegerValue((uint)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "ulong", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "unsignedlong", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "ui64", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "ulong", StringComparison.Ordinal))
             {
                 if (Math.Abs(Value - Math.Truncate(Value)) > 0.000001d ||
                     Value < ulong.MinValue || Value > ulong.MaxValue)
@@ -618,9 +603,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new UnsignedLongValue((ulong)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "i16", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "int16", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "short", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "short", StringComparison.Ordinal))
             {
                 if (Math.Abs(Value - Math.Truncate(Value)) > 0.000001d ||
                     Value < short.MinValue || Value > short.MaxValue)
@@ -631,10 +614,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new ShortValue((short)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "ui16", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "uint16", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "ushort", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(tn, "unsignedshort", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(tn, "ushort", StringComparison.Ordinal))
             {
                 if (Math.Abs(Value - Math.Truncate(Value)) > 0.000001d ||
                     Value < ushort.MinValue || Value > ushort.MaxValue)

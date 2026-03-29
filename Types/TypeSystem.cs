@@ -68,40 +68,21 @@ namespace RaLanguage.Types
                 case RuntimeValueType.Byte:
                     return string.Equals(target.Name, "number", StringComparison.Ordinal)
                         || string.Equals(target.Name, "int", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "i32", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "integer", StringComparison.Ordinal)
                         || string.Equals(target.Name, "long", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "i64", StringComparison.Ordinal)
                         || string.Equals(target.Name, "float", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "f32", StringComparison.Ordinal)
                         || string.Equals(target.Name, "double", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "f64", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "unsignedinteger", StringComparison.Ordinal)
                         || string.Equals(target.Name, "uint", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "ui32", StringComparison.Ordinal)
                         || string.Equals(target.Name, "ulong", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "unsignedlong", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "ui64", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "i16", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "int16", StringComparison.Ordinal)
                         || string.Equals(target.Name, "short", StringComparison.Ordinal)
                         || string.Equals(target.Name, "ushort", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "uint16", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "ui16", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "unsignedshort", StringComparison.Ordinal)
                         || string.Equals(target.Name, "int128", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "i128", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "integer128", StringComparison.Ordinal)
                         || string.Equals(target.Name, "uint128", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "ui128", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "unsignedinteger128", StringComparison.Ordinal)
                         || string.Equals(target.Name, "decimal", StringComparison.Ordinal)
-                        || string.Equals(target.Name, "f128", StringComparison.Ordinal)
                         || string.Equals(target.Name, "byte", StringComparison.Ordinal);
                 case RuntimeValueType.String:
                     return string.Equals(target.Name, "string", StringComparison.Ordinal);
                 case RuntimeValueType.Boolean:
-                    return string.Equals(target.Name, "boolean", StringComparison.Ordinal) || string.Equals(target.Name, "bool", StringComparison.Ordinal);
+                    return string.Equals(target.Name, "bool", StringComparison.Ordinal);
                 case RuntimeValueType.Null:
                     return true;
                 case RuntimeValueType.List:
@@ -197,8 +178,8 @@ namespace RaLanguage.Types
             {
                 case RuntimeValueType.Number: return new TypeDescriptor("number");
                 case RuntimeValueType.String: return new TypeDescriptor("string");
-                case RuntimeValueType.Boolean: return new TypeDescriptor("boolean");
-                case RuntimeValueType.Integer: return new TypeDescriptor("integer");
+                case RuntimeValueType.Boolean: return new TypeDescriptor("bool");
+                case RuntimeValueType.Integer: return new TypeDescriptor("int");
                 case RuntimeValueType.Long: return new TypeDescriptor("long");
                 case RuntimeValueType.Float: return new TypeDescriptor("float");
                 case RuntimeValueType.Double: return new TypeDescriptor("double");

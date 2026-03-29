@@ -45,17 +45,17 @@ namespace RaLanguage.Types
 
             RuntimeValue? newValue = targetType switch
             {
-                "int" or "i32" or "integer" => new IntegerValue(Convert.ToInt32(rawValue)),
+                "int" => new IntegerValue(Convert.ToInt32(rawValue)),
                 "number" => new NumberValue(BigNumber.Parse(rawValue.ToString())),
-                "long" or "i64" => new LongValue(Convert.ToInt64(rawValue)),
-                "float" or "f32" => new FloatValue(Convert.ToSingle(rawValue)),
-                "double" or "f64" => new DoubleValue(Convert.ToDouble(rawValue)),
-                "uint" or "ui32" or "unsignedinteger" => new UnsignedIntegerValue(Convert.ToUInt32(rawValue)),
-                "ulong" or "ui64" or "unsignedlong" => new UnsignedLongValue(Convert.ToUInt64(rawValue)),
-                "short" or "i16" or "int16" => new ShortValue(Convert.ToInt16(rawValue)),
-                "ushort" or "ui16" or "uint16" => new UnsignedShortValue(Convert.ToUInt16(rawValue)),
-                "int128" or "i128" or "integer128" => new Int128Value((Int128)rawValue),
-                "uint128" or "ui128" or "unsignedinteger128" => new UnsignedInt128Value((UInt128)rawValue),
+                "long" => new LongValue(Convert.ToInt64(rawValue)),
+                "float" => new FloatValue(Convert.ToSingle(rawValue)),
+                "double"=> new DoubleValue(Convert.ToDouble(rawValue)),
+                "uint" => new UnsignedIntegerValue(Convert.ToUInt32(rawValue)),
+                "ulong" => new UnsignedLongValue(Convert.ToUInt64(rawValue)),
+                "short" => new ShortValue(Convert.ToInt16(rawValue)),
+                "ushort" => new UnsignedShortValue(Convert.ToUInt16(rawValue)),
+                "int128"=> new Int128Value((Int128)rawValue),
+                "uint128" => new UnsignedInt128Value((UInt128)rawValue),
                 "decimal" => new DecimalValue(Convert.ToDecimal(rawValue)),
                 "byte" => new ByteValue(Convert.ToByte(rawValue)),
                 _ => null

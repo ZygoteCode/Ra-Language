@@ -1254,22 +1254,17 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new ByteValue(byte.Parse(Value.ToString())).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "uint128", StringComparison.Ordinal) ||
-                string.Equals(tn, "ui128", StringComparison.Ordinal) ||
-                string.Equals(tn, "unsignedinteger128", StringComparison.Ordinal))
+            if (string.Equals(tn, "uint128", StringComparison.Ordinal))
             {
                 return (new UnsignedInt128Value(UInt128.Parse(Value.ToString())).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "decimal", StringComparison.Ordinal) ||
-                string.Equals(tn, "f128", StringComparison.Ordinal))
+            if (string.Equals(tn, "decimal", StringComparison.Ordinal))
             {
                 return (new DecimalValue(decimal.Parse(Value.ToString())).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "int128", StringComparison.Ordinal) ||
-                string.Equals(tn, "i128", StringComparison.Ordinal) ||
-                string.Equals(tn, "integer128", StringComparison.Ordinal))
+            if (string.Equals(tn, "int128", StringComparison.Ordinal))
             {
                 var bi = Value.ToBigInteger();
                 var roundTrip = BigNumber.Parse(bi.ToString());
@@ -1282,9 +1277,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (Int128Value.FromBigInteger(bi).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "int", StringComparison.Ordinal) ||
-                string.Equals(tn, "integer", StringComparison.Ordinal) ||
-                string.Equals(tn, "i32", StringComparison.Ordinal))
+            if (string.Equals(tn, "int", StringComparison.Ordinal))
             {
                 var bi = Value.ToBigInteger();
                 var roundTrip = BigNumber.Parse(bi.ToString());
@@ -1302,8 +1295,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new StringValue(Value.ToString()).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "boolean", StringComparison.Ordinal) ||
-                string.Equals(tn, "bool", StringComparison.Ordinal))
+            if (string.Equals(tn, "bool", StringComparison.Ordinal))
             {
                 return (new BooleanValue(!Value.IsZero()).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
@@ -1313,8 +1305,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (Copy().SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "float", StringComparison.Ordinal) ||
-                string.Equals(tn, "f32", StringComparison.Ordinal))
+            if (string.Equals(tn, "float", StringComparison.Ordinal))
             {
                 if (!float.TryParse(Value.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var f))
                 {
@@ -1324,8 +1315,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new FloatValue(f).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "double", StringComparison.Ordinal) ||
-                string.Equals(tn, "f64", StringComparison.Ordinal))
+            if (string.Equals(tn, "double", StringComparison.Ordinal) )
             {
                 if (!double.TryParse(Value.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var d))
                 {
@@ -1335,9 +1325,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new DoubleValue(d).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "unsignedinteger", StringComparison.Ordinal) ||
-                string.Equals(tn, "uint", StringComparison.Ordinal) ||
-                string.Equals(tn, "ui32", StringComparison.Ordinal))
+            if (string.Equals(tn, "uint", StringComparison.Ordinal))
             {
                 var bi = Value.ToBigInteger();
                 var roundTrip = BigNumber.Parse(bi.ToString());
@@ -1350,9 +1338,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (UnsignedIntegerValue.FromBigInteger(bi).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "unsignedlong", StringComparison.Ordinal) ||
-                string.Equals(tn, "ulong", StringComparison.Ordinal) ||
-                string.Equals(tn, "ui64", StringComparison.Ordinal))
+            if (string.Equals(tn, "ulong", StringComparison.Ordinal))
             {
                 var bi = Value.ToBigInteger();
                 var roundTrip = BigNumber.Parse(bi.ToString());
@@ -1365,9 +1351,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (UnsignedLongValue.FromBigInteger(bi).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "short", StringComparison.Ordinal) ||
-                string.Equals(tn, "int16", StringComparison.Ordinal) ||
-                string.Equals(tn, "i16", StringComparison.Ordinal))
+            if (string.Equals(tn, "short", StringComparison.Ordinal))
             {
                 if (!short.TryParse(Value.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var d))
                 {
@@ -1377,10 +1361,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new ShortValue(d).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "ushort", StringComparison.Ordinal) ||
-                string.Equals(tn, "uint16", StringComparison.Ordinal) ||
-                string.Equals(tn, "ui16", StringComparison.Ordinal) ||
-                string.Equals(tn, "unsignedshort", StringComparison.Ordinal))
+            if (string.Equals(tn, "ushort", StringComparison.Ordinal))
             {
                 if (!ushort.TryParse(Value.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var d))
                 {

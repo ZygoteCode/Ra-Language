@@ -45,7 +45,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                     "__in_constructor__",
                     new BooleanValue(true).SetContext(execCtx).SetPos(PositionStart, PositionEnd),
                     isLet: true,
-                    declaredType: new TypeDescriptor("boolean"),
+                    declaredType: new TypeDescriptor("bool"),
                     isStaticallyTyped: true,
                     isPublic: false
                 );
@@ -78,7 +78,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                     "__in_constructor__",
                     new BooleanValue(true).SetContext(execCtx).SetPos(PositionStart, PositionEnd),
                     isLet: true,
-                    declaredType: new TypeDescriptor("boolean"),
+                    declaredType: new TypeDescriptor("bool"),
                     isStaticallyTyped: true,
                     isPublic: false);
             }

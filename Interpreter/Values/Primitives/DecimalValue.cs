@@ -419,8 +419,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
         {
             var tn = targetType?.Name?.ToString() ?? "";
 
-            if (string.Equals(tn, "decimal", StringComparison.Ordinal) ||
-                string.Equals(tn, "f128", StringComparison.Ordinal))
+            if (string.Equals(tn, "decimal", StringComparison.Ordinal))
             {
                 return (Copy().SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
@@ -433,9 +432,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new ByteValue((byte)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "short", StringComparison.Ordinal) ||
-                string.Equals(tn, "int16", StringComparison.Ordinal) ||
-                string.Equals(tn, "i16", StringComparison.Ordinal))
+            if (string.Equals(tn, "short", StringComparison.Ordinal))
             {
                 if (!IsWhole(Value) || Value < short.MinValue || Value > short.MaxValue)
                     return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast decimal to short without overflow", Context));
@@ -443,10 +440,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new ShortValue((short)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "ushort", StringComparison.Ordinal) ||
-                string.Equals(tn, "ui16", StringComparison.Ordinal) ||
-                string.Equals(tn, "uint16", StringComparison.Ordinal) ||
-                string.Equals(tn, "unsignedshort", StringComparison.Ordinal))
+            if (string.Equals(tn, "ushort", StringComparison.Ordinal))
             {
                 if (!IsWhole(Value) || Value < 0m || Value > ushort.MaxValue)
                     return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast decimal to ushort without overflow", Context));
@@ -454,9 +448,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new UnsignedShortValue((ushort)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "int", StringComparison.Ordinal) ||
-                string.Equals(tn, "integer", StringComparison.Ordinal) ||
-                string.Equals(tn, "i32", StringComparison.Ordinal))
+            if (string.Equals(tn, "int", StringComparison.Ordinal))
             {
                 if (!IsWhole(Value) || Value < int.MinValue || Value > int.MaxValue)
                     return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast decimal to int without overflow", Context));
@@ -464,9 +456,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new IntegerValue((int)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "uint", StringComparison.Ordinal) ||
-                string.Equals(tn, "unsignedinteger", StringComparison.Ordinal) ||
-                string.Equals(tn, "ui32", StringComparison.Ordinal))
+            if (string.Equals(tn, "uint", StringComparison.Ordinal))
             {
                 if (!IsWhole(Value) || Value < 0m || Value > uint.MaxValue)
                     return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast decimal to uint without overflow", Context));
@@ -474,8 +464,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new UnsignedIntegerValue((uint)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "long", StringComparison.Ordinal) ||
-                string.Equals(tn, "i64", StringComparison.Ordinal))
+            if (string.Equals(tn, "long", StringComparison.Ordinal))
             {
                 if (!IsWhole(Value) || Value < long.MinValue || Value > long.MaxValue)
                     return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast decimal to long without overflow", Context));
@@ -483,9 +472,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new LongValue((long)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "ulong", StringComparison.Ordinal) ||
-                string.Equals(tn, "unsignedlong", StringComparison.Ordinal) ||
-                string.Equals(tn, "ui64", StringComparison.Ordinal))
+            if (string.Equals(tn, "ulong", StringComparison.Ordinal))
             {
                 if (!IsWhole(Value) || Value < 0m || Value > ulong.MaxValue)
                     return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast decimal to ulong without overflow", Context));
@@ -493,9 +480,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new UnsignedLongValue((ulong)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "int128", StringComparison.Ordinal) ||
-                string.Equals(tn, "i128", StringComparison.Ordinal) ||
-                string.Equals(tn, "integer128", StringComparison.Ordinal))
+            if (string.Equals(tn, "int128", StringComparison.Ordinal))
             {
                 if (!IsWhole(Value))
                     return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast non-integer decimal to int128", Context));
@@ -506,9 +491,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new Int128Value(i128).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "uint128", StringComparison.Ordinal) ||
-                string.Equals(tn, "ui128", StringComparison.Ordinal) ||
-                string.Equals(tn, "unsignedinteger128", StringComparison.Ordinal))
+            if (string.Equals(tn, "uint128", StringComparison.Ordinal))
             {
                 if (!IsWhole(Value) || Value < 0m)
                     return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast decimal to uint128", Context));
@@ -519,8 +502,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new UnsignedInt128Value(u128).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "float", StringComparison.Ordinal) ||
-                string.Equals(tn, "f32", StringComparison.Ordinal))
+            if (string.Equals(tn, "float", StringComparison.Ordinal))
             {
                 if ((float)Value < float.MinValue || (float)Value > float.MaxValue)
                     return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast decimal to float without overflow", Context));
@@ -528,8 +510,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new FloatValue((float)Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "double", StringComparison.Ordinal) ||
-                string.Equals(tn, "f64", StringComparison.Ordinal))
+            if (string.Equals(tn, "double", StringComparison.Ordinal))
             {
                 if ((double) Value < double.MinValue || (double) Value > double.MaxValue)
                     return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast decimal to double without overflow", Context));
@@ -547,8 +528,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new StringValue(Value.ToString(CultureInfo.InvariantCulture)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "boolean", StringComparison.Ordinal) ||
-                string.Equals(tn, "bool", StringComparison.Ordinal))
+            if (string.Equals(tn, "bool", StringComparison.Ordinal))
             {
                 return (new BooleanValue(Value != 0m).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }

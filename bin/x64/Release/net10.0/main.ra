@@ -38,6 +38,11 @@ pub class Person : PersonBase {
     }
 }
 
+fn greet_somebody(val: Entity) {
+    print("Hello, " + val.get_name() + "!");
+}
+
 var my_person = Person("Gabriele");
 my_person.print_id();
 print(my_person.get_name());
+greet_somebody(my_person);

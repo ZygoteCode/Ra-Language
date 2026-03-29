@@ -49,9 +49,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (Copy().SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "int", StringComparison.Ordinal) ||
-                string.Equals(tn, "integer", StringComparison.Ordinal) ||
-                string.Equals(tn, "i32", StringComparison.Ordinal))
+            if (string.Equals(tn, "int", StringComparison.Ordinal))
             {
                 if (UnderlyingValue < int.MinValue || UnderlyingValue > int.MaxValue)
                     return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast enum to int without overflow", Context));
@@ -59,8 +57,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new IntegerValue((int)UnderlyingValue).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "long", StringComparison.Ordinal) ||
-                string.Equals(tn, "i64", StringComparison.Ordinal))
+            if (string.Equals(tn, "long", StringComparison.Ordinal))
             {
                 if (UnderlyingValue < long.MinValue || UnderlyingValue > long.MaxValue)
                     return (null, new RuntimeError(PositionStart, PositionEnd, "Cannot cast enum to long without overflow", Context));
@@ -68,9 +65,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return (new LongValue((long)UnderlyingValue).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "int128", StringComparison.Ordinal) ||
-                string.Equals(tn, "i128", StringComparison.Ordinal) ||
-                string.Equals(tn, "integer128", StringComparison.Ordinal))
+            if (string.Equals(tn, "int128", StringComparison.Ordinal))
             {
                 return (new Int128Value(UnderlyingValue).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }

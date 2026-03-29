@@ -185,15 +185,12 @@ namespace RaLanguage.Interpreter.Values
                 return (new StringValue(ToString()).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "boolean", StringComparison.Ordinal) ||
-                string.Equals(tn, "bool", StringComparison.Ordinal))
+            if (string.Equals(tn, "bool", StringComparison.Ordinal))
             {
                 return (new BooleanValue(IsTrue()).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
-            if (string.Equals(tn, "int", StringComparison.Ordinal) ||
-                string.Equals(tn, "integer", StringComparison.Ordinal) ||
-                string.Equals(tn, "i64", StringComparison.Ordinal))
+            if (string.Equals(tn, "int", StringComparison.Ordinal))
             {
                 if (Type == RuntimeValueType.Integer)
                 {
@@ -266,8 +263,7 @@ namespace RaLanguage.Interpreter.Values
                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'int'", Context));
             }
 
-            if (string.Equals(tn, "long", StringComparison.Ordinal) ||
-                string.Equals(tn, "i64", StringComparison.Ordinal))
+            if (string.Equals(tn, "long", StringComparison.Ordinal))
             {
                 if (Type == RuntimeValueType.Long)
                 {
@@ -335,8 +331,7 @@ namespace RaLanguage.Interpreter.Values
                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'long'", Context));
             }
 
-            if (string.Equals(tn, "float", StringComparison.Ordinal) ||
-                string.Equals(tn, "f32", StringComparison.Ordinal))
+            if (string.Equals(tn, "float", StringComparison.Ordinal))
             {
                 if (Type == RuntimeValueType.Float)
                 {
@@ -393,8 +388,7 @@ namespace RaLanguage.Interpreter.Values
                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'float'", Context));
             }
 
-            if (string.Equals(tn, "double", StringComparison.Ordinal) ||
-                string.Equals(tn, "f64", StringComparison.Ordinal))
+            if (string.Equals(tn, "double", StringComparison.Ordinal))
             {
                 if (Type == RuntimeValueType.Double)
                 {
@@ -504,9 +498,7 @@ namespace RaLanguage.Interpreter.Values
                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'number'", Context));
             }
 
-            if (string.Equals(tn, "uint", StringComparison.Ordinal) ||
-                string.Equals(tn, "unsignedinteger", StringComparison.Ordinal) ||
-                string.Equals(tn, "ui32", StringComparison.Ordinal))
+            if (string.Equals(tn, "uint", StringComparison.Ordinal))
             {
                 if (Type == RuntimeValueType.UnsignedInteger)
                 {
@@ -591,9 +583,7 @@ namespace RaLanguage.Interpreter.Values
                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'uint'", Context));
             }
 
-            if (string.Equals(tn, "ulong", StringComparison.Ordinal) ||
-                string.Equals(tn, "unsignedlong", StringComparison.Ordinal) ||
-                string.Equals(tn, "ui64", StringComparison.Ordinal))
+            if (string.Equals(tn, "ulong", StringComparison.Ordinal))
             {
                 if (Type == RuntimeValueType.UnsignedLong)
                 {
@@ -666,9 +656,7 @@ namespace RaLanguage.Interpreter.Values
                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'ulong'", Context));
             }
 
-            if (string.Equals(tn, "short", StringComparison.Ordinal) ||
-                string.Equals(tn, "int16", StringComparison.Ordinal) ||
-                string.Equals(tn, "i16", StringComparison.Ordinal))
+            if (string.Equals(tn, "short", StringComparison.Ordinal))
             {
                 if (Type == RuntimeValueType.Short)
                 {
@@ -755,10 +743,7 @@ namespace RaLanguage.Interpreter.Values
                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'short'", Context));
             }
 
-            if (string.Equals(tn, "ushort", StringComparison.Ordinal) ||
-                string.Equals(tn, "ui16", StringComparison.Ordinal) ||
-                string.Equals(tn, "uint16", StringComparison.Ordinal) ||
-                string.Equals(tn, "unsignedshort", StringComparison.Ordinal))
+            if (string.Equals(tn, "ushort", StringComparison.Ordinal))
             {
                 if (Type == RuntimeValueType.UnsignedShort)
                 {
@@ -855,9 +840,7 @@ namespace RaLanguage.Interpreter.Values
                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'ushort'", Context));
             }
 
-            if (string.Equals(tn, "int128", StringComparison.Ordinal) ||
-                string.Equals(tn, "i128", StringComparison.Ordinal) ||
-                string.Equals(tn, "integer128", StringComparison.Ordinal))
+            if (string.Equals(tn, "int128", StringComparison.Ordinal))
             {
                 if (Type == RuntimeValueType.Int128)
                 {
@@ -938,9 +921,7 @@ namespace RaLanguage.Interpreter.Values
                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'int128'", Context));
             }
 
-            if (string.Equals(tn, "uint128", StringComparison.Ordinal) ||
-                string.Equals(tn, "ui128", StringComparison.Ordinal) ||
-                string.Equals(tn, "unsignedinteger128", StringComparison.Ordinal))
+            if (string.Equals(tn, "uint128", StringComparison.Ordinal))
             {
                 if (Type == RuntimeValueType.UnsignedInt128)
                 {
@@ -1042,8 +1023,7 @@ namespace RaLanguage.Interpreter.Values
                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to 'uint128'", Context));
             }
 
-            if (string.Equals(tn, "decimal", StringComparison.Ordinal) ||
-                string.Equals(tn, "f128", StringComparison.Ordinal))
+            if (string.Equals(tn, "decimal", StringComparison.Ordinal))
             {
                 if (Type == RuntimeValueType.Decimal)
                 {

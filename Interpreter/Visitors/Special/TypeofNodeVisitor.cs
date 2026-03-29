@@ -22,11 +22,11 @@ namespace RaLanguage.Interpreter.Visitors.Special
                 RuntimeValueType.List => "list",
                 RuntimeValueType.Function => "function",
                 RuntimeValueType.Null => "null",
-                RuntimeValueType.Boolean => "boolean",
+                RuntimeValueType.Boolean => "bool",
                 RuntimeValueType.Set => "set",
                 RuntimeValueType.Map => "map",
                 RuntimeValueType.Tuple => "tuple",
-                RuntimeValueType.Integer => "integer",
+                RuntimeValueType.Integer => "int",
                 RuntimeValueType.Long => "long",
                 RuntimeValueType.Double => "double",
                 RuntimeValueType.Float => "float",
@@ -42,6 +42,11 @@ namespace RaLanguage.Interpreter.Visitors.Special
                 RuntimeValueType.Enum => ((EnumValue)value).EnumName,
                 RuntimeValueType.StructInstance => ((StructInstanceValue)value).Definition.StructName,
                 RuntimeValueType.StructType => "struct",
+                RuntimeValueType.ClassType => "class",
+                RuntimeValueType.ClassInstance => ((ClassInstanceValue)value).Definition.ClassName,
+                RuntimeValueType.Super => "super",
+                RuntimeValueType.InterfaceType => "interface",
+                RuntimeValueType.TraitType => "trait",
                 _ => ""
             };
 
