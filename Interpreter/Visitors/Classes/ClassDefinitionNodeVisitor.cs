@@ -106,6 +106,44 @@ namespace RaLanguage.Interpreter.Visitors.Classes
                 }
             }
 
+            // Validate field overrides
+            foreach (var field in node.Fields.Where(f => f.IsOverride))
+            {
+                if (field.IsStatic)
+                    return res.Failure(new RuntimeError(field.PositionStart, field.PositionEnd, "Static fields cannot be marked override", context));
+
+                if (!classValue.HasInheritedOrTraitField(field))
+                {
+                    return res.Failure(new RuntimeError(
+                        field.PositionStart,
+                        field.PositionEnd,
+                        $"No base/trait field found to override for '{field.NameTok.Value?.ToString()}'",
+                        context));
+                }
+            }
+
+            // Validate abstract fields
+            foreach (var field in node.Fields.Where(f => f.IsAbstract))
+            {
+                if (!node.IsAbstract)
+                {
+                    return res.Failure(new RuntimeError(
+                        field.PositionStart,
+                        field.PositionEnd,
+                        $"Abstract fields can only be declared in abstract classes",
+                        context));
+                }
+
+                if (field.DefaultValueNode != null)
+                {
+                    return res.Failure(new RuntimeError(
+                        field.PositionStart,
+                        field.PositionEnd,
+                        $"Abstract fields cannot have default values",
+                        context));
+                }
+            }
+
             foreach (var field in node.Fields.Where(f => f.IsStatic))
             {
                 RuntimeValue value = new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
@@ -135,6 +173,23 @@ namespace RaLanguage.Interpreter.Visitors.Classes
 
             ValidateOverrides(node, classValue, context, ref res);
             if (res.ShouldReturn()) return res;
+
+            // Validate abstract fields implementation
+            if (!node.IsAbstract)
+            {
+                var unresolvedFields = classValue.GetAbstractFieldsInHierarchy()
+                    .Where(f => !classValue.HasField(f.NameTok.Value?.ToString() ?? ""))
+                    .ToList();
+
+                if (unresolvedFields.Count > 0)
+                {
+                    return res.Failure(new RuntimeError(
+                        node.PositionStart,
+                        node.PositionEnd,
+                        $"Class '{className}' does not implement abstract fields: {string.Join(", ", unresolvedFields.Select(f => f.NameTok.Value?.ToString() ?? ""))}",
+                        context));
+                }
+            }
 
             context.SymbolTable.Set(
                 className,

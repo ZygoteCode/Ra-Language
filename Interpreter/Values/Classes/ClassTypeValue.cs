@@ -197,11 +197,41 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 .Any(c => MethodSignature.MatchesSignature(c, requirement));
         }
 
-        public List<ICallableMethodDefinition> GetUnresolvedAbstractRequirements()
+        public IEnumerable<ICallableMethodDefinition> GetUnresolvedAbstractRequirements()
         {
             return GetAbstractRequirementsInHierarchy()
                 .Where(req => !HasConcreteImplementation(req))
                 .ToList();
+        }
+
+        public List<StructFieldDefinitionNode> GetAbstractFieldsInHierarchy()
+        {
+            var all = new List<StructFieldDefinitionNode>();
+            var result = new List<StructFieldDefinitionNode>();
+
+            CollectAbstractFields(this, all);
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var field in all)
+            {
+                if (seen.Add(field.NameTok.Value?.ToString() ?? ""))
+                    result.Add(field);
+            }
+
+            return result;
+        }
+
+        private static void CollectAbstractFields(ClassTypeValue type, List<StructFieldDefinitionNode> output)
+        {
+            output.AddRange(type.Fields.Where(f => f.IsAbstract));
+
+            if (type.BaseClass != null)
+                CollectAbstractFields(type.BaseClass, output);
+        }
+
+        public bool HasField(string name)
+        {
+            return Fields.Any(f => string.Equals(f.NameTok.Value?.ToString(), name, StringComparison.Ordinal));
         }
 
         public bool InheritsFrom(string ancestorName)
@@ -223,11 +253,20 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public bool SatisfiesTrait(TraitTypeValue trait)
         {
+            // Check required methods
             foreach (var required in trait.GetRequiredMethods())
             {
                 if (!HasMethodSignatureInHierarchy(required))
                     return false;
             }
+
+            // Check fields
+            foreach (var field in trait.Fields)
+            {
+                if (!HasFieldMatching(field))
+                    return false;
+            }
+
             return true;
         }
 
@@ -240,6 +279,29 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 if (trait.GetDefaultMethodsByName(MethodSignature.NameOf(method))
                     .Any(m => MethodSignature.MatchesSignature(m, method)))
+                    return true;
+            }
+
+            return false;
+        }
+
+        public bool HasInheritedOrTraitField(StructFieldDefinitionNode field)
+        {
+            var fieldName = field.NameTok.Value?.ToString() ?? "";
+
+            // Check base class
+            if (BaseClass != null)
+            {
+                var baseField = BaseClass.GetField(fieldName);
+                if (baseField != null)
+                    return true;
+            }
+
+            // Check traits
+            foreach (var trait in Traits)
+            {
+                var traitField = trait.GetField(fieldName);
+                if (traitField != null)
                     return true;
             }
 
@@ -405,10 +467,37 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public bool ImplementsInterface(InterfaceTypeValue iface)
         {
+            // Check methods
             foreach (var required in iface.Methods)
             {
                 var candidates = GetAllMethodsByName(required.NameTok.Value?.ToString() ?? "");
                 if (!candidates.Any(m => InterfaceCompatibility.AreCompatible(m, required)))
+                    return false;
+            }
+
+            // Check fields
+            foreach (var field in iface.Fields)
+            {
+                if (!HasFieldMatching(field))
+                    return false;
+            }
+
+            return true;
+        }
+
+        public bool HasFieldMatching(StructFieldDefinitionNode field)
+        {
+            var fieldName = field.NameTok.Value?.ToString() ?? "";
+            
+            // Check if class has the field
+            var classField = GetField(fieldName);
+            if (classField == null)
+                return false;
+
+            // Check type compatibility
+            if (field.FieldType != null && classField.FieldType != null)
+            {
+                if (!string.Equals(field.FieldType.Name, classField.FieldType.Name, StringComparison.Ordinal))
                     return false;
             }
 

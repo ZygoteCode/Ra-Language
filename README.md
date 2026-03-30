@@ -40,6 +40,8 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [x] Implemented traits.
   - [x] Implemented abstract classes.
   - [x] Implemented static fields and methods definition in classes.
+  - [x] Interfaces, traits and abstract classes can now implement fields into them.
+  - [x] Can now override fields into classes.
   - [ ] Implement namespaces.
   - [ ] Implement the "import" directive to import functions, classes, enums, fields, methods and so on, with a intelligent path system.
   - [ ] Implement basic methods (to_string, repr), in-classes methods for operators (==, <, >, ...).

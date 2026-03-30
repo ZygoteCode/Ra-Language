@@ -7,14 +7,25 @@ namespace RaLanguage.Parser.Nodes.Structs
     {
         public bool IsPublic { get; }
         public bool IsStatic { get; }
+        public bool IsAbstract { get; }
+        public bool IsOverride { get; }
         public Token NameTok { get; }
         public TypeDescriptor? FieldType { get; }
         public AstNode? DefaultValueNode { get; }
 
-        public StructFieldDefinitionNode(bool isPublic, Token nameTok, TypeDescriptor? fieldType, AstNode? defaultValueNode, bool isStatic) : base(AstNodeType.StructFieldDefinition)
+        public StructFieldDefinitionNode(
+            bool isPublic, 
+            Token nameTok, 
+            TypeDescriptor? fieldType, 
+            AstNode? defaultValueNode, 
+            bool isStatic,
+            bool isAbstract = false,
+            bool isOverride = false) : base(AstNodeType.StructFieldDefinition)
         {
             IsPublic = isPublic;
             IsStatic = isStatic;
+            IsAbstract = isAbstract;
+            IsOverride = isOverride;
             NameTok = nameTok;
             FieldType = fieldType;
             DefaultValueNode = defaultValueNode;

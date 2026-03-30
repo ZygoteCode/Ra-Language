@@ -1436,6 +1436,7 @@ namespace RaLanguage.Parser
             Advance();
 
             var methods = new List<TraitMethodDefinitionNode>();
+            var fields = new List<StructFieldDefinitionNode>();
 
             while (_currentToken.Type != TokenType.RBRACKET)
             {
@@ -1448,18 +1449,51 @@ namespace RaLanguage.Parser
                 if (_currentToken.Type == TokenType.RBRACKET)
                     break;
 
+                bool memberPublic = false;
                 bool isAbstract = false;
 
                 if (_currentToken.Matches(Keyword.Pub))
                 {
                     res.RegisterAdvancement();
                     Advance();
+                    memberPublic = true;
 
                     while (_currentToken.Type == TokenType.NEWLINE)
                     {
                         res.RegisterAdvancement();
                         Advance();
                     }
+                }
+
+                // Check for field declaration (var/const/final/let with type and optional default value)
+                if (_currentToken.Matches(Keyword.Var) ||
+                    _currentToken.Matches(Keyword.Const) ||
+                    _currentToken.Matches(Keyword.Final) ||
+                    _currentToken.Matches(Keyword.Let))
+                {
+                    var declRes = ParseTraitFieldDeclaration(memberPublic);
+                    if (declRes.Error != null) return declRes;
+
+                    var declNode = (VariableDeclarationNode)declRes.Node!;
+                    foreach (var d in declNode.Declarations)
+                    {
+                        var (nameTokh, defaultValueNode, typeNode) = d;
+                        fields.Add(new StructFieldDefinitionNode(
+                            memberPublic,
+                            nameTokh,
+                            typeNode,
+                            defaultValueNode,
+                            false // Not static
+                        ));
+                    }
+
+                    if (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    continue;
                 }
 
                 if (_currentToken.Matches(Keyword.Abstract))
@@ -1545,7 +1579,7 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            return res.Success(new TraitDefinitionNode(nameTok, isPublic, methods));
+            return res.Success(new TraitDefinitionNode(nameTok, isPublic, methods, fields));
         }
 
         private ParserResult ParseInterfaceDefinition(bool isPublic)
@@ -1586,6 +1620,7 @@ namespace RaLanguage.Parser
             }
 
             var methods = new List<InterfaceMethodSignatureNode>();
+            var fields = new List<StructFieldDefinitionNode>();
 
             while (_currentToken.Type != TokenType.RBRACKET)
             {
@@ -1604,10 +1639,12 @@ namespace RaLanguage.Parser
                     Advance();
                 }
 
+                bool memberPublic = false;
                 if (_currentToken.Matches(Keyword.Pub))
                 {
                     res.RegisterAdvancement();
                     Advance();
+                    memberPublic = true;
 
                     while (_currentToken.Type == TokenType.NEWLINE)
                     {
@@ -1616,8 +1653,40 @@ namespace RaLanguage.Parser
                     }
                 }
 
+                // Check for field declaration (var/const/final/let with type, no default value)
+                if (_currentToken.Matches(Keyword.Var) ||
+                    _currentToken.Matches(Keyword.Const) ||
+                    _currentToken.Matches(Keyword.Final) ||
+                    _currentToken.Matches(Keyword.Let))
+                {
+                    var declRes = ParseInterfaceFieldDeclaration(memberPublic);
+                    if (declRes.Error != null) return declRes;
+
+                    var declNode = (VariableDeclarationNode)declRes.Node!;
+                    foreach (var d in declNode.Declarations)
+                    {
+                        var (nameTokh, typeNode, _) = d;
+                        fields.Add(new StructFieldDefinitionNode(
+                            memberPublic,
+                            nameTokh,
+                            d.Item3,
+                            typeNode,
+                            false, // No default value allowed in interfaces
+                            false // Not static
+                        ));
+                    }
+
+                    if (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    continue;
+                }
+
                 if (!_currentToken.Matches(Keyword.Fn))
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'fn' inside interface"));
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'fn' or field declaration inside interface"));
 
                 res.RegisterAdvancement();
                 Advance();
@@ -1756,7 +1825,7 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            return res.Success(new InterfaceDefinitionNode(nameTok, isPublic, methods));
+            return res.Success(new InterfaceDefinitionNode(nameTok, isPublic, methods, fields));
         }
 
         private ParserResult ParserPubDefinition()
@@ -1778,7 +1847,7 @@ namespace RaLanguage.Parser
             {
                 if (_currentToken.Matches(Keyword.Abstract))
                 {
-                    isAbstract = false;
+                    isAbstract = true;
                     res.RegisterAdvancement();
                     Advance();
 
@@ -1791,7 +1860,7 @@ namespace RaLanguage.Parser
 
                 if (_currentToken.Matches(Keyword.Static))
                 {
-                    isStatic = false;
+                    isStatic = true;
                     res.RegisterAdvancement();
                     Advance();
 
@@ -2054,7 +2123,9 @@ namespace RaLanguage.Parser
                             d.Item1,
                             d.Item3,
                             d.Item2,
-                            isMemberStatic
+                            isMemberStatic,
+                            isMemberAbstract,
+                            isMemberOverride
                         ));
                     }
 
@@ -4129,6 +4200,161 @@ namespace RaLanguage.Parser
             }
 
             return res.Success(new VariableDeclarationNode(variableDeclarationType, declarations, isPublic, isStatic));
+        }
+
+        private ParserResult ParseInterfaceFieldDeclaration(bool isPublic = false)
+        {
+            ParserResult res = new ParserResult();
+            VariableDeclarationType variableDeclarationType = VariableDeclarationType.VARIABLE;
+
+            if (_currentToken.Matches(Keyword.Const))
+            {
+                variableDeclarationType = VariableDeclarationType.CONST;
+            }
+            else if (_currentToken.Matches(Keyword.Final))
+            {
+                variableDeclarationType = VariableDeclarationType.FINAL;
+            }
+            else if (_currentToken.Matches(Keyword.Let))
+            {
+                variableDeclarationType = VariableDeclarationType.LET;
+            }
+
+            res.RegisterAdvancement();
+            Advance();
+
+            List<(Token, AstNode?, TypeDescriptor?)> declarations = new List<(Token, AstNode?, TypeDescriptor?)>();
+
+            if (_currentToken.Type != TokenType.IDENTIFIER)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier"));
+
+            while (_currentToken.Type == TokenType.IDENTIFIER)
+            {
+                var varName = _currentToken;
+                res.RegisterAdvancement();
+                Advance();
+
+                TypeDescriptor? declaredType = null;
+
+                if (_currentToken.Type == TokenType.COLON)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    var parsedType = ParseType(res);
+                    if (parsedType == null)
+                    {
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':'"));
+                    }
+                    declaredType = parsedType;
+                }
+
+                // Interface fields cannot have default values
+                if (_currentToken.Type == TokenType.EQ)
+                {
+                    return res.Failure(new InvalidSyntaxError(
+                        _currentToken.PositionStart,
+                        _currentToken.PositionEnd,
+                        "Interface fields cannot have default values"));
+                }
+
+                declarations.Add((varName, null, declaredType));
+
+                if (_currentToken.Type == TokenType.COMMA)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            return res.Success(new VariableDeclarationNode(variableDeclarationType, declarations, isPublic, false));
+        }
+
+        private ParserResult ParseTraitFieldDeclaration(bool isPublic = false)
+        {
+            ParserResult res = new ParserResult();
+            VariableDeclarationType variableDeclarationType = VariableDeclarationType.VARIABLE;
+
+            if (_currentToken.Matches(Keyword.Const))
+            {
+                variableDeclarationType = VariableDeclarationType.CONST;
+            }
+            else if (_currentToken.Matches(Keyword.Final))
+            {
+                variableDeclarationType = VariableDeclarationType.FINAL;
+            }
+            else if (_currentToken.Matches(Keyword.Let))
+            {
+                variableDeclarationType = VariableDeclarationType.LET;
+            }
+
+            res.RegisterAdvancement();
+            Advance();
+
+            List<(Token, AstNode?, TypeDescriptor?)> declarations = new List<(Token, AstNode?, TypeDescriptor?)>();
+
+            if (_currentToken.Type != TokenType.IDENTIFIER)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier"));
+
+            while (_currentToken.Type == TokenType.IDENTIFIER)
+            {
+                var varName = _currentToken;
+                res.RegisterAdvancement();
+                Advance();
+
+                TypeDescriptor? declaredType = null;
+
+                if (_currentToken.Type == TokenType.COLON)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    var parsedType = ParseType(res);
+                    if (parsedType == null)
+                    {
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':'"));
+                    }
+                    declaredType = parsedType;
+                }
+
+                // Trait fields can have optional default values
+                AstNode? defaultValueNode = null;
+                if (_currentToken.Type == TokenType.EQ)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    defaultValueNode = res.Register(ParseExpression());
+                    if (res.Error != null)
+                    {
+                        return res;
+                    }
+                }
+
+                declarations.Add((varName, defaultValueNode, declaredType));
+
+                if (_currentToken.Type == TokenType.COMMA)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            return res.Success(new VariableDeclarationNode(variableDeclarationType, declarations, isPublic, false));
         }
 
         private ParserResult ParseBinaryOperation(Func<ParserResult> funcA, List<(TokenType, Keyword?)> ops, Func<ParserResult>? funcB = null)

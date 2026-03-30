@@ -21,7 +21,29 @@ namespace RaLanguage.Interpreter.Visitors.Interfaces
             if (context.SymbolTable.Get(name) != null)
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{name}' is already defined", context));
 
-            var iface = new InterfaceTypeValue(name, node.Methods)
+            // Validate interface fields - no default values allowed
+            foreach (var field in node.Fields)
+            {
+                if (field.DefaultValueNode != null)
+                {
+                    return res.Failure(new RuntimeError(
+                        field.PositionStart,
+                        field.PositionEnd,
+                        "Interface fields cannot have default values",
+                        context));
+                }
+
+                if (field.FieldType == null)
+                {
+                    return res.Failure(new RuntimeError(
+                        field.PositionStart,
+                        field.PositionEnd,
+                        "Interface fields must have a type declaration",
+                        context));
+                }
+            }
+
+            var iface = new InterfaceTypeValue(name, node.Methods, node.Fields)
                 .SetContext(context)
                 .SetPos(node.PositionStart, node.PositionEnd);
 
