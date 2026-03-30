@@ -51,6 +51,10 @@ namespace RaLanguage.Interpreter.Visitors.Members
                     return res.Success(new BoundStructMethodValue(instance.Definition, instance, method).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
 
+                var ext = context.Extensions.Resolve(instance, memberName);
+                if (ext.Count > 0)
+                    return res.Success(new BoundExtensionMethodGroupValue(instance, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Struct '{instance.Definition.StructName}' has no member '{memberName}'", context));
             }
 
