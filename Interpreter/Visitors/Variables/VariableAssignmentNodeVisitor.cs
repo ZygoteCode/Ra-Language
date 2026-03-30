@@ -44,7 +44,6 @@ namespace RaLanguage.Interpreter.Visitors.Variables
             else
             {
                 value = res.Register(interpreter.Visit(node.ValueNode, context));
-                if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
             }
 

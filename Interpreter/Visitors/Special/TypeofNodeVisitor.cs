@@ -13,7 +13,7 @@ namespace RaLanguage.Interpreter.Visitors.Special
         {
             var res = new RuntimeResult();
             var value = res.Register(interpreter.Visit(node.Node, context));
-            if (res.Error != null) return res;
+            if (res.ShouldReturn()) return res;
 
             string type = value.Type switch
             {

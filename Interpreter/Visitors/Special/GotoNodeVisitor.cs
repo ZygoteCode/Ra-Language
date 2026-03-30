@@ -20,7 +20,7 @@ namespace RaLanguage.Interpreter.Visitors.Special
                 if (label.Item1.Equals(varName))
                 {
                     res.Register(interpreter.Visit(label.Item2, context));
-                    if (res.Error != null) return res;
+                    if (res.ShouldReturn()) return res;
                     return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
             }

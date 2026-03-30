@@ -14,13 +14,13 @@ namespace RaLanguage.Interpreter.Visitors.Operations
         {
             var res = new RuntimeResult();
             var start = res.Register(interpreter.Visit(node.Start, context));
-            if (res.Error != null) return res;
+            if (res.ShouldReturn()) return res;
 
             if (start.Type != RuntimeValueType.Number)
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Start value should be a number", context));
 
             var end = res.Register(interpreter.Visit(node.End, context));
-            if (res.Error != null) return res;
+            if (res.ShouldReturn()) return res;
 
             if (end.Type != RuntimeValueType.Number)
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "End value should be a number", context));
@@ -30,7 +30,7 @@ namespace RaLanguage.Interpreter.Visitors.Operations
             if (node.Step != null)
             {
                 step = res.Register(interpreter.Visit(node.Step, context));
-                if (res.Error != null) return res;
+                if (res.ShouldReturn()) return res;
 
                 if (step.Type != RuntimeValueType.Number)
                     return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Step value should be a number", context));

@@ -134,7 +134,6 @@ namespace RaLanguage.Interpreter.Visitors.Classes
             }
 
             ValidateOverrides(node, classValue, context, ref res);
-            if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
 
             context.SymbolTable.Set(

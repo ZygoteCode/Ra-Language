@@ -19,10 +19,10 @@ namespace RaLanguage.Interpreter.Visitors.Operations
             }
 
             var left = res.Register(interpreter.Visit(node.Left, context));
-            if (res.Error != null) return res;
+            if (res.ShouldReturn()) return res;
 
             var right = res.Register(interpreter.Visit(node.Right, context));
-            if (res.Error != null) return res;
+            if (res.ShouldReturn()) return res;
 
             if (left.Type == RuntimeValueType.Null)
                 return res.Success(right.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));

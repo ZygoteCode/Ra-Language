@@ -39,7 +39,6 @@ namespace RaLanguage.Interpreter.Visitors.Enums
                 if (valueNode != null)
                 {
                     var val = res.Register(interpreter.Visit(valueNode, context));
-                    if (res.Error != null) return res;
                     if (res.ShouldReturn()) return res;
 
                     var tempValue = ExtractEnumInt128(val, valueNode, context);

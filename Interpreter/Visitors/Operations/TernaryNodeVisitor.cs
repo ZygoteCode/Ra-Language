@@ -13,7 +13,6 @@ namespace RaLanguage.Interpreter.Visitors.Operations
             var res = new RuntimeResult();
 
             var condVal = res.Register(interpreter.Visit(node.Condition, context));
-            if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
 
             bool condIsTrue;
@@ -25,14 +24,12 @@ namespace RaLanguage.Interpreter.Visitors.Operations
             if (condIsTrue)
             {
                 var trueVal = res.Register(interpreter.Visit(node.TrueExpression, context));
-                if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
                 return res.Success(trueVal);
             }
             else
             {
                 var falseVal = res.Register(interpreter.Visit(node.FalseExpression, context));
-                if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
                 return res.Success(falseVal);
             }

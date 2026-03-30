@@ -29,7 +29,7 @@ namespace RaLanguage.Interpreter.Visitors.Special
             if (alreadyExists) interpreter.Labels.RemoveAt(index);
             interpreter.Labels.Add((varName, node.Statements));
             res.Register(interpreter.Visit(node.Statements, context));
-            if (res.Error != null) return res;
+            if (res.ShouldReturn()) return res;
             return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
     }

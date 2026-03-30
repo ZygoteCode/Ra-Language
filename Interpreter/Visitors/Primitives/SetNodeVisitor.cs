@@ -16,7 +16,6 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
             foreach (var elementNode in node.ElementNodes)
             {
                 var val = res.Register(interpreter.Visit(elementNode, context));
-                if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
 
                 bool exists = false;

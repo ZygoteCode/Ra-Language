@@ -20,7 +20,6 @@ namespace RaLanguage.Interpreter.Visitors.Functions
             }
 
             var calleeVal = res.Register(interpreter.Visit(node.NodeToCall, context));
-            if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
             if (calleeVal == null)
             {
@@ -35,7 +34,6 @@ namespace RaLanguage.Interpreter.Visitors.Functions
                 foreach (var argNode in node.ArgNodes)
                 {
                     var evaluated = res.Register(interpreter.Visit(argNode.Expr, context));
-                    if (res.Error != null) return res;
                     if (res.ShouldReturn()) return res;
 
                     if (argNode.NameTok != null)
@@ -60,7 +58,6 @@ namespace RaLanguage.Interpreter.Visitors.Functions
                 RuntimeValue? callResult = null;
                 var fnExecRes = func.ExecuteWithNamedArgs(positionalArgs, namedArgs);
                 var fnReturn = res.Register(fnExecRes);
-                if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
 
                 if (fnReturn == null)
@@ -80,7 +77,6 @@ namespace RaLanguage.Interpreter.Visitors.Functions
 
             var execRes = calleeVal.Execute(positionalArgs);
             var execReturn = res.Register(execRes);
-            if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
 
             if (execReturn == null)

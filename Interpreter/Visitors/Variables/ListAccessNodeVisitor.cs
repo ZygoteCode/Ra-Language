@@ -12,10 +12,10 @@ namespace RaLanguage.Interpreter.Visitors.Variables
         {
             var res = new RuntimeResult();
             var target = res.Register(interpreter.Visit(node.Target, context));
-            if (res.Error != null) return res;
+            if (res.ShouldReturn()) return res;
 
             var index = res.Register(interpreter.Visit(node.Index, context));
-            if (res.Error != null) return res;
+            if (res.ShouldReturn()) return res;
 
             (RuntimeValue?, Error?) result = target.ListAccess(index);
             if (result.Item2 != null) return res.Failure(result.Item2);

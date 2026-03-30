@@ -28,7 +28,6 @@ namespace RaLanguage.Interpreter.Visitors.Functions
                 else
                 {
                     value = res.Register(interpreter.Visit(node.NodeToReturn, context));
-                    if (res.Error != null) return res;
                     if (res.ShouldReturn()) return res;
                 }
             }

@@ -15,12 +15,10 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
             foreach (var (keyNode, valueNode) in node.Pairs)
             {
                 var keyVal = res.Register(interpreter.Visit(keyNode, context));
-                if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
 
                 keyVal.SetContext(context).SetPos(keyNode.PositionStart, keyNode.PositionEnd);
                 var valueVal = res.Register(interpreter.Visit(valueNode, context));
-                if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
 
                 valueVal.SetContext(context).SetPos(valueNode.PositionStart, valueNode.PositionEnd);

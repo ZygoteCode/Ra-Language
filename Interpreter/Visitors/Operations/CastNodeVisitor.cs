@@ -14,7 +14,6 @@ namespace RaLanguage.Interpreter.Visitors.Operations
         {
             var res = new RuntimeResult();
             var val = res.Register(interpreter.Visit(node.Expression, context));
-            if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
 
             if (val == null) return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast null value", context));

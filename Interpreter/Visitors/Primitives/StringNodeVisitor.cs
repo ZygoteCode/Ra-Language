@@ -23,7 +23,6 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
                 else
                 {
                     var val = res.Register(interpreter.Visit(part, context));
-                    if (res.Error != null) return res;
                     if (res.ShouldReturn()) return res;
 
                     if (val.Type == RuntimeValueType.String)

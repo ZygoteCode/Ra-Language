@@ -14,7 +14,6 @@ namespace RaLanguage.Interpreter.Visitors.Enums
             var res = new RuntimeResult();
 
             var enumValue = res.Register(interpreter.Visit(node.EnumNode, context));
-            if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
 
             if (enumValue.Type != RuntimeValueType.EnumType)

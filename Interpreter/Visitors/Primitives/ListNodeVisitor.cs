@@ -22,7 +22,6 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
                 {
                     SpreadNode spread = (SpreadNode)elementNode;
                     var val = res.Register(interpreter.Visit(spread.Expression, context));
-                    if (res.Error != null) return res;
                     if (res.ShouldReturn()) return res;
 
                     if (val.Type != RuntimeValueType.List)
@@ -40,7 +39,6 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
                 else
                 {
                     var val = res.Register(interpreter.Visit(elementNode, context));
-                    if (res.Error != null) return res;
                     if (res.ShouldReturn()) return res;
                     elements.Add(val);
                 }

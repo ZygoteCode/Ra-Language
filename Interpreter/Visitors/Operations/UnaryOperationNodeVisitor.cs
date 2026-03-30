@@ -17,7 +17,6 @@ namespace RaLanguage.Interpreter.Visitors.Operations
         {
             var res = new RuntimeResult();
             var value = res.Register(interpreter.Visit(node.Node, context));
-            if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
 
             Error? error = null;

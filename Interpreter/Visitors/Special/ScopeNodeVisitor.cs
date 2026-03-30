@@ -15,7 +15,6 @@ namespace RaLanguage.Interpreter.Visitors.Special
             foreach (var nodeToVisit in node.Nodes)
             {
                 res.Register(interpreter.Visit(nodeToVisit, newContext));
-                if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
             }
 
