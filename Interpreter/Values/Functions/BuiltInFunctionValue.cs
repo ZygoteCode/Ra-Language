@@ -37,7 +37,25 @@ namespace RaLanguage.Interpreter.Values.Functions
         }
 
         private RuntimeResult ExecutePrint(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
-            Console.WriteLine(c.SymbolTable.Get("value"));
+            var value = c.SymbolTable.Get("value");
+            
+            string output;
+            if (value.Type == RuntimeValueType.ClassInstance)
+            {
+                var instance = (RaLanguage.Interpreter.Values.Primitives.ClassInstanceValue)value;
+                output = instance.TryCallToString().value;
+            }
+            else if (value.Type == RuntimeValueType.StructInstance)
+            {
+                var instance = (RaLanguage.Interpreter.Values.Structs.StructInstanceValue)value;
+                output = instance.TryCallToString().value;
+            }
+            else
+            {
+                output = value.ToString();
+            }
+            
+            Console.WriteLine(output);
             return new RuntimeResult().Success(new NullValue().SetContext(ctx).SetPos(PositionStart, PositionEnd));
         });
 

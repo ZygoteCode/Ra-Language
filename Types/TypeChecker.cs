@@ -4,6 +4,7 @@ using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Interpreter.Values.Structs;
 using RaLanguage.Parser.Nodes;
 using System.Globalization;
+using RaLanguage.Utilities;
 
 namespace RaLanguage.Types
 {
@@ -40,6 +41,13 @@ namespace RaLanguage.Types
             if (declaredType?.Name == null) return value;
 
             string targetType = declaredType.Name.ToString().ToLowerInvariant();
+            
+            if (targetType == "string")
+            {
+                var strValue = StringConversionUtility.ConvertToString(value);
+                return new StringValue(strValue).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+            }
+            
             if (!TryGetRawValue(value, out object? rawValue))
                 return value;
 

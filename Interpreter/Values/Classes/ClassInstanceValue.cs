@@ -66,6 +66,42 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
 
+        public (string value, bool hasCustomToString) TryCallToString()
+        {
+            var toStringMethod = Definition.ResolveInstanceMethods("to_string")
+                .FirstOrDefault(m => m.ArgNameToks.Count == 0);
+
+            if (toStringMethod == null)
+            {
+                return (ToString(), false);
+            }
+
+            try
+            {
+                var boundMethod = new BoundClassMethodValue(Definition, this, toStringMethod, false)
+                    .SetContext(Context)
+                    .SetPos(PositionStart, PositionEnd);
+
+                var result = boundMethod.Execute(new List<RuntimeValue>());
+                
+                if (result.Error != null || result.Value == null)
+                {
+                    return (ToString(), false);
+                }
+
+                if (result.Value.Type == RuntimeValueType.String)
+                {
+                    return (((RaLanguage.Interpreter.Values.Primitives.StringValue)result.Value).Value, true);
+                }
+
+                return (ToString(), false);
+            }
+            catch
+            {
+                return (ToString(), false);
+            }
+        }
+
         public override string ToString()
             => $"{Definition.ClassName}{{{string.Join(", ", Fields.Select(kv => $"{kv.Key}: {kv.Value}"))}}}";
     }

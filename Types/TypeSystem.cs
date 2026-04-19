@@ -15,6 +15,9 @@ namespace RaLanguage.Types
             if (string.Equals(target.Name, "any", StringComparison.Ordinal)) return true;
             if (target.IsTypeParameter) return true;
 
+            if (string.Equals(target.Name, "string", StringComparison.Ordinal))
+                return true;
+
             var symbol = context?.SymbolTable?.Get(target.Name);
 
             if (symbol is EnumTypeValue enumType)

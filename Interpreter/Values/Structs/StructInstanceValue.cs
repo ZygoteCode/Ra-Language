@@ -55,6 +55,43 @@ namespace RaLanguage.Interpreter.Values.Structs
             return copy.SetContext(Context).SetPos(PositionStart, PositionEnd);
         }
 
+        public (string value, bool hasCustomToString) TryCallToString()
+        {
+            var toStringMethod = Definition.Methods
+                .FirstOrDefault(m => string.Equals(m.NameTok.Value?.ToString(), "to_string", StringComparison.Ordinal) 
+                                  && m.ArgNameToks.Count == 0);
+
+            if (toStringMethod == null)
+            {
+                return (ToString(), false);
+            }
+
+            try
+            {
+                var boundMethod = new BoundStructMethodValue(Definition, this, toStringMethod)
+                    .SetContext(Context)
+                    .SetPos(PositionStart, PositionEnd);
+
+                var result = boundMethod.Execute(new List<RuntimeValue>());
+                
+                if (result.Error != null || result.Value == null)
+                {
+                    return (ToString(), false);
+                }
+
+                if (result.Value.Type == RuntimeValueType.String)
+                {
+                    return (((RaLanguage.Interpreter.Values.Primitives.StringValue)result.Value).Value, true);
+                }
+
+                return (ToString(), false);
+            }
+            catch
+            {
+                return (ToString(), false);
+            }
+        }
+
         public sealed override string ToString()
             => $"{Definition.StructName}{{{string.Join(", ", Fields.Select(kv => $"{kv.Key}: {kv.Value}"))}}}";
     }

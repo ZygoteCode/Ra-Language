@@ -182,7 +182,7 @@ namespace RaLanguage.Interpreter.Values
 
             if (string.Equals(tn, "string", StringComparison.Ordinal))
             {
-                return (new StringValue(ToString()).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                return (new StringValue(RaLanguage.Utilities.StringConversionUtility.ConvertToString(this)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             if (string.Equals(tn, "bool", StringComparison.Ordinal))

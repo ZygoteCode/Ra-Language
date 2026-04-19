@@ -4,6 +4,7 @@ using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Parser.Nodes;
 using RaLanguage.Parser.Nodes.Primitives;
+using RaLanguage.Utilities;
 
 namespace RaLanguage.Interpreter.Visitors.Primitives
 {
@@ -25,12 +26,10 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
                     var val = res.Register(interpreter.Visit(part, context));
                     if (res.ShouldReturn()) return res;
 
-                    if (val.Type == RuntimeValueType.String)
-                        sb.Append(((StringValue)val).Value ?? "");
-                    else if (val == null)
+                    if (val == null)
                         sb.Append("null");
                     else
-                        sb.Append(val.ToString() ?? "");
+                        sb.Append(StringConversionUtility.ConvertToString(val));
                 }
             }
 

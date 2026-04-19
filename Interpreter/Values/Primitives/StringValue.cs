@@ -2,6 +2,7 @@
 using RaLanguage.Errors;
 using System.Globalization;
 using System.Text;
+using RaLanguage.Utilities;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
@@ -48,17 +49,9 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var s = (StringValue)other;
                 return (new StringValue(Value + s.Value).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
             }
-            else if (other.Type == RuntimeValueType.Number)
-            {
-                var n = (NumberValue)other;
-                return (new StringValue(Value + n.Value.ToString()).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
-            }
-            else if (other.Type == RuntimeValueType.Boolean)
-            {
-                var b = (BooleanValue)other;
-                return (new StringValue(Value + b.Value.ToString()).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
-            }
-            return base.AddedTo(other);
+            
+            var converted = StringConversionUtility.ConvertToString(other);
+            return (new StringValue(Value + converted).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
         }
 
         public sealed override (RuntimeValue?, Error?) SubbedBy(RuntimeValue other)

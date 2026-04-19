@@ -32,7 +32,40 @@ namespace RaLanguage.Interpreter.Visitors.Structs
                 isStaticallyTyped: true,
                 isPublic: node.IsPublic);
 
+            ValidateToStringMethod(node, context, ref res);
+            if (res.ShouldReturn()) return res;
+
             return res.Success(value);
+        }
+
+        private void ValidateToStringMethod(StructDefinitionNode node, Context context, ref RuntimeResult res)
+        {
+            var toStringMethod = node.Methods.FirstOrDefault(m => 
+                string.Equals(m.NameTok.Value?.ToString(), "to_string", StringComparison.Ordinal));
+
+            if (toStringMethod == null)
+                return;
+
+            if (toStringMethod.ArgNameToks.Count > 0)
+            {
+                res = res.Failure(new RuntimeError(
+                    toStringMethod.PositionStart,
+                    toStringMethod.PositionEnd,
+                    $"Method 'to_string' must not have parameters",
+                    context));
+                return;
+            }
+
+            if (toStringMethod.ReturnType == null || 
+                !string.Equals(toStringMethod.ReturnType.Name, "string", StringComparison.Ordinal))
+            {
+                res = res.Failure(new RuntimeError(
+                    toStringMethod.PositionStart,
+                    toStringMethod.PositionEnd,
+                    $"Method 'to_string' must return type 'string'",
+                    context));
+                return;
+            }
         }
     }
 }

@@ -172,6 +172,9 @@ namespace RaLanguage.Interpreter.Visitors.Classes
             ValidateOverrides(node, classValue, context, ref res);
             if (res.ShouldReturn()) return res;
 
+            ValidateToStringMethod(node, classValue, context, ref res);
+            if (res.ShouldReturn()) return res;
+
             if (!node.IsAbstract)
             {
                 var unresolvedFields = classValue.GetAbstractFieldsInHierarchy()
@@ -244,6 +247,36 @@ namespace RaLanguage.Interpreter.Visitors.Classes
             }
 
             return true;
+        }
+
+        private void ValidateToStringMethod(ClassDefinitionNode node, ClassTypeValue classValue, Context context, ref RuntimeResult res)
+        {
+            var toStringMethod = node.Methods.FirstOrDefault(m => 
+                string.Equals(m.VarNameTok?.Value?.ToString(), "to_string", StringComparison.Ordinal));
+
+            if (toStringMethod == null)
+                return;
+
+            if (toStringMethod.ArgNameToks.Count > 0)
+            {
+                res = res.Failure(new RuntimeError(
+                    toStringMethod.PositionStart,
+                    toStringMethod.PositionEnd,
+                    $"Method 'to_string' must not have parameters",
+                    context));
+                return;
+            }
+
+            if (toStringMethod.ReturnType == null || 
+                !string.Equals(toStringMethod.ReturnType.Name, "string", StringComparison.Ordinal))
+            {
+                res = res.Failure(new RuntimeError(
+                    toStringMethod.PositionStart,
+                    toStringMethod.PositionEnd,
+                    $"Method 'to_string' must return type 'string'",
+                    context));
+                return;
+            }
         }
     }
 }
