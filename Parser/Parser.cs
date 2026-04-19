@@ -2895,12 +2895,6 @@ namespace RaLanguage.Parser
                 res.RegisterAdvancement();
                 Advance();
 
-                while (_currentToken.Type == TokenType.NEWLINE)
-                {
-                    res.RegisterAdvancement();
-                    Advance();
-                }
-
                 var chainNode = res.Register(ParseIfExpressionBOrC());
                 if (res.Error != null) return res;
 

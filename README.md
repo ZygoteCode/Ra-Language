@@ -28,7 +28,7 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [x] Implemented uint128 as a new primitive value type of the language.
   - [x] Implemented decimal as a new primitive value type of the language.
   - [x] Implemented byte as a new primitive value type of the language.
-  - [x] Add a new innovative statement: "retry for 5 times delay 200ms / else".
+  - [x] Add a new innovative statement: "retry for 5 times delay 200 / else". The number 200 is scanned as milliseconds time.
   - [x] Implemented enums in the language.
   - [x] Implement structs into the language. Can create new instances of structs using constructors.
   - [x] Better parsing is now adopted for multi-line statements.
@@ -44,9 +44,10 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [x] Can now override fields into classes.
   - [x] Implemented method extensions for classes, structs and primitive types.
   - [x] Implement the "import" directive to import functions, classes, enums, fields, methods and so on, with a intelligent path system.
-  - [ ] Implement basic methods (to_string, repr), in-classes methods for operators (==, <, >, ...).
+  - [ ] Implement "to_string" method in classes/structs.
   - [ ] Implement built-in functions for reflections and complex language operations (ex. native sys calls).
   - [ ] Implement operator overloading.
+  - [ ] Improve generics system.
 
   New ideas coming soon!
 
