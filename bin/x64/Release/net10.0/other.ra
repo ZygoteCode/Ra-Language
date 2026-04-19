@@ -1,6 +1,8 @@
-fn test_function() {
+pub fn test_function() {
     print("another hello!");
 }
+
+pub const PI = 3.14;
 
 pub class Other {
     pub static fn say_hello() {

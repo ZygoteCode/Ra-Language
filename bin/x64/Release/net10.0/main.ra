@@ -1,0 +1,9 @@
+import 'other.ra';
+
+Other.say_hello();
+test_function();
+
+print(PI);
+
+var k: int = 5;
+print(k.sum(3));

@@ -20,22 +20,7 @@ namespace RaLanguage
         private static void InitializeSymbolTable()
         {
             GlobalSymbolTable = new SymbolTable();
-            GlobalSymbolTable.Set("math_pi", NumberValue.MathPI);
             GlobalSymbolTable.Set("print", new BuiltInFunctionValue("print"));
-            GlobalSymbolTable.Set("print_ret", new BuiltInFunctionValue("print_ret"));
-            GlobalSymbolTable.Set("input", new BuiltInFunctionValue("input"));
-            GlobalSymbolTable.Set("input_int", new BuiltInFunctionValue("input_int"));
-            GlobalSymbolTable.Set("clear", new BuiltInFunctionValue("clear"));
-            GlobalSymbolTable.Set("cls", new BuiltInFunctionValue("clear"));
-            GlobalSymbolTable.Set("is_num", new BuiltInFunctionValue("is_number"));
-            GlobalSymbolTable.Set("is_str", new BuiltInFunctionValue("is_string"));
-            GlobalSymbolTable.Set("is_list", new BuiltInFunctionValue("is_list"));
-            GlobalSymbolTable.Set("is_fn", new BuiltInFunctionValue("is_function"));
-            GlobalSymbolTable.Set("append", new BuiltInFunctionValue("append"));
-            GlobalSymbolTable.Set("pop", new BuiltInFunctionValue("pop"));
-            GlobalSymbolTable.Set("extend", new BuiltInFunctionValue("extend"));
-            GlobalSymbolTable.Set("len", new BuiltInFunctionValue("len"));
-            GlobalSymbolTable.Set("run", new BuiltInFunctionValue("run"));
             
             string basePath = Directory.GetCurrentDirectory();
             ImportNodeVisitor.InitializeModuleManager(basePath);

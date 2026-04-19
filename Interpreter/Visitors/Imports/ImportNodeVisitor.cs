@@ -151,6 +151,11 @@ namespace RaLanguage.Interpreter.Visitors.Imports
 
         public (RuntimeValue, Error?) Get(string key, Position posStart, Position posEnd)
         {
+            if (_module.ExportTable.TryGetValue(key, out var exportedSymbol))
+            {
+                return (exportedSymbol.Copy().SetContext(_context).SetPos(posStart, posEnd), null);
+            }
+            
             var symbol = _module.SymbolTable.Get(key);
             
             if (symbol == null)

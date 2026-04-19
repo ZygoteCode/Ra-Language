@@ -1,6 +1,8 @@
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
+using RaLanguage.Parser.Nodes;
+using RaLanguage.Parser.Nodes.Special;
 using System.Collections.Concurrent;
 
 namespace RaLanguage.Interpreter.Modules
@@ -10,6 +12,8 @@ namespace RaLanguage.Interpreter.Modules
         public string AbsolutePath { get; }
         public SymbolTable SymbolTable { get; }
         public ExtensionRegistry Extensions { get; set; }
+        public Dictionary<string, RuntimeValue> ExportTable { get; }
+        
         public bool IsLoaded { get; private set; }
         public DateTime LoadedAt { get; private set; }
 
@@ -18,6 +22,7 @@ namespace RaLanguage.Interpreter.Modules
             AbsolutePath = absolutePath;
             SymbolTable = new SymbolTable();
             Extensions = new ExtensionRegistry();
+            ExportTable = new Dictionary<string, RuntimeValue>();
             IsLoaded = false;
             LoadedAt = DateTime.MinValue;
         }
@@ -116,12 +121,7 @@ namespace RaLanguage.Interpreter.Modules
 
             if (parserResult.Node != null)
             {
-                var result = interpreter.Visit(parserResult.Node, moduleContext);
-
-                if (result.Error != null)
-                {
-                    throw new Exception($"Runtime error in module {absolutePath}: {result.Error.Details}");
-                }
+                ExecuteModuleWithSymbolCapture(parserResult.Node, moduleContext, interpreter);
             }
 
             CopySymbolsToModule(moduleContext.SymbolTable, module);
@@ -136,9 +136,13 @@ namespace RaLanguage.Interpreter.Modules
         {            
             if (_moduleCache.TryGetValue(absolutePath, out var module))
             {
-                var entry = module.SymbolTable.GetEntry(symbolName);
+                if (module.ExportTable.TryGetValue(symbolName, out var exportedSymbol))
+                {
+                    return exportedSymbol;
+                }
                 
-                if (entry != null)
+                var entry = module.SymbolTable.GetEntry(symbolName);
+                if (entry != null && entry.IsPublic)
                 {
                     return entry.Value;
                 }
@@ -153,13 +157,9 @@ namespace RaLanguage.Interpreter.Modules
             
             if (_moduleCache.TryGetValue(absolutePath, out var module))
             {
-                foreach (var key in module.SymbolTable.GetLocalKeys())
+                foreach (var kvp in module.ExportTable)
                 {
-                    var entry = module.SymbolTable.GetEntry(key);
-                    if (entry != null && entry.IsPublic)
-                    {
-                        symbols[key] = entry.Value;
-                    }
+                    symbols[kvp.Key] = kvp.Value;
                 }
             }
 
@@ -186,7 +186,7 @@ namespace RaLanguage.Interpreter.Modules
             {
                 var entry = contextSymbolTable.GetEntry(key);
                 if (entry != null)
-                {                    
+                {
                     module.SymbolTable.Set(
                         key,
                         entry.Value.Copy(),
@@ -195,8 +195,38 @@ namespace RaLanguage.Interpreter.Modules
                         isStaticallyTyped: entry.IsStaticallyTyped,
                         isPublic: entry.IsPublic
                     );
+
+                    if (entry.IsPublic)
+                    {
+                        module.ExportTable[key] = entry.Value.Copy();
+                    }
                 }
-            }            
+            } 
+        }
+        
+        private void ExecuteModuleWithSymbolCapture(AstNode node, Context moduleContext, IInterpreter interpreter)
+        {
+            if (node is ScopeNode scopeNode)
+            {                
+                foreach (var stmt in scopeNode.Nodes)
+                {
+                    var result = interpreter.Visit(stmt, moduleContext);
+                    
+                    if (result.Error != null)
+                    {
+                        throw new Exception($"Module execution error: {result.Error.Details}");
+                    }
+                }
+            }
+            else
+            {
+                var result = interpreter.Visit(node, moduleContext);
+                
+                if (result.Error != null)
+                {
+                    throw new Exception($"Module execution error: {result.Error.Details}");
+                }
+            }
         }
 
         public void ClearCache()

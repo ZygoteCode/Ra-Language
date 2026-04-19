@@ -87,10 +87,13 @@ namespace RaLanguage.Interpreter.Runtime
 
             foreach (var key in symbolTable.GetLocalKeys())
             {
-                var entry = symbolTable.GetEntry(key);
-                if (entry != null)
+                if (GetEntry(key) != null)
                 {
-                    Set(key, entry.Value, entry.IsLet, entry.DeclaredType, entry.IsStaticallyTyped, entry.IsPublic);
+                    var entry = symbolTable.GetEntry(key);
+                    if (entry != null)
+                    {
+                        Set(key, entry.Value, entry.IsLet, entry.DeclaredType, entry.IsStaticallyTyped, entry.IsPublic);
+                    }
                 }
             }
 

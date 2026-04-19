@@ -18,8 +18,6 @@ namespace RaLanguage.Interpreter.Values.Primitives
             Value = value;
         }
 
-        public static NumberValue MathPI => new NumberValue(BigNumber.Parse(Math.PI.ToString("R", CultureInfo.InvariantCulture)));
-
         private static NumberValue Promote(IntegerValue value)
         {
             return new NumberValue(BigNumber.Parse(value.Value.ToString()));

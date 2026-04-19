@@ -1377,13 +1377,7 @@ namespace RaLanguage.Parser
                 res.RegisterAdvancement();
                 Advance();
 
-                while (_currentToken.Type == TokenType.NEWLINE)
-                {
-                    res.RegisterAdvancement();
-                    Advance();
-                }
-
-                if (_currentToken.Matches(Keyword.As))
+                if (_currentToken.Type == TokenType.KEYWORD && _currentToken.Matches(Keyword.As))
                 {
                     res.RegisterAdvancement();
                     Advance();
@@ -2041,6 +2035,18 @@ namespace RaLanguage.Parser
                 var traitDef = res.Register(ParseTraitDefinition(true));
                 if (res.Error != null) return res;
                 return res.Success(traitDef);
+            }
+            else if (_currentToken.Matches(Keyword.Fn))
+            {
+                var funcDef = res.Register(ParseFunctionDefinition(isPublic: true));
+                if (res.Error != null) return res;
+                return res.Success(funcDef);
+            }
+            else if (_currentToken.Matches(Keyword.Var) || _currentToken.Matches(Keyword.Final) || _currentToken.Matches(Keyword.Let) || _currentToken.Matches(Keyword.Const))
+            {
+                var variableDecl = res.Register(ParseVariableDeclaration(isPublic: true));
+                if (res.Error != null) return res;
+                return res.Success(variableDecl);
             }
 
             return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'struct' or 'class'."));
