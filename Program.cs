@@ -29,25 +29,50 @@ namespace RaLanguage
         public static (RuntimeValue?, Error?) Run(string fn, string text)
         {
             var lexer = new Lexer.Lexer(fn, text);
-            var (tokens, error) = lexer.MakeTokens();
+            var (tokens, lexerDiagnostics) = lexer.MakeTokens();
 
-            if (error != null)
+            if (lexerDiagnostics.HasErrors)
             {
-                return (null, error);
+                Console.WriteLine("Lexer errors found:");
+                Console.WriteLine(lexerDiagnostics);
+                return (null, new Errors.Types.InvalidSyntaxError(
+                    new Lexer.Position(0, 0, 0, fn, text),
+                    new Lexer.Position(0, 0, 0, fn, text),
+                    $"Lexer failed with {lexerDiagnostics.Diagnostics.Count(d => d.Severity == Errors.DiagnosticSeverity.Error)} error(s)"
+                ));
             }
 
             var parser = new Parser.Parser(tokens);
-            var ast = parser.Parse();
+            var parseResult = parser.Parse();
 
-            if (ast.Error != null)
+            if (parseResult.HasErrors)
             {
-                return (null, ast.Error);
+                Console.WriteLine("Parser errors found:");
+                Console.WriteLine(parseResult.Diagnostics);
+                return (null, new Errors.Types.InvalidSyntaxError(
+                    new Lexer.Position(0, 0, 0, fn, text),
+                    new Lexer.Position(0, 0, 0, fn, text),
+                    $"Parser failed with {parseResult.Diagnostics.Diagnostics.Count(d => d.Severity == Errors.DiagnosticSeverity.Error)} error(s)"
+                ));
+            }
+
+            if (lexerDiagnostics.HasWarnings || parseResult.Diagnostics.HasWarnings)
+            {
+                Console.WriteLine("Warnings:");
+                foreach (var diagnostic in lexerDiagnostics.Diagnostics.Where(d => d.Severity == Errors.DiagnosticSeverity.Warning))
+                {
+                    Console.WriteLine(diagnostic);
+                }
+                foreach (var diagnostic in parseResult.Diagnostics.Diagnostics.Where(d => d.Severity == Errors.DiagnosticSeverity.Warning))
+                {
+                    Console.WriteLine(diagnostic);
+                }
             }
 
             var interpreter = new Interpreter.Interpreter();
-            var context = new Context("<program>");
+            var context = new Context(fn);
             context.SymbolTable = GlobalSymbolTable;
-            var result = interpreter.Visit(ast.Node, context);
+            var result = interpreter.Visit(parseResult.Node, context);
 
             return (result.Value, result.Error);
         }
@@ -156,7 +181,7 @@ namespace RaLanguage
                 string text = content ?? File.ReadAllText("main.ra");
                 Stopwatch sw = Stopwatch.StartNew();
 
-                var (result, error) = Run("<stdin>", text);
+                var (result, error) = Run("main.ra", text);
                 sw.Stop();
 
                 if (error != null)

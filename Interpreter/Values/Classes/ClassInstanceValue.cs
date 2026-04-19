@@ -91,7 +91,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
                 if (result.Value.Type == RuntimeValueType.String)
                 {
-                    return (((RaLanguage.Interpreter.Values.Primitives.StringValue)result.Value).Value, true);
+                    return (((StringValue)result.Value).Value, true);
                 }
 
                 return (ToString(), false);

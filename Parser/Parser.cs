@@ -70,17 +70,17 @@ namespace RaLanguage.Parser
                 _currentToken = _tokens[_tokenIndex];
         }
 
-        public ParserResult Parse()
+        public ParseResult Parse()
         {
             var res = ParseStatements();
             if (res.Error == null && _currentToken.Type != TokenType.EOF)
             {
-                return res.Failure(new InvalidSyntaxError(
+                res.Failure(new InvalidSyntaxError(
                     _currentToken.PositionStart, _currentToken.PositionEnd,
                     "Token cannot appear after previous tokens"
                 ));
             }
-            return res;
+            return new ParseResult(res.Node, res.Diagnostics);
         }
 
         private ParserResult ParseStatements()
@@ -96,8 +96,15 @@ namespace RaLanguage.Parser
             }
 
             var statement = res.Register(ParseStatement());
-            if (res.Error != null) return res;
-            statements.Add(statement);
+            if (res.Error != null)
+            {
+                res.Error = null;
+                SkipToNextStatement(res);
+            }
+            else
+            {
+                statements.Add(statement);
+            }
 
             bool moreStatements = true;
 
@@ -4518,6 +4525,25 @@ namespace RaLanguage.Parser
                 left = new BinaryOperationNode(left, opTok, right);
             }
             return res.Success(left);
+        }
+
+        private void SkipToNextStatement(ParserResult res)
+        {
+            while (_currentToken.Type != TokenType.EOF &&
+                   _currentToken.Type != TokenType.NEWLINE &&
+                   _currentToken.Type != TokenType.RBRACKET &&
+                   _currentToken.Type != TokenType.RPAREN &&
+                   _currentToken.Type != TokenType.RSQUARE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+            
+            if (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
         }
     }
 }

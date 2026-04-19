@@ -1,11 +1,11 @@
-pub class Person {
+pub class Person
     pub var name: string;
 
     pub Person(name: string) {
         self.name = name;
     }
 
-    pub fn to_string(): string {
+    pub fn to_string(): string
         ret "Person: " + self.name;
     }
 }
@@ -33,3 +33,7 @@ print(s2);
 
 var super_person: SuperPerson = SuperPerson("Alessandro");
 print(super_person);
+
+var x = ;
+var y = unknown;
+print("hello

@@ -14,6 +14,7 @@ namespace RaLanguage.Lexer
         private int _idx;
         private int _ln;
         private int _col;
+        private readonly DiagnosticBag _diagnostics = new DiagnosticBag();
 
         private static readonly bool[] s_isDigit = CreateDigitTable();
         private static readonly bool[] s_isLetterOrDigit = CreateLetterOrDigitTable();
@@ -91,7 +92,7 @@ namespace RaLanguage.Lexer
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private Position GetPos() => new Position(_idx, _ln, _col, _fn, _text);
 
-        public (List<Token> Tokens, Error? Error) MakeTokens()
+        public (List<Token> Tokens, DiagnosticBag Diagnostics) MakeTokens()
         {
             var tokens = new List<Token>(Math.Max(256, _text.Length / 8));
             ReadOnlySpan<char> span = _text.AsSpan();
@@ -121,8 +122,7 @@ namespace RaLanguage.Lexer
                     case '"':
                     case '\'':
                     case '`':
-                        var errStr = ProcessString(span, c, false, tokens);
-                        if (errStr != null) return (new List<Token>(), errStr);
+                        ProcessString(span, c, false, tokens);
                         break;
 
                     case '$':
@@ -130,13 +130,13 @@ namespace RaLanguage.Lexer
                         {
                             char quoteChar = span[_idx + 1];
                             Advance(c);
-                            var errInterp = ProcessString(span, quoteChar, true, tokens);
-                            if (errInterp != null) return (new List<Token>(), errInterp);
+                            ProcessString(span, quoteChar, true, tokens);
                         }
                         else
                         {
+                            var posStart = GetPos();
                             Advance(c);
-                            return (new List<Token>(), new IllegalCharacterError(GetPos(), GetPos(), "$"));
+                            _diagnostics.AddError($"Unexpected character '$'", posStart, GetPos());
                         }
                         break;
 
@@ -148,10 +148,7 @@ namespace RaLanguage.Lexer
                     case '^': ProcessPow(span, tokens); break;
                     case '=': ProcessEquals(span, tokens); break;
                     case '!': ProcessNot(span, tokens); break;
-                    case '<':
-                        var errLt = ProcessLessThan(span, tokens);
-                        if (errLt != null) return (new List<Token>(), errLt);
-                        break;
+                    case '<': ProcessLessThan(span, tokens); break;
                     case '>': ProcessGreaterThan(span, tokens); break;
                     case '&': ProcessAnd(span, tokens); break;
                     case '|': ProcessOr(span, tokens); break;
@@ -171,8 +168,7 @@ namespace RaLanguage.Lexer
                     default:
                         if (c < 128 && s_isDigit[c])
                         {
-                            var errNum = ProcessNumber(span, tokens);
-                            if (errNum != null) return (new List<Token>(), errNum);
+                            ProcessNumber(span, tokens);
                         }
                         else if (c < 128 && s_isLetterOrDigit[c])
                         {
@@ -182,14 +178,14 @@ namespace RaLanguage.Lexer
                         {
                             var posStart = GetPos();
                             Advance(c);
-                            return (new List<Token>(), new IllegalCharacterError(posStart, GetPos(), $"'{c}'"));
+                            _diagnostics.AddError($"Illegal character '{c}'", posStart, GetPos());
                         }
                         break;
                 }
             }
 
             tokens.Add(new Token(TokenType.EOF, null, GetPos()));
-            return (tokens, null);
+            return (tokens, _diagnostics);
         }
 
         private void SkipComment(ReadOnlySpan<char> span)
@@ -361,13 +357,13 @@ namespace RaLanguage.Lexer
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private Error? ProcessLessThan(ReadOnlySpan<char> span, List<Token> tokens)
+        private void ProcessLessThan(ReadOnlySpan<char> span, List<Token> tokens)
         {
             var posStart = GetPos();
             Advance(span[_idx]);
             if (_idx < span.Length)
             {
-                if (span[_idx] == '=') { Advance(span[_idx]); tokens.Add(new Token(TokenType.LTE, null, posStart, GetPos())); return null; }
+                if (span[_idx] == '=') { Advance(span[_idx]); tokens.Add(new Token(TokenType.LTE, null, posStart, GetPos())); return; }
                 if (span[_idx] == '<')
                 {
                     Advance(span[_idx]);
@@ -375,28 +371,35 @@ namespace RaLanguage.Lexer
                     {
                         Advance(span[_idx]);
                         tokens.Add(new Token(TokenType.BITWISE_LEFT_SHIFT_EQ, null, posStart, GetPos()));
-                        return null;
+                        return;
                     }
                     tokens.Add(new Token(TokenType.BITWISE_LEFT_SHIFT, null, posStart, GetPos()));
-                    return null;
+                    return;
                 }
                 if (span[_idx] == '!')
                 {
                     Advance(span[_idx]);
-                    if (_idx >= span.Length || span[_idx] != '-') return new ExpectedCharacterError(posStart, GetPos(), "Expected '-' character.");
+                    if (_idx >= span.Length || span[_idx] != '-')
+                    {
+                        _diagnostics.AddError("Expected '-' character.", posStart, GetPos());
+                        return;
+                    }
                     Advance(span[_idx]);
-                    if (_idx >= span.Length || span[_idx] != '-') return new ExpectedCharacterError(posStart, GetPos(), "Expected '-' character.");
+                    if (_idx >= span.Length || span[_idx] != '-')
+                    {
+                        _diagnostics.AddError("Expected '-' character.", posStart, GetPos());
+                        return;
+                    }
                     Advance(span[_idx]);
 
                     int cdataEnd = span.Slice(_idx).IndexOf("-->");
                     if (cdataEnd == -1) AdvanceMultiple(span.Length - _idx, span);
                     else AdvanceMultiple(cdataEnd + 3, span);
 
-                    return null;
+                    return;
                 }
             }
             tokens.Add(new Token(TokenType.LT, null, posStart, GetPos()));
-            return null;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -598,7 +601,7 @@ namespace RaLanguage.Lexer
             return false;
         }
 
-        private Error? ProcessNumber(ReadOnlySpan<char> span, List<Token> tokens)
+        private void ProcessNumber(ReadOnlySpan<char> span, List<Token> tokens)
         {
             var posStart = GetPos();
             int startIdx = _idx;
@@ -632,13 +635,15 @@ namespace RaLanguage.Lexer
                     }
 
                     if (!anyDigit)
-                        return new InvalidSyntaxError(posStart, GetPos(), "Invalid prefixed integer literal");
+                    {
+                        _diagnostics.AddError("Invalid prefixed integer literal", posStart, GetPos());
+                    }
 
                     TryReadNumberSuffix(span, ref suffix, ref isFloat);
 
                     string numValStr = BuildStringNoUnderscores(_text.Substring(startIdx, _idx - startIdx));
                     tokens.Add(new Token(isFloat ? TokenType.FLOAT : TokenType.INT, numValStr, posStart, GetPos()));
-                    return null;
+                    return;
                 }
             }
 
@@ -675,7 +680,10 @@ namespace RaLanguage.Lexer
                         Advance(span[_idx]);
 
                     if (_idx >= span.Length || !s_isDigit[span[_idx]])
-                        return new InvalidSyntaxError(posStart, GetPos(), "Expected digits after exponent");
+                    {
+                        _diagnostics.AddError("Expected digits after exponent", posStart, GetPos());
+                        break;
+                    }
 
                     while (_idx < span.Length && s_isDigit[span[_idx]])
                         Advance(span[_idx]);
@@ -691,10 +699,9 @@ namespace RaLanguage.Lexer
             TryReadNumberSuffix(span, ref suffix, ref isFloat);
             string finalNum = BuildStringNoUnderscores(_text.Substring(startIdx, _idx - startIdx));
             tokens.Add(new Token(isFloat ? TokenType.FLOAT : TokenType.INT, finalNum, posStart, GetPos()));
-            return null;
         }
 
-        private Error? ProcessString(ReadOnlySpan<char> span, char stringChar, bool allowInterpolation, List<Token> tokens)
+        private void ProcessString(ReadOnlySpan<char> span, char stringChar, bool allowInterpolation, List<Token> tokens)
         {
             var posStart = GetPos();
             Advance(span[_idx]);
@@ -759,12 +766,15 @@ namespace RaLanguage.Lexer
                         Advance(span[_idx]);
                     }
 
-                    if (braceCount != 0) return new InvalidSyntaxError(posStart, GetPos(), "Unterminated interpolation in string literal");
+                    if (braceCount != 0)
+                    {
+                        _diagnostics.AddError("Unterminated interpolation in string literal", posStart, GetPos());
+                    }
 
                     string innerText = _text.Substring(innerStartIdx, _idx - 1 - innerStartIdx);
                     var innerLexer = new Lexer(_fn, innerText);
-                    var (innerTokens, innerErr) = innerLexer.MakeTokens();
-                    if (innerErr != null) return new InvalidSyntaxError(posStart, GetPos(), innerErr.Details);
+                    var (innerTokens, innerDiagnostics) = innerLexer.MakeTokens();
+                    _diagnostics.AddRange(innerDiagnostics);
 
                     foreach (var t in innerTokens)
                     {
@@ -784,7 +794,8 @@ namespace RaLanguage.Lexer
 
             if (_idx >= span.Length || span[_idx] != stringChar)
             {
-                return new InvalidSyntaxError(posStart, GetPos(), "Unterminated string literal");
+                _diagnostics.AddError("Unterminated string literal", posStart, GetPos());
+                return;
             }
 
             string finalTextSeg = sb != null
@@ -793,8 +804,6 @@ namespace RaLanguage.Lexer
 
             tokens.Add(new Token(TokenType.STRING_TEXT, finalTextSeg, segStartPos, GetPos()));
             Advance(span[_idx]);
-
-            return null;
         }
 
         private static readonly Dictionary<string, Keyword> s_keywords = CreateKeywordTable();

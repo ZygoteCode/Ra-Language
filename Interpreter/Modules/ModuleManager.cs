@@ -85,19 +85,19 @@ namespace RaLanguage.Interpreter.Modules
             string sourceCode = await File.ReadAllTextAsync(absolutePath);
 
             var lexer = new Lexer.Lexer(absolutePath, sourceCode);
-            var (tokens, lexerError) = lexer.MakeTokens();
+            var (tokens, lexerDiagnostics) = lexer.MakeTokens();
             
-            if (lexerError != null)
+            if (lexerDiagnostics.HasErrors)
             {
-                throw new Exception($"Lexer error in module {absolutePath}: {lexerError.Details}");
+                throw new Exception($"Lexer errors in module {absolutePath}:\n{lexerDiagnostics}");
             }
 
             var parser = new Parser.Parser(tokens);
-            var parserResult = parser.Parse();
+            var parseResult = parser.Parse();
             
-            if (parserResult.Error != null)
+            if (parseResult.HasErrors)
             {
-                throw new Exception($"Parser error in module {absolutePath}: {parserResult.Error.Details}");
+                throw new Exception($"Parser errors in module {absolutePath}:\n{parseResult.Diagnostics}");
             }
 
             var moduleContext = new Context(
@@ -119,9 +119,9 @@ namespace RaLanguage.Interpreter.Modules
                 }
             }
 
-            if (parserResult.Node != null)
+            if (parseResult.Node != null)
             {
-                ExecuteModuleWithSymbolCapture(parserResult.Node, moduleContext, interpreter);
+                ExecuteModuleWithSymbolCapture(parseResult.Node, moduleContext, interpreter);
             }
 
             CopySymbolsToModule(moduleContext.SymbolTable, module);

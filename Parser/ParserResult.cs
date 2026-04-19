@@ -5,11 +5,12 @@ namespace RaLanguage.Parser
 {
     public class ParserResult
     {
-        public Error? Error { get; private set; }
+        public Error? Error { get; set; }
         public AstNode? Node { get; private set; }
         public int LastRegisteredAdvanceCount { get; private set; } = 0;
         public int AdvanceCount { get; private set; } = 0;
         public int ToReverseCount { get; private set; } = 0;
+        public DiagnosticBag Diagnostics { get; } = new DiagnosticBag();
 
         public void RegisterAdvancement()
         {
@@ -22,6 +23,7 @@ namespace RaLanguage.Parser
             LastRegisteredAdvanceCount = res.AdvanceCount;
             AdvanceCount += res.AdvanceCount;
             if (res.Error != null) Error = res.Error;
+            Diagnostics.AddRange(res.Diagnostics);
             return res.Node!;
         }
 
@@ -46,6 +48,7 @@ namespace RaLanguage.Parser
         {
             var resultError = error;
             Error = resultError;
+            Diagnostics.AddError($"{error.ErrorName}: {error.Details}", error.PositionStart, error.PositionEnd);
             return this;
         }
     }
