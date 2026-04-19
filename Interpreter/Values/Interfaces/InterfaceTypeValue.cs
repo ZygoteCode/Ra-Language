@@ -33,15 +33,12 @@ namespace RaLanguage.Interpreter.Values.Interfaces
             var className = classValue.ClassName;
             var fieldName = field.NameTok.Value?.ToString() ?? "";
             
-            // Check if class has the field
             var classField = classValue.GetField(fieldName);
             if (classField == null)
                 return false;
 
-            // Check type compatibility
             if (field.FieldType != null && classField.FieldType != null)
             {
-                // Simple name-based type check
                 if (!string.Equals(field.FieldType.Name, classField.FieldType.Name, StringComparison.Ordinal))
                     return false;
             }

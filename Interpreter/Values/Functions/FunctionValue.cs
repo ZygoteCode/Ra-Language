@@ -147,7 +147,6 @@ namespace RaLanguage.Interpreter.Values.Functions
                         return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Return type mismatch in function '{Name}': expected '{instantiatedReturnType}', got '{retVal.Type}'", Context));
                 }
 
-                execCtx.Dispose();
                 return res.Success(retVal.SetContext(Context).SetPos(PositionStart, PositionEnd));
             }
 
@@ -160,7 +159,6 @@ namespace RaLanguage.Interpreter.Values.Functions
                     return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Return type mismatch in function '{Name}': expected '{instantiatedReturnType}', got '{retValue.Type}'", Context));
             }
 
-            execCtx.Dispose();
             return res.Success(retValue.SetContext(Context).SetPos(PositionStart, PositionEnd));
         }
 

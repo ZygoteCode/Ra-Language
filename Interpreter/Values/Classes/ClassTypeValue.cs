@@ -253,14 +253,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public bool SatisfiesTrait(TraitTypeValue trait)
         {
-            // Check required methods
             foreach (var required in trait.GetRequiredMethods())
             {
                 if (!HasMethodSignatureInHierarchy(required))
                     return false;
             }
 
-            // Check fields
             foreach (var field in trait.Fields)
             {
                 if (!HasFieldMatching(field))
@@ -289,7 +287,6 @@ namespace RaLanguage.Interpreter.Values.Primitives
         {
             var fieldName = field.NameTok.Value?.ToString() ?? "";
 
-            // Check base class
             if (BaseClass != null)
             {
                 var baseField = BaseClass.GetField(fieldName);
@@ -297,7 +294,6 @@ namespace RaLanguage.Interpreter.Values.Primitives
                     return true;
             }
 
-            // Check traits
             foreach (var trait in Traits)
             {
                 var traitField = trait.GetField(fieldName);
@@ -467,7 +463,6 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public bool ImplementsInterface(InterfaceTypeValue iface)
         {
-            // Check methods
             foreach (var required in iface.Methods)
             {
                 var candidates = GetAllMethodsByName(required.NameTok.Value?.ToString() ?? "");
@@ -475,7 +470,6 @@ namespace RaLanguage.Interpreter.Values.Primitives
                     return false;
             }
 
-            // Check fields
             foreach (var field in iface.Fields)
             {
                 if (!HasFieldMatching(field))
@@ -489,12 +483,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
         {
             var fieldName = field.NameTok.Value?.ToString() ?? "";
             
-            // Check if class has the field
             var classField = GetField(fieldName);
             if (classField == null)
                 return false;
 
-            // Check type compatibility
             if (field.FieldType != null && classField.FieldType != null)
             {
                 if (!string.Equals(field.FieldType.Name, classField.FieldType.Name, StringComparison.Ordinal))

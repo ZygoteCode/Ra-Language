@@ -3,17 +3,14 @@ using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Runtime
 {
-    public class SymbolTable : IDisposable
+    public class SymbolTable
     {
         private readonly Dictionary<string, SymbolEntry> _symbols = new();
         public SymbolTable? Parent { get; private set; }
 
-        private bool _disposed;
-
         public SymbolTable(SymbolTable? parent = null)
         {
             Parent = parent;
-            _disposed = false;
         }
 
         public RuntimeValue? Get(string name)
@@ -49,18 +46,14 @@ namespace RaLanguage.Interpreter.Runtime
             if (owner != null)
             {
                 owner._symbols[name].Value = value;
-                if (owner._symbols[name].DeclaredType == null && declaredType != null)
-                {
-                    owner._symbols[name].Value = value;
-                    owner._symbols[name].IsLet = isLet;
-                    owner._symbols[name].DeclaredType = declaredType;
-                    owner._symbols[name].IsStaticallyTyped = isStaticallyTyped;
-                    owner._symbols[name].IsPublic = isPublic;
-                }
+                owner._symbols[name].IsLet = isLet;
+                owner._symbols[name].DeclaredType = declaredType;
+                owner._symbols[name].IsStaticallyTyped = isStaticallyTyped;
+                owner._symbols[name].IsPublic = isPublic;
             }
             else
             {
-                _symbols[name] = new SymbolEntry(value, isLet, declaredType, isStaticallyTyped);
+                _symbols[name] = new SymbolEntry(value, isLet, isPublic, declaredType, isStaticallyTyped);
             }
         }
 
@@ -81,7 +74,6 @@ namespace RaLanguage.Interpreter.Runtime
             if (owner != null)
             {
                 var entry = owner._symbols[name];
-                try { entry.Dispose(); } catch { }
                 owner._symbols.Remove(name);
             }
         }
@@ -93,16 +85,13 @@ namespace RaLanguage.Interpreter.Runtime
                 return;
             }
 
-            foreach (KeyValuePair<string, SymbolEntry> keyValuePair in _symbols)
+            foreach (var key in symbolTable.GetLocalKeys())
             {
-                RuntimeValue? value = symbolTable.Get(keyValuePair.Key);
-
-                if (value == null)
+                var entry = symbolTable.GetEntry(key);
+                if (entry != null)
                 {
-                    continue;
+                    Set(key, entry.Value, entry.IsLet, entry.DeclaredType, entry.IsStaticallyTyped, entry.IsPublic);
                 }
-
-                Set(keyValuePair.Key, value);
             }
 
             ApplyChangesFrom(symbolTable.Parent);
@@ -115,51 +104,7 @@ namespace RaLanguage.Interpreter.Runtime
 
         public void Clear()
         {
-            foreach (var kv in _symbols)
-            {
-                try { kv.Value.Dispose(); } catch { }
-            }
             _symbols.Clear();
-        }
-
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (_disposed) return;
-            if (disposing)
-            {
-                foreach (var kv in _symbols)
-                {
-                    try { kv.Value.Dispose(); } catch { }
-                }
-                _symbols.Clear();
-            }
-
-            _disposed = true;
-        }
-
-        ~SymbolTable()
-        {
-            Dispose(false);
-        }
-
-        public void DisposeRecursively()
-        {
-            Dispose();
-
-            var p = Parent;
-            Parent = null;
-            while (p != null)
-            {
-                var next = p.Parent;
-                try { p.Dispose(); } catch { }
-                p = next;
-            }
         }
 
         public void DetachParent()

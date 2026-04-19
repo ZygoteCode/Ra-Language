@@ -27,14 +27,12 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 if (res.Error != null) return res;
                 newContext.ApplyChangesFrom(iterationContext);
                 context.ApplyChangesFrom(newContext);
-                iterationContext.Dispose();
 
                 if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak) return res;
                 if (res.LoopShouldContinue) continue;
                 if (res.LoopShouldBreak) break;
             }
 
-            newContext.Dispose();
             return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
     }

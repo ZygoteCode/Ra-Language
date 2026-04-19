@@ -20,7 +20,6 @@ namespace RaLanguage.Interpreter.Visitors.Traits
             if (context.SymbolTable.Get(traitName) != null)
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{traitName}' is already defined", context));
 
-            // Validate trait fields - can have default values
             foreach (var field in node.Fields)
             {
                 if (field.FieldType == null)

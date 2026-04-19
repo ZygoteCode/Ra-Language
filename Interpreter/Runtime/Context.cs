@@ -2,15 +2,13 @@
 
 namespace RaLanguage.Interpreter.Runtime
 {
-    public class Context : IDisposable
+    public class Context
     {
         public string DisplayName { get; }
         public Context? Parent { get; }
         public Position? ParentEntryPos { get; }
 
         public SymbolTable? SymbolTable { get; set; }
-
-        private bool _disposed;
 
         public ExtensionRegistry Extensions { get; }
 
@@ -34,39 +32,6 @@ namespace RaLanguage.Interpreter.Runtime
         {
             if (context.SymbolTable == null) return;
             SymbolTable?.ApplyChangesFrom(context.SymbolTable);
-        }
-
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (_disposed) return;
-            if (disposing)
-            {
-                if (SymbolTable != null)
-                {
-                    try { SymbolTable.Dispose(); } catch { }
-                    SymbolTable = null;
-                }
-            }
-
-            _disposed = true;
-        }
-
-        ~Context()
-        {
-            Dispose(false);
-        }
-
-        public void DisposeSymbolTableRecursively()
-        {
-            if (SymbolTable == null) return;
-            SymbolTable.DisposeRecursively();
-            SymbolTable = null;
         }
     }
 }

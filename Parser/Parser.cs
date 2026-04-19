@@ -14,6 +14,7 @@ using RaLanguage.Parser.Nodes.Statements;
 using RaLanguage.Parser.Nodes.Structs;
 using RaLanguage.Parser.Nodes.Traits;
 using RaLanguage.Parser.Nodes.Variables;
+using RaLanguage.Parser.Nodes.Imports;
 using RaLanguage.Types;
 
 namespace RaLanguage.Parser
@@ -1184,6 +1185,10 @@ namespace RaLanguage.Parser
                     var extensionDef = res.Register(ParseExtensionDefinition());
                     if (res.Error != null) return res;
                     return res.Success(extensionDef);
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Import:
+                    var importDef = res.Register(ParseImportStatement());
+                    if (res.Error != null) return res;
+                    return res.Success(importDef);
             }
 
             return res.Failure(new InvalidSyntaxError(tok.PositionStart, tok.PositionEnd, "Expected int, float, identifier, '+', '-', '(', '[', 'if', 'for', 'while', 'fn'"));
@@ -1268,6 +1273,149 @@ namespace RaLanguage.Parser
             Advance();
 
             return res.Success(new ExtensionDefinitionNode(targetType, isPublic, methods));
+        }
+
+        private ParserResult ParseImportStatement()
+        {
+            var res = new ParserResult();
+            var positionStart = _currentToken.PositionStart;
+
+            res.RegisterAdvancement();
+            Advance();
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            if (_currentToken.Type == TokenType.LBRACKET)
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                var symbolNames = new List<Token>();
+                while (_currentToken.Type != TokenType.RBRACKET)
+                {
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    if (_currentToken.Type != TokenType.IDENTIFIER)
+                    {
+                        return res.Failure(new InvalidSyntaxError(
+                            _currentToken.PositionStart, _currentToken.PositionEnd,
+                            "Expected identifier in import list"));
+                    }
+
+                    symbolNames.Add(_currentToken);
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    if (_currentToken.Type == TokenType.COMMA)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                    else if (_currentToken.Type != TokenType.RBRACKET)
+                    {
+                        return res.Failure(new InvalidSyntaxError(
+                            _currentToken.PositionStart, _currentToken.PositionEnd,
+                            "Expected ',' or '}' in import list"));
+                    }
+                }
+
+                res.RegisterAdvancement();
+                Advance();
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (!_currentToken.Matches(Keyword.From))
+                {
+                    return res.Failure(new InvalidSyntaxError(
+                        _currentToken.PositionStart, _currentToken.PositionEnd,
+                        "Expected 'from' after import list"));
+                }
+
+                res.RegisterAdvancement();
+                Advance();
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type != TokenType.STRING_TEXT)
+                {
+                    return res.Failure(new InvalidSyntaxError(
+                        _currentToken.PositionStart, _currentToken.PositionEnd,
+                        "Expected string path after 'from'"));
+                }
+
+                var modulePathTok = _currentToken;
+                res.RegisterAdvancement();
+                Advance();
+
+                return res.Success(new ImportSelectiveNode(modulePathTok, symbolNames, positionStart, _currentToken.PositionEnd));
+            }
+            else if (_currentToken.Type == TokenType.STRING_TEXT)
+            {
+                var modulePathTok = _currentToken;
+                res.RegisterAdvancement();
+                Advance();
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Matches(Keyword.As))
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    if (_currentToken.Type != TokenType.IDENTIFIER)
+                    {
+                        return res.Failure(new InvalidSyntaxError(
+                            _currentToken.PositionStart, _currentToken.PositionEnd,
+                            "Expected identifier after 'as'"));
+                    }
+
+                    var aliasTok = _currentToken;
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    return res.Success(new ImportAliasNode(modulePathTok, aliasTok, positionStart, _currentToken.PositionEnd));
+                }
+
+                return res.Success(new ImportAllNode(modulePathTok, positionStart, _currentToken.PositionEnd));
+            }
+            else
+            {
+                return res.Failure(new InvalidSyntaxError(
+                    _currentToken.PositionStart, _currentToken.PositionEnd,
+                    "Expected string path or '{' after 'import'"));
+            }
         }
 
         private ParserResult ParseCallableSignatureAfterName(bool allowReturnType)
@@ -1465,7 +1613,6 @@ namespace RaLanguage.Parser
                     }
                 }
 
-                // Check for field declaration (var/const/final/let with type and optional default value)
                 if (_currentToken.Matches(Keyword.Var) ||
                     _currentToken.Matches(Keyword.Const) ||
                     _currentToken.Matches(Keyword.Final) ||
@@ -1483,7 +1630,7 @@ namespace RaLanguage.Parser
                             nameTokh,
                             typeNode,
                             defaultValueNode,
-                            false // Not static
+                            false
                         ));
                     }
 
@@ -1653,7 +1800,6 @@ namespace RaLanguage.Parser
                     }
                 }
 
-                // Check for field declaration (var/const/final/let with type, no default value)
                 if (_currentToken.Matches(Keyword.Var) ||
                     _currentToken.Matches(Keyword.Const) ||
                     _currentToken.Matches(Keyword.Final) ||
@@ -1671,8 +1817,8 @@ namespace RaLanguage.Parser
                             nameTokh,
                             d.Item3,
                             typeNode,
-                            false, // No default value allowed in interfaces
-                            false // Not static
+                            false,
+                            false
                         ));
                     }
 
@@ -4249,7 +4395,6 @@ namespace RaLanguage.Parser
                     declaredType = parsedType;
                 }
 
-                // Interface fields cannot have default values
                 if (_currentToken.Type == TokenType.EQ)
                 {
                     return res.Failure(new InvalidSyntaxError(
@@ -4321,7 +4466,6 @@ namespace RaLanguage.Parser
                     declaredType = parsedType;
                 }
 
-                // Trait fields can have optional default values
                 AstNode? defaultValueNode = null;
                 if (_currentToken.Type == TokenType.EQ)
                 {

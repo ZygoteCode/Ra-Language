@@ -6,6 +6,7 @@ using RaLanguage.Interpreter.Values.Classes;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Interpreter.Values.Structs;
 using RaLanguage.Interpreter.Values.Traits;
+using RaLanguage.Interpreter.Visitors.Imports;
 using RaLanguage.Parser.Nodes.Structs;
 
 namespace RaLanguage.Interpreter.Visitors.Members
@@ -112,6 +113,17 @@ namespace RaLanguage.Interpreter.Visitors.Members
                 }
 
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Class '{classType.ClassName}' has no static member '{memberName}'", context));
+            }
+
+            if (target.Type == RuntimeValueType.ModuleWrapper)
+            {
+                var moduleWrapper = (ModuleWrapperValue)target;
+                var ext = moduleWrapper.Module.Extensions.Resolve(target, memberName);
+
+                if (ext.Count > 0)
+                    return res.Success(new BoundExtensionMethodGroupValue(target, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+
+                return res.Success(moduleWrapper.Module.SymbolTable.Get(memberName));
             }
 
             if (target.Type == RuntimeValueType.Enum || target.Type == RuntimeValueType.EnumType ||

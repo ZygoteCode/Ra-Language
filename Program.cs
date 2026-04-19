@@ -3,6 +3,7 @@ using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Functions;
 using RaLanguage.Interpreter.Values.Primitives;
+using RaLanguage.Interpreter.Visitors.Imports;
 using System.Diagnostics;
 
 namespace RaLanguage
@@ -35,6 +36,9 @@ namespace RaLanguage
             GlobalSymbolTable.Set("extend", new BuiltInFunctionValue("extend"));
             GlobalSymbolTable.Set("len", new BuiltInFunctionValue("len"));
             GlobalSymbolTable.Set("run", new BuiltInFunctionValue("run"));
+            
+            string basePath = Directory.GetCurrentDirectory();
+            ImportNodeVisitor.InitializeModuleManager(basePath);
         }
 
         public static (RuntimeValue?, Error?) Run(string fn, string text)

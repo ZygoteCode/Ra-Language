@@ -32,6 +32,7 @@
         ClassInstance,
         Super,
         InterfaceType,
-        TraitType
+        TraitType,
+        ModuleWrapper
     }
 }

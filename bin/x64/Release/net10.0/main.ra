@@ -1,24 +1,35 @@
-pub struct Point {
-    pub var x: number,
-    pub var y: number
+print("=== IMPORT DEBUG TEST ===");
 
-    pub fn Point(x, y) {
-        self.x = x;
-        self.y = y;
-    }
-}
-
-extend Point {
-    pub fn distance() {
-        var sq = self.x * self.x + self.y * self.y;
-        ret sq;
-    }
+fn test_import() {
+    print("Test started...");
     
-    pub fn summarize() {
-        ret "Point at (" + self.x + ", " + self.y + ")";
-    }
+    import 'other.ra' as module_alias;
+    
+    print("Import completed!");
+    print("Calling Other.say_hello()...");
+    
+    module_alias.Other.say_hello();
+    var x: int = 5;
+    print(x.sum(3));    
+    
+    print("Test completed!");
 }
 
-var p = Point(3, 4);
-print("Distance squared: " + p.distance());
-print("Summary: " + p.summarize());
+fn test_import1() {
+    print("Test started...");
+    
+    import { Other, test_function } from 'other.ra';
+    
+    print("Import completed!");
+    print("Calling Other.say_hello()...");
+    
+    Other.say_hello();
+    var x: int = 5;
+    print(x.sum(3));    
+    test_function();
+    
+    print("Test completed!");
+}
+
+test_import();
+test_import1();

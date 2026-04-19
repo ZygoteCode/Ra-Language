@@ -4,7 +4,7 @@ using System;
 
 namespace RaLanguage.Interpreter
 {
-    public class RuntimeResult : IDisposable
+    public class RuntimeResult
     {
         public RuntimeValue? Value { get; private set; }
         public Error? Error { get; private set; }
@@ -15,8 +15,6 @@ namespace RaLanguage.Interpreter
 
         public RuntimeValue? YieldValue { get; private set; }
         public bool ShouldYield { get; private set; }
-
-        private bool _disposed;
 
         public void Reset()
         {
@@ -29,57 +27,32 @@ namespace RaLanguage.Interpreter
             ShouldYield = false;
         }
 
-        private void DisposeInternal()
-        {
-            if (!_disposed)
-            {
-                Reset();
-                _disposed = true;
-            }
-        }
-
-        public void Dispose()
-        {
-            DisposeInternal();
-            GC.SuppressFinalize(this);
-        }
-
         public RuntimeResult Success(RuntimeValue? value)
         {
-            DisposeInternal();
-            _disposed = false;
             Value = value;
             return this;
         }
 
         public RuntimeResult SuccessReturn(RuntimeValue value)
         {
-            DisposeInternal();
-            _disposed = false;
             FuncReturnValue = value;
             return this;
         }
 
         public RuntimeResult SuccessContinue()
         {
-            DisposeInternal();
-            _disposed = false;
             LoopShouldContinue = true;
             return this;
         }
 
         public RuntimeResult SuccessBreak()
         {
-            DisposeInternal();
-            _disposed = false;
             LoopShouldBreak = true;
             return this;
         }
 
         public RuntimeResult SuccessYield(RuntimeValue value)
         {
-            DisposeInternal();
-            _disposed = false;
             YieldValue = value;
             ShouldYield = true;
             Value = value;
@@ -88,8 +61,6 @@ namespace RaLanguage.Interpreter
 
         public RuntimeResult Failure(Error error)
         {
-            DisposeInternal();
-            _disposed = false;
             Error = error;
             return this;
         }

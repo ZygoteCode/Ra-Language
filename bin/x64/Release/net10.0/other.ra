@@ -1,0 +1,15 @@
+fn test_function() {
+    print("another hello!");
+}
+
+pub class Other {
+    pub static fn say_hello() {
+        print("hello!");
+    }
+}
+
+extend int {
+    pub fn sum(other: int): int {
+        ret self + other;
+    }
+}

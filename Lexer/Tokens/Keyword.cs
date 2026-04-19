@@ -57,6 +57,8 @@
         With,
         Abstract,
         Static,
-        Extend
+        Extend,
+        Import,
+        From,
     }
 }

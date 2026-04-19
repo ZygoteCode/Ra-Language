@@ -63,6 +63,9 @@
         TraitDefinition,
         TraitMethodDefinition,
         CallableSignature,
-        ExtensionDefinition
+        ExtensionDefinition,
+        ImportAll,
+        ImportSelective,
+        ImportAlias
     }
 }

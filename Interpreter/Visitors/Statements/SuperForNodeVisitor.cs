@@ -52,14 +52,12 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 }
 
                 context.ApplyChangesFrom(actualContext);
-                actualContext.Dispose();
 
                 if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak) return res;
                 if (res.LoopShouldContinue) continue;
                 if (res.LoopShouldBreak) break;
             }
 
-            newContext.Dispose();
             return res.Success(new NullValue().SetPos(node.PositionStart, node.PositionEnd).SetContext(context));
         }
     }

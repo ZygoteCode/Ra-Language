@@ -19,7 +19,6 @@ namespace RaLanguage.Interpreter.Visitors.Special
             }
 
             context.ApplyChangesFrom(newContext);
-            newContext.Dispose();
             return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
     }

@@ -41,7 +41,6 @@ namespace RaLanguage.Interpreter.Visitors.Statements
             BigNumber step = ((NumberValue)stepValue).Value;
 
             Func<bool> condition = (step >= 0) ? () => i < end : () => i > end;
-            initializationContext.Dispose();
             var newContext = initializationContext.Copy();
 
             while (condition())
@@ -51,14 +50,12 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 Context actualContext = newContext.Copy();
                 if (res.Error != null) return res;
                 context.ApplyChangesFrom(actualContext);
-                actualContext.Dispose();
 
                 if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak) return res;
                 if (res.LoopShouldContinue) continue;
                 if (res.LoopShouldBreak) break;
             }
 
-            newContext.Dispose();
             return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
     }

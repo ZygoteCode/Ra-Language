@@ -5,6 +5,7 @@ using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Classes;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Interpreter.Values.Structs;
+using RaLanguage.Interpreter.Visitors.Imports;
 using RaLanguage.Parser.Nodes;
 using RaLanguage.Parser.Nodes.Structs;
 using RaLanguage.Types;
@@ -86,6 +87,18 @@ namespace RaLanguage.Interpreter.Visitors.Members
                 }
 
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Class '{classType.ClassName}' has no static field '{memberName}'", context));
+            }
+
+            if (owner.Type == RuntimeValueType.ModuleWrapper)
+            {
+                var moduleWrapper = (ModuleWrapperValue)owner;
+                var ext = moduleWrapper.Module.Extensions.Resolve(owner, memberName);
+
+                if (ext.Count > 0)
+                    return res.Success(new BoundExtensionMethodGroupValue(owner, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+
+                moduleWrapper.Module.SymbolTable.Set(memberName, value);
+                return res.Success(value.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
             }
 
             return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Left side of assignment must be a struct/class field", context));

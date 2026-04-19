@@ -17,7 +17,7 @@ namespace RaLanguage.Interpreter.Visitors.Classes
         {
             var res = new RuntimeResult();
             var className = node.NameTok.Value?.ToString() ?? "";
-
+            
             if (string.IsNullOrWhiteSpace(className))
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Invalid class name", context));
 
@@ -106,7 +106,6 @@ namespace RaLanguage.Interpreter.Visitors.Classes
                 }
             }
 
-            // Validate field overrides
             foreach (var field in node.Fields.Where(f => f.IsOverride))
             {
                 if (field.IsStatic)
@@ -122,7 +121,6 @@ namespace RaLanguage.Interpreter.Visitors.Classes
                 }
             }
 
-            // Validate abstract fields
             foreach (var field in node.Fields.Where(f => f.IsAbstract))
             {
                 if (!node.IsAbstract)
@@ -174,7 +172,6 @@ namespace RaLanguage.Interpreter.Visitors.Classes
             ValidateOverrides(node, classValue, context, ref res);
             if (res.ShouldReturn()) return res;
 
-            // Validate abstract fields implementation
             if (!node.IsAbstract)
             {
                 var unresolvedFields = classValue.GetAbstractFieldsInHierarchy()
@@ -198,7 +195,7 @@ namespace RaLanguage.Interpreter.Visitors.Classes
                 declaredType: new TypeDescriptor(className),
                 isStaticallyTyped: true,
                 isPublic: node.IsPublic);
-
+            
             return res.Success(classValue);
         }
 

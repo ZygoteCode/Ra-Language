@@ -21,7 +21,6 @@ namespace RaLanguage.Interpreter.Visitors.Interfaces
             if (context.SymbolTable.Get(name) != null)
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{name}' is already defined", context));
 
-            // Validate interface fields - no default values allowed
             foreach (var field in node.Fields)
             {
                 if (field.DefaultValueNode != null)

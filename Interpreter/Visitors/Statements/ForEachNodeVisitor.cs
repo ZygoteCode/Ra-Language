@@ -70,14 +70,12 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 var value = res.Register(interpreter.Visit(node.BodyNode, actualContext));
                 if (res.Error != null) return res;
                 context.ApplyChangesFrom(actualContext);
-                actualContext.Dispose();
 
                 if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak) return res;
                 if (res.LoopShouldContinue) continue;
                 if (res.LoopShouldBreak) break;
             }
 
-            newContext.Dispose();
             return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
     }
