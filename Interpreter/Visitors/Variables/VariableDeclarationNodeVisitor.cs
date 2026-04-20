@@ -32,9 +32,15 @@ namespace RaLanguage.Interpreter.Visitors.Variables
 
                 if (declaration.Item2 != null)
                 {
+                    context.AreCallsBlocked = node.DeclarationType == VariableDeclarationType.CONST;
                     value = res.Register(interpreter.Visit(declaration.Item2, context))!;
+                    context.AreCallsBlocked = false;
                     if (res.Error != null) return res;
                     if (res.ShouldReturn()) continue;
+                }
+                else if (node.DeclarationType == VariableDeclarationType.CONST)
+                {
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Const variables must be initialized with a value", context));
                 }
 
                 if (declaredType != null)
@@ -63,6 +69,16 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                 }
 
                 value = newValue;
+
+                if (node.DeclarationType == VariableDeclarationType.CONST)
+                    value.VariableDeclarationType = VariableDeclarationType.CONST;
+                else if (node.DeclarationType == VariableDeclarationType.FINAL)
+                    value.VariableDeclarationType = VariableDeclarationType.FINAL;
+                else if (node.DeclarationType == VariableDeclarationType.LET)
+                    value.VariableDeclarationType = VariableDeclarationType.LET;
+                else
+                    value.VariableDeclarationType = VariableDeclarationType.VARIABLE;
+
                 context.SymbolTable.Set(varName, value, isLetFlag, declaredType, isStaticallyTyped, node.IsPublic);
                 values.Add(value);
             }

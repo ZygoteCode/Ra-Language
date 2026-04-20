@@ -14,7 +14,7 @@ namespace RaLanguage.Interpreter.Visitors.Functions
         {
             var res = new RuntimeResult();
 
-            if (interpreter.AreCallsBlocked)
+            if (context.AreCallsBlocked)
             {
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Function calls are blocked in this context", context));
             }

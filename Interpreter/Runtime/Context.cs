@@ -11,6 +11,7 @@ namespace RaLanguage.Interpreter.Runtime
         public SymbolTable? SymbolTable { get; set; }
 
         public ExtensionRegistry Extensions { get; }
+        public bool AreCallsBlocked { get; set; }
 
         public Context(string displayName, Context? parent = null, Position? parentEntryPos = null, ExtensionRegistry? extensions = null)
         {

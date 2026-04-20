@@ -1,39 +1,13 @@
-pub class Person
-    pub var name: string;
+print("Hello, World!");
 
-    pub Person(name: string) {
-        self.name = name;
-    }
-
-    pub fn to_string(): string
-        ret "Person: " + self.name;
-    }
+fn get_string(): string {
+    ret "test";
 }
 
-pub class SuperPerson : Person {
-    pub SuperPerson(name: string) {
-        super(name);
-    }
+const one_string: string = "ciao";
+print(one_string);
 
-    pub override fn to_string(): string {
-        ret "SuperPerson: " + self.name;
-    }
-}
-
-var p: Person = Person("Gabriele");
-
-print(p);
-print($"Working? ${p}");
-
-var s: string = "User: " + p;
-print(s);
-
-var s2: string = p;
-print(s2);
-
-var super_person: SuperPerson = SuperPerson("Alessandro");
-print(super_person);
-
-var x = ;
-var y = unknown;
-print("hello
+const the_string: string = get_string();
+print(the_string);
+the_string = "anothertest";
+print(the_string);

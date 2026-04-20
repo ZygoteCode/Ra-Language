@@ -85,6 +85,48 @@ namespace RaLanguage
             currentProcess.PriorityClass = ProcessPriorityClass.RealTime;
             currentProcess.PriorityBoostEnabled = true;
 
+            if (args.Length > 0)
+            {
+                string totalArgs = "";
+
+                foreach (string arg in args)
+                {
+                    if (totalArgs == "")
+                    {
+                        totalArgs = arg;
+                    }
+                    else
+                    {
+                        totalArgs += $" {arg}";
+                    }
+                }
+
+                while (totalArgs.StartsWith(" ") || totalArgs.StartsWith("\"") || totalArgs.StartsWith("'") || totalArgs.StartsWith('\t'))
+                {
+                    totalArgs = totalArgs.Substring(1);
+                }
+
+                while (totalArgs.EndsWith(" ") || totalArgs.EndsWith("\"") || totalArgs.EndsWith("'") || totalArgs.EndsWith('\t'))
+                {
+                    totalArgs = totalArgs.Substring(0, totalArgs.Length - 1);
+                }
+
+                if (!File.Exists(totalArgs))
+                {
+                    Console.WriteLine("The specified file does not exist.");
+                    return;
+                }
+
+                if (!Path.GetExtension(totalArgs).ToLower().Equals(".ra"))
+                {
+                    Console.WriteLine("The specified file has not a valid extension.");
+                    return;
+                }
+
+                ExecuteMainFile(totalArgs, false);
+                return;
+            }
+
             Console.WriteLine("[Ra Language] Support the project on GitHub: https://github.com/ZygoteCode/RaLanguage/");
             Console.WriteLine("[Ra Language] Warming up JIT...");
 
@@ -157,7 +199,7 @@ namespace RaLanguage
                                 {
                                     Console.Clear();
                                     lastContent = currentContent;
-                                    ExecuteMainFile(currentContent);
+                                    ExecuteMainFile();
                                 }
                             }
                             catch
@@ -173,15 +215,15 @@ namespace RaLanguage
             }
         }
 
-        private static void ExecuteMainFile(string content = null)
+        private static void ExecuteMainFile(string fileName = "main.ra", bool diagnostics = true)
         {
             InitializeSymbolTable();
             try
             {
-                string text = content ?? File.ReadAllText("main.ra");
+                string text = File.ReadAllText(fileName);
                 Stopwatch sw = Stopwatch.StartNew();
 
-                var (result, error) = Run("main.ra", text);
+                var (result, error) = Run(fileName, text);
                 sw.Stop();
 
                 if (error != null)
@@ -189,11 +231,17 @@ namespace RaLanguage
                     Console.WriteLine(error.ToString());
                 }
 
-                Console.WriteLine($"[Ra Language] Execution took {sw.ElapsedMilliseconds}ms / {sw.ElapsedTicks} ticks / {sw.Elapsed.TotalNanoseconds}ns.");
+                if (diagnostics)
+                {
+                    Console.WriteLine($"[Ra Language] Execution took {sw.ElapsedMilliseconds}ms / {sw.ElapsedTicks} ticks / {sw.Elapsed.TotalNanoseconds}ns.");
+                }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Error] Could not read file: {ex.Message}");
+                if (diagnostics)
+                {
+                    Console.WriteLine($"[Error] Could not read file: {ex.Message}");
+                }
             }
         }
     }

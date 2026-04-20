@@ -45,6 +45,7 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [x] Implemented method extensions for classes, structs and primitive types.
   - [x] Implement the "import" directive to import functions, classes, enums, fields, methods and so on, with a intelligent path system.
   - [x] Implement "to_string" method in classes/structs.
+  - [ ] Add final / const support to classes & structs fields.
   - [ ] Implement operator overloading.
   - [ ] Implement built-in functions for reflections and complex language operations (ex. native sys calls).
   - [ ] Improve generics system.

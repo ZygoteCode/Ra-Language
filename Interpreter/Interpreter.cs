@@ -25,7 +25,6 @@ namespace RaLanguage.Interpreter
 {
     public class Interpreter : IInterpreter
     {
-        public bool AreCallsBlocked { get; set; } = false;
         public List<(string, AstNode)> Labels { get; } = new List<(string, AstNode)>();
         private readonly INodeVisitor[] _visitors;
 
