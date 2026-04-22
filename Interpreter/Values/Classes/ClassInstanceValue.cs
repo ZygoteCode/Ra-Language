@@ -1,6 +1,7 @@
 ﻿using RaLanguage.Errors;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Lexer.Tokens;
+using RaLanguage.Parser.Nodes.Variables;
 using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Primitives
@@ -11,6 +12,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public Dictionary<string, RuntimeValue> Fields { get; }
         public Dictionary<string, bool> FieldPublicity { get; }
         public Dictionary<string, TypeDescriptor?> FieldTypes { get; }
+        public Dictionary<string, VariableDeclarationType> FieldDeclarationTypes { get; }
 
         public override RuntimeValueType Type => RuntimeValueType.ClassInstance;
         public override bool IsCopy => false;
@@ -20,7 +22,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 definition,
                 new Dictionary<string, RuntimeValue>(StringComparer.Ordinal),
                 new Dictionary<string, bool>(StringComparer.Ordinal),
-                new Dictionary<string, TypeDescriptor?>(StringComparer.Ordinal))
+                new Dictionary<string, TypeDescriptor?>(StringComparer.Ordinal),
+                new Dictionary<string, VariableDeclarationType>())
         {
         }
 
@@ -28,19 +31,22 @@ namespace RaLanguage.Interpreter.Values.Primitives
             ClassTypeValue definition,
             Dictionary<string, RuntimeValue> fields,
             Dictionary<string, bool> publicity,
-            Dictionary<string, TypeDescriptor?> types)
+            Dictionary<string, TypeDescriptor?> types,
+            Dictionary<string, VariableDeclarationType> declarationTypes)
         {
             Definition = definition;
             Fields = fields;
             FieldPublicity = publicity;
             FieldTypes = types;
+            FieldDeclarationTypes = declarationTypes;
         }
 
-        public void SetField(string name, RuntimeValue value, bool isPublic, TypeDescriptor? fieldType = null)
+        public void SetField(string name, RuntimeValue value, bool isPublic, TypeDescriptor? fieldType = null, VariableDeclarationType declarationType = VariableDeclarationType.VARIABLE)
         {
             Fields[name] = value.IsCopy ? value.Copy() : value;
             FieldPublicity[name] = isPublic;
             FieldTypes[name] = fieldType;
+            FieldDeclarationTypes[name] = declarationType;
         }
 
         public bool HasField(string name) => Fields.ContainsKey(name);
@@ -48,6 +54,9 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public TypeDescriptor? GetFieldType(string name)
             => FieldTypes.TryGetValue(name, out var t) ? t : null;
+
+        public VariableDeclarationType GetFieldDeclarationType(string name)
+            => FieldDeclarationTypes.TryGetValue(name, out var dt) ? dt : VariableDeclarationType.VARIABLE;
 
         public RuntimeValue GetField(string name)
         {
@@ -112,7 +121,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             TryOperatorDispatch(TokenType.GTE, other, (l, r) => l.GetComparisonGte(other));
 
         public override RuntimeValue Copy()
-            => new ClassInstanceValue(Definition, Fields, FieldPublicity, FieldTypes)
+            => new ClassInstanceValue(Definition, Fields, FieldPublicity, FieldTypes, FieldDeclarationTypes)
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
 

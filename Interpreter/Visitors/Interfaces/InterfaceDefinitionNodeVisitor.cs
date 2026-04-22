@@ -4,6 +4,7 @@ using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Interfaces;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Parser.Nodes.Interfaces;
+using RaLanguage.Parser.Nodes.Variables;
 using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Visitors.Interfaces
@@ -23,6 +24,26 @@ namespace RaLanguage.Interpreter.Visitors.Interfaces
 
             foreach (var field in node.Fields)
             {
+                var fieldName = field.NameTok.Value?.ToString() ?? "";
+                
+                if (field.DeclarationType == VariableDeclarationType.FINAL)
+                {
+                    return res.Failure(new RuntimeError(
+                        field.PositionStart,
+                        field.PositionEnd,
+                        $"Interface field '{fieldName}' cannot be 'final'. Only 'const' or 'var' are allowed in interfaces",
+                        context));
+                }
+                
+                if (field.DeclarationType == VariableDeclarationType.LET)
+                {
+                    return res.Failure(new RuntimeError(
+                        field.PositionStart,
+                        field.PositionEnd,
+                        $"Interface field '{fieldName}' cannot be 'let'. Only 'const' or 'var' are allowed in interfaces",
+                        context));
+                }
+                
                 if (field.DefaultValueNode != null)
                 {
                     return res.Failure(new RuntimeError(

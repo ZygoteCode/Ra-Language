@@ -455,7 +455,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                         value = initRes.Value;
                 }
 
-                instance.SetField(field.NameTok.Value?.ToString() ?? "", value, field.IsPublic, field.FieldType);
+                instance.SetField(field.NameTok.Value?.ToString() ?? "", value, field.IsPublic, field.FieldType, field.DeclarationType);
             }
         }
 

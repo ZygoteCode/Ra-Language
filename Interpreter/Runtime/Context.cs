@@ -12,6 +12,7 @@ namespace RaLanguage.Interpreter.Runtime
 
         public ExtensionRegistry Extensions { get; }
         public bool AreCallsBlocked { get; set; }
+        public bool IsInConstructor { get; set; }
 
         public Context(string displayName, Context? parent = null, Position? parentEntryPos = null, ExtensionRegistry? extensions = null)
         {
@@ -20,12 +21,14 @@ namespace RaLanguage.Interpreter.Runtime
             ParentEntryPos = parentEntryPos;
             SymbolTable = new SymbolTable(parent?.SymbolTable);
             Extensions = extensions ?? parent?.Extensions ?? new ExtensionRegistry();
+            IsInConstructor = false;
         }
 
         public Context Copy()
         {
             var newCtx = new Context(DisplayName, this, ParentEntryPos, Extensions);
             newCtx.SymbolTable = new SymbolTable(newCtx.Parent?.SymbolTable);
+            newCtx.IsInConstructor = IsInConstructor;
             return newCtx;
         }
 

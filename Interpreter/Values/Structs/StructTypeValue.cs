@@ -81,7 +81,7 @@ namespace RaLanguage.Interpreter.Values.Structs
                     fieldValue = initRes.Value ?? fieldValue;
                 }
 
-                instance.SetField(field.NameTok.Value?.ToString() ?? "", fieldValue, field.IsPublic);
+                instance.SetField(field.NameTok.Value?.ToString() ?? "", fieldValue, field.IsPublic, field.DeclarationType);
             }
 
             var ctor = GetConstructor(positionalArgs, namedArgs);

@@ -8,6 +8,7 @@ using RaLanguage.Interpreter.Values.Structs;
 using RaLanguage.Interpreter.Visitors.Imports;
 using RaLanguage.Parser.Nodes;
 using RaLanguage.Parser.Nodes.Structs;
+using RaLanguage.Parser.Nodes.Variables;
 using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Visitors.Members
@@ -32,6 +33,18 @@ namespace RaLanguage.Interpreter.Visitors.Members
                 if (!instance.HasField(memberName))
                     return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Struct '{instance.Definition.StructName}' has no field '{memberName}'", context));
 
+                var fieldDeclType = instance.GetFieldDeclarationType(memberName);
+                if (fieldDeclType == VariableDeclarationType.CONST)
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{memberName}' is a const field and cannot be modified", context));
+                else if (fieldDeclType == VariableDeclarationType.FINAL)
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{memberName}' is a final field and cannot be modified after initialization", context));
+                else if (fieldDeclType == VariableDeclarationType.LET)
+                {
+                    var currentValue = instance.Fields[memberName];
+                    if (currentValue.Type != RuntimeValueType.Null && !currentValue.IsCopy)
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{memberName}' is a let field and was already assigned", context));
+                }
+
                 instance.SetMember(memberName, value);
                 return res.Success(value.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
             }
@@ -42,6 +55,21 @@ namespace RaLanguage.Interpreter.Visitors.Members
 
                 if (instance.HasField(memberName))
                 {
+                    var fieldDeclType = instance.GetFieldDeclarationType(memberName);
+                    if (fieldDeclType == VariableDeclarationType.CONST)
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{memberName}' is a const field and cannot be modified", context));
+                    else if (fieldDeclType == VariableDeclarationType.FINAL)
+                    {
+                        if (!context.IsInConstructor)
+                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{memberName}' is a final field and can only be assigned in the constructor", context));
+                    }
+                    else if (fieldDeclType == VariableDeclarationType.LET)
+                    {
+                        var currentValue = instance.Fields[memberName];
+                        if (currentValue.Type != RuntimeValueType.Null && !currentValue.IsCopy)
+                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{memberName}' is a let field and was already assigned", context));
+                    }
+
                     instance.SetMember(memberName, value);
                     return res.Success(value.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
@@ -67,6 +95,21 @@ namespace RaLanguage.Interpreter.Visitors.Members
 
                 if (!sup.Instance.HasField(memberName))
                     return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Base class has no field '{memberName}'", context));
+
+                var fieldDeclType = sup.Instance.GetFieldDeclarationType(memberName);
+                if (fieldDeclType == VariableDeclarationType.CONST)
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{memberName}' is a const field and cannot be modified", context));
+                else if (fieldDeclType == VariableDeclarationType.FINAL)
+                {
+                    if (!context.IsInConstructor)
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{memberName}' is a final field and can only be assigned in the constructor", context));
+                }
+                else if (fieldDeclType == VariableDeclarationType.LET)
+                {
+                    var currentValue = sup.Instance.Fields[memberName];
+                    if (currentValue.Type != RuntimeValueType.Null && !currentValue.IsCopy)
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{memberName}' is a let field and was already assigned", context));
+                }
 
                 sup.Instance.SetMember(memberName, value);
                 return res.Success(value.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));

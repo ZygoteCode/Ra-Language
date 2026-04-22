@@ -1172,6 +1172,10 @@ namespace RaLanguage.Parser
                     var pubExpr = res.Register(ParserPubDefinition());
                     if (res.Error != null) return res;
                     return res.Success(pubExpr);
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Trait:
+                    var traitExpr = res.Register(ParseTraitDefinition(false));
+                    if (res.Error != null) return res;
+                    return res.Success(traitExpr);
                 case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Super:
                     res.RegisterAdvancement();
                     Advance();
@@ -1571,6 +1575,12 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
             if (_currentToken.Type != TokenType.IDENTIFIER)
                 return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected trait name"));
 
@@ -1578,11 +1588,23 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
             if (_currentToken.Type != TokenType.LBRACKET)
                 return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{'"));
 
             res.RegisterAdvancement();
             Advance();
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
 
             var methods = new List<TraitMethodDefinitionNode>();
             var fields = new List<StructFieldDefinitionNode>();
@@ -1605,6 +1627,7 @@ namespace RaLanguage.Parser
                 {
                     res.RegisterAdvancement();
                     Advance();
+
                     memberPublic = true;
 
                     while (_currentToken.Type == TokenType.NEWLINE)
@@ -1631,7 +1654,10 @@ namespace RaLanguage.Parser
                             nameTokh,
                             typeNode,
                             defaultValueNode,
-                            false
+                            false,
+                            false,
+                            false,
+                            declNode.DeclarationType
                         ));
                     }
 
@@ -1663,12 +1689,24 @@ namespace RaLanguage.Parser
                 res.RegisterAdvancement();
                 Advance();
 
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
                 if (_currentToken.Type != TokenType.IDENTIFIER)
                     return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected method name"));
 
                 var methodNameTok = _currentToken;
                 res.RegisterAdvancement();
                 Advance();
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
 
                 var sigRes = ParseCallableSignatureAfterName(true);
                 if (sigRes.Error != null) return sigRes;
@@ -1680,6 +1718,12 @@ namespace RaLanguage.Parser
                 {
                     res.RegisterAdvancement();
                     Advance();
+
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
 
                     bodyNode = res.Register(ParseExpression());
                     if (res.Error != null) return res;
@@ -1819,7 +1863,9 @@ namespace RaLanguage.Parser
                             d.Item3,
                             typeNode,
                             false,
-                            false
+                            false,
+                            false,
+                            declNode.DeclarationType
                         ));
                     }
 

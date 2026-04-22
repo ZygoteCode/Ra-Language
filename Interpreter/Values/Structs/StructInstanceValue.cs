@@ -2,6 +2,7 @@
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Lexer.Tokens;
+using RaLanguage.Parser.Nodes.Variables;
 using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Structs
@@ -11,6 +12,7 @@ namespace RaLanguage.Interpreter.Values.Structs
         public StructTypeValue Definition { get; }
         public Dictionary<string, RuntimeValue> Fields { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, bool> FieldPublicity { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, VariableDeclarationType> FieldDeclarationTypes { get; } = new(StringComparer.Ordinal);
 
         public sealed override RuntimeValueType Type => RuntimeValueType.StructInstance;
         public sealed override bool IsCopy => true;
@@ -20,15 +22,19 @@ namespace RaLanguage.Interpreter.Values.Structs
             Definition = definition;
         }
 
-        public void SetField(string name, RuntimeValue value, bool isPublic)
+        public void SetField(string name, RuntimeValue value, bool isPublic, VariableDeclarationType declarationType = VariableDeclarationType.VARIABLE)
         {
             Fields[name] = value.IsCopy ? value.Copy() : value;
             FieldPublicity[name] = isPublic;
+            FieldDeclarationTypes[name] = declarationType;
         }
 
         public bool HasField(string name) => Fields.ContainsKey(name);
 
         public bool IsFieldPublic(string name) => FieldPublicity.TryGetValue(name, out var p) && p;
+
+        public VariableDeclarationType GetFieldDeclarationType(string name)
+            => FieldDeclarationTypes.TryGetValue(name, out var dt) ? dt : VariableDeclarationType.VARIABLE;
 
         public RuntimeValue GetField(string name)
         {
@@ -99,6 +105,7 @@ namespace RaLanguage.Interpreter.Values.Structs
             {
                 copy.Fields[kv.Key] = kv.Value.IsCopy ? kv.Value.Copy() : kv.Value;
                 copy.FieldPublicity[kv.Key] = FieldPublicity.TryGetValue(kv.Key, out var p) && p;
+                copy.FieldDeclarationTypes[kv.Key] = FieldDeclarationTypes.TryGetValue(kv.Key, out var dt) ? dt : VariableDeclarationType.VARIABLE;
             }
 
             return copy.SetContext(Context).SetPos(PositionStart, PositionEnd);

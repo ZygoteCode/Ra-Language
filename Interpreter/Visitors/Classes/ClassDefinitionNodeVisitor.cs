@@ -7,6 +7,7 @@ using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Interpreter.Values.Traits;
 using RaLanguage.Parser.Nodes.Classes;
 using RaLanguage.Parser.Nodes.Functions;
+using RaLanguage.Parser.Nodes.Variables;
 using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Visitors.Classes
@@ -138,6 +139,20 @@ namespace RaLanguage.Interpreter.Visitors.Classes
                         field.PositionStart,
                         field.PositionEnd,
                         $"Abstract fields cannot have default values",
+                        context));
+                }
+            }
+
+            foreach (var field in node.Fields)
+            {
+                var fieldName = field.NameTok.Value?.ToString() ?? "";
+                
+                if (field.DeclarationType == VariableDeclarationType.CONST && field.DefaultValueNode == null && !field.IsAbstract)
+                {
+                    return res.Failure(new RuntimeError(
+                        field.PositionStart,
+                        field.PositionEnd,
+                        $"Const field '{fieldName}' must be initialized with a value",
                         context));
                 }
             }

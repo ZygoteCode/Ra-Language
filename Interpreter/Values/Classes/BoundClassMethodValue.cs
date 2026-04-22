@@ -47,14 +47,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
             if (MethodNode.IsConstructor)
             {
-                execCtx.SymbolTable.Set(
-                    "__in_constructor__",
-                    new BooleanValue(true).SetContext(execCtx).SetPos(PositionStart, PositionEnd),
-                    isLet: true,
-                    declaredType: new TypeDescriptor("bool"),
-                    isStaticallyTyped: true,
-                    isPublic: false
-                );
+                execCtx.IsInConstructor = true;
             }
 
             var argNames = MethodNode.ArgNameToks.Select(t => t.Value?.ToString() ?? "").ToList();
@@ -83,13 +76,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
             if (MethodNode.IsConstructor)
             {
-                bindRes.execCtx.SymbolTable.Set(
-                    "__in_constructor__",
-                    new BooleanValue(true).SetContext(execCtx).SetPos(PositionStart, PositionEnd),
-                    isLet: true,
-                    declaredType: new TypeDescriptor("bool"),
-                    isStaticallyTyped: true,
-                    isPublic: false);
+                bindRes.execCtx!.IsInConstructor = true;
             }
 
             if (bindRes.error != null)

@@ -3,6 +3,7 @@ using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Traits;
 using RaLanguage.Parser.Nodes.Traits;
+using RaLanguage.Parser.Nodes.Variables;
 using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Visitors.Traits
@@ -22,6 +23,17 @@ namespace RaLanguage.Interpreter.Visitors.Traits
 
             foreach (var field in node.Fields)
             {
+                var fieldName = field.NameTok.Value?.ToString() ?? "";
+
+                if (field.DeclarationType == VariableDeclarationType.CONST)
+                {
+                    return res.Failure(new RuntimeError(
+                        field.PositionStart,
+                        field.PositionEnd,
+                        $"Trait field '{fieldName}' cannot be 'const'. Traits cannot have default values, so const is not meaningful",
+                        context));
+                }
+                
                 if (field.FieldType == null)
                 {
                     return res.Failure(new RuntimeError(

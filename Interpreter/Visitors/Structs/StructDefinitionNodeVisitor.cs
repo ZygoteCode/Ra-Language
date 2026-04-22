@@ -3,6 +3,7 @@ using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Structs;
 using RaLanguage.Parser.Nodes.Structs;
+using RaLanguage.Parser.Nodes.Variables;
 using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Visitors.Structs
@@ -23,6 +24,20 @@ namespace RaLanguage.Interpreter.Visitors.Structs
             var value = new StructTypeValue(name, node.IsPublic, node.Fields, node.Methods, node.Operators)
                 .SetContext(context)
                 .SetPos(node.PositionStart, node.PositionEnd);
+
+            foreach (var field in node.Fields)
+            {
+                var fieldName = field.NameTok.Value?.ToString() ?? "";
+                
+                if (field.DeclarationType == VariableDeclarationType.CONST && field.DefaultValueNode == null)
+                {
+                    return res.Failure(new RuntimeError(
+                        field.PositionStart,
+                        field.PositionEnd,
+                        $"Const field '{fieldName}' must be initialized with a value",
+                        context));
+                }
+            }
 
             context.SymbolTable.Set(
                 name,

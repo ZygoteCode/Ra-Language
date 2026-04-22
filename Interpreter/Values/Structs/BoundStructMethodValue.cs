@@ -43,6 +43,11 @@ namespace RaLanguage.Interpreter.Values.Structs
                 isStaticallyTyped: true,
                 isPublic: false);
 
+            if (MethodNode.IsConstructor)
+            {
+                execCtx.IsInConstructor = true;
+            }
+
             res.Register(CheckAndPopulateArgs(
                 MethodNode.ArgNameToks.Select(t => t.Value?.ToString() ?? "").ToList(),
                 positionalArgs,
