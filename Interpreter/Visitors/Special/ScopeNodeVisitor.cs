@@ -14,11 +14,23 @@ namespace RaLanguage.Interpreter.Visitors.Special
 
             foreach (var nodeToVisit in node.Nodes)
             {
-                res.Register(interpreter.Visit(nodeToVisit, newContext));
+                var result = res.Register(interpreter.Visit(nodeToVisit, newContext));
+                
+                if (res.FuncReturnValue != null)
+                {
+                    return res;
+                }
+                
                 if (res.ShouldReturn()) return res;
             }
 
             context.ApplyChangesFrom(newContext);
+            
+            if (res.FuncReturnValue != null)
+            {
+                return res;
+            }
+            
             return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
     }

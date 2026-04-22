@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors;
+using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
@@ -51,7 +52,17 @@ namespace RaLanguage.Interpreter.Visitors.Operations
             }
 
             if (error != null) return res.Failure(error);
-            return res.Success(result!.SetPos(node.PositionStart, node.PositionEnd));
+            
+            if (result == null)
+            {
+                return res.Failure(new RuntimeError(
+                    node.PositionStart,
+                    node.PositionEnd,
+                    $"Binary operator '{node.OpTok.Value}' returned null result",
+                    context));
+            }
+            
+            return res.Success(result.SetPos(node.PositionStart, node.PositionEnd));
         }
     }
 }

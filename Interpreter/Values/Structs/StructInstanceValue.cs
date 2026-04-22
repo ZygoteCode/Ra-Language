@@ -1,6 +1,7 @@
 ﻿using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
-using RaLanguage.Interpreter.Values.Structs;
+using RaLanguage.Interpreter.Values;
+using RaLanguage.Lexer.Tokens;
 using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Structs
@@ -42,6 +43,54 @@ namespace RaLanguage.Interpreter.Values.Structs
 
             Fields[name] = value.IsCopy ? value.Copy() : value;
         }
+
+        public sealed override (RuntimeValue?, Error?) AddedTo(RuntimeValue other) =>
+            TryOperatorDispatch(TokenType.PLUS, other, (l, r) => l.AddedTo(other));
+
+        public sealed override (RuntimeValue?, Error?) SubbedBy(RuntimeValue other) =>
+            TryOperatorDispatch(TokenType.MINUS, other, (l, r) => l.SubbedBy(other));
+
+        public sealed override (RuntimeValue?, Error?) MultedBy(RuntimeValue other) =>
+            TryOperatorDispatch(TokenType.MUL, other, (l, r) => l.MultedBy(other));
+
+        public sealed override (RuntimeValue?, Error?) DivedBy(RuntimeValue other) =>
+            TryOperatorDispatch(TokenType.DIV, other, (l, r) => l.DivedBy(other));
+
+        public sealed override (RuntimeValue?, Error?) PowedBy(RuntimeValue other) =>
+            TryOperatorDispatch(TokenType.POW, other, (l, r) => l.PowedBy(other));
+
+        public sealed override (RuntimeValue?, Error?) ModuledBy(RuntimeValue other) =>
+            TryOperatorDispatch(TokenType.MODULO, other, (l, r) => l.ModuledBy(other));
+
+        public sealed override (RuntimeValue?, Error?) BitwiseLeftShiftedBy(RuntimeValue other) =>
+            TryOperatorDispatch(TokenType.BITWISE_LEFT_SHIFT, other, (l, r) => l.BitwiseLeftShiftedBy(other));
+
+        public sealed override (RuntimeValue?, Error?) BitwiseRightShiftedBy(RuntimeValue other) =>
+            TryOperatorDispatch(TokenType.BITWISE_RIGHT_SHIFT, other, (l, r) => l.BitwiseRightShiftedBy(other));
+
+        public sealed override (RuntimeValue?, Error?) BitwiseAndedBy(RuntimeValue other) =>
+            TryOperatorDispatch(TokenType.BITWISE_AND, other, (l, r) => l.BitwiseAndedBy(other));
+
+        public sealed override (RuntimeValue?, Error?) BitwiseOredBy(RuntimeValue other) =>
+            TryOperatorDispatch(TokenType.BITWISE_OR, other, (l, r) => l.BitwiseOredBy(other));
+
+        public sealed override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other) =>
+            TryOperatorDispatch(TokenType.EE, other, (l, r) => l.GetComparisonEq(other));
+
+        public sealed override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other) =>
+            TryOperatorDispatch(TokenType.NE, other, (l, r) => l.GetComparisonNe(other));
+
+        public sealed override (RuntimeValue?, Error?) GetComparisonLt(RuntimeValue other) =>
+            TryOperatorDispatch(TokenType.LT, other, (l, r) => l.GetComparisonLt(other));
+
+        public sealed override (RuntimeValue?, Error?) GetComparisonGt(RuntimeValue other) =>
+            TryOperatorDispatch(TokenType.GT, other, (l, r) => l.GetComparisonGt(other));
+
+        public sealed override (RuntimeValue?, Error?) GetComparisonLte(RuntimeValue other) =>
+            TryOperatorDispatch(TokenType.LTE, other, (l, r) => l.GetComparisonLte(other));
+
+        public sealed override (RuntimeValue?, Error?) GetComparisonGte(RuntimeValue other) =>
+            TryOperatorDispatch(TokenType.GTE, other, (l, r) => l.GetComparisonGte(other));
 
         public sealed override RuntimeValue Copy()
         {

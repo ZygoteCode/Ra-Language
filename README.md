@@ -10,6 +10,15 @@
 
 Every programming language has its learning curve… but with Ra Language, there’s no curve: you start at the zero point of an infinite line, and simply walking along it lets your skills evolve. You can begin with nothing and still have everything you need, or, if you’re already a pro, you can create truly extraordinary things. With Ra Language, growth is continuous, natural, and effortless.
 
+## (COMING SOON) Phase 3
+
+Defining the new phase to develop for completing Ra Language.
+
+  - [ ] Implement built-in functions for reflections and complex language operations (ex. native sys calls).
+  - [ ] (EXPERIMENT) Execute Assembly code in Ra Language with Reloaded.Assembler / FASM.NET.
+  - [ ] (EXPERIMENT) Execute C# code in Ra Language.
+  - [ ] (EXPERIMENT) Execute C++ code in Ra Language.
+
 ## Phase 2: Object Oriented Programming
 
 This is constantly updated list, I am expanding with new ideas and concepts for the language. If you feel good with the language and have new ideas & suggestions, you can open an issue with some details, or submit a pull request with interesting modifications.
@@ -45,9 +54,7 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [x] Implemented method extensions for classes, structs and primitive types.
   - [x] Implement the "import" directive to import functions, classes, enums, fields, methods and so on, with a intelligent path system.
   - [x] Implement "to_string" method in classes/structs.
-  - [ ] Add final / const support to classes & structs fields.
-  - [ ] Implement operator overloading.
-  - [ ] Implement built-in functions for reflections and complex language operations (ex. native sys calls).
+  - [x] Implement operator overloading.
   - [ ] Improve generics system.
 
   New ideas coming soon!

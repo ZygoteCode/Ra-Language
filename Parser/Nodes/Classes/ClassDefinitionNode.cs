@@ -16,6 +16,7 @@ namespace RaLanguage.Parser.Nodes.Classes
         public List<TypeDescriptor> WithTraits { get; }
         public List<StructFieldDefinitionNode> Fields { get; }
         public List<FunctionDefinitionNode> Methods { get; }
+        public List<OperatorDefinitionNode> Operators { get; }
 
         public ClassDefinitionNode(
             Token nameTok,
@@ -26,7 +27,8 @@ namespace RaLanguage.Parser.Nodes.Classes
             List<TypeDescriptor> implementedInterfaces,
             List<TypeDescriptor> withTraits,
             List<StructFieldDefinitionNode> fields,
-            List<FunctionDefinitionNode> methods
+            List<FunctionDefinitionNode> methods,
+            List<OperatorDefinitionNode> operators
         ) : base(AstNodeType.ClassDefinition)
         {
             NameTok = nameTok;
@@ -36,6 +38,7 @@ namespace RaLanguage.Parser.Nodes.Classes
             BaseType = baseType;
             Fields = fields;
             Methods = methods;
+            Operators = operators;
             ImplementedInterfaces = implementedInterfaces;
             WithTraits = withTraits;
 

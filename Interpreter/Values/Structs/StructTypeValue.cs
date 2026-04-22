@@ -3,6 +3,8 @@ using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
+using RaLanguage.Lexer.Tokens;
+using RaLanguage.Parser.Nodes.Classes;
 using RaLanguage.Parser.Nodes.Structs;
 using RaLanguage.Types;
 
@@ -14,16 +16,18 @@ namespace RaLanguage.Interpreter.Values.Structs
         public bool IsPublic { get; }
         public List<StructFieldDefinitionNode> Fields { get; }
         public List<StructMethodDefinitionNode> Methods { get; }
+        public List<OperatorDefinitionNode> Operators { get; } = new();
 
         public sealed override RuntimeValueType Type => RuntimeValueType.StructType;
         public sealed override bool IsCopy => true;
 
-        public StructTypeValue(string structName, bool isPublic, List<StructFieldDefinitionNode> fields, List<StructMethodDefinitionNode> methods)
+        public StructTypeValue(string structName, bool isPublic, List<StructFieldDefinitionNode> fields, List<StructMethodDefinitionNode> methods, List<OperatorDefinitionNode> operators)
         {
             StructName = structName;
             IsPublic = isPublic;
             Fields = fields;
             Methods = methods;
+            Operators = operators;
         }
 
         public StructMethodDefinitionNode? GetConstructor(List<RuntimeValue> args, Dictionary<string, RuntimeValue> namedArgs)
@@ -103,11 +107,26 @@ namespace RaLanguage.Interpreter.Values.Structs
 
         public sealed override RuntimeValue Copy()
         {
-            return new StructTypeValue(StructName, IsPublic, Fields, Methods)
+            return new StructTypeValue(StructName, IsPublic, Fields, Methods, Operators)
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
         }
 
         public sealed override string ToString() => $"<struct {StructName}>";
+
+        public OperatorDefinitionNode? ResolveOperator(TokenType operatorType, string parameterTypeName)
+        {
+            foreach (var op in Operators)
+            {
+                if (op.OperatorTok.Type == operatorType && 
+                    op.ArgType != null && 
+                    string.Equals(op.ArgType.Name, parameterTypeName, StringComparison.Ordinal))
+                {
+                    return op;
+                }
+            }
+
+            return null;
+        }
     }
 }

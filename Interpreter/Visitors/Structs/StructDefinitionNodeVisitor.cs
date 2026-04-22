@@ -20,7 +20,7 @@ namespace RaLanguage.Interpreter.Visitors.Structs
             if (context.SymbolTable.Get(name) != null)
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{name}' is already defined", context));
 
-            var value = new StructTypeValue(name, node.IsPublic, node.Fields, node.Methods)
+            var value = new StructTypeValue(name, node.IsPublic, node.Fields, node.Methods, node.Operators)
                 .SetContext(context)
                 .SetPos(node.PositionStart, node.PositionEnd);
 

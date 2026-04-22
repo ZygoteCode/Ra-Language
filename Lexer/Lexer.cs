@@ -868,7 +868,8 @@ namespace RaLanguage.Lexer
                 { "static", Keyword.Static },
                 { "extend", Keyword.Extend },
                 { "import", Keyword.Import },
-                { "from", Keyword.From }
+                { "from", Keyword.From },
+                { "operator", Keyword.Operator }
             };
         }
 

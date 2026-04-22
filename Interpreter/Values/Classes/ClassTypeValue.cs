@@ -6,6 +6,8 @@ using RaLanguage.Interpreter.Values.Classes;
 using RaLanguage.Interpreter.Values.Functions;
 using RaLanguage.Interpreter.Values.Interfaces;
 using RaLanguage.Interpreter.Values.Traits;
+using RaLanguage.Lexer.Tokens;
+using RaLanguage.Parser.Nodes.Classes;
 using RaLanguage.Parser.Nodes.Functions;
 using RaLanguage.Parser.Nodes.Structs;
 using RaLanguage.Parser.Nodes.Traits;
@@ -23,6 +25,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public List<TraitTypeValue> Traits { get; set; } = new List<TraitTypeValue>();
         public List<StructFieldDefinitionNode> Fields { get; }
         public List<FunctionDefinitionNode> Methods { get; }
+        public List<OperatorDefinitionNode> Operators { get; } = new();
 
         public override RuntimeValueType Type => RuntimeValueType.ClassType;
 
@@ -40,7 +43,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
             TypeDescriptor? baseType,
             List<TypeDescriptor> withTraits,
             List<StructFieldDefinitionNode> fields,
-            List<FunctionDefinitionNode> methods
+            List<FunctionDefinitionNode> methods,
+            List<OperatorDefinitionNode> operators
         ) : base(className)
         {
             ClassName = className;
@@ -49,6 +53,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             BaseType = baseType;
             Fields = fields;
             Methods = methods;
+            Operators = operators;
         }
 
         public void SetStaticField(string name, RuntimeValue value, bool isPublic, TypeDescriptor? fieldType = null)
@@ -494,6 +499,38 @@ namespace RaLanguage.Interpreter.Values.Primitives
             }
 
             return true;
+        }
+
+        public OperatorDefinitionNode? ResolveOperator(TokenType operatorType, string parameterTypeName)
+        {
+            foreach (var op in Operators)
+            {
+                if (op.OperatorTok.Type == operatorType && 
+                    op.ArgType != null && 
+                    string.Equals(op.ArgType.Name, parameterTypeName, StringComparison.Ordinal))
+                {
+                    return op;
+                }
+            }
+
+            if (BaseClass != null)
+            {
+                return BaseClass.ResolveOperator(operatorType, parameterTypeName);
+            }
+
+            return null;
+        }
+
+        public List<OperatorDefinitionNode> GetAllOperators()
+        {
+            var result = new List<OperatorDefinitionNode>(Operators);
+
+            if (BaseClass != null)
+            {
+                result.AddRange(BaseClass.GetAllOperators());
+            }
+
+            return result;
         }
     }
 }

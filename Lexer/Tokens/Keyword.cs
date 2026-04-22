@@ -60,5 +60,6 @@
         Extend,
         Import,
         From,
+        Operator,
     }
 }

@@ -66,6 +66,7 @@
         ExtensionDefinition,
         ImportAll,
         ImportSelective,
-        ImportAlias
+        ImportAlias,
+        OperatorDefinition
     }
 }

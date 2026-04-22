@@ -1,8 +1,10 @@
 ﻿using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Values.Operators;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer;
+using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes.Variables;
 using RaLanguage.Types;
 
@@ -1259,6 +1261,188 @@ namespace RaLanguage.Interpreter.Values
             }
 
             return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to '{targetType}'", Context));
+        }
+
+        protected (RuntimeValue?, Error?) TryOperatorDispatch(TokenType operatorType, RuntimeValue other, Func<RuntimeValue, RuntimeValue, (RuntimeValue?, Error?)> fallback)
+        {
+            if (this is RaLanguage.Interpreter.Values.Primitives.ClassInstanceValue classInstance)
+            {
+                var type = classInstance.Definition;
+                var parameterTypeName = GetTypeName(other);
+
+                var op = type.ResolveOperator(operatorType, parameterTypeName);
+                if (op != null)
+                {
+                    if (IsComparisonOperator(operatorType) && op.ReturnType != null &&
+                        !string.Equals(op.ReturnType.Name, "bool", StringComparison.Ordinal))
+                    {
+                        return (null, new RuntimeError(
+                            op.PositionStart,
+                            op.PositionEnd,
+                            $"Comparison operator must return 'bool', but returns '{op.ReturnType.Name}'",
+                            Context));
+                    }
+
+                    try
+                    {
+                        var boundOp = new BoundOperatorValue(
+                            this,
+                            operatorType,
+                            parameterTypeName,
+                            op.ReturnType,
+                            op.BodyNode,
+                            op.ShouldAutoReturn)
+                            .SetContext(Context)
+                            .SetPos(PositionStart, PositionEnd);
+
+                        var result = boundOp.Execute(new List<RuntimeValue> { other });
+                        if (result.Error != null)
+                            return (null, result.Error);
+
+                        if (result.Value == null)
+                            return (null, new RuntimeError(
+                                PositionStart,
+                                PositionEnd,
+                                $"Operator {operatorType} returned null value",
+                                Context));
+
+                        return (result.Value, null);
+                    }
+                    catch (Exception ex)
+                    {
+                        return (null, new RuntimeError(
+                            PositionStart,
+                            PositionEnd,
+                            $"Operator execution failed: {ex.Message}",
+                            Context));
+                    }
+                }
+                
+                return (null, new RuntimeError(
+                    PositionStart,
+                    PositionEnd,
+                    $"Operator '{GetOperatorSymbol(operatorType)}' is not defined for class '{type.ClassName}' and parameter type '{parameterTypeName}'",
+                    Context));
+            }
+            else if (this is RaLanguage.Interpreter.Values.Structs.StructInstanceValue structInstance)
+            {
+                var type = structInstance.Definition;
+                var parameterTypeName = GetTypeName(other);
+
+                var op = type.ResolveOperator(operatorType, parameterTypeName);
+                if (op != null)
+                {
+                    if (IsComparisonOperator(operatorType) && op.ReturnType != null &&
+                        !string.Equals(op.ReturnType.Name, "bool", StringComparison.Ordinal))
+                    {
+                        return (null, new RuntimeError(
+                            op.PositionStart,
+                            op.PositionEnd,
+                            $"Comparison operator must return 'bool', but returns '{op.ReturnType.Name}'",
+                            Context));
+                    }
+
+                    try
+                    {
+                        var boundOp = new BoundOperatorValue(
+                            this,
+                            operatorType,
+                            parameterTypeName,
+                            op.ReturnType,
+                            op.BodyNode,
+                            op.ShouldAutoReturn)
+                            .SetContext(Context)
+                            .SetPos(PositionStart, PositionEnd);
+
+                        var result = boundOp.Execute(new List<RuntimeValue> { other });
+                        if (result.Error != null)
+                            return (null, result.Error);
+
+                        if (result.Value == null)
+                            return (null, new RuntimeError(
+                                PositionStart,
+                                PositionEnd,
+                                $"Operator {operatorType} returned null value",
+                                Context));
+
+                        return (result.Value, null);
+                    }
+                    catch (Exception ex)
+                    {
+                        return (null, new RuntimeError(
+                            PositionStart,
+                            PositionEnd,
+                            $"Operator execution failed: {ex.Message}",
+                            Context));
+                    }
+                }
+                
+                return (null, new RuntimeError(
+                    PositionStart,
+                    PositionEnd,
+                    $"Operator '{GetOperatorSymbol(operatorType)}' is not defined for struct '{type.StructName}' and parameter type '{parameterTypeName}'",
+                    Context));
+            }
+
+            return fallback(this, other);
+        }
+
+        private string GetOperatorSymbol(TokenType type)
+        {
+            return type switch
+            {
+                TokenType.PLUS => "+",
+                TokenType.MINUS => "-",
+                TokenType.MUL => "*",
+                TokenType.DIV => "/",
+                TokenType.POW => "^",
+                TokenType.MODULO => "%",
+                TokenType.EE => "==",
+                TokenType.NE => "!=",
+                TokenType.LT => "<",
+                TokenType.GT => ">",
+                TokenType.LTE => "<=",
+                TokenType.GTE => ">=",
+                TokenType.BITWISE_AND => "&",
+                TokenType.BITWISE_OR => "|",
+                TokenType.BITWISE_LEFT_SHIFT => "<<",
+                TokenType.BITWISE_RIGHT_SHIFT => ">>",
+                _ => type.ToString()
+            };
+        }
+
+        private string GetTypeName(RuntimeValue value)
+        {
+            return value.Type switch
+            {
+                RuntimeValueType.ClassInstance => ((RaLanguage.Interpreter.Values.Primitives.ClassInstanceValue)value).Definition.ClassName,
+                RuntimeValueType.StructInstance => ((RaLanguage.Interpreter.Values.Structs.StructInstanceValue)value).Definition.StructName,
+                RuntimeValueType.Integer => "int",
+                RuntimeValueType.Long => "long",
+                RuntimeValueType.Float => "float",
+                RuntimeValueType.Double => "double",
+                RuntimeValueType.Short => "short",
+                RuntimeValueType.UnsignedShort => "ushort",
+                RuntimeValueType.UnsignedInteger => "uint",
+                RuntimeValueType.UnsignedLong => "ulong",
+                RuntimeValueType.Int128 => "int128",
+                RuntimeValueType.UnsignedInt128 => "uint128",
+                RuntimeValueType.Decimal => "decimal",
+                RuntimeValueType.Byte => "byte",
+                RuntimeValueType.Boolean => "bool",
+                RuntimeValueType.String => "string",
+                _ => value.Type.ToString()
+            };
+        }
+
+        private bool IsComparisonOperator(TokenType type)
+        {
+            return type switch
+            {
+                TokenType.EE or TokenType.NE or TokenType.LT or TokenType.GT or
+                TokenType.LTE or TokenType.GTE or TokenType.STRICT_EE or TokenType.STRICT_NE => true,
+                _ => false
+            };
         }
 
         public abstract RuntimeValue Copy();

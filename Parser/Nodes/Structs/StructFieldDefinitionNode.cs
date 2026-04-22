@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Lexer.Tokens;
+using RaLanguage.Parser.Nodes.Variables;
 using RaLanguage.Types;
 
 namespace RaLanguage.Parser.Nodes.Structs
@@ -12,6 +13,7 @@ namespace RaLanguage.Parser.Nodes.Structs
         public Token NameTok { get; }
         public TypeDescriptor? FieldType { get; }
         public AstNode? DefaultValueNode { get; }
+        public VariableDeclarationType DeclarationType { get; }
 
         public StructFieldDefinitionNode(
             bool isPublic, 
@@ -20,7 +22,8 @@ namespace RaLanguage.Parser.Nodes.Structs
             AstNode? defaultValueNode, 
             bool isStatic,
             bool isAbstract = false,
-            bool isOverride = false) : base(AstNodeType.StructFieldDefinition)
+            bool isOverride = false,
+            VariableDeclarationType declarationType = VariableDeclarationType.VARIABLE) : base(AstNodeType.StructFieldDefinition)
         {
             IsPublic = isPublic;
             IsStatic = isStatic;
@@ -29,6 +32,7 @@ namespace RaLanguage.Parser.Nodes.Structs
             NameTok = nameTok;
             FieldType = fieldType;
             DefaultValueNode = defaultValueNode;
+            DeclarationType = declarationType;
             PositionStart = nameTok.PositionStart;
             PositionEnd = defaultValueNode != null ? defaultValueNode.PositionEnd : nameTok.PositionEnd;
         }
