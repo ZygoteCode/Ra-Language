@@ -19,6 +19,8 @@ Defining the new phase to develop for completing Ra Language.
   - [ ] (EXPERIMENT) Execute C# code in Ra Language.
   - [ ] (EXPERIMENT) Execute C++ code in Ra Language.
 
+New ideas coming soon!
+
 ## Phase 2: Object Oriented Programming
 
 This is constantly updated list, I am expanding with new ideas and concepts for the language. If you feel good with the language and have new ideas & suggestions, you can open an issue with some details, or submit a pull request with interesting modifications.
@@ -55,9 +57,6 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [x] Implement the "import" directive to import functions, classes, enums, fields, methods and so on, with a intelligent path system.
   - [x] Implement "to_string" method in classes/structs.
   - [x] Implement operator overloading.
-  - [ ] Improve generics system.
-
-  New ideas coming soon!
 
 ## Finished Phase 1: The Language Essentials
 
