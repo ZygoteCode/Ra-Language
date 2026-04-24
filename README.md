@@ -26,7 +26,7 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [ ] Implement annotations/decorators.
   - [ ] Fix that child classes inheriting a class can declare a function already declared from inherited but without override.
 
-Lots of more new ideas coming soon!
+Lots of more new ideas coming soon!<br/>
 The Phase 4 will be the last before the first Alpha release: StanDard (STD) Library!
 
 ## Phase 2: Object Oriented Programming
