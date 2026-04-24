@@ -1,5 +1,40 @@
-pub trait TSerializable
-{
-    pub final id: int;
-    pub let serialized: bool;
+pub class Person {
+    pub var name: string;
+    pub var surname: string;
+
+    pub Person(name: string, surname: string) {
+        self.name = name;
+        self.surname = surname;
+    }
+
+    pub fn set_name(name: string) {
+        self.name = name;
+    }
+
+    pub fn get_name(): string {
+        ret self.name;
+    }
+
+    pub fn set_surname(surname: string) {
+        self.surname = surname;
+    }
+
+    pub fn get_surname(): string {
+        ret self.surname;
+    }
 }
+
+print("hello world");
+
+var str: string = print_ret("testing");
+print(str);
+
+print(exists("str"));
+print(exists("idk"));
+
+drop("str");
+print(exists("str"));
+
+var k: int = 5;
+print(field_exists(Person, "name"));
+print(is_field_public(Person, "name"));

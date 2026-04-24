@@ -47,6 +47,7 @@ namespace RaLanguage.Interpreter.Visitors.Special
                 RuntimeValueType.Super => "super",
                 RuntimeValueType.InterfaceType => "interface",
                 RuntimeValueType.TraitType => "trait",
+                RuntimeValueType.ModuleWrapper => "module",
                 _ => ""
             };
 

@@ -11,6 +11,17 @@ namespace RaLanguage
     public class Program
     {
         public static SymbolTable GlobalSymbolTable;
+        private static string[] _builtInFunctions = new string[]
+        {
+            "print",
+            "print_ret",
+            "exists",
+            "field_exists",
+            "drop",
+            "is_public",
+            "is_field_public",
+            "is_field_static"
+        };
 
         static Program()
         {
@@ -20,8 +31,12 @@ namespace RaLanguage
         private static void InitializeSymbolTable()
         {
             GlobalSymbolTable = new SymbolTable();
-            GlobalSymbolTable.Set("print", new BuiltInFunctionValue("print"));
-            
+
+            foreach (string builtInFunction in _builtInFunctions)
+            {
+                GlobalSymbolTable.Set(builtInFunction, new BuiltInFunctionValue(builtInFunction));
+            }
+
             string basePath = Directory.GetCurrentDirectory();
             ImportNodeVisitor.InitializeModuleManager(basePath);
         }

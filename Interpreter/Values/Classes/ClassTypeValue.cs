@@ -65,6 +65,19 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public bool HasStaticField(string name) => StaticFields.ContainsKey(name);
 
+        public bool IsFieldPublic(string name)
+        {
+            foreach (StructFieldDefinitionNode field in Fields)
+            {
+                if (field.NameTok.Value.ToString().Equals(name) && field.IsPublic)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         public bool IsStaticFieldPublic(string name)
             => StaticFieldPublicity.TryGetValue(name, out var p) && p;
 

@@ -30,6 +30,32 @@ namespace RaLanguage.Interpreter.Values.Structs
             Operators = operators;
         }
 
+        public bool HasField(string name)
+        {
+            foreach (StructFieldDefinitionNode field in Fields)
+            {
+                if (field.NameTok.Value.ToString().Equals(name))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public bool IsFieldPublic(string name)
+        {
+            foreach (StructFieldDefinitionNode field in Fields)
+            {
+                if (field.NameTok.Value.ToString().Equals(name) && field.IsPublic)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         public StructMethodDefinitionNode? GetConstructor(List<RuntimeValue> args, Dictionary<string, RuntimeValue> namedArgs)
         {
             var ctors = Methods.Where(m => m.IsConstructor).ToList();
