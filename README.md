@@ -10,22 +10,26 @@
 
 Every programming language has its learning curve… but with Ra Language, there’s no curve: you start at the zero point of an infinite line, and simply walking along it lets your skills evolve. You can begin with nothing and still have everything you need, or, if you’re already a pro, you can create truly extraordinary things. With Ra Language, growth is continuous, natural, and effortless.
 
-## (COMING SOON) Phase 3
+## Phase 3: Pre-STD Implementations
 
-Defining the new phase to develop for completing Ra Language.
+This is constantly updated list, I am expanding with new ideas and concepts for the language. If you feel good with the language and have new ideas & suggestions, you can open an issue with some details, or submit a pull request with interesting modifications.
+
+I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
 
   - [ ] Implement built-in functions for reflections and complex language operations (ex. native sys calls).
   - [ ] (EXPERIMENT) Execute Assembly code in Ra Language with Reloaded.Assembler / FASM.NET.
   - [ ] (EXPERIMENT) Execute C# code in Ra Language.
   - [ ] (EXPERIMENT) Execute C++ code in Ra Language.
+  - [ ] Implement a complete generics system.
+  - [ ] Declare variables with tuples types.
+  - [ ] Pass parameters in functions as references.
+  - [ ] Implement annotations/decorators.
+  - [ ] Fix that child classes inheriting a class can declare a function already declared from inherited but without override.
 
-New ideas coming soon!
+Lots of more new ideas coming soon!<br/>
+The Phase 4 will be the last before the first Alpha release: StanDard (STD) Library!
 
 ## Phase 2: Object Oriented Programming
-
-This is constantly updated list, I am expanding with new ideas and concepts for the language. If you feel good with the language and have new ideas & suggestions, you can open an issue with some details, or submit a pull request with interesting modifications.
-
-I'll take a look at that as soon as possible! These are the things that I want to implement in the near future, so don't worry, they don't are like far from what the language will be. Many things will be implemented, as I take ispiration from other languages!
 
   - [x] Implemented int as a new primitive value type of the language.
   - [x] Implemented long as a new primitive value type of the language.
