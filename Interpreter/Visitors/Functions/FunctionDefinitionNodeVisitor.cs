@@ -18,6 +18,7 @@ namespace RaLanguage.Interpreter.Visitors.Functions
                 node.BodyNode,
                 argNames,
                 node.ArgTypes,
+                node.IsRefParams,
                 node.ParamDefaults,
                 node.HasVarArgs,
                 node.VarArgNameTok,

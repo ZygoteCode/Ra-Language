@@ -9,6 +9,7 @@ namespace RaLanguage.Parser.Nodes.Functions
         Token? NameTok { get; }
         List<Token> ArgNameToks { get; }
         List<TypeDescriptor?> ArgTypes { get; }
+        List<bool> IsRefParams { get; }
         List<AstNode?> ParamDefaults { get; }
         bool HasVarArgs { get; }
         Token? VarArgNameTok { get; }

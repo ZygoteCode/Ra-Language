@@ -76,6 +76,7 @@
         ARROW,
         ARROW_RIGHT,
         NEWLINE,
-        EOF
+        EOF,
+        REF
     }
 }

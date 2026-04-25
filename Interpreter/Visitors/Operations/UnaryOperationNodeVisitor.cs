@@ -26,10 +26,26 @@ namespace RaLanguage.Interpreter.Visitors.Operations
                 case TokenType.DOUBLE_PLUS:
                 case TokenType.DOUBLE_MINUS:
                     if (node.Node.NodeType != AstNodeType.VariableAccess) return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Operator ++/-- can only be applied to variables", context));
-                    if (value.Type != RuntimeValueType.Number) return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Operator ++/-- can only be applied to numbers", context));
+                    
+                    RuntimeValue actualValue = value;
+                    if (value.Type == RuntimeValueType.Reference)
+                    {
+                        try
+                        {
+                            var valueProp = value.GetType().GetProperty("Value");
+                            if (valueProp != null)
+                            {
+                                actualValue = valueProp.GetValue(value) as RuntimeValue ?? value;
+                            }
+                        }
+                        catch { }
+                    }
+                    
+                    if (actualValue.Type != RuntimeValueType.Number && actualValue.Type != RuntimeValueType.Integer) 
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Operator ++/-- can only be applied to numbers", context));
 
                     VariableAccessNode varAccessNode = (VariableAccessNode)node.Node;
-                    NumberValue number = (NumberValue)value;
+                    NumberValue number = (NumberValue)actualValue;
 
                     RuntimeValue? newValue = null;
                     if (node.OpTok.Type == TokenType.DOUBLE_PLUS) (newValue, error) = number.AddedTo(NumberValue.One);
@@ -38,6 +54,33 @@ namespace RaLanguage.Interpreter.Visitors.Operations
                     if (error != null) return res.Failure(error);
                     newValue = newValue!.SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                     var varName = varAccessNode.VarNameTok.Value?.ToString() ?? throw new InvalidOperationException("Variable name missing");
+                    
+                    if (value.Type == RuntimeValueType.Reference)
+                    {
+                        try
+                        {
+                            var valueProp = value.GetType().GetProperty("Value");
+                            if (valueProp != null)
+                            {
+                                valueProp.SetValue(value, newValue);
+                                
+                                if (node.IsLeft)
+                                {
+                                    return res.Success(newValue);
+                                }
+                                else
+                                {
+                                    var oldCopy = number.Copy().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                                    return res.Success(oldCopy);
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Failed to increment/decrement through reference: {ex.Message}", context));
+                        }
+                    }
+                    
                     context.SymbolTable.Set(varName, newValue);
 
                     if (node.IsLeft)

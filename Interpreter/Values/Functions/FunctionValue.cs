@@ -11,6 +11,7 @@ namespace RaLanguage.Interpreter.Values.Functions
         public AstNode BodyNode { get; }
         public List<string> ArgNames { get; }
         public List<TypeDescriptor?> ArgTypes { get; }
+        public List<bool> IsRefParams { get; }
         public List<AstNode?> ParamDefaults { get; }
         public bool HasVarArgs { get; }
         public Token? VarArgNameTok { get; }
@@ -25,6 +26,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             AstNode bodyNode,
             List<string> argNames,
             List<TypeDescriptor?>? argTypes,
+            List<bool>? isRefParams,
             List<AstNode?>? paramDefaults,
             bool hasVarArgs,
             Token? varArgNameTok,
@@ -37,6 +39,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             BodyNode = bodyNode;
             ArgNames = argNames ?? new List<string>();
             ArgTypes = argTypes ?? new List<TypeDescriptor?>();
+            IsRefParams = isRefParams ?? new List<bool>();
             ParamDefaults = paramDefaults ?? new List<AstNode?>();
             HasVarArgs = hasVarArgs;
             VarArgNameTok = varArgNameTok;
@@ -169,6 +172,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                 BodyNode,
                 ArgNames,
                 ArgTypes == null ? null : ArgTypes,
+                IsRefParams,
                 ParamDefaults == null ? null : ParamDefaults,
                 HasVarArgs,
                 VarArgNameTok,

@@ -904,15 +904,31 @@ namespace RaLanguage.Parser
                                     Advance();
                                 }
 
+                                bool isRef = false;
+                                if (_currentToken.Type == TokenType.BITWISE_AND)
+                                {
+                                    isRef = true;
+                                    res.RegisterAdvancement();
+                                    Advance();
+                                }
+
                                 var expr = res.Register(ParseExpression());
                                 if (res.Error != null) return res;
-                                argNodes.Add(new ArgumentNode(nameTok, expr));
+                                argNodes.Add(new ArgumentNode(nameTok, expr, isRef));
                             }
                             else
                             {
+                                bool isRef = false;
+                                if (_currentToken.Type == TokenType.BITWISE_AND)
+                                {
+                                    isRef = true;
+                                    res.RegisterAdvancement();
+                                    Advance();
+                                }
+
                                 var expr = res.Register(ParseExpression());
                                 if (res.Error != null) return res;
-                                argNodes.Add(new ArgumentNode(null, expr));
+                                argNodes.Add(new ArgumentNode(null, expr, isRef));
                             }
 
                             while (_currentToken.Type == TokenType.NEWLINE)
@@ -1429,6 +1445,7 @@ namespace RaLanguage.Parser
 
             var argNameToks = new List<Token>();
             var argTypes = new List<TypeDescriptor?>();
+            var isRefParams = new List<bool>();
             var paramDefaults = new List<AstNode?>();
 
             bool hasVarArgs = false;
@@ -1444,7 +1461,7 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            if (_currentToken.Type == TokenType.IDENTIFIER || _currentToken.Type == TokenType.SPREAD)
+            if (_currentToken.Type == TokenType.IDENTIFIER || _currentToken.Type == TokenType.SPREAD || _currentToken.Matches(Keyword.Ref))
             {
                 while (true)
                 {
@@ -1479,6 +1496,20 @@ namespace RaLanguage.Parser
                         break;
                     }
 
+                    bool isRef = false;
+                    if (_currentToken.Matches(Keyword.Ref))
+                    {
+                        isRef = true;
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        while (_currentToken.Type == TokenType.NEWLINE)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                        }
+                    }
+
                     if (_currentToken.Type != TokenType.IDENTIFIER)
                         return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected parameter name"));
 
@@ -1497,9 +1528,17 @@ namespace RaLanguage.Parser
                         if (parsed == null)
                             return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':'"));
 
-                        ptype = parsed;
+                        if (isRef)
+                        {
+                            ptype = TypeDescriptor.RefType(parsed);
+                        }
+                        else
+                        {
+                            ptype = parsed;
+                        }
                     }
                     argTypes.Add(ptype);
+                    isRefParams.Add(isRef);
 
                     AstNode? defaultExpr = null;
                     if (_currentToken.Type == TokenType.EQ)
@@ -1557,6 +1596,7 @@ namespace RaLanguage.Parser
             return res.Success(new CallableSignatureNode(
                 argNameToks,
                 argTypes,
+                isRefParams,
                 paramDefaults,
                 hasVarArgs,
                 varArgNameTok,
@@ -1751,6 +1791,7 @@ namespace RaLanguage.Parser
                     methodNameTok,
                     sigNode.ArgNameToks,
                     sigNode.ArgTypes,
+                    sigNode.IsRefParams,
                     sigNode.ParamDefaults,
                     sigNode.HasVarArgs,
                     sigNode.VarArgNameTok,
@@ -4041,6 +4082,7 @@ namespace RaLanguage.Parser
 
             var argNameToks = new List<Token>();
             var argTypes = new List<TypeDescriptor?>();
+            var isRefParams = new List<bool>();
             var paramDefaults = new List<AstNode?>();
             bool hasVarArgs = false;
             Token? varArgNameTok = null;
@@ -4053,7 +4095,7 @@ namespace RaLanguage.Parser
                 goto otherRparen;
             }
 
-            if (_currentToken.Type == TokenType.IDENTIFIER || _currentToken.Type == TokenType.SPREAD)
+            if (_currentToken.Type == TokenType.IDENTIFIER || _currentToken.Type == TokenType.SPREAD || _currentToken.Matches(Keyword.Ref))
             {
                 while (true)
                 {
@@ -4113,6 +4155,20 @@ namespace RaLanguage.Parser
                             Advance();
                         }
 
+                        bool isRef = false;
+                        if (_currentToken.Matches(Keyword.Ref))
+                        {
+                            isRef = true;
+                            res.RegisterAdvancement();
+                            Advance();
+
+                            while (_currentToken.Type == TokenType.NEWLINE)
+                            {
+                                res.RegisterAdvancement();
+                                Advance();
+                            }
+                        }
+
                         if (_currentToken.Type != TokenType.IDENTIFIER)
                             return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected parameter name"));
 
@@ -4149,9 +4205,17 @@ namespace RaLanguage.Parser
                             if (parsed == null)
                                 return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':'"));
 
-                            ptype = parsed;
+                            if (isRef)
+                            {
+                                ptype = TypeDescriptor.RefType(parsed);
+                            }
+                            else
+                            {
+                                ptype = parsed;
+                            }
                         }
                         argTypes.Add(ptype);
+                        isRefParams.Add(isRef);
 
                         AstNode? defaultExpr = null;
                         if (_currentToken.Type == TokenType.EQ)
@@ -4278,6 +4342,7 @@ namespace RaLanguage.Parser
                     varNameTok,
                     argNameToks,
                     argTypes,
+                    isRefParams,
                     paramDefaults,
                     hasVarArgs,
                     varArgNameTok,
@@ -4306,6 +4371,7 @@ namespace RaLanguage.Parser
                     varNameTok,
                     argNameToks,
                     argTypes,
+                    isRefParams,
                     paramDefaults,
                     hasVarArgs,
                     varArgNameTok,
@@ -4338,6 +4404,7 @@ namespace RaLanguage.Parser
                 varNameTok,
                 argNameToks,
                 argTypes,
+                isRefParams,
                 paramDefaults,
                 hasVarArgs,
                 varArgNameTok,

@@ -7,6 +7,7 @@ namespace RaLanguage.Parser.Nodes.Traits
     {
         public List<Token> ArgNameToks { get; }
         public List<TypeDescriptor?> ArgTypes { get; }
+        public List<bool> IsRefParams { get; }
         public List<AstNode?> ParamDefaults { get; }
         public bool HasVarArgs { get; }
         public Token? VarArgNameTok { get; }
@@ -16,6 +17,7 @@ namespace RaLanguage.Parser.Nodes.Traits
         public CallableSignatureNode(
             List<Token> argNameToks,
             List<TypeDescriptor?> argTypes,
+            List<bool> isRefParams,
             List<AstNode?> paramDefaults,
             bool hasVarArgs,
             Token? varArgNameTok,
@@ -25,6 +27,7 @@ namespace RaLanguage.Parser.Nodes.Traits
         {
             ArgNameToks = argNameToks;
             ArgTypes = argTypes;
+            IsRefParams = isRefParams ?? new List<bool>();
             ParamDefaults = paramDefaults;
             HasVarArgs = hasVarArgs;
             VarArgNameTok = varArgNameTok;

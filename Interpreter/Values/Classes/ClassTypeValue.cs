@@ -135,7 +135,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
                 foreach (var method in methods)
                 {
-                    result.Add(new FunctionDefinitionNode(method.NameTok, method.ArgNameToks, method.ArgTypes, method.ParamDefaults, method.HasVarArgs, method.VarArgNameTok, method.VarArgType, method.ReturnType, method.BodyNode, method.ShouldAutoReturn, null, true, method.IsConstructor, method.IsOverride, method.IsAbstract, false));
+                    result.Add(new FunctionDefinitionNode(method.NameTok, method.ArgNameToks, method.ArgTypes, method.IsRefParams, method.ParamDefaults, method.HasVarArgs, method.VarArgNameTok, method.VarArgType, method.ReturnType, method.BodyNode, method.ShouldAutoReturn, null, true, method.IsConstructor, method.IsOverride, method.IsAbstract, false));
                 }
 
                 result.AddRange();

@@ -11,6 +11,7 @@ namespace RaLanguage.Parser.Nodes.Structs
                 fn.VarNameTok!.Value,
                 fn.ArgNameToks,
                 fn.ArgTypes,
+                fn.IsRefParams,
                 fn.ParamDefaults,
                 fn.HasVarArgs,
                 fn.VarArgNameTok,

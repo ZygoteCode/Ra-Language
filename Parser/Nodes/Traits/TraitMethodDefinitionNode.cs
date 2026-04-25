@@ -9,6 +9,7 @@ namespace RaLanguage.Parser.Nodes.Traits
         public Token? NameTok { get; }
         public List<Token> ArgNameToks { get; }
         public List<TypeDescriptor?> ArgTypes { get; }
+        public List<bool> IsRefParams { get; }
         public List<AstNode?> ParamDefaults { get; }
         public bool HasVarArgs { get; }
         public Token? VarArgNameTok { get; }
@@ -27,6 +28,7 @@ namespace RaLanguage.Parser.Nodes.Traits
             Token nameTok,
             List<Token> argNameToks,
             List<TypeDescriptor?> argTypes,
+            List<bool> isRefParams,
             List<AstNode?> paramDefaults,
             bool hasVarArgs,
             Token? varArgNameTok,
@@ -40,6 +42,7 @@ namespace RaLanguage.Parser.Nodes.Traits
             NameTok = nameTok;
             ArgNameToks = argNameToks ?? new List<Token>();
             ArgTypes = argTypes ?? new List<TypeDescriptor?>();
+            IsRefParams = isRefParams ?? new List<bool>();
             ParamDefaults = paramDefaults ?? new List<AstNode?>();
             HasVarArgs = hasVarArgs;
             VarArgNameTok = varArgNameTok;

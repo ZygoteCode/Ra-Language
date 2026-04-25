@@ -4,6 +4,7 @@ using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Functions;
 using RaLanguage.Interpreter.Values.Primitives;
+using RaLanguage.Parser.Nodes;
 using RaLanguage.Parser.Nodes.Functions;
 
 namespace RaLanguage.Interpreter.Visitors.Functions
@@ -33,8 +34,20 @@ namespace RaLanguage.Interpreter.Visitors.Functions
             {
                 foreach (var argNode in node.ArgNodes)
                 {
-                    var evaluated = res.Register(interpreter.Visit(argNode.Expr, context));
-                    if (res.ShouldReturn()) return res;
+                    RuntimeValue evaluated;
+                    
+                    if (argNode.IsRef)
+                    {
+                        var refResult = CreateReferenceFromNode(argNode.Expr, context, interpreter);
+                        if (refResult.Error != null)
+                            return res.Failure(refResult.Error);
+                        evaluated = refResult.Value!;
+                    }
+                    else
+                    {
+                        evaluated = res.Register(interpreter.Visit(argNode.Expr, context));
+                        if (res.ShouldReturn()) return res;
+                    }
 
                     if (argNode.NameTok != null)
                     {
@@ -89,6 +102,108 @@ namespace RaLanguage.Interpreter.Visitors.Functions
 
             var finalVal = execReturn.Copy().SetPos(node.PositionStart, node.PositionEnd).SetContext(context);
             return res.Success(finalVal);
+        }
+
+        private RuntimeResult CreateReferenceFromNode(AstNode node, Context context, IInterpreter interpreter)
+        {
+            var res = new RuntimeResult();
+
+            if (node is RaLanguage.Parser.Nodes.Variables.VariableAccessNode varAccess)
+            {
+                var varName = varAccess.VarNameTok.Value?.ToString();
+                if (string.IsNullOrEmpty(varName))
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Invalid variable name", context));
+
+                var entry = context.SymbolTable.GetEntry(varName);
+                if (entry == null)
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is not defined", context));
+
+                var refValue = new ReferenceValue(context.SymbolTable, varName)
+                    .SetContext(context)
+                    .SetPos(node.PositionStart, node.PositionEnd);
+
+                return res.Success(refValue);
+            }
+
+            if (node is RaLanguage.Parser.Nodes.Structs.MemberAccessNode memberAccess)
+            {
+                var owner = res.Register(interpreter.Visit(memberAccess.TargetNode, context));
+                if (res.ShouldReturn()) return res;
+
+                var memberName = memberAccess.MemberTok.Value?.ToString();
+                if (string.IsNullOrEmpty(memberName))
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Invalid member name", context));
+
+                if (owner.Type == RuntimeValueType.ClassInstance)
+                {
+                    var instance = (RaLanguage.Interpreter.Values.Primitives.ClassInstanceValue)owner;
+                    var classType = instance.Definition;
+                    
+                    if (classType.HasField(memberName))
+                    {
+                        var refValue = new ClassFieldReferenceValue(instance, memberName)
+                            .SetContext(context)
+                            .SetPos(node.PositionStart, node.PositionEnd);
+                        return res.Success(refValue);
+                    }
+                }
+
+                if (owner.Type == RuntimeValueType.StructInstance)
+                {
+                    var instance = (RaLanguage.Interpreter.Values.Structs.StructInstanceValue)owner;
+                    
+                    if (instance.HasField(memberName))
+                    {
+                        var refValue = new StructFieldReferenceValue(instance, memberName)
+                            .SetContext(context)
+                            .SetPos(node.PositionStart, node.PositionEnd);
+                        return res.Success(refValue);
+                    }
+                }
+
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Cannot take reference of '{memberName}'", context));
+            }
+
+            if (node is RaLanguage.Parser.Nodes.Variables.ListAccessNode listAccess)
+            {
+                var listVal = res.Register(interpreter.Visit(listAccess.Target, context));
+                if (res.ShouldReturn()) return res;
+
+                var indexVal = res.Register(interpreter.Visit(listAccess.Index, context));
+                if (res.ShouldReturn()) return res;
+
+                if (listVal.Type == RuntimeValueType.List)
+                {
+                    var list = (RaLanguage.Interpreter.Values.Primitives.ListValue)listVal;
+                    var index = GetIntegerFromValue(indexVal, node, context);
+                    
+                    if (index < 0 || index >= list.Elements.Count)
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "List index out of range", context));
+
+                    var refValue = new ListElementReferenceValue(list, index)
+                        .SetContext(context)
+                        .SetPos(node.PositionStart, node.PositionEnd);
+                    return res.Success(refValue);
+                }
+
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Can only take reference of list elements", context));
+            }
+
+            return res.Failure(new RuntimeError(
+                node.PositionStart, node.PositionEnd,
+                "Can only take reference of variables, fields, or list elements", context));
+        }
+
+        private int GetIntegerFromValue(RuntimeValue value, AstNode sourceNode, Context context)
+        {
+            if (value.Type == RuntimeValueType.Integer)
+                return (int)((RaLanguage.Interpreter.Values.Primitives.IntegerValue)value).Value;
+            if (value.Type == RuntimeValueType.Number)
+                return (int)((RaLanguage.Interpreter.Values.Primitives.NumberValue)value).Value.ToBigInteger();
+            if (value.Type == RuntimeValueType.Long)
+                return (int)((RaLanguage.Interpreter.Values.Primitives.LongValue)value).Value;
+
+            return -1;
         }
     }
 }

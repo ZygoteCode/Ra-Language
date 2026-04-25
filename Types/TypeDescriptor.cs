@@ -34,13 +34,17 @@
         public List<TypeDescriptor> GenericArgs { get; }
         public bool IsTypeParameter { get; }
         public string TypeParameterName { get; }
+        public bool IsRefType { get; }
+        public TypeDescriptor? RefElementType { get; }
 
-        public TypeDescriptor(string name, List<TypeDescriptor>? genericArgs = null)
+        public TypeDescriptor(string name, List<TypeDescriptor>? genericArgs = null, bool isRefType = false, TypeDescriptor? refElementType = null)
         {
             Name = name;
             GenericArgs = genericArgs ?? new List<TypeDescriptor>();
             IsTypeParameter = false;
             TypeParameterName = null;
+            IsRefType = isRefType;
+            RefElementType = refElementType;
         }
 
         private TypeDescriptor(string typeParamName, bool isTypeParam)
@@ -49,9 +53,16 @@
             IsTypeParameter = isTypeParam;
             Name = typeParamName;
             GenericArgs = new List<TypeDescriptor>();
+            IsRefType = false;
+            RefElementType = null;
         }
 
         public static TypeDescriptor TypeParameter(string name) => new TypeDescriptor(name, true);
+        
+        public static TypeDescriptor RefType(TypeDescriptor elementType)
+        {
+            return new TypeDescriptor($"ref {elementType.Name}", elementType.GenericArgs, isRefType: true, refElementType: elementType);
+        }
 
         public override string ToString()
         {
@@ -77,6 +88,11 @@
             {
                 if (bindings.TryGetValue(TypeParameterName, out var bound)) return bound;
                 return this;
+            }
+            if (IsRefType && RefElementType != null)
+            {
+                var substitutedElement = RefElementType.Substitute(bindings);
+                return RefType(substitutedElement);
             }
             if (GenericArgs.Count == 0) return this;
             var substituted = GenericArgs.Select(a => a.Substitute(bindings)).ToList();

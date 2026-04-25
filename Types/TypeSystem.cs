@@ -15,6 +15,48 @@ namespace RaLanguage.Types
             if (string.Equals(target.Name, "any", StringComparison.Ordinal)) return true;
             if (target.IsTypeParameter) return true;
 
+            if (target.IsRefType)
+            {
+                if (value.Type != RuntimeValueType.Reference)
+                    return false;
+                
+                if (target.RefElementType != null)
+                {
+                    if (value is ReferenceValue refValue)
+                    {
+                        try
+                        {
+                            var actualValue = refValue.Value;
+                            return IsAssignable(context, target.RefElementType, actualValue);
+                        }
+                        catch
+                        {
+                            return false;
+                        }
+                    }
+                    try
+                    {
+                        var prop = value.GetType().GetProperty("Value");
+                        if (prop != null)
+                        {
+                            var actualValue = prop.GetValue(value) as RuntimeValue;
+                            if (actualValue != null)
+                            {
+                                return IsAssignable(context, target.RefElementType, actualValue);
+                            }
+                        }
+                    }
+                    catch { }
+                    return false;
+                }
+                return true;
+            }
+
+            if (value.Type == RuntimeValueType.Reference)
+            {
+                return false;
+            }
+
             if (string.Equals(target.Name, "string", StringComparison.Ordinal))
                 return true;
 
@@ -224,6 +266,35 @@ namespace RaLanguage.Types
                     return new TypeDescriptor(((EnumValue)val).EnumName);
                 case RuntimeValueType.EnumType:
                     return new TypeDescriptor(((EnumTypeValue)val).EnumName);
+                case RuntimeValueType.Reference:
+                    if (val is ReferenceValue refValue)
+                    {
+                        try
+                        {
+                            var actualValue = refValue.Value;
+                            var elementType = GetDescriptorFromRuntimeValue(actualValue);
+                            return TypeDescriptor.RefType(elementType);
+                        }
+                        catch
+                        {
+                            return new TypeDescriptor("ref unknown");
+                        }
+                    }
+                    try
+                    {
+                        var prop = val.GetType().GetProperty("Value");
+                        if (prop != null)
+                        {
+                            var actualValue = prop.GetValue(val) as RuntimeValue;
+                            if (actualValue != null)
+                            {
+                                var elementType = GetDescriptorFromRuntimeValue(actualValue);
+                                return TypeDescriptor.RefType(elementType);
+                            }
+                        }
+                    }
+                    catch { }
+                    return new TypeDescriptor("ref unknown");
                 default:
                     return new TypeDescriptor(val.Type.ToString().ToLower());
             }

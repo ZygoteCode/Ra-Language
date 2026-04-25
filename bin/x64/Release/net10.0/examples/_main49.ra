@@ -31,9 +31,3 @@ print(k);
 p.increment(&p.age);
 print(p.age);
 print(p.to_string());
-
-var l: list = [1, 2, 3, 4, 5, 6];
-print(l);
-
-sum(&l[2], 7, 5);
-print(l);

@@ -33,6 +33,7 @@
         Super,
         InterfaceType,
         TraitType,
-        ModuleWrapper
+        ModuleWrapper,
+        Reference
     }
 }
