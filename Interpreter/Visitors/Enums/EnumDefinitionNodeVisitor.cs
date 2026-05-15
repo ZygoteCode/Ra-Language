@@ -59,7 +59,7 @@ namespace RaLanguage.Interpreter.Visitors.Enums
                 lastValue = value;
             }
 
-            var enumTypeValue = new EnumTypeValue(enumName, members)
+            var enumTypeValue = new EnumTypeValue(enumName, members, node.GenericTypeParams, node.WhereConstraints)
                 .SetContext(context)
                 .SetPos(node.PositionStart, node.PositionEnd);
 

@@ -1,4 +1,5 @@
-﻿using RaLanguage.Lexer.Tokens;
+using RaLanguage.Lexer.Tokens;
+using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Types;
 
 namespace RaLanguage.Parser.Nodes.Functions
@@ -17,6 +18,7 @@ namespace RaLanguage.Parser.Nodes.Functions
         public AstNode? BodyNode { get; }
         public bool ShouldAutoReturn { get; }
         public List<string> GenericTypeParams { get; }
+        public List<WhereConstraintNode> WhereConstraints { get; }
         public bool IsPublic { get; }
         public bool IsConstructor { get; }
         public bool IsOverride { get; }
@@ -49,7 +51,8 @@ namespace RaLanguage.Parser.Nodes.Functions
             bool isConstructor = false,
             bool isOverride = false,
             bool isAbstract = false,
-            bool isStatic = false
+            bool isStatic = false,
+            List<WhereConstraintNode>? whereConstraints = null
         ) : base(AstNodeType.FunctionDefinition)
         {
             VarNameTok = varNameTok;
@@ -64,6 +67,7 @@ namespace RaLanguage.Parser.Nodes.Functions
             BodyNode = bodyNode;
             ShouldAutoReturn = shouldAutoReturn;
             GenericTypeParams = genericTypeParams ?? new List<string>();
+            WhereConstraints = whereConstraints ?? new List<WhereConstraintNode>();
             IsPublic = isPublic;
             IsConstructor = isConstructor;
             IsOverride = isOverride;

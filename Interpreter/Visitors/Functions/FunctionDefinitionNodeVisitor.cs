@@ -24,7 +24,9 @@ namespace RaLanguage.Interpreter.Visitors.Functions
                 node.VarArgNameTok,
                 node.VarArgType,
                 node.ReturnType,
-                node.ShouldAutoReturn
+                node.ShouldAutoReturn,
+                node.GenericTypeParams,
+                node.WhereConstraints
             )
                 .SetContext(context)
                 .SetPos(node.PositionStart, node.PositionEnd);

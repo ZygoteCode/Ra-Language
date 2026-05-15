@@ -1,5 +1,6 @@
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes.Functions;
+using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Types;
 
 namespace RaLanguage.Parser.Nodes.Classes
@@ -15,6 +16,8 @@ namespace RaLanguage.Parser.Nodes.Classes
         public TypeDescriptor? ReturnType { get; }
         public AstNode BodyNode { get; }
         public bool ShouldAutoReturn { get; }
+        public List<string> GenericTypeParams { get; }
+        public List<WhereConstraintNode> WhereConstraints { get; }
 
         public OperatorDefinitionNode(
             bool isPublic,
@@ -25,7 +28,9 @@ namespace RaLanguage.Parser.Nodes.Classes
             TypeDescriptor? argType,
             TypeDescriptor? returnType,
             AstNode bodyNode,
-            bool shouldAutoReturn) : base(AstNodeType.OperatorDefinition)
+            bool shouldAutoReturn,
+            List<string>? genericTypeParams = null,
+            List<WhereConstraintNode>? whereConstraints = null) : base(AstNodeType.OperatorDefinition)
         {
             IsPublic = isPublic;
             IsOverride = isOverride;
@@ -36,6 +41,8 @@ namespace RaLanguage.Parser.Nodes.Classes
             ReturnType = returnType;
             BodyNode = bodyNode;
             ShouldAutoReturn = shouldAutoReturn;
+            GenericTypeParams = genericTypeParams ?? new List<string>();
+            WhereConstraints = whereConstraints ?? new List<WhereConstraintNode>();
 
             PositionStart = operatorTok.PositionStart;
             PositionEnd = bodyNode.PositionEnd;

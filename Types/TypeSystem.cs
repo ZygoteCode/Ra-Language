@@ -4,6 +4,7 @@ using RaLanguage.Interpreter.Values.Interfaces;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Interpreter.Values.Structs;
 using RaLanguage.Interpreter.Values.Traits;
+using RaLanguage.Parser.Nodes.Special;
 
 namespace RaLanguage.Types
 {
@@ -200,6 +201,55 @@ namespace RaLanguage.Types
             }
 
             return bindings;
+        }
+
+        public static string? ValidateWhereConstraints(Dictionary<string, TypeDescriptor> bindings, List<WhereConstraintNode> constraints)
+        {
+            if (constraints == null || constraints.Count == 0) return null;
+
+            foreach (var constraint in constraints)
+            {
+                if (!bindings.TryGetValue(constraint.ParameterName, out var boundType))
+                {
+                    return $"Generic parameter '{constraint.ParameterName}' is not bound";
+                }
+
+                var expected = constraint.ConstraintType.Substitute(bindings);
+
+                if (!StrictTypeEquals(boundType, expected))
+                {
+                    return $"Generic parameter '{constraint.ParameterName}' is bound to '{boundType}', but the 'where' clause requires exactly '{expected}'";
+                }
+            }
+
+            return null;
+        }
+
+        public static bool StrictTypeEquals(TypeDescriptor a, TypeDescriptor b)
+        {
+            if (a == null || b == null) return false;
+            if (a.IsTypeParameter || b.IsTypeParameter)
+            {
+                if (a.IsTypeParameter && b.IsTypeParameter)
+                    return string.Equals(a.TypeParameterName, b.TypeParameterName, StringComparison.Ordinal);
+                return false;
+            }
+
+            if (!string.Equals(a.Name, b.Name, StringComparison.Ordinal)) return false;
+            if (a.GenericArgs.Count != b.GenericArgs.Count) return false;
+            for (int i = 0; i < a.GenericArgs.Count; i++)
+            {
+                if (!StrictTypeEquals(a.GenericArgs[i], b.GenericArgs[i])) return false;
+            }
+
+            return true;
+        }
+
+        public static bool IsStrictlyAssignable(Context context, TypeDescriptor target, RuntimeValue value)
+        {
+            if (target == null) return false;
+            var actual = GetDescriptorFromRuntimeValue(value);
+            return StrictTypeEquals(target, actual);
         }
 
         public static Dictionary<string, TypeDescriptor>? InferBindingsFromArgs(List<TypeDescriptor> formals, List<RuntimeValue> actuals)

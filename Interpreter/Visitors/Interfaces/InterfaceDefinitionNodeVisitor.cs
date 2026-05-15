@@ -63,7 +63,7 @@ namespace RaLanguage.Interpreter.Visitors.Interfaces
                 }
             }
 
-            var iface = new InterfaceTypeValue(name, node.Methods, node.Fields)
+            var iface = new InterfaceTypeValue(name, node.Methods, node.Fields, node.GenericTypeParams, node.WhereConstraints)
                 .SetContext(context)
                 .SetPos(node.PositionStart, node.PositionEnd);
 

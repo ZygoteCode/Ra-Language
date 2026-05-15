@@ -47,7 +47,7 @@ namespace RaLanguage.Interpreter.Visitors.Classes
                 }
             }
 
-            var classValue = (ClassTypeValue) new ClassTypeValue(className, node.IsPublic, node.IsAbstract, node.BaseType, node.WithTraits, node.Fields, node.Methods, node.Operators)
+            var classValue = (ClassTypeValue) new ClassTypeValue(className, node.IsPublic, node.IsAbstract, node.BaseType, node.WithTraits, node.Fields, node.Methods, node.Operators, node.GenericTypeParams, node.WhereConstraints)
                 .SetContext(context)
                 .SetPos(node.PositionStart, node.PositionEnd);
 

@@ -44,7 +44,7 @@ namespace RaLanguage.Interpreter.Visitors.Traits
                 }
             }
 
-            var traitValue = new TraitTypeValue(traitName, node.IsPublic, node.Methods, node.Fields)
+            var traitValue = new TraitTypeValue(traitName, node.IsPublic, node.Methods, node.Fields, node.GenericTypeParams, node.WhereConstraints)
                 .SetContext(context)
                 .SetPos(node.PositionStart, node.PositionEnd);
 

@@ -34,6 +34,7 @@
         InterfaceType,
         TraitType,
         ModuleWrapper,
-        Reference
+        Reference,
+        GenericTypeBinding
     }
 }

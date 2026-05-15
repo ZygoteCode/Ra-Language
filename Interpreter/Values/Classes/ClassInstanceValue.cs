@@ -13,6 +13,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public Dictionary<string, bool> FieldPublicity { get; }
         public Dictionary<string, TypeDescriptor?> FieldTypes { get; }
         public Dictionary<string, VariableDeclarationType> FieldDeclarationTypes { get; }
+        public Dictionary<string, TypeDescriptor> GenericBindings { get; }
 
         public override RuntimeValueType Type => RuntimeValueType.ClassInstance;
         public override bool IsCopy => false;
@@ -23,7 +24,19 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 new Dictionary<string, RuntimeValue>(StringComparer.Ordinal),
                 new Dictionary<string, bool>(StringComparer.Ordinal),
                 new Dictionary<string, TypeDescriptor?>(StringComparer.Ordinal),
-                new Dictionary<string, VariableDeclarationType>())
+                new Dictionary<string, VariableDeclarationType>(),
+                new Dictionary<string, TypeDescriptor>(StringComparer.Ordinal))
+        {
+        }
+
+        public ClassInstanceValue(ClassTypeValue definition, Dictionary<string, TypeDescriptor> genericBindings)
+            : this(
+                definition,
+                new Dictionary<string, RuntimeValue>(StringComparer.Ordinal),
+                new Dictionary<string, bool>(StringComparer.Ordinal),
+                new Dictionary<string, TypeDescriptor?>(StringComparer.Ordinal),
+                new Dictionary<string, VariableDeclarationType>(),
+                genericBindings ?? new Dictionary<string, TypeDescriptor>(StringComparer.Ordinal))
         {
         }
 
@@ -32,13 +45,15 @@ namespace RaLanguage.Interpreter.Values.Primitives
             Dictionary<string, RuntimeValue> fields,
             Dictionary<string, bool> publicity,
             Dictionary<string, TypeDescriptor?> types,
-            Dictionary<string, VariableDeclarationType> declarationTypes)
+            Dictionary<string, VariableDeclarationType> declarationTypes,
+            Dictionary<string, TypeDescriptor> genericBindings)
         {
             Definition = definition;
             Fields = fields;
             FieldPublicity = publicity;
             FieldTypes = types;
             FieldDeclarationTypes = declarationTypes;
+            GenericBindings = genericBindings ?? new Dictionary<string, TypeDescriptor>(StringComparer.Ordinal);
         }
 
         public void SetField(string name, RuntimeValue value, bool isPublic, TypeDescriptor? fieldType = null, VariableDeclarationType declarationType = VariableDeclarationType.VARIABLE)
@@ -121,7 +136,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             TryOperatorDispatch(TokenType.GTE, other, (l, r) => l.GetComparisonGte(other));
 
         public override RuntimeValue Copy()
-            => new ClassInstanceValue(Definition, Fields, FieldPublicity, FieldTypes, FieldDeclarationTypes)
+            => new ClassInstanceValue(Definition, Fields, FieldPublicity, FieldTypes, FieldDeclarationTypes, GenericBindings)
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
 
