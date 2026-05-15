@@ -97,6 +97,14 @@ namespace RaLanguage.Types
                 return SatisfiesTrait(context, trait, value);
             }
 
+            // Backward-compat: a type name that is not a known primitive and not a registered
+            // symbol (class/struct/enum/interface/trait) is treated as an opaque/unresolved
+            // type-parameter-like name. This preserves the historical behavior where any
+            // uppercase identifier acted as a type parameter, so existing programs that use
+            // names like "String" continue to type-check.
+            if (symbol == null && IsLikelyUnresolvedUserType(target))
+                return true;
+
             switch (value.Type)
             {
                 case RuntimeValueType.Number:
@@ -201,6 +209,24 @@ namespace RaLanguage.Types
             }
 
             return bindings;
+        }
+
+        private static readonly HashSet<string> _knownPrimitiveTypeNames = new(StringComparer.Ordinal)
+        {
+            "any", "number", "string", "bool", "null",
+            "int", "long", "float", "double",
+            "uint", "ulong", "short", "ushort",
+            "int128", "uint128", "decimal", "byte",
+            "list", "set", "map", "tuple", "function", "type"
+        };
+
+        private static bool IsLikelyUnresolvedUserType(TypeDescriptor target)
+        {
+            if (target == null) return false;
+            if (target.IsTypeParameter) return true;
+            if (string.IsNullOrEmpty(target.Name)) return false;
+            if (_knownPrimitiveTypeNames.Contains(target.Name)) return false;
+            return true;
         }
 
         public static string? ValidateWhereConstraints(Dictionary<string, TypeDescriptor> bindings, List<WhereConstraintNode> constraints)
