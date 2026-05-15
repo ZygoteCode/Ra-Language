@@ -9,6 +9,7 @@ using RaLanguage.Interpreter.Values.Traits;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes.Classes;
 using RaLanguage.Parser.Nodes.Functions;
+using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Structs;
 using RaLanguage.Parser.Nodes.Traits;
 using RaLanguage.Types;
@@ -26,6 +27,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public List<StructFieldDefinitionNode> Fields { get; }
         public List<FunctionDefinitionNode> Methods { get; }
         public List<OperatorDefinitionNode> Operators { get; } = new();
+        public List<string> GenericTypeParams { get; }
+        public List<WhereConstraintNode> WhereConstraints { get; }
 
         public override RuntimeValueType Type => RuntimeValueType.ClassType;
 
@@ -44,7 +47,9 @@ namespace RaLanguage.Interpreter.Values.Primitives
             List<TypeDescriptor> withTraits,
             List<StructFieldDefinitionNode> fields,
             List<FunctionDefinitionNode> methods,
-            List<OperatorDefinitionNode> operators
+            List<OperatorDefinitionNode> operators,
+            List<string>? genericTypeParams = null,
+            List<WhereConstraintNode>? whereConstraints = null
         ) : base(className)
         {
             ClassName = className;
@@ -54,6 +59,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
             Fields = fields;
             Methods = methods;
             Operators = operators;
+            GenericTypeParams = genericTypeParams ?? new List<string>();
+            WhereConstraints = whereConstraints ?? new List<WhereConstraintNode>();
         }
 
         public void SetStaticField(string name, RuntimeValue value, bool isPublic, TypeDescriptor? fieldType = null)
@@ -394,6 +401,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
         {
+            return ExecuteWithNamedArgs(positionalArgs, namedArgs, null);
+        }
+
+        public override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs)
+        {
             var res = new RuntimeResult();
 
             if (IsAbstract)
@@ -405,7 +417,47 @@ namespace RaLanguage.Interpreter.Values.Primitives
                     Context));
             }
 
-            var instance = (ClassInstanceValue)new ClassInstanceValue(this)
+            var bindings = new Dictionary<string, TypeDescriptor>(StringComparer.Ordinal);
+            if (GenericTypeParams.Count > 0)
+            {
+                if (explicitTypeArgs == null || explicitTypeArgs.Count == 0)
+                {
+                    return res.Failure(new RuntimeError(
+                        PositionStart,
+                        PositionEnd,
+                        $"Generic class '{ClassName}' requires explicit type arguments (e.g., {ClassName}<{string.Join(", ", GenericTypeParams)}>(...))",
+                        Context));
+                }
+
+                if (explicitTypeArgs.Count != GenericTypeParams.Count)
+                {
+                    return res.Failure(new RuntimeError(
+                        PositionStart,
+                        PositionEnd,
+                        $"Wrong number of type arguments for class '{ClassName}': expected {GenericTypeParams.Count}, got {explicitTypeArgs.Count}",
+                        Context));
+                }
+
+                for (int i = 0; i < GenericTypeParams.Count; i++)
+                {
+                    var td = explicitTypeArgs[i] ?? new TypeDescriptor("any");
+                    bindings[GenericTypeParams[i]] = td;
+                }
+
+                var constraintErr = TypeSystem.ValidateWhereConstraints(bindings, WhereConstraints);
+                if (constraintErr != null)
+                    return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Where-constraint violated in class '{ClassName}': {constraintErr}", Context));
+            }
+            else if (explicitTypeArgs != null && explicitTypeArgs.Count > 0)
+            {
+                return res.Failure(new RuntimeError(
+                    PositionStart,
+                    PositionEnd,
+                    $"Class '{ClassName}' is not generic and cannot take type arguments",
+                    Context));
+            }
+
+            var instance = (ClassInstanceValue)new ClassInstanceValue(this, bindings)
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
 

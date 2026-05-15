@@ -1,7 +1,8 @@
-﻿using RaLanguage.Errors;
+using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Parser.Nodes.Interfaces;
+using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Structs;
 
 namespace RaLanguage.Interpreter.Values.Interfaces
@@ -11,15 +12,24 @@ namespace RaLanguage.Interpreter.Values.Interfaces
         public string InterfaceName { get; }
         public List<InterfaceMethodSignatureNode> Methods { get; }
         public List<StructFieldDefinitionNode> Fields { get; }
+        public List<string> GenericTypeParams { get; }
+        public List<WhereConstraintNode> WhereConstraints { get; }
 
         public override RuntimeValueType Type => RuntimeValueType.InterfaceType;
         public override bool IsCopy => true;
 
-        public InterfaceTypeValue(string interfaceName, List<InterfaceMethodSignatureNode> methods, List<StructFieldDefinitionNode> fields)
+        public InterfaceTypeValue(
+            string interfaceName,
+            List<InterfaceMethodSignatureNode> methods,
+            List<StructFieldDefinitionNode> fields,
+            List<string>? genericTypeParams = null,
+            List<WhereConstraintNode>? whereConstraints = null)
         {
             InterfaceName = interfaceName;
             Methods = methods;
             Fields = fields;
+            GenericTypeParams = genericTypeParams ?? new List<string>();
+            WhereConstraints = whereConstraints ?? new List<WhereConstraintNode>();
         }
 
         public InterfaceMethodSignatureNode? GetMethod(string name)
@@ -32,7 +42,7 @@ namespace RaLanguage.Interpreter.Values.Interfaces
         {
             var className = classValue.ClassName;
             var fieldName = field.NameTok.Value?.ToString() ?? "";
-            
+
             var classField = classValue.GetField(fieldName);
             if (classField == null)
                 return false;
@@ -47,7 +57,7 @@ namespace RaLanguage.Interpreter.Values.Interfaces
         }
 
         public override RuntimeValue Copy()
-            => new InterfaceTypeValue(InterfaceName, Methods, Fields)
+            => new InterfaceTypeValue(InterfaceName, Methods, Fields, GenericTypeParams, WhereConstraints)
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
 

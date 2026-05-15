@@ -1,4 +1,4 @@
-﻿namespace RaLanguage.Types
+namespace RaLanguage.Types
 {
     public enum BuiltInType
     {
@@ -58,15 +58,23 @@
         }
 
         public static TypeDescriptor TypeParameter(string name) => new TypeDescriptor(name, true);
-        
+
         public static TypeDescriptor RefType(TypeDescriptor elementType)
         {
             return new TypeDescriptor($"ref {elementType.Name}", elementType.GenericArgs, isRefType: true, refElementType: elementType);
         }
 
+        public static TypeDescriptor Tuple(List<TypeDescriptor> elements)
+        {
+            return new TypeDescriptor("tuple", elements);
+        }
+
+        public bool IsTupleType => string.Equals(Name, "tuple", StringComparison.Ordinal) && GenericArgs.Count > 0;
+
         public override string ToString()
         {
             if (IsTypeParameter) return TypeParameterName;
+            if (IsTupleType) return $"({string.Join(", ", GenericArgs.Select(a => a.ToString()))})";
             if (GenericArgs.Count == 0) return Name;
             return $"{Name}<{string.Join(", ", GenericArgs.Select(a => a.ToString()))}>";
         }
@@ -74,12 +82,26 @@
         public bool Equals(TypeDescriptor? other)
         {
             if (other == null) return false;
+            if (IsTypeParameter && other.IsTypeParameter)
+                return string.Equals(TypeParameterName, other.TypeParameterName, StringComparison.Ordinal);
             if (IsTypeParameter || other.IsTypeParameter) return false;
-            if (Name != other.Name) return false;
+            if (!string.Equals(Name, other.Name, StringComparison.Ordinal)) return false;
             if (GenericArgs.Count != other.GenericArgs.Count) return false;
             for (int i = 0; i < GenericArgs.Count; i++)
                 if (!GenericArgs[i].Equals(other.GenericArgs[i])) return false;
             return true;
+        }
+
+        public override bool Equals(object? obj) => Equals(obj as TypeDescriptor);
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int h = (IsTypeParameter ? TypeParameterName : Name).GetHashCode();
+                foreach (var a in GenericArgs) h = h * 31 + (a?.GetHashCode() ?? 0);
+                return h;
+            }
         }
 
         public TypeDescriptor Substitute(Dictionary<string, TypeDescriptor> bindings)
@@ -97,6 +119,21 @@
             if (GenericArgs.Count == 0) return this;
             var substituted = GenericArgs.Select(a => a.Substitute(bindings)).ToList();
             return new TypeDescriptor(Name, substituted);
+        }
+
+        public bool ReferencesAnyTypeParameter(IEnumerable<string> paramNames)
+        {
+            var set = new HashSet<string>(paramNames, StringComparer.Ordinal);
+            return ReferencesAny(set);
+        }
+
+        private bool ReferencesAny(HashSet<string> set)
+        {
+            if (IsTypeParameter) return set.Contains(TypeParameterName);
+            if (RefElementType != null && RefElementType.ReferencesAny(set)) return true;
+            foreach (var a in GenericArgs)
+                if (a.ReferencesAny(set)) return true;
+            return false;
         }
 
         public static TypeDescriptor Parse(string s)

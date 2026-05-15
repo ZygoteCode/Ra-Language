@@ -62,6 +62,15 @@ namespace RaLanguage.Interpreter.Values.Operators
             operatorContext.SymbolTable.Set("self", Instance, isLet: true);
             operatorContext.SymbolTable.Set("other", arg, isLet: true);
 
+            if (Instance is ClassInstanceValue ci && ci.GenericBindings != null)
+            {
+                foreach (var kv in ci.GenericBindings)
+                {
+                    var gtv = new GenericTypeValue(kv.Key, kv.Value).SetContext(operatorContext).SetPos(PositionStart, PositionEnd);
+                    operatorContext.SymbolTable.Set(kv.Key, gtv, isLet: true, declaredType: new TypeDescriptor("type"), isStaticallyTyped: true, isPublic: false);
+                }
+            }
+
             if (ShouldAutoReturn)
             {
                 var exprRes = new Interpreter().Visit(BodyNode, operatorContext);

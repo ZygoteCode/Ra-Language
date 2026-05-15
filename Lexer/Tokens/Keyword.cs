@@ -62,5 +62,6 @@
         From,
         Operator,
         Ref,
+        Where,
     }
 }

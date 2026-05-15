@@ -25,6 +25,28 @@ namespace RaLanguage.Parser
         private int _tokenIndex;
         private Token _currentToken;
 
+        private readonly Stack<HashSet<string>> _genericScopes = new Stack<HashSet<string>>();
+
+        private void PushGenericScope(IEnumerable<string> names)
+        {
+            var set = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var n in names) if (!string.IsNullOrEmpty(n)) set.Add(n);
+            _genericScopes.Push(set);
+        }
+
+        private void PopGenericScope()
+        {
+            if (_genericScopes.Count > 0) _genericScopes.Pop();
+        }
+
+        private bool IsActiveGenericParam(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            foreach (var scope in _genericScopes)
+                if (scope.Contains(name)) return true;
+            return false;
+        }
+
         private static readonly HashSet<TokenType> AssignmentTokens = new()
         {
             TokenType.EQ,
@@ -421,6 +443,42 @@ namespace RaLanguage.Parser
 
         private TypeDescriptor? ParseType(ParserResult res)
         {
+            if (_currentToken.Type == TokenType.LPAREN)
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                var elements = new List<TypeDescriptor>();
+
+                if (_currentToken.Type == TokenType.RPAREN)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                    return TypeDescriptor.Tuple(elements);
+                }
+
+                while (true)
+                {
+                    var elem = ParseType(res);
+                    if (elem == null) return null;
+                    elements.Add(elem);
+
+                    if (_currentToken.Type == TokenType.COMMA)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                        continue;
+                    }
+
+                    if (_currentToken.Type != TokenType.RPAREN) return null;
+                    res.RegisterAdvancement();
+                    Advance();
+                    break;
+                }
+
+                return TypeDescriptor.Tuple(elements);
+            }
+
             if (!(_currentToken.Type == TokenType.IDENTIFIER || _currentToken.Type == TokenType.KEYWORD))
             {
                 return null;
@@ -466,12 +524,160 @@ namespace RaLanguage.Parser
                 }
             }
 
-            if (!string.IsNullOrEmpty(baseName) && char.IsUpper(baseName[0]) && genericArgs.Count == 0)
+            if (IsActiveGenericParam(baseName) && genericArgs.Count == 0)
             {
                 return TypeDescriptor.TypeParameter(baseName);
             }
 
             return new TypeDescriptor(baseName, genericArgs);
+        }
+
+        private ParserResult ParseOptionalGenericTypeParameters(out List<string> genericTypeParams)
+        {
+            var res = new ParserResult();
+            genericTypeParams = new List<string>();
+
+            if (_currentToken.Type != TokenType.LT)
+                return res.Success(null);
+
+            res.RegisterAdvancement();
+            Advance();
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            if (_currentToken.Type != TokenType.IDENTIFIER)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected generic type parameter name"));
+
+            genericTypeParams.Add(_currentToken.Value?.ToString() ?? "");
+            res.RegisterAdvancement();
+            Advance();
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            while (_currentToken.Type == TokenType.COMMA)
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type != TokenType.IDENTIFIER)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected generic type parameter name"));
+
+                var name = _currentToken.Value?.ToString() ?? "";
+                if (genericTypeParams.Contains(name))
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, $"Duplicate generic type parameter '{name}'"));
+
+                genericTypeParams.Add(name);
+                res.RegisterAdvancement();
+                Advance();
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+            }
+
+            if (_currentToken.Type != TokenType.GT)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '>' after generic type parameters"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            return res.Success(null);
+        }
+
+        private ParserResult ParseOptionalWhereClause(List<string> genericTypeParams, out List<WhereConstraintNode> constraints)
+        {
+            var res = new ParserResult();
+            constraints = new List<WhereConstraintNode>();
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            if (!_currentToken.Matches(Keyword.Where))
+                return res.Success(null);
+
+            if (genericTypeParams == null || genericTypeParams.Count == 0)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "'where' clause requires generic type parameters"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            while (true)
+            {
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type != TokenType.IDENTIFIER)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected generic type parameter name in 'where' clause"));
+
+                var paramTok = _currentToken;
+                var paramName = paramTok.Value?.ToString() ?? "";
+
+                if (!genericTypeParams.Contains(paramName))
+                    return res.Failure(new InvalidSyntaxError(paramTok.PositionStart, paramTok.PositionEnd, $"'where' clause references unknown generic parameter '{paramName}'"));
+
+                if (constraints.Any(c => string.Equals(c.ParameterName, paramName, StringComparison.Ordinal)))
+                    return res.Failure(new InvalidSyntaxError(paramTok.PositionStart, paramTok.PositionEnd, $"Duplicate 'where' constraint for '{paramName}'"));
+
+                res.RegisterAdvancement();
+                Advance();
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type != TokenType.COLON)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' after 'where' parameter name"));
+
+                res.RegisterAdvancement();
+                Advance();
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                var constraintType = ParseType(res);
+                if (constraintType == null)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':' in 'where' clause"));
+
+                constraints.Add(new WhereConstraintNode(paramTok, constraintType));
+
+                if (_currentToken.Type == TokenType.COMMA)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                    continue;
+                }
+
+                break;
+            }
+
+            return res.Success(null);
         }
 
         private ParserResult ParseExpression()
@@ -1628,6 +1834,24 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
+            List<string> genericTypeParams;
+            res.Register(ParseOptionalGenericTypeParameters(out genericTypeParams));
+            if (res.Error != null) return res;
+
+            PushGenericScope(genericTypeParams);
+            try
+            {
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            List<WhereConstraintNode> whereConstraints;
+            res.Register(ParseOptionalWhereClause(genericTypeParams, out whereConstraints));
+            if (res.Error != null) return res;
+
             while (_currentToken.Type == TokenType.NEWLINE)
             {
                 res.RegisterAdvancement();
@@ -1812,7 +2036,12 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            return res.Success(new TraitDefinitionNode(nameTok, isPublic, methods, fields));
+            return res.Success(new TraitDefinitionNode(nameTok, isPublic, methods, fields, genericTypeParams, whereConstraints));
+            }
+            finally
+            {
+                PopGenericScope();
+            }
         }
 
         private ParserResult ParseInterfaceDefinition(bool isPublic)
@@ -1833,6 +2062,24 @@ namespace RaLanguage.Parser
             Token nameTok = _currentToken;
             res.RegisterAdvancement();
             Advance();
+
+            List<string> genericTypeParams;
+            res.Register(ParseOptionalGenericTypeParameters(out genericTypeParams));
+            if (res.Error != null) return res;
+
+            PushGenericScope(genericTypeParams);
+            try
+            {
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            List<WhereConstraintNode> whereConstraints;
+            res.Register(ParseOptionalWhereClause(genericTypeParams, out whereConstraints));
+            if (res.Error != null) return res;
 
             while (_currentToken.Type == TokenType.NEWLINE)
             {
@@ -2059,7 +2306,12 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            return res.Success(new InterfaceDefinitionNode(nameTok, isPublic, methods, fields));
+            return res.Success(new InterfaceDefinitionNode(nameTok, isPublic, methods, fields, genericTypeParams, whereConstraints));
+            }
+            finally
+            {
+                PopGenericScope();
+            }
         }
 
         private ParserResult ParserPubDefinition()
@@ -2172,9 +2424,18 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
+            List<string> genericTypeParams;
+            res.Register(ParseOptionalGenericTypeParameters(out genericTypeParams));
+            if (res.Error != null) return res;
+
+            PushGenericScope(genericTypeParams);
+            try
+            {
+
             TypeDescriptor? baseType = null;
             var implementedInterfaces = new List<TypeDescriptor>();
             var withTraits = new List<TypeDescriptor>();
+            List<WhereConstraintNode> whereConstraints = new List<WhereConstraintNode>();
 
             while (_currentToken.Type != TokenType.LBRACKET)
             {
@@ -2266,6 +2527,13 @@ namespace RaLanguage.Parser
                     continue;
                 }
 
+                if (_currentToken.Matches(Keyword.Where))
+                {
+                    res.Register(ParseOptionalWhereClause(genericTypeParams, out whereConstraints));
+                    if (res.Error != null) return res;
+                    continue;
+                }
+
                 if (_currentToken.Type == TokenType.NEWLINE)
                 {
                     res.RegisterAdvancement();
@@ -2273,7 +2541,7 @@ namespace RaLanguage.Parser
                     continue;
                 }
 
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' base class, 'impl' interfaces, or '{'"));
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' base class, 'impl' interfaces, 'where' clause, or '{'"));
             }
 
             if (_currentToken.Type != TokenType.LBRACKET)
@@ -2431,7 +2699,12 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            return res.Success(new ClassDefinitionNode(nameTok, isPublic, isAbstract, isStatic, baseType, implementedInterfaces, withTraits, fields, methods, operators));
+            return res.Success(new ClassDefinitionNode(nameTok, isPublic, isAbstract, isStatic, baseType, implementedInterfaces, withTraits, fields, methods, operators, genericTypeParams, whereConstraints));
+            }
+            finally
+            {
+                PopGenericScope();
+            }
         }
 
         private ParserResult ParseEnumDefinition()
@@ -2456,6 +2729,24 @@ namespace RaLanguage.Parser
             Token nameTok = _currentToken;
             res.RegisterAdvancement();
             Advance();
+
+            List<string> genericTypeParams;
+            res.Register(ParseOptionalGenericTypeParameters(out genericTypeParams));
+            if (res.Error != null) return res;
+
+            PushGenericScope(genericTypeParams);
+            try
+            {
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            List<WhereConstraintNode> whereConstraints;
+            res.Register(ParseOptionalWhereClause(genericTypeParams, out whereConstraints));
+            if (res.Error != null) return res;
 
             while (_currentToken.Type == TokenType.NEWLINE)
             {
@@ -2557,7 +2848,12 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            return res.Success(new EnumDefinitionNode(nameTok, members));
+            return res.Success(new EnumDefinitionNode(nameTok, members, genericTypeParams, whereConstraints));
+            }
+            finally
+            {
+                PopGenericScope();
+            }
         }
 
         private ParserResult ParseTryExpression()
@@ -3773,6 +4069,14 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
+            List<string> genericTypeParams;
+            res.Register(ParseOptionalGenericTypeParameters(out genericTypeParams));
+            if (res.Error != null) return res;
+
+            PushGenericScope(genericTypeParams);
+            try
+            {
+
             if (_currentToken.Type != TokenType.LPAREN)
                 return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '('"));
 
@@ -3828,6 +4132,10 @@ namespace RaLanguage.Parser
                     return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected return type"));
             }
 
+            List<WhereConstraintNode> whereConstraints;
+            res.Register(ParseOptionalWhereClause(genericTypeParams, out whereConstraints));
+            if (res.Error != null) return res;
+
             AstNode? bodyNode = null;
             bool shouldAutoReturn = false;
 
@@ -3862,7 +4170,12 @@ namespace RaLanguage.Parser
                 return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected operator body"));
 
             return res.Success(new RaLanguage.Parser.Nodes.Classes.OperatorDefinitionNode(
-                isPublic, isOverride, isStatic, operatorTok, argNameTok, argType, returnType, bodyNode, shouldAutoReturn));
+                isPublic, isOverride, isStatic, operatorTok, argNameTok, argType, returnType, bodyNode, shouldAutoReturn, genericTypeParams, whereConstraints));
+            }
+            finally
+            {
+                PopGenericScope();
+            }
         }
 
         private bool IsOperatorToken(TokenType type)
@@ -3930,61 +4243,8 @@ namespace RaLanguage.Parser
                     Advance();
                 }
 
-                if (_currentToken.Type == TokenType.LT)
-                {
-                    res.RegisterAdvancement();
-                    Advance();
-
-                    while (_currentToken.Type == TokenType.NEWLINE)
-                    {
-                        res.RegisterAdvancement();
-                        Advance();
-                    }
-
-                    if (_currentToken.Type != TokenType.IDENTIFIER)
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected generic type parameter name"));
-
-                    genericTypeParams.Add(_currentToken.Value?.ToString() ?? "");
-                    res.RegisterAdvancement();
-                    Advance();
-
-                    while (_currentToken.Type == TokenType.NEWLINE)
-                    {
-                        res.RegisterAdvancement();
-                        Advance();
-                    }
-
-                    while (_currentToken.Type == TokenType.COMMA)
-                    {
-                        res.RegisterAdvancement();
-                        Advance();
-
-                        if (_currentToken.Type != TokenType.IDENTIFIER)
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected generic type parameter name"));
-
-                        genericTypeParams.Add(_currentToken.Value?.ToString() ?? "");
-                        res.RegisterAdvancement();
-                        Advance();
-
-                        while (_currentToken.Type == TokenType.NEWLINE)
-                        {
-                            res.RegisterAdvancement();
-                            Advance();
-                        }
-                    }
-
-                    while (_currentToken.Type == TokenType.NEWLINE)
-                    {
-                        res.RegisterAdvancement();
-                        Advance();
-                    }
-
-                    if (_currentToken.Type != TokenType.GT)
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '>' after generic type parameters"));
-
-                    res.RegisterAdvancement();
-                    Advance();
-                }
+                res.Register(ParseOptionalGenericTypeParameters(out genericTypeParams));
+                if (res.Error != null) return res;
 
                 while (_currentToken.Type == TokenType.NEWLINE)
                 {
@@ -3997,58 +4257,8 @@ namespace RaLanguage.Parser
             }
             else if (_currentToken.Type == TokenType.LT)
             {
-                res.RegisterAdvancement();
-                Advance();
-
-                while (_currentToken.Type == TokenType.NEWLINE)
-                {
-                    res.RegisterAdvancement();
-                    Advance();
-                }
-
-                if (_currentToken.Type != TokenType.IDENTIFIER)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected generic type parameter name"));
-
-                genericTypeParams.Add(_currentToken.Value?.ToString() ?? "");
-                res.RegisterAdvancement();
-                Advance();
-
-                while (_currentToken.Type == TokenType.NEWLINE)
-                {
-                    res.RegisterAdvancement();
-                    Advance();
-                }
-
-                while (_currentToken.Type == TokenType.COMMA)
-                {
-                    res.RegisterAdvancement();
-                    Advance();
-
-                    if (_currentToken.Type != TokenType.IDENTIFIER)
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected generic type parameter name"));
-
-                    genericTypeParams.Add(_currentToken.Value?.ToString() ?? "");
-                    res.RegisterAdvancement();
-                    Advance();
-
-                    while (_currentToken.Type == TokenType.NEWLINE)
-                    {
-                        res.RegisterAdvancement();
-                        Advance();
-                    }
-                }
-
-                while (_currentToken.Type == TokenType.NEWLINE)
-                {
-                    res.RegisterAdvancement();
-                    Advance();
-                }
-
-                if (_currentToken.Type != TokenType.GT)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '>' after generic type parameters"));
-
-                res.RegisterAdvancement();
-                Advance();
+                res.Register(ParseOptionalGenericTypeParameters(out genericTypeParams));
+                if (res.Error != null) return res;
 
                 while (_currentToken.Type == TokenType.NEWLINE)
                 {
@@ -4071,6 +4281,9 @@ namespace RaLanguage.Parser
                     return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier or '('"));
             }
 
+            PushGenericScope(genericTypeParams);
+            try
+            {
             res.RegisterAdvancement();
             Advance();
 
@@ -4314,6 +4527,16 @@ namespace RaLanguage.Parser
                 Advance();
             }
 
+            List<WhereConstraintNode> whereConstraints;
+            res.Register(ParseOptionalWhereClause(genericTypeParams, out whereConstraints));
+            if (res.Error != null) return res;
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
             bool isConstructor = ownerTypeName != null
                                  && varNameTok != null
                                  && string.Equals(varNameTok.Value.ToString(), ownerTypeName, StringComparison.Ordinal);
@@ -4355,7 +4578,8 @@ namespace RaLanguage.Parser
                     isConstructor,
                     isOverride,
                     isAbstract,
-                    isStatic
+                    isStatic,
+                    whereConstraints
                 ));
             }
 
@@ -4384,7 +4608,8 @@ namespace RaLanguage.Parser
                     isConstructor,
                     isOverride,
                     isAbstract,
-                    isStatic
+                    isStatic,
+                    whereConstraints
                 ));
             }
 
@@ -4417,8 +4642,14 @@ namespace RaLanguage.Parser
                 isConstructor,
                 isOverride,
                 isAbstract,
-                isStatic
+                isStatic,
+                whereConstraints
             ));
+            }
+            finally
+            {
+                PopGenericScope();
+            }
         }
 
         private ParserResult ParseStructDefinition(bool isPublic)
@@ -4441,6 +4672,24 @@ namespace RaLanguage.Parser
 
             res.RegisterAdvancement();
             Advance();
+
+            List<string> genericTypeParams;
+            res.Register(ParseOptionalGenericTypeParameters(out genericTypeParams));
+            if (res.Error != null) return res;
+
+            PushGenericScope(genericTypeParams);
+            try
+            {
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            List<WhereConstraintNode> whereConstraints;
+            res.Register(ParseOptionalWhereClause(genericTypeParams, out whereConstraints));
+            if (res.Error != null) return res;
 
             while (_currentToken.Type == TokenType.NEWLINE)
             {
@@ -4573,7 +4822,12 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            return res.Success(new StructDefinitionNode(nameTok, isPublic, fields, methods, operators));
+            return res.Success(new StructDefinitionNode(nameTok, isPublic, fields, methods, operators, genericTypeParams, whereConstraints));
+            }
+            finally
+            {
+                PopGenericScope();
+            }
         }
 
         private ParserResult ParseVariableDeclaration(bool isPublic = false, bool isStatic = false)

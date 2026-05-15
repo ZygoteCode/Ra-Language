@@ -29,6 +29,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
         {
+            return ExecuteWithNamedArgs(positionalArgs, namedArgs, null);
+        }
+
+        public override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs)
+        {
             var res = new RuntimeResult();
             var interpreter = new Interpreter();
 
@@ -50,17 +55,66 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 execCtx.IsInConstructor = true;
             }
 
+            var bindings = new Dictionary<string, TypeDescriptor>(StringComparer.Ordinal);
+            if (SelfInstance != null && SelfInstance.GenericBindings != null)
+            {
+                foreach (var kv in SelfInstance.GenericBindings)
+                    bindings[kv.Key] = kv.Value;
+            }
+
+            if (MethodNode.GenericTypeParams.Count > 0)
+            {
+                if (explicitTypeArgs != null && explicitTypeArgs.Count > 0)
+                {
+                    if (explicitTypeArgs.Count != MethodNode.GenericTypeParams.Count)
+                        return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Wrong number of type arguments for method '{Name}': expected {MethodNode.GenericTypeParams.Count}, got {explicitTypeArgs.Count}", Context));
+
+                    for (int i = 0; i < MethodNode.GenericTypeParams.Count; i++)
+                    {
+                        var td = explicitTypeArgs[i] ?? new TypeDescriptor("any");
+                        bindings[MethodNode.GenericTypeParams[i]] = td;
+                    }
+                }
+                else
+                {
+                    var formalTypesForInference = new List<TypeDescriptor>();
+                    for (int i = 0; i < MethodNode.ArgNameToks.Count; i++)
+                    {
+                        TypeDescriptor? ft = (i < MethodNode.ArgTypes.Count) ? MethodNode.ArgTypes[i] : null;
+                        if (ft == null) ft = new TypeDescriptor("any");
+                        formalTypesForInference.Add(ft);
+                    }
+
+                    var inferred = TypeSystem.InferBindingsFromArgs(formalTypesForInference, positionalArgs);
+                    if (inferred != null)
+                    {
+                        foreach (var kv in inferred) bindings[kv.Key] = kv.Value;
+                    }
+                }
+
+                var constraintErr = TypeSystem.ValidateWhereConstraints(bindings, MethodNode.WhereConstraints);
+                if (constraintErr != null)
+                    return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Where-constraint violated in method '{Name}': {constraintErr}", Context));
+            }
+
             var argNames = MethodNode.ArgNameToks.Select(t => t.Value?.ToString() ?? "").ToList();
+
+            var instantiatedArgTypes = MethodNode.ArgTypes.Select(t => t == null ? null : t.SubstituteBindings(bindings)).ToList();
+            var instantiatedVarArgType = MethodNode.VarArgType == null ? null : MethodNode.VarArgType.SubstituteBindings(bindings);
+            var instantiatedReturnType = MethodNode.ReturnType == null ? null : MethodNode.ReturnType.SubstituteBindings(bindings);
 
             var bindRes = PrepareExecutionContextForCall(
                 positionalArgs,
                 namedArgs,
                 argNames,
-                MethodNode.ArgTypes,
+                instantiatedArgTypes,
                 MethodNode.ParamDefaults,
                 MethodNode.HasVarArgs,
                 MethodNode.VarArgNameTok,
-                MethodNode.VarArgType);
+                instantiatedVarArgType);
+
+            if (bindRes.error != null)
+                return res.Failure(bindRes.error);
 
             if (!IsStatic && SelfInstance != null)
             {
@@ -79,8 +133,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 bindRes.execCtx!.IsInConstructor = true;
             }
 
-            if (bindRes.error != null)
-                return res.Failure(bindRes.error);
+            foreach (var kv in bindings)
+            {
+                var gtv = new Primitives.GenericTypeValue(kv.Key, kv.Value).SetContext(bindRes.execCtx).SetPos(PositionStart, PositionEnd);
+                bindRes.execCtx.SymbolTable.Set(kv.Key, gtv, isLet: true, declaredType: new TypeDescriptor("type"), isStaticallyTyped: true, isPublic: false);
+            }
 
             var bodyRes = interpreter.Visit(MethodNode.BodyNode, bindRes.execCtx!);
             if (bodyRes.Error != null)
@@ -91,10 +148,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
             if (bodyRes.FuncReturnValue != null)
             {
-                if (MethodNode.ReturnType != null &&
-                    !TypeSystem.IsAssignable(bindRes.execCtx!, MethodNode.ReturnType, bodyRes.FuncReturnValue))
+                if (instantiatedReturnType != null && !instantiatedReturnType.IsTypeParameter() &&
+                    !TypeSystem.IsAssignable(bindRes.execCtx!, instantiatedReturnType, bodyRes.FuncReturnValue))
                 {
-                    return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Return type mismatch in method '{Name}'", Context));
+                    return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Return type mismatch in method '{Name}': expected '{instantiatedReturnType}', got '{bodyRes.FuncReturnValue.Type}'", Context));
                 }
 
                 return res.Success(bodyRes.FuncReturnValue);
@@ -104,10 +161,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 ? (bodyRes.Value ?? new NullValue().SetContext(Context).SetPos(PositionStart, PositionEnd))
                 : new NullValue().SetContext(Context).SetPos(PositionStart, PositionEnd);
 
-            if (MethodNode.ReturnType != null &&
-                !TypeSystem.IsAssignable(bindRes.execCtx!, MethodNode.ReturnType, retValue))
+            if (instantiatedReturnType != null && !instantiatedReturnType.IsTypeParameter() &&
+                !TypeSystem.IsAssignable(bindRes.execCtx!, instantiatedReturnType, retValue))
             {
-                return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Return type mismatch in method '{Name}'", Context));
+                return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Return type mismatch in method '{Name}': expected '{instantiatedReturnType}', got '{retValue.Type}'", Context));
             }
 
             return res.Success(retValue);

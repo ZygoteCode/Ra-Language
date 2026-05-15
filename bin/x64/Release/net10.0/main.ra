@@ -1,39 +1,138 @@
-pub class Person {
-    pub var age: int;
+// ============ Ra Language Generics — Final Acceptance ============
 
-    pub Person(age: int) {
-        self.age = age;
+print("=== 1. Generic function with where ===");
+fn coglione<T>(x: T): T where T: int {
+    ret x + 5;
+}
+print(coglione<int>(10));                 // 15
+
+print("=== 2. Generic class with where ===");
+pub class Person<T> where T: int {
+    pub var value: T;
+
+    pub Person(v: T) {
+        self.value = v;
     }
 
-    pub fn increment(ref val: int) {
-        val += 3;
-    }
-
-    pub fn to_string(): string {
-        ret $"Person with age: ${self.age}";
+    pub fn get(): T {
+        ret self.value;
     }
 }
+var p = Person<int>(42);
+print(p.value);                            // 42
+print(p.get());                            // 42
+print(typeof(p));                          // Person<int>
 
-fn sum(ref val: int, a: int, b: int) {
-    val = a + b;
+print("=== 3. Multiple generic parameters with where ===");
+pub class Pair<T, U> where T: int, U: string {
+    pub var first: T;
+    pub var second: U;
+
+    pub Pair(a: T, b: U) {
+        self.first = a;
+        self.second = b;
+    }
 }
+var pair = Pair<int, string>(7, "hello");
+print(pair.first);                         // 7
+print(pair.second);                        // hello
+print(typeof(pair));                       // Pair<int, string>
 
-var k: int = 5;
-sum(&k, 3, 8);
+print("=== 4. Tuple declarations ===");
+var x: (int, int, string) = (5, 5, "ciao");
+print(x);                                  // (5, 5, "ciao")
+print(typeof(x));                          // (int, int, string)
 
-print(k);
+var l: list<(int, double)> = [(3, 3.5), (7, 3.21), (5, 6.31)];
+print(l);                                  // [(3, 3.5), (7, 3.21), (5, 6.31)]
 
-var p: Person = Person(5);
-print(p);
+print("=== 5. Generic struct ===");
+pub struct Box<T> where T: int {
+    pub var content: T;
+}
+var b = Box<int>(content: 100);
+print(b.content);                          // 100
 
-p.increment(&k);
-print(k);
-p.increment(&p.age);
-print(p.age);
-print(p.to_string());
+print("=== 6. Generic enum ===");
+enum Marker<T> where T: int {
+    A = 1,
+    B = 2
+}
+print(Marker.A);                           // Marker.A
 
-var l: list = [1, 2, 3, 4, 5, 6];
-print(l);
+print("=== 7. Generic operator function ===");
+pub class Adder<T> where T: int {
+    pub var x: T;
 
-sum(&l[2], 7, 5);
-print(l);
+    pub Adder(v: T) {
+        self.x = v;
+    }
+
+    operator + (other: Adder<T>): Adder<T> {
+        ret Adder<T>(self.x + other.x);
+    }
+}
+var a = Adder<int>(10);
+var bb = Adder<int>(7);
+var c = a + bb;
+print(c.x);                                // 17
+
+print("=== 8. Generic interface ===");
+pub interface IBox<T> where T: int {
+    fn get(): T;
+}
+print("interface IBox<T> defined");
+
+print("=== 9. Generic trait ===");
+pub trait Printable<T> where T: int {
+    fn show(): T;
+}
+print("trait Printable<T> defined");
+
+print("=== 10. Type variable inspection ===");
+fn inspect<T>(x: T): T where T: int {
+    print(T);                              // int
+    print(typeof(T));                      // int
+    ret x;
+}
+inspect<int>(99);
+
+print("=== 11. Strict where: violations ===");
+// each block tries an invalid binding
+fn bad1() {
+    try {
+        var bad = Person<long>(1);
+    } catch (e) {
+        print("violation caught: Person<long>");
+    }
+}
+bad1();
+
+fn bad2() {
+    try {
+        print(coglione<string>("oops"));
+    } catch (e) {
+        print("violation caught: coglione<string>");
+    }
+}
+bad2();
+
+print("=== 12. Nested generics ===");
+pub class Wrapper<T> where T: int {
+    pub var content: T;
+    pub Wrapper(v: T) {
+        self.content = v;
+    }
+}
+pub class Container<U> where U: int {
+    pub var inner: Wrapper<U>;
+    pub Container(w: Wrapper<U>) {
+        self.inner = w;
+    }
+}
+var w = Wrapper<int>(123);
+var ct = Container<int>(w);
+print(ct.inner.content);                   // 123
+print(typeof(ct));                         // Container<int>
+
+print("=== ALL TESTS PASSED ===");

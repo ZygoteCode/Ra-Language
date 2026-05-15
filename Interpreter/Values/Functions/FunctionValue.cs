@@ -1,7 +1,8 @@
-﻿using RaLanguage.Errors.Types;
+using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes;
+using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Functions
@@ -19,6 +20,7 @@ namespace RaLanguage.Interpreter.Values.Functions
         public TypeDescriptor? ReturnType { get; }
         public bool ShouldAutoReturn { get; }
         public List<string> GenericTypeParams { get; } = new List<string>();
+        public List<WhereConstraintNode> WhereConstraints { get; } = new List<WhereConstraintNode>();
         public sealed override RuntimeValueType Type => RuntimeValueType.Function;
 
         public FunctionValue(
@@ -33,7 +35,8 @@ namespace RaLanguage.Interpreter.Values.Functions
             TypeDescriptor? varArgType,
             TypeDescriptor? returnType,
             bool shouldAutoReturn,
-            List<string>? genericTypeParams = null
+            List<string>? genericTypeParams = null,
+            List<WhereConstraintNode>? whereConstraints = null
         ) : base(name)
         {
             BodyNode = bodyNode;
@@ -47,6 +50,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             ReturnType = returnType;
             ShouldAutoReturn = shouldAutoReturn;
             if (genericTypeParams != null) GenericTypeParams = genericTypeParams;
+            if (whereConstraints != null) WhereConstraints = whereConstraints;
         }
 
         public sealed override RuntimeResult Execute(List<RuntimeValue> args)
@@ -62,7 +66,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             if (explicitTypeArgs != null && explicitTypeArgs.Count > 0)
             {
                 if (explicitTypeArgs.Count != GenericTypeParams.Count)
-                    return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Wrong number of type arguments for function '{Name}'", Context));
+                    return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Wrong number of type arguments for function '{Name}': expected {GenericTypeParams.Count}, got {explicitTypeArgs.Count}", Context));
 
                 for (int i = 0; i < GenericTypeParams.Count; i++)
                 {
@@ -115,6 +119,21 @@ namespace RaLanguage.Interpreter.Values.Functions
                 }
             }
 
+            if (GenericTypeParams.Count > 0)
+            {
+                foreach (var gname in GenericTypeParams)
+                {
+                    if (!bindings.ContainsKey(gname))
+                    {
+                        return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Generic parameter '{gname}' of function '{Name}' could not be resolved; provide explicit type arguments", Context));
+                    }
+                }
+
+                var constraintErr = TypeSystem.ValidateWhereConstraints(bindings, WhereConstraints);
+                if (constraintErr != null)
+                    return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Where-constraint violated in function '{Name}': {constraintErr}", Context));
+            }
+
             List<TypeDescriptor?> instantiatedArgTypes = null;
             TypeDescriptor? instantiatedVarArgType = null;
             TypeDescriptor? instantiatedReturnType = null;
@@ -135,6 +154,12 @@ namespace RaLanguage.Interpreter.Values.Functions
             if (err != null)
             {
                 return res.Failure(err);
+            }
+
+            foreach (var kv in bindings)
+            {
+                var gtv = new GenericTypeValue(kv.Key, kv.Value).SetContext(execCtx).SetPos(PositionStart, PositionEnd);
+                execCtx.SymbolTable.Set(kv.Key, gtv, isLet: true, declaredType: new TypeDescriptor("type"), isStaticallyTyped: true, isPublic: false);
             }
 
             var interpreter = new Interpreter();
@@ -179,7 +204,8 @@ namespace RaLanguage.Interpreter.Values.Functions
                 VarArgType,
                 ReturnType,
                 ShouldAutoReturn,
-                GenericTypeParams
+                GenericTypeParams,
+                WhereConstraints
             ).SetContext(Context).SetPos(PositionStart, PositionEnd);
         }
 

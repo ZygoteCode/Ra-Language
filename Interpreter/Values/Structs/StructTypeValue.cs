@@ -5,6 +5,7 @@ using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes.Classes;
+using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Structs;
 using RaLanguage.Types;
 
@@ -17,17 +18,28 @@ namespace RaLanguage.Interpreter.Values.Structs
         public List<StructFieldDefinitionNode> Fields { get; }
         public List<StructMethodDefinitionNode> Methods { get; }
         public List<OperatorDefinitionNode> Operators { get; } = new();
+        public List<string> GenericTypeParams { get; }
+        public List<WhereConstraintNode> WhereConstraints { get; }
 
         public sealed override RuntimeValueType Type => RuntimeValueType.StructType;
         public sealed override bool IsCopy => true;
 
-        public StructTypeValue(string structName, bool isPublic, List<StructFieldDefinitionNode> fields, List<StructMethodDefinitionNode> methods, List<OperatorDefinitionNode> operators)
+        public StructTypeValue(
+            string structName,
+            bool isPublic,
+            List<StructFieldDefinitionNode> fields,
+            List<StructMethodDefinitionNode> methods,
+            List<OperatorDefinitionNode> operators,
+            List<string>? genericTypeParams = null,
+            List<WhereConstraintNode>? whereConstraints = null)
         {
             StructName = structName;
             IsPublic = isPublic;
             Fields = fields;
             Methods = methods;
             Operators = operators;
+            GenericTypeParams = genericTypeParams ?? new List<string>();
+            WhereConstraints = whereConstraints ?? new List<WhereConstraintNode>();
         }
 
         public bool HasField(string name)
@@ -133,7 +145,7 @@ namespace RaLanguage.Interpreter.Values.Structs
 
         public sealed override RuntimeValue Copy()
         {
-            return new StructTypeValue(StructName, IsPublic, Fields, Methods, Operators)
+            return new StructTypeValue(StructName, IsPublic, Fields, Methods, Operators, GenericTypeParams, WhereConstraints)
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
         }

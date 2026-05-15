@@ -870,7 +870,8 @@ namespace RaLanguage.Lexer
                 { "import", Keyword.Import },
                 { "from", Keyword.From },
                 { "operator", Keyword.Operator },
-                { "ref", Keyword.Ref }
+                { "ref", Keyword.Ref },
+                { "where", Keyword.Where }
             };
         }
 

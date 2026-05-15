@@ -6,6 +6,7 @@ using RaLanguage.Interpreter.Values.Functions;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Parser.Nodes;
 using RaLanguage.Parser.Nodes.Functions;
+using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Visitors.Functions
 {
@@ -65,11 +66,11 @@ namespace RaLanguage.Interpreter.Visitors.Functions
                 }
             }
 
-            if (calleeVal.Type == RuntimeValueType.BaseFunction || calleeVal.Type == RuntimeValueType.Function)
+            if (calleeVal is BaseFunctionValue bfunc)
             {
-                var func = (BaseFunctionValue)calleeVal;
+                var resolvedTypeArgs = ResolveTypeArgs(node.GenericTypeArgs, context);
                 RuntimeValue? callResult = null;
-                var fnExecRes = func.ExecuteWithNamedArgs(positionalArgs, namedArgs);
+                var fnExecRes = bfunc.ExecuteWithNamedArgs(positionalArgs, namedArgs, resolvedTypeArgs);
                 var fnReturn = res.Register(fnExecRes);
                 if (res.ShouldReturn()) return res;
 
@@ -192,6 +193,29 @@ namespace RaLanguage.Interpreter.Visitors.Functions
             return res.Failure(new RuntimeError(
                 node.PositionStart, node.PositionEnd,
                 "Can only take reference of variables, fields, or list elements", context));
+        }
+
+        private static List<TypeDescriptor?>? ResolveTypeArgs(List<TypeDescriptor?>? args, Context context)
+        {
+            if (args == null) return null;
+            var result = new List<TypeDescriptor?>(args.Count);
+            foreach (var a in args)
+                result.Add(ResolveTypeDescriptor(a, context));
+            return result;
+        }
+
+        private static TypeDescriptor? ResolveTypeDescriptor(TypeDescriptor? td, Context context)
+        {
+            if (td == null) return null;
+            if (td.IsTypeParameter)
+            {
+                var v = context?.SymbolTable?.Get(td.TypeParameterName);
+                if (v is GenericTypeValue gtv) return ResolveTypeDescriptor(gtv.BoundType, context);
+                return td;
+            }
+            if (td.GenericArgs.Count == 0) return td;
+            var newArgs = td.GenericArgs.Select(a => ResolveTypeDescriptor(a, context) ?? a).ToList();
+            return new TypeDescriptor(td.Name, newArgs);
         }
 
         private int GetIntegerFromValue(RuntimeValue value, AstNode sourceNode, Context context)
