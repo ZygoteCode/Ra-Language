@@ -37,6 +37,7 @@
         Reference,
         GenericTypeBinding,
         AnnotationType,
-        AnnotationInstance
+        AnnotationInstance,
+        Namespace
     }
 }

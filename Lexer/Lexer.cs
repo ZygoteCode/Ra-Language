@@ -873,7 +873,9 @@ namespace RaLanguage.Lexer
                 { "operator", Keyword.Operator },
                 { "ref", Keyword.Ref },
                 { "where", Keyword.Where },
-                { "annotation", Keyword.Annotation }
+                { "annotation", Keyword.Annotation },
+                { "namespace", Keyword.Namespace },
+                { "using", Keyword.Using }
             };
         }
 

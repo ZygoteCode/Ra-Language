@@ -1,0 +1,11 @@
+namespace System.IO {
+    pub fn close(path) {
+        ret "close(" + path + ")";
+    }
+}
+
+namespace System.IO.Files {
+    pub fn list() {
+        ret "list called";
+    }
+}

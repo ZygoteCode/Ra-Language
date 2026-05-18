@@ -69,6 +69,8 @@
         ImportAlias,
         OperatorDefinition,
         AnnotationApplication,
-        AnnotationDefinition
+        AnnotationDefinition,
+        NamespaceDeclaration,
+        UsingNamespace
     }
 }

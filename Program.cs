@@ -1,6 +1,7 @@
 ﻿using RaLanguage.Errors;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
+using RaLanguage.Interpreter.Runtime.Namespaces;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Functions;
 using RaLanguage.Interpreter.Values.Primitives;
@@ -52,6 +53,7 @@ namespace RaLanguage
 
             BuiltInAnnotations.RegisterAll(BuiltinSymbolTable);
             MetadataRegistry.Global.Clear();
+            NamespaceRegistry.Global.Clear();
 
             GlobalSymbolTable = new SymbolTable(BuiltinSymbolTable);
 

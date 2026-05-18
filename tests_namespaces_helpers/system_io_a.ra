@@ -1,0 +1,13 @@
+namespace System.IO {
+    pub fn open(path) {
+        ret "open(" + path + ")";
+    }
+
+    pub const MODE_READ = "r";
+}
+
+namespace System {
+    pub fn version() {
+        ret "1.2.3";
+    }
+}
