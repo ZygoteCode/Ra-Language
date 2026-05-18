@@ -1,0 +1,9 @@
+pub class Base {
+    pub fn foo(a: int) { ret a; }
+}
+
+pub class Child : Base {
+    pub override fn foo(a: string) { ret a; }
+}
+
+print("UNREACHABLE");

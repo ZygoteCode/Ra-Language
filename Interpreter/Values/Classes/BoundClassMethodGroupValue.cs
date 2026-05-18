@@ -67,6 +67,8 @@ namespace RaLanguage.Interpreter.Values.Classes
 
             var execCtx = GenerateNewContext();
 
+            execCtx.CurrentClassMethodOwner = Definition;
+
             execCtx.SymbolTable.Set(
                 "self",
                 SelfInstance,

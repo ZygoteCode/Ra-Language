@@ -129,7 +129,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
         }
 
         public List<FunctionDefinitionNode> ResolveInstanceMethods(string name)
+            => ResolveInstanceMethodsImpl(name, new HashSet<string>(StringComparer.Ordinal));
+
+        private List<FunctionDefinitionNode> ResolveInstanceMethodsImpl(string name, HashSet<string> visited)
         {
+            if (!visited.Add(ClassName))
+                return new List<FunctionDefinitionNode>();
+
             var result = Methods
                 .Where(m => !m.IsStatic && !m.IsAbstract &&
                             string.Equals(m.VarNameTok?.Value?.ToString(), name, StringComparison.Ordinal))
@@ -139,27 +145,33 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
             foreach (var trait in Traits)
             {
-                List<TraitMethodDefinitionNode> methods = trait.GetDefaultMethodsByName(name).ToList();
-
-                foreach (var method in methods)
+                foreach (var method in trait.GetDefaultMethodsByName(name))
                 {
-                    var wrapped = new FunctionDefinitionNode(method.NameTok, method.ArgNameToks, method.ArgTypes, method.IsRefParams, method.ParamDefaults, method.HasVarArgs, method.VarArgNameTok, method.VarArgType, method.ReturnType, method.BodyNode, method.ShouldAutoReturn, null, true, method.IsConstructor, method.IsOverride, method.IsAbstract, false);
+                    var wrapped = new FunctionDefinitionNode(
+                        method.NameTok, method.ArgNameToks, method.ArgTypes, method.IsRefParams,
+                        method.ParamDefaults, method.HasVarArgs, method.VarArgNameTok, method.VarArgType,
+                        method.ReturnType, method.BodyNode, method.ShouldAutoReturn,
+                        null, true, method.IsConstructor, method.IsOverride, method.IsAbstract, false);
                     wrapped.IsAsync = method.IsAsync;
                     wrapped.IsAsyncStream = method.IsAsyncStream;
                     result.Add(wrapped);
                 }
-
-                result.AddRange();
             }
 
             if (BaseClass != null)
-                result.AddRange(BaseClass.ResolveInstanceMethods(name));
+                result.AddRange(BaseClass.ResolveInstanceMethodsImpl(name, visited));
 
             return result;
         }
 
         public List<FunctionDefinitionNode> ResolveStaticMethods(string name)
+            => ResolveStaticMethodsImpl(name, new HashSet<string>(StringComparer.Ordinal));
+
+        private List<FunctionDefinitionNode> ResolveStaticMethodsImpl(string name, HashSet<string> visited)
         {
+            if (!visited.Add(ClassName))
+                return new List<FunctionDefinitionNode>();
+
             var result = Methods
                 .Where(m => m.IsStatic && !m.IsAbstract &&
                             string.Equals(m.VarNameTok?.Value?.ToString(), name, StringComparison.Ordinal))
@@ -168,14 +180,20 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (result.Count > 0) return result;
 
             if (BaseClass != null)
-                result.AddRange(BaseClass.ResolveStaticMethods(name));
+                result.AddRange(BaseClass.ResolveStaticMethodsImpl(name, visited));
 
             return result;
         }
 
         public List<ICallableMethodDefinition> ResolveCandidates(string methodName)
+            => ResolveCandidatesImpl(methodName, new HashSet<string>(StringComparer.Ordinal));
+
+        private List<ICallableMethodDefinition> ResolveCandidatesImpl(string methodName, HashSet<string> visited)
         {
             var result = new List<ICallableMethodDefinition>();
+
+            if (!visited.Add(ClassName))
+                return result;
 
             result.AddRange(Methods.Where(m =>
                 !m.IsAbstract &&
@@ -188,7 +206,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
             if (BaseClass != null)
             {
-                result.AddRange(BaseClass.ResolveCandidates(methodName));
+                result.AddRange(BaseClass.ResolveCandidatesImpl(methodName, visited));
             }
 
             return result;
@@ -334,7 +352,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
         }
 
         public bool HasMethodSignatureInHierarchy(ICallableMethodDefinition method)
+            => HasMethodSignatureInHierarchyImpl(method, new HashSet<string>(StringComparer.Ordinal));
+
+        private bool HasMethodSignatureInHierarchyImpl(ICallableMethodDefinition method, HashSet<string> visited)
         {
+            if (!visited.Add(ClassName))
+                return false;
+
             foreach (var m in Methods.Where(m => string.Equals(m.VarNameTok?.Value?.ToString(), MethodSignature.NameOf(method), StringComparison.Ordinal)))
             {
                 if (MethodSignature.MatchesSignature(m, method))
@@ -350,7 +374,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 }
             }
 
-            return BaseClass?.HasMethodSignatureInHierarchy(method) ?? false;
+            return BaseClass?.HasMethodSignatureInHierarchyImpl(method, visited) ?? false;
+        }
+
+        public bool HasAnyConstructorInHierarchy()
+        {
+            if (Methods.Any(m => m.IsConstructor)) return true;
+            return BaseClass?.HasAnyConstructorInHierarchy() ?? false;
         }
 
         public List<ICallableMethodDefinition> ResolveBaseCandidates(string methodName)
@@ -481,32 +511,46 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return res.Success(instance);
             }
 
-            if (!Methods.Any(m => m.IsConstructor) && BaseClass != null)
+            bool selfHasCtor = Methods.Any(m => m.IsConstructor);
+
+            if (!selfHasCtor)
             {
-                var baseCtorMatch = BaseClass.ResolveOwnConstructor(positionalArgs, namedArgs);
-                if (baseCtorMatch != null)
+                var current = BaseClass;
+                while (current != null)
                 {
-                    var boundBaseCtor = (BoundClassMethodValue)new BoundClassMethodValue(BaseClass, instance, baseCtorMatch, false)
-                        .SetContext(Context)
-                        .SetPos(PositionStart, PositionEnd);
+                    var baseCtorMatch = current.ResolveOwnConstructor(positionalArgs, namedArgs);
+                    if (baseCtorMatch != null)
+                    {
+                        var boundBaseCtor = (BoundClassMethodValue)new BoundClassMethodValue(current, instance, baseCtorMatch, false)
+                            .SetContext(Context)
+                            .SetPos(PositionStart, PositionEnd);
 
-                    var baseCtorRes = boundBaseCtor.ExecuteWithNamedArgs(positionalArgs, namedArgs);
-                    if (baseCtorRes.Error != null) return baseCtorRes;
+                        var baseCtorRes = boundBaseCtor.ExecuteWithNamedArgs(positionalArgs, namedArgs);
+                        if (baseCtorRes.Error != null) return baseCtorRes;
 
-                    return res.Success(instance);
+                        return res.Success(instance);
+                    }
+
+                    if (current.Methods.Any(m => m.IsConstructor))
+                    {
+                        return res.Failure(new RuntimeError(
+                            PositionStart,
+                            PositionEnd,
+                            $"No matching constructor found for class '{ClassName}' (inherited from '{current.ClassName}'). Check argument count and types.",
+                            Context));
+                    }
+
+                    current = current.BaseClass;
                 }
 
-                if (BaseClass.Methods.Any(m => m.IsConstructor))
-                {
-                    return res.Failure(new RuntimeError(
-                        PositionStart,
-                        PositionEnd,
-                        $"No matching constructor found for class '{ClassName}' or its base class '{BaseClass.ClassName}'",
-                        Context));
-                }
+                return res.Success(instance);
             }
 
-            return res.Success(instance);
+            return res.Failure(new RuntimeError(
+                PositionStart,
+                PositionEnd,
+                $"No matching constructor found for class '{ClassName}'. Check argument count and types.",
+                Context));
         }
 
         private static Error? InitializeFieldChain(ClassInstanceValue instance, Context context, ClassTypeValue type)

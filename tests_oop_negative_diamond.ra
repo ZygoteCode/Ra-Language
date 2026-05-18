@@ -1,0 +1,12 @@
+pub trait Left {
+    fn ping() { ret "left"; }
+}
+
+pub trait Right {
+    fn ping() { ret "right"; }
+}
+
+pub class Center with Left, Right {
+}
+
+print("UNREACHABLE");
