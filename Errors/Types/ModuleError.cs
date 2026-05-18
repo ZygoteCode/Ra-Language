@@ -40,4 +40,30 @@ namespace RaLanguage.Errors.Types
             return $"ImportConflictError: {Details}";
         }
     }
+
+    public class CircularImportError : Error
+    {
+        public CircularImportError(Position posStart, Position posEnd, string details)
+            : base(posStart, posEnd, "CircularImportError", details)
+        {
+        }
+
+        public override string ToString()
+        {
+            return $"CircularImportError: {Details}";
+        }
+    }
+
+    public class ModuleLoadError : Error
+    {
+        public ModuleLoadError(Position posStart, Position posEnd, string details)
+            : base(posStart, posEnd, "ModuleLoadError", details)
+        {
+        }
+
+        public override string ToString()
+        {
+            return $"ModuleLoadError: {Details}";
+        }
+    }
 }

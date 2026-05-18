@@ -21,9 +21,17 @@ namespace RaLanguage.Interpreter.Values.Functions
 
         protected virtual string? ParameterOwnerForMetadata => Name;
 
+        public Context? BindingContext { get; private set; }
+
+        public void FreezeBindingContext(Context ctx)
+        {
+            if (BindingContext == null) BindingContext = ctx;
+        }
+
         public Context GenerateNewContext()
         {
-            var newCtx = new Context(Name, Context, PositionStart);
+            var closure = BindingContext ?? Context;
+            var newCtx = new Context(Name, closure, PositionStart);
             newCtx.SymbolTable = new SymbolTable(newCtx.Parent?.SymbolTable);
             return newCtx;
         }

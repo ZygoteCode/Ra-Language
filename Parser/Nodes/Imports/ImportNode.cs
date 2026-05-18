@@ -1,3 +1,4 @@
+using RaLanguage.Interpreter.Modules;
 using RaLanguage.Lexer;
 using RaLanguage.Lexer.Tokens;
 
@@ -5,20 +6,23 @@ namespace RaLanguage.Parser.Nodes.Imports
 {
     public abstract class ImportNode : AstNode
     {
-        public Token ModulePathTok { get; }
-        public string ModulePath => ModulePathTok.Value?.ToString() ?? "";
+        public ModuleSpecifier Specifier { get; }
 
-        protected ImportNode(Token modulePathTok, Position positionStart, Position positionEnd, AstNodeType nodeType)
+        public string ModulePath => Specifier.Display;
+
+        protected ImportNode(ModuleSpecifier specifier, Position positionStart, Position positionEnd, AstNodeType nodeType)
             : base(nodeType)
         {
-            ModulePathTok = modulePathTok;
+            Specifier = specifier;
+            PositionStart = positionStart;
+            PositionEnd = positionEnd;
         }
     }
 
     public class ImportAllNode : ImportNode
     {
-        public ImportAllNode(Token modulePathTok, Position positionStart, Position positionEnd)
-            : base(modulePathTok, positionStart, positionEnd, AstNodeType.ImportAll)
+        public ImportAllNode(ModuleSpecifier specifier, Position positionStart, Position positionEnd)
+            : base(specifier, positionStart, positionEnd, AstNodeType.ImportAll)
         {
         }
     }
@@ -27,8 +31,8 @@ namespace RaLanguage.Parser.Nodes.Imports
     {
         public List<Token> SymbolNames { get; }
 
-        public ImportSelectiveNode(Token modulePathTok, List<Token> symbolNames, Position positionStart, Position positionEnd)
-            : base(modulePathTok, positionStart, positionEnd, AstNodeType.ImportSelective)
+        public ImportSelectiveNode(ModuleSpecifier specifier, List<Token> symbolNames, Position positionStart, Position positionEnd)
+            : base(specifier, positionStart, positionEnd, AstNodeType.ImportSelective)
         {
             SymbolNames = symbolNames;
         }
@@ -39,8 +43,8 @@ namespace RaLanguage.Parser.Nodes.Imports
         public Token AliasTok { get; }
         public string Alias => AliasTok.Value?.ToString() ?? "";
 
-        public ImportAliasNode(Token modulePathTok, Token aliasTok, Position positionStart, Position positionEnd)
-            : base(modulePathTok, positionStart, positionEnd, AstNodeType.ImportAlias)
+        public ImportAliasNode(ModuleSpecifier specifier, Token aliasTok, Position positionStart, Position positionEnd)
+            : base(specifier, positionStart, positionEnd, AstNodeType.ImportAlias)
         {
             AliasTok = aliasTok;
         }

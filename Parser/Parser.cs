@@ -1544,132 +1544,158 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
+            SkipNewlines(res);
+
+            if (_currentToken.Type == TokenType.LBRACKET)
+            {
+                return ParseImportSelective(res, positionStart);
+            }
+
+            var spec = ParseModuleSpecifier(res);
+            if (res.Error != null) return res;
+            if (spec == null)
+            {
+                return res.Failure(new InvalidSyntaxError(
+                    _currentToken.PositionStart, _currentToken.PositionEnd,
+                    "Expected string path, '{' or dotted module name after 'import'"));
+            }
+
+            if (_currentToken.Type == TokenType.KEYWORD && _currentToken.Matches(Keyword.As))
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                SkipNewlines(res);
+
+                if (_currentToken.Type != TokenType.IDENTIFIER)
+                {
+                    return res.Failure(new InvalidSyntaxError(
+                        _currentToken.PositionStart, _currentToken.PositionEnd,
+                        "Expected identifier after 'as'"));
+                }
+
+                var aliasTok = _currentToken;
+                res.RegisterAdvancement();
+                Advance();
+
+                return res.Success(new ImportAliasNode(spec, aliasTok, positionStart, _currentToken.PositionEnd));
+            }
+
+            return res.Success(new ImportAllNode(spec, positionStart, _currentToken.PositionEnd));
+        }
+
+        private ParserResult ParseImportSelective(ParserResult res, Position positionStart)
+        {
+            res.RegisterAdvancement();
+            Advance();
+
+            var symbolNames = new List<Token>();
+            while (_currentToken.Type != TokenType.RBRACKET)
+            {
+                SkipNewlines(res);
+
+                if (_currentToken.Type != TokenType.IDENTIFIER)
+                {
+                    return res.Failure(new InvalidSyntaxError(
+                        _currentToken.PositionStart, _currentToken.PositionEnd,
+                        "Expected identifier in import list"));
+                }
+
+                symbolNames.Add(_currentToken);
+                res.RegisterAdvancement();
+                Advance();
+
+                SkipNewlines(res);
+
+                if (_currentToken.Type == TokenType.COMMA)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+                else if (_currentToken.Type != TokenType.RBRACKET)
+                {
+                    return res.Failure(new InvalidSyntaxError(
+                        _currentToken.PositionStart, _currentToken.PositionEnd,
+                        "Expected ',' or '}' in import list"));
+                }
+            }
+
+            res.RegisterAdvancement();
+            Advance();
+
+            SkipNewlines(res);
+
+            if (!_currentToken.Matches(Keyword.From))
+            {
+                return res.Failure(new InvalidSyntaxError(
+                    _currentToken.PositionStart, _currentToken.PositionEnd,
+                    "Expected 'from' after import list"));
+            }
+
+            res.RegisterAdvancement();
+            Advance();
+
+            SkipNewlines(res);
+
+            var spec = ParseModuleSpecifier(res);
+            if (res.Error != null) return res;
+            if (spec == null)
+            {
+                return res.Failure(new InvalidSyntaxError(
+                    _currentToken.PositionStart, _currentToken.PositionEnd,
+                    "Expected string path or dotted module name after 'from'"));
+            }
+
+            return res.Success(new ImportSelectiveNode(spec, symbolNames, positionStart, _currentToken.PositionEnd));
+        }
+
+        private Interpreter.Modules.ModuleSpecifier? ParseModuleSpecifier(ParserResult res)
+        {
+            if (_currentToken.Type == TokenType.STRING_TEXT)
+            {
+                string rawPath = _currentToken.Value?.ToString() ?? "";
+                res.RegisterAdvancement();
+                Advance();
+                return Interpreter.Modules.ModuleSpecifier.FromStringLiteral(rawPath);
+            }
+
+            if (_currentToken.Type == TokenType.IDENTIFIER)
+            {
+                var segments = new List<string>();
+                segments.Add(_currentToken.Value?.ToString() ?? "");
+                res.RegisterAdvancement();
+                Advance();
+
+                while (_currentToken.Type == TokenType.DOT)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    if (_currentToken.Type != TokenType.IDENTIFIER)
+                    {
+                        res.Failure(new InvalidSyntaxError(
+                            _currentToken.PositionStart, _currentToken.PositionEnd,
+                            "Expected identifier after '.' in module path"));
+                        return null;
+                    }
+
+                    segments.Add(_currentToken.Value?.ToString() ?? "");
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                return Interpreter.Modules.ModuleSpecifier.FromDotted(segments);
+            }
+
+            return null;
+        }
+
+        private void SkipNewlines(ParserResult res)
+        {
             while (_currentToken.Type == TokenType.NEWLINE)
             {
                 res.RegisterAdvancement();
                 Advance();
-            }
-
-            if (_currentToken.Type == TokenType.LBRACKET)
-            {
-                res.RegisterAdvancement();
-                Advance();
-
-                var symbolNames = new List<Token>();
-                while (_currentToken.Type != TokenType.RBRACKET)
-                {
-                    while (_currentToken.Type == TokenType.NEWLINE)
-                    {
-                        res.RegisterAdvancement();
-                        Advance();
-                    }
-
-                    if (_currentToken.Type != TokenType.IDENTIFIER)
-                    {
-                        return res.Failure(new InvalidSyntaxError(
-                            _currentToken.PositionStart, _currentToken.PositionEnd,
-                            "Expected identifier in import list"));
-                    }
-
-                    symbolNames.Add(_currentToken);
-                    res.RegisterAdvancement();
-                    Advance();
-
-                    while (_currentToken.Type == TokenType.NEWLINE)
-                    {
-                        res.RegisterAdvancement();
-                        Advance();
-                    }
-
-                    if (_currentToken.Type == TokenType.COMMA)
-                    {
-                        res.RegisterAdvancement();
-                        Advance();
-                    }
-                    else if (_currentToken.Type != TokenType.RBRACKET)
-                    {
-                        return res.Failure(new InvalidSyntaxError(
-                            _currentToken.PositionStart, _currentToken.PositionEnd,
-                            "Expected ',' or '}' in import list"));
-                    }
-                }
-
-                res.RegisterAdvancement();
-                Advance();
-
-                while (_currentToken.Type == TokenType.NEWLINE)
-                {
-                    res.RegisterAdvancement();
-                    Advance();
-                }
-
-                if (!_currentToken.Matches(Keyword.From))
-                {
-                    return res.Failure(new InvalidSyntaxError(
-                        _currentToken.PositionStart, _currentToken.PositionEnd,
-                        "Expected 'from' after import list"));
-                }
-
-                res.RegisterAdvancement();
-                Advance();
-
-                while (_currentToken.Type == TokenType.NEWLINE)
-                {
-                    res.RegisterAdvancement();
-                    Advance();
-                }
-
-                if (_currentToken.Type != TokenType.STRING_TEXT)
-                {
-                    return res.Failure(new InvalidSyntaxError(
-                        _currentToken.PositionStart, _currentToken.PositionEnd,
-                        "Expected string path after 'from'"));
-                }
-
-                var modulePathTok = _currentToken;
-                res.RegisterAdvancement();
-                Advance();
-
-                return res.Success(new ImportSelectiveNode(modulePathTok, symbolNames, positionStart, _currentToken.PositionEnd));
-            }
-            else if (_currentToken.Type == TokenType.STRING_TEXT)
-            {
-                var modulePathTok = _currentToken;
-                res.RegisterAdvancement();
-                Advance();
-
-                if (_currentToken.Type == TokenType.KEYWORD && _currentToken.Matches(Keyword.As))
-                {
-                    res.RegisterAdvancement();
-                    Advance();
-
-                    while (_currentToken.Type == TokenType.NEWLINE)
-                    {
-                        res.RegisterAdvancement();
-                        Advance();
-                    }
-
-                    if (_currentToken.Type != TokenType.IDENTIFIER)
-                    {
-                        return res.Failure(new InvalidSyntaxError(
-                            _currentToken.PositionStart, _currentToken.PositionEnd,
-                            "Expected identifier after 'as'"));
-                    }
-
-                    var aliasTok = _currentToken;
-                    res.RegisterAdvancement();
-                    Advance();
-
-                    return res.Success(new ImportAliasNode(modulePathTok, aliasTok, positionStart, _currentToken.PositionEnd));
-                }
-
-                return res.Success(new ImportAllNode(modulePathTok, positionStart, _currentToken.PositionEnd));
-            }
-            else
-            {
-                return res.Failure(new InvalidSyntaxError(
-                    _currentToken.PositionStart, _currentToken.PositionEnd,
-                    "Expected string path or '{' after 'import'"));
             }
         }
 
@@ -2958,10 +2984,18 @@ namespace RaLanguage.Parser
             Token? catchVarTok = null;
             AstNode? catchBody = null;
 
+            int catchLookaheadConsumed = 0;
             while (_currentToken.Type == TokenType.NEWLINE)
             {
                 res.RegisterAdvancement();
                 Advance();
+                catchLookaheadConsumed++;
+            }
+
+            if (!_currentToken.Matches(Keyword.Catch) && !_currentToken.Matches(Keyword.Finally) && catchLookaheadConsumed > 0)
+            {
+                Reverse(catchLookaheadConsumed);
+                UpdateCurrentToken();
             }
 
             if (_currentToken.Matches(Keyword.Catch))
@@ -3028,13 +3062,22 @@ namespace RaLanguage.Parser
                 Advance();
             }
 
+            int finallyLookaheadStart = _tokenIndex;
+            int finallyLookaheadConsumed = 0;
             while (_currentToken.Type == TokenType.NEWLINE)
             {
                 res.RegisterAdvancement();
                 Advance();
+                finallyLookaheadConsumed++;
             }
 
             AstNode? finallyBody = null;
+            if (!_currentToken.Matches(Keyword.Finally) && finallyLookaheadConsumed > 0)
+            {
+                Reverse(finallyLookaheadConsumed);
+                UpdateCurrentToken();
+            }
+
             if (_currentToken.Matches(Keyword.Finally))
             {
                 res.RegisterAdvancement();
