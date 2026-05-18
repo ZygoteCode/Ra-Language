@@ -1,237 +1,248 @@
+using RaLanguage.Errors;
+using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Values;
+using RaLanguage.Interpreter.Values.Functions;
+using RaLanguage.Lexer;
 using RaLanguage.Parser.Nodes;
 using RaLanguage.Parser.Nodes.Special;
-using System.Collections.Concurrent;
+using System.IO;
 
 namespace RaLanguage.Interpreter.Modules
 {
-    public class LoadedModule
+    public enum ModuleState
+    {
+        Loading,
+        Loaded,
+        Failed
+    }
+
+    public sealed class LoadedModule
     {
         public string AbsolutePath { get; }
         public SymbolTable SymbolTable { get; }
         public ExtensionRegistry Extensions { get; set; }
-        public Dictionary<string, RuntimeValue> ExportTable { get; }
-        
-        public bool IsLoaded { get; private set; }
-        public DateTime LoadedAt { get; private set; }
 
-        public LoadedModule(string absolutePath)
+        public ModuleState State { get; internal set; }
+        public DateTime LoadedAt { get; internal set; }
+
+        public LoadedModule(string absolutePath, SymbolTable symbolTable, ExtensionRegistry extensions)
         {
             AbsolutePath = absolutePath;
-            SymbolTable = new SymbolTable();
-            Extensions = new ExtensionRegistry();
-            ExportTable = new Dictionary<string, RuntimeValue>();
-            IsLoaded = false;
+            SymbolTable = symbolTable;
+            Extensions = extensions;
+            State = ModuleState.Loading;
             LoadedAt = DateTime.MinValue;
         }
 
-        public void MarkAsLoaded()
+        public IEnumerable<KeyValuePair<string, RuntimeValue>> EnumerateExports()
         {
-            IsLoaded = true;
-            LoadedAt = DateTime.Now;
+            foreach (var key in SymbolTable.GetLocalKeys())
+            {
+                var entry = SymbolTable.GetEntry(key);
+                if (entry != null && entry.IsPublic && entry.Value != null)
+                {
+                    yield return new KeyValuePair<string, RuntimeValue>(key, entry.Value);
+                }
+            }
+        }
+
+        public RuntimeValue? GetExport(string name)
+        {
+            var entry = SymbolTable.GetEntry(name);
+            return (entry != null && entry.IsPublic) ? entry.Value : null;
         }
     }
 
-    public class ModuleManager
+    public sealed class ModuleLoadResult
     {
-        private readonly ConcurrentDictionary<string, LoadedModule> _moduleCache = new();
-        private readonly string _basePath;
+        public LoadedModule? Module { get; }
+        public Error? Error { get; }
 
-        public ModuleManager(string basePath)
+        public bool Ok => Module != null && Error == null;
+
+        private ModuleLoadResult(LoadedModule? module, Error? error)
         {
-            _basePath = Path.GetFullPath(basePath);
+            Module = module;
+            Error = error;
         }
 
-        public string ResolvePath(string modulePath, string currentFile)
-        {
-            if (Path.IsPathRooted(modulePath))
-            {
-                return Path.GetFullPath(modulePath);
-            }
+        public static ModuleLoadResult Success(LoadedModule module) => new(module, null);
+        public static ModuleLoadResult Failure(Error error) => new(null, error);
+    }
 
-            string currentDir = Path.GetDirectoryName(Path.GetFullPath(currentFile))!;
-            string resolved = Path.GetFullPath(Path.Combine(currentDir, modulePath));
-            
-            return resolved;
+    public sealed class ModuleManager
+    {
+        private readonly Dictionary<string, LoadedModule> _cache = new(StringComparer.OrdinalIgnoreCase);
+        private readonly List<string> _loadingChain = new();
+        private readonly ModuleResolver _resolver;
+        private readonly Func<SymbolTable> _builtinsProvider;
+
+        public ModuleResolver Resolver => _resolver;
+
+        public ModuleManager(ModuleResolver resolver, Func<SymbolTable> builtinsProvider)
+        {
+            _resolver = resolver;
+            _builtinsProvider = builtinsProvider;
         }
 
-        public LoadedModule GetOrCreateModule(string absolutePath)
+        public void Clear()
         {
-            return _moduleCache.GetOrAdd(absolutePath, path => new LoadedModule(path));
+            _cache.Clear();
+            _loadingChain.Clear();
         }
 
-        public bool IsModuleLoaded(string absolutePath)
+        public ModuleLoadResult Load(
+            ModuleSpecifier spec,
+            string currentFile,
+            IInterpreter interpreter,
+            Position posStart,
+            Position posEnd)
         {
-            return _moduleCache.TryGetValue(absolutePath, out var module) && module.IsLoaded;
-        }
-
-        public async Task<LoadedModule> LoadModule(string modulePath, string currentFile, IInterpreter interpreter, Context parentContext)
-        {
-            string absolutePath = ResolvePath(modulePath, currentFile);
-
-            if (IsModuleLoaded(absolutePath))
+            var resolution = _resolver.Resolve(spec, currentFile);
+            if (!resolution.Ok)
             {
-                return GetOrCreateModule(absolutePath);
+                return ModuleLoadResult.Failure(
+                    new ModuleNotFoundError(posStart, posEnd, resolution.ErrorMessage ?? "Module not found"));
             }
 
-            if (!File.Exists(absolutePath))
+            string absolute = resolution.AbsolutePath!;
+
+            if (_cache.TryGetValue(absolute, out var existing))
             {
-                throw new FileNotFoundException($"Module file not found: {absolutePath}");
-            }
+                if (existing.State == ModuleState.Loaded)
+                    return ModuleLoadResult.Success(existing);
 
-            var module = GetOrCreateModule(absolutePath);
-            string sourceCode = await File.ReadAllTextAsync(absolutePath);
-
-            var lexer = new Lexer.Lexer(absolutePath, sourceCode);
-            var (tokens, lexerDiagnostics) = lexer.MakeTokens();
-            
-            if (lexerDiagnostics.HasErrors)
-            {
-                throw new Exception($"Lexer errors in module {absolutePath}:\n{lexerDiagnostics}");
-            }
-
-            var parser = new Parser.Parser(tokens);
-            var parseResult = parser.Parse();
-            
-            if (parseResult.HasErrors)
-            {
-                throw new Exception($"Parser errors in module {absolutePath}:\n{parseResult.Diagnostics}");
-            }
-
-            var moduleContext = new Context(
-                displayName: Path.GetFileName(absolutePath),
-                parent: null,
-                parentEntryPos: null,
-                extensions: parentContext.Extensions
-            );
-
-            if (parentContext.SymbolTable != null)
-            {
-                foreach (var key in parentContext.SymbolTable.GetLocalKeys())
+                if (existing.State == ModuleState.Loading)
                 {
-                    var entry = parentContext.SymbolTable.GetEntry(key);
-                    if (entry != null)
-                    {
-                        moduleContext.SymbolTable.Set(key, entry.Value, isPublic: false);
-                    }
+                    string chain = string.Join(" -> ", _loadingChain) + " -> " + absolute;
+                    return ModuleLoadResult.Failure(
+                        new CircularImportError(posStart, posEnd,
+                            $"Circular import detected when loading '{spec.Display}':\n  {chain}"));
                 }
             }
 
-            if (parseResult.Node != null)
+            string source;
+            try
             {
-                ExecuteModuleWithSymbolCapture(parseResult.Node, moduleContext, interpreter);
+                source = File.ReadAllText(absolute);
+            }
+            catch (Exception ex)
+            {
+                return ModuleLoadResult.Failure(
+                    new ModuleLoadError(posStart, posEnd,
+                        $"Failed to read module file '{absolute}': {ex.Message}"));
             }
 
-            CopySymbolsToModule(moduleContext.SymbolTable, module);
+            var builtins = _builtinsProvider();
+            var moduleSymbolTable = new SymbolTable(builtins);
+            var moduleExtensions = new ExtensionRegistry();
+            var module = new LoadedModule(absolute, moduleSymbolTable, moduleExtensions);
 
-            module.Extensions = moduleContext.Extensions;
-            module.MarkAsLoaded();
+            _cache[absolute] = module;
+            _loadingChain.Add(absolute);
 
-            return module;
-        }
-
-        public RuntimeValue? GetSymbolFromModule(string absolutePath, string symbolName)
-        {            
-            if (_moduleCache.TryGetValue(absolutePath, out var module))
+            try
             {
-                if (module.ExportTable.TryGetValue(symbolName, out var exportedSymbol))
+                var lexer = new Lexer.Lexer(absolute, source);
+                var (tokens, lexerDiagnostics) = lexer.MakeTokens();
+
+                if (lexerDiagnostics.HasErrors)
                 {
-                    return exportedSymbol;
+                    module.State = ModuleState.Failed;
+                    _cache.Remove(absolute);
+                    return ModuleLoadResult.Failure(
+                        new ModuleLoadError(posStart, posEnd,
+                            $"Lexer errors in module '{absolute}':\n{lexerDiagnostics}"));
                 }
-                
-                var entry = module.SymbolTable.GetEntry(symbolName);
-                if (entry != null && entry.IsPublic)
+
+                var parser = new Parser.Parser(tokens);
+                var parseResult = parser.Parse();
+
+                if (parseResult.HasErrors)
                 {
-                    return entry.Value;
+                    module.State = ModuleState.Failed;
+                    _cache.Remove(absolute);
+                    return ModuleLoadResult.Failure(
+                        new ModuleLoadError(posStart, posEnd,
+                            $"Parser errors in module '{absolute}':\n{parseResult.Diagnostics}"));
                 }
-            }
 
-            return null;
-        }
-
-        public Dictionary<string, RuntimeValue> GetAllPublicSymbols(string absolutePath)
-        {
-            var symbols = new Dictionary<string, RuntimeValue>();
-            
-            if (_moduleCache.TryGetValue(absolutePath, out var module))
-            {
-                foreach (var kvp in module.ExportTable)
+                if (parseResult.Node == null)
                 {
-                    symbols[kvp.Key] = kvp.Value;
+                    module.State = ModuleState.Loaded;
+                    module.LoadedAt = DateTime.UtcNow;
+                    return ModuleLoadResult.Success(module);
                 }
-            }
 
-            return symbols;
-        }
+                var moduleContext = new Context(
+                    displayName: absolute,
+                    parent: null,
+                    parentEntryPos: null,
+                    extensions: moduleExtensions);
+                moduleContext.SymbolTable = moduleSymbolTable;
 
-        public ExtensionRegistry GetModuleExtensions(string absolutePath)
-        {
-            if (_moduleCache.TryGetValue(absolutePath, out var module))
-            {
-                return module.Extensions;
-            }
-            return new ExtensionRegistry();
-        }
+                DeriveTransformer.Apply(parseResult.Node);
 
-        private void CopySymbolsToModule(SymbolTable? contextSymbolTable, LoadedModule module)
-        {
-            if (contextSymbolTable == null) 
-            {
-                return;
-            }
-
-            foreach (var key in contextSymbolTable.GetLocalKeys())
-            {
-                var entry = contextSymbolTable.GetEntry(key);
-                if (entry != null)
+                Error? executionError = ExecuteModule(parseResult.Node, moduleContext, interpreter);
+                if (executionError != null)
                 {
-                    module.SymbolTable.Set(
-                        key,
-                        entry.Value.Copy(),
-                        isLet: entry.IsLet,
-                        declaredType: entry.DeclaredType,
-                        isStaticallyTyped: entry.IsStaticallyTyped,
-                        isPublic: entry.IsPublic
-                    );
-
-                    if (entry.IsPublic)
-                    {
-                        module.ExportTable[key] = entry.Value.Copy();
-                    }
+                    module.State = ModuleState.Failed;
+                    _cache.Remove(absolute);
+                    return ModuleLoadResult.Failure(executionError);
                 }
-            } 
-        }
-        
-        private void ExecuteModuleWithSymbolCapture(AstNode node, Context moduleContext, IInterpreter interpreter)
-        {
-            if (node is ScopeNode scopeNode)
-            {                
-                foreach (var stmt in scopeNode.Nodes)
-                {
-                    var result = interpreter.Visit(stmt, moduleContext);
-                    
-                    if (result.Error != null)
-                    {
-                        throw new Exception($"Module execution error: {result.Error.Details}");
-                    }
-                }
+
+                FreezeFunctionClosures(moduleSymbolTable, moduleContext);
+
+                module.State = ModuleState.Loaded;
+                module.LoadedAt = DateTime.UtcNow;
+                return ModuleLoadResult.Success(module);
             }
-            else
+            catch (Exception ex)
             {
-                var result = interpreter.Visit(node, moduleContext);
-                
-                if (result.Error != null)
+                module.State = ModuleState.Failed;
+                _cache.Remove(absolute);
+                return ModuleLoadResult.Failure(
+                    new ModuleLoadError(posStart, posEnd,
+                        $"Unexpected error while loading module '{absolute}': {ex.Message}"));
+            }
+            finally
+            {
+                if (_loadingChain.Count > 0 && _loadingChain[_loadingChain.Count - 1] == absolute)
                 {
-                    throw new Exception($"Module execution error: {result.Error.Details}");
+                    _loadingChain.RemoveAt(_loadingChain.Count - 1);
                 }
             }
         }
 
-        public void ClearCache()
+        private static void FreezeFunctionClosures(SymbolTable table, Context moduleContext)
         {
-            _moduleCache.Clear();
+            foreach (var key in table.GetLocalKeys())
+            {
+                var entry = table.GetEntry(key);
+                if (entry?.Value is BaseFunctionValue bfn)
+                {
+                    bfn.FreezeBindingContext(moduleContext);
+                }
+            }
+        }
+
+        private static Error? ExecuteModule(AstNode root, Context ctx, IInterpreter interpreter)
+        {
+            if (root is ScopeNode scope)
+            {
+                foreach (var stmt in scope.Nodes)
+                {
+                    var result = interpreter.Visit(stmt, ctx);
+                    if (result.Error != null) return result.Error;
+                }
+                return null;
+            }
+
+            var single = interpreter.Visit(root, ctx);
+            return single.Error;
         }
     }
 }

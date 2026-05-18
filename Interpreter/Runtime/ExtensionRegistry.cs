@@ -11,6 +11,8 @@ namespace RaLanguage.Interpreter.Runtime
     {
         private readonly Dictionary<string, List<FunctionDefinitionNode>> _methods = new(StringComparer.Ordinal);
 
+        public IReadOnlyDictionary<string, List<FunctionDefinitionNode>> AllMethods => _methods;
+
         public void Register(string targetTypeName, FunctionDefinitionNode method)
         {
             if (!_methods.TryGetValue(targetTypeName, out var list))

@@ -39,20 +39,43 @@ namespace RaLanguage
             InitializeSymbolTable();
         }
 
+        public static SymbolTable BuiltinSymbolTable;
+
         private static void InitializeSymbolTable()
         {
-            GlobalSymbolTable = new SymbolTable();
+            BuiltinSymbolTable = new SymbolTable();
 
             foreach (string builtInFunction in _builtInFunctions)
             {
-                GlobalSymbolTable.Set(builtInFunction, new BuiltInFunctionValue(builtInFunction));
+                BuiltinSymbolTable.Set(builtInFunction, new BuiltInFunctionValue(builtInFunction));
             }
 
-            BuiltInAnnotations.RegisterAll(GlobalSymbolTable);
+            BuiltInAnnotations.RegisterAll(BuiltinSymbolTable);
             MetadataRegistry.Global.Clear();
 
-            string basePath = Directory.GetCurrentDirectory();
-            ImportNodeVisitor.InitializeModuleManager(basePath);
+            GlobalSymbolTable = new SymbolTable(BuiltinSymbolTable);
+
+            string projectRoot = Directory.GetCurrentDirectory();
+            string stdRoot = ResolveStdRoot(projectRoot);
+            ImportNodeVisitor.InitializeModuleManager(projectRoot, stdRoot, () => BuiltinSymbolTable);
+            ImportNodeVisitor.ResetCache();
+        }
+
+        private static string ResolveStdRoot(string projectRoot)
+        {
+            string exeStd = Path.Combine(AppContext.BaseDirectory, "std");
+            if (Directory.Exists(exeStd))
+            {
+                return exeStd;
+            }
+
+            string projectStd = Path.Combine(projectRoot, "std");
+            if (Directory.Exists(projectStd))
+            {
+                return projectStd;
+            }
+
+            return exeStd;
         }
 
         public static (RuntimeValue?, Error?) Run(string fn, string text)

@@ -1,35 +1,43 @@
+using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Modules;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
+using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer;
 using RaLanguage.Parser.Nodes;
 using RaLanguage.Parser.Nodes.Imports;
-using RaLanguage.Errors;
-using RaLanguage.Interpreter.Values.Primitives;
+using RaLanguage.Parser.Nodes.Functions;
 
 namespace RaLanguage.Interpreter.Visitors.Imports
 {
     public class ImportNodeVisitor : INodeVisitor
     {
         private static ModuleManager? _moduleManager;
-        
+
         public static ModuleManager ModuleManager
         {
             get
             {
                 if (_moduleManager == null)
                 {
-                    throw new Exception("ModuleManager not initialized. Call InitializeModuleManager first.");
+                    throw new InvalidOperationException(
+                        "ModuleManager not initialized. Call InitializeModuleManager first.");
                 }
                 return _moduleManager;
             }
         }
 
-        public static void InitializeModuleManager(string basePath)
+        public static void InitializeModuleManager(string projectRoot, string stdRoot, Func<SymbolTable> builtinsProvider)
         {
-            _moduleManager = new ModuleManager(basePath);
+            var resolver = new ModuleResolver(projectRoot, stdRoot);
+            _moduleManager = new ModuleManager(resolver, builtinsProvider);
+        }
+
+        public static void ResetCache()
+        {
+            _moduleManager?.Clear();
         }
 
         public RuntimeResult Visit(AstNode node, Context context, IInterpreter interpreter)
@@ -39,92 +47,131 @@ namespace RaLanguage.Interpreter.Visitors.Imports
                 AstNodeType.ImportAll => VisitImportAll((ImportAllNode)node, context, interpreter),
                 AstNodeType.ImportSelective => VisitImportSelective((ImportSelectiveNode)node, context, interpreter),
                 AstNodeType.ImportAlias => VisitImportAlias((ImportAliasNode)node, context, interpreter),
-                _ => throw new System.Exception($"Unknown import node type: {node.NodeType}")
+                _ => throw new InvalidOperationException($"Unknown import node type: {node.NodeType}")
             };
+        }
+
+        private static LoadedModule? LoadOrFail(
+            ImportNode node,
+            Context context,
+            IInterpreter interpreter,
+            out Error? error)
+        {
+            string currentFile = context.DisplayName ?? "main.ra";
+            var loadResult = ModuleManager.Load(
+                node.Specifier,
+                currentFile,
+                interpreter,
+                node.PositionStart,
+                node.PositionEnd);
+
+            if (!loadResult.Ok)
+            {
+                error = loadResult.Error;
+                return null;
+            }
+
+            error = null;
+            return loadResult.Module;
         }
 
         private RuntimeResult VisitImportAll(ImportAllNode node, Context context, IInterpreter interpreter)
         {
             var result = new RuntimeResult();
-            var posStart = node.PositionStart;
-            var posEnd = node.PositionEnd;
 
-            try
+            var module = LoadOrFail(node, context, interpreter, out var error);
+            if (module == null)
             {
-                var currentFile = context.DisplayName ?? "main.ra";
-                var module = ModuleManager.LoadModule(node.ModulePath, currentFile, interpreter, context).Result;
-
-                var symbols = ModuleManager.GetAllPublicSymbols(module.AbsolutePath);
-
-                foreach (var kvp in symbols)
-                {
-                    context.SymbolTable.Set(kvp.Key, kvp.Value.Copy(), isPublic: true);
-                }
-
-                var extensions = ModuleManager.GetModuleExtensions(module.AbsolutePath);
-                return result.Success(new NullValue().SetPos(node.PositionStart, node.PositionEnd).SetContext(context));
+                return result.Failure(error!);
             }
-            catch (Exception ex)
+
+            foreach (var kvp in module.EnumerateExports())
             {
-                return result.Failure(new RuntimeError(posStart, posEnd, $"Import error: {ex.Message}", context));
+                if (context.SymbolTable == null) break;
+
+                var sourceEntry = module.SymbolTable.GetEntry(kvp.Key);
+                context.SymbolTable.Set(
+                    kvp.Key,
+                    kvp.Value,
+                    isLet: sourceEntry?.IsLet ?? false,
+                    declaredType: sourceEntry?.DeclaredType,
+                    isStaticallyTyped: sourceEntry?.IsStaticallyTyped ?? false,
+                    isPublic: true);
             }
+
+            MergeExtensions(context.Extensions, module.Extensions);
+
+            return result.Success(new NullValue()
+                .SetPos(node.PositionStart, node.PositionEnd)
+                .SetContext(context));
         }
 
         private RuntimeResult VisitImportSelective(ImportSelectiveNode node, Context context, IInterpreter interpreter)
         {
             var result = new RuntimeResult();
-            var posStart = node.PositionStart;
-            var posEnd = node.PositionEnd;
 
-            try
+            var module = LoadOrFail(node, context, interpreter, out var error);
+            if (module == null)
             {
-                var currentFile = context.DisplayName ?? "main.ra";
-                var module = ModuleManager.LoadModule(node.ModulePath, currentFile, interpreter, context).Result;
+                return result.Failure(error!);
+            }
 
-                foreach (var symbolTok in node.SymbolNames)
+            foreach (var symbolTok in node.SymbolNames)
+            {
+                string symbolName = symbolTok.Value?.ToString() ?? "";
+
+                var symbolValue = module.GetExport(symbolName);
+                if (symbolValue == null)
                 {
-                    string symbolName = symbolTok.Value?.ToString() ?? "";
-                    
-                    var symbolValue = ModuleManager.GetSymbolFromModule(module.AbsolutePath, symbolName);
-                    
-                    if (symbolValue == null)
-                    {
-                        return result.Failure(new RuntimeError(
-                            posStart, posEnd,
-                            $"Symbol '{symbolName}' not found in module '{node.ModulePath}'",
-                            context));
-                    }
-
-                    context.SymbolTable.Set(symbolName, symbolValue.Copy(), isPublic: true);
+                    return result.Failure(new SymbolNotFoundError(
+                        symbolTok.PositionStart, symbolTok.PositionEnd,
+                        $"Symbol '{symbolName}' not found or not public in module '{node.Specifier.Display}'"));
                 }
 
-                return result.Success(new NullValue().SetPos(node.PositionStart, node.PositionEnd).SetContext(context));
+                if (context.SymbolTable == null) continue;
+
+                var sourceEntry = module.SymbolTable.GetEntry(symbolName);
+                context.SymbolTable.Set(
+                    symbolName,
+                    symbolValue,
+                    isLet: sourceEntry?.IsLet ?? false,
+                    declaredType: sourceEntry?.DeclaredType,
+                    isStaticallyTyped: sourceEntry?.IsStaticallyTyped ?? false,
+                    isPublic: true);
             }
-            catch (Exception ex)
-            {
-                return result.Failure(new RuntimeError(posStart, posEnd, $"Import error: {ex.Message}", context));
-            }
+
+            return result.Success(new NullValue()
+                .SetPos(node.PositionStart, node.PositionEnd)
+                .SetContext(context));
         }
 
         private RuntimeResult VisitImportAlias(ImportAliasNode node, Context context, IInterpreter interpreter)
         {
             var result = new RuntimeResult();
-            var posStart = node.PositionStart;
-            var posEnd = node.PositionEnd;
 
-            try
+            var module = LoadOrFail(node, context, interpreter, out var error);
+            if (module == null)
             {
-                var currentFile = context.DisplayName ?? "main.ra";
-                var module = ModuleManager.LoadModule(node.ModulePath, currentFile, interpreter, context).Result;
-
-                var moduleWrapper = new ModuleWrapperValue(node.Alias, module, context);
-                context.SymbolTable.Set(node.Alias, moduleWrapper, isPublic: true);
-
-                return result.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                return result.Failure(error!);
             }
-            catch (Exception ex)
+
+            var moduleWrapper = new ModuleWrapperValue(node.Alias, module, context);
+            context.SymbolTable?.Set(node.Alias, moduleWrapper, isPublic: true);
+
+            return result.Success(new NullValue()
+                .SetContext(context)
+                .SetPos(node.PositionStart, node.PositionEnd));
+        }
+
+        private static void MergeExtensions(ExtensionRegistry target, ExtensionRegistry source)
+        {
+            if (target == null || source == null || ReferenceEquals(target, source)) return;
+            foreach (var kvp in source.AllMethods)
             {
-                return result.Failure(new RuntimeError(posStart, posEnd, $"Import error: {ex.Message}", context));
+                foreach (var method in kvp.Value)
+                {
+                    target.Register(kvp.Key, method);
+                }
             }
         }
     }
@@ -151,22 +198,15 @@ namespace RaLanguage.Interpreter.Visitors.Imports
 
         public (RuntimeValue, Error?) Get(string key, Position posStart, Position posEnd)
         {
-            if (_module.ExportTable.TryGetValue(key, out var exportedSymbol))
+            var exported = _module.GetExport(key);
+            if (exported != null)
             {
-                return (exportedSymbol.Copy().SetContext(_context).SetPos(posStart, posEnd), null);
-            }
-            
-            var symbol = _module.SymbolTable.Get(key);
-            
-            if (symbol == null)
-            {
-                return (new NullValue().SetContext(Context).SetPos(posStart, posEnd), new RuntimeError(
-                    posStart, posEnd,
-                    $"Symbol '{key}' not found in module '{_moduleName}'",
-                    _context));
+                return (exported.SetContext(_context).SetPos(posStart, posEnd), null);
             }
 
-            return (symbol.Copy().SetContext(_context).SetPos(posStart, posEnd), null);
+            return (new NullValue().SetContext(_context).SetPos(posStart, posEnd),
+                new SymbolNotFoundError(posStart, posEnd,
+                    $"Symbol '{key}' not found or not public in module '{_moduleName}'"));
         }
 
         public override string ToString() => $"<module '{_moduleName}'>";
