@@ -74,5 +74,7 @@
         Spawn,
         Emit,
         ForAwait
+        NamespaceDeclaration,
+        UsingNamespace
     }
 }

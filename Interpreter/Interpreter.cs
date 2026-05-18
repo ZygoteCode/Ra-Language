@@ -20,6 +20,7 @@ using RaLanguage.Interpreter.Visitors.Traits;
 using RaLanguage.Interpreter.Visitors.Variables;
 using RaLanguage.Interpreter.Visitors.Imports;
 using RaLanguage.Interpreter.Visitors.Async;
+using RaLanguage.Interpreter.Visitors.Namespaces;
 using RaLanguage.Lexer;
 using RaLanguage.Parser.Nodes;
 
@@ -102,6 +103,8 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.Spawn] = new SpawnNodeVisitor();
             _visitors[(int)AstNodeType.Emit] = new EmitNodeVisitor();
             _visitors[(int)AstNodeType.ForAwait] = new ForAwaitNodeVisitor();
+            _visitors[(int)AstNodeType.NamespaceDeclaration] = new NamespaceDeclarationNodeVisitor();
+            _visitors[(int)AstNodeType.UsingNamespace] = new UsingNamespaceNodeVisitor();
         }
 
         public RuntimeResult Visit(AstNode node, Context context)

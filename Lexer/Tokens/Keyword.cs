@@ -68,5 +68,7 @@
         Await,
         Spawn,
         Emit,
+        Namespace,
+        Using,
     }
 }

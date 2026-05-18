@@ -3,6 +3,7 @@ using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Classes;
+using RaLanguage.Interpreter.Values.Namespaces;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Interpreter.Values.Structs;
 using RaLanguage.Interpreter.Values.Traits;
@@ -113,6 +114,22 @@ namespace RaLanguage.Interpreter.Visitors.Members
                 }
 
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Class '{classType.ClassName}' has no static member '{memberName}'", context));
+            }
+
+            if (target.Type == RuntimeValueType.Namespace)
+            {
+                var ns = (NamespaceValue)target;
+                var entry = ns.Members.GetLocalEntry(memberName);
+
+                if (entry == null || !entry.IsPublic)
+                {
+                    return res.Failure(new RuntimeError(
+                        node.PositionStart, node.PositionEnd,
+                        $"Namespace '{(ns.IsRoot ? "<global>" : ns.QualifiedName)}' has no public member '{memberName}'",
+                        context));
+                }
+
+                return res.Success(entry.Value.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
             }
 
             if (target.Type == RuntimeValueType.ModuleWrapper)

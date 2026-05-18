@@ -5,7 +5,7 @@ namespace RaLanguage.Interpreter.Runtime
 {
     public class SymbolTable
     {
-        private readonly Dictionary<string, SymbolEntry> _symbols = new();
+        private Dictionary<string, SymbolEntry> _symbols = new();
         public SymbolTable? Parent { get; private set; }
 
         public SymbolTable(SymbolTable? parent = null)
@@ -13,13 +13,26 @@ namespace RaLanguage.Interpreter.Runtime
             Parent = parent;
         }
 
-        public RuntimeValue? Get(string name)
+        protected SymbolTable(Dictionary<string, SymbolEntry> sharedSymbols, SymbolTable? parent)
+        {
+            _symbols = sharedSymbols;
+            Parent = parent;
+        }
+
+        internal Dictionary<string, SymbolEntry> LocalDict => _symbols;
+
+        public void SetParent(SymbolTable? parent)
+        {
+            Parent = parent;
+        }
+
+        public virtual RuntimeValue? Get(string name)
         {
             var entry = GetEntry(name);
             return entry?.Value;
         }
 
-        public SymbolEntry? GetEntry(string name)
+        public virtual SymbolEntry? GetEntry(string name)
         {
             if (_symbols.TryGetValue(name, out var e))
             {
@@ -29,7 +42,7 @@ namespace RaLanguage.Interpreter.Runtime
             return Parent?.GetEntry(name);
         }
 
-        public void Set(string name, RuntimeValue value, bool isLet = false, TypeDescriptor? declaredType = null, bool isStaticallyTyped = false, bool isPublic = true)
+        public virtual void Set(string name, RuntimeValue value, bool isLet = false, TypeDescriptor? declaredType = null, bool isStaticallyTyped = false, bool isPublic = true)
         {
             SymbolTable? st = this;
             SymbolTable? owner = null;
@@ -57,7 +70,7 @@ namespace RaLanguage.Interpreter.Runtime
             }
         }
 
-        public void Remove(string name)
+        public virtual void Remove(string name)
         {
             SymbolTable? st = this;
             SymbolTable? owner = null;

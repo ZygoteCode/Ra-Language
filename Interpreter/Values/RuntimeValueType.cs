@@ -41,5 +41,6 @@
         Task,
         Channel,
         Stream
+        Namespace
     }
 }
