@@ -1,5 +1,8 @@
-﻿using RaLanguage.Errors.Types;
+﻿using System.Collections.Generic;
+using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Runtime.Annotations;
+using RaLanguage.Interpreter.Values.Annotations;
 using RaLanguage.Interpreter.Values.Primitives;
 
 namespace RaLanguage.Interpreter.Values.Functions
@@ -28,6 +31,15 @@ namespace RaLanguage.Interpreter.Values.Functions
                 case "is_public": argNames = new List<string> { "symbol" }; methodResult = ExecuteIsPublic(execCtx, args, argNames, res); break;
                 case "is_field_public": argNames = new List<string> { "type", "symbol" }; methodResult = ExecuteIsFieldPublic(execCtx, args, argNames, res); break;
                 case "is_field_static": argNames = new List<string> { "type", "symbol" }; methodResult = ExecuteIsFieldStatic(execCtx, args, argNames, res); break;
+                case "annotations_of": argNames = new List<string> { "__subj" }; methodResult = ExecuteAnnotationsOf(execCtx, args, argNames, res); break;
+                case "has_annotation": argNames = new List<string> { "__subj", "__ann" }; methodResult = ExecuteHasAnnotation(execCtx, args, argNames, res); break;
+                case "annotation_arg": argNames = new List<string> { "__subj", "__ann", "__key" }; methodResult = ExecuteAnnotationArg(execCtx, args, argNames, res); break;
+                case "annotation_targets": argNames = new List<string>(); methodResult = ExecuteAnnotationTargets(execCtx, args, argNames, res); break;
+                case "validate": argNames = new List<string> { "__val", "__ann" }; methodResult = ExecuteValidate(execCtx, args, argNames, res); break;
+                case "validate_target": argNames = new List<string> { "__val", "__key" }; methodResult = ExecuteValidateTarget(execCtx, args, argNames, res); break;
+                case "validate_deferred": argNames = new List<string>(); methodResult = ExecuteValidateDeferred(execCtx, args, argNames, res); break;
+                case "coerce_value": argNames = new List<string> { "__val", "__key" }; methodResult = ExecuteCoerceValue(execCtx, args, argNames, res); break;
+                case "run_tests": argNames = new List<string>(); methodResult = ExecuteRunTests(execCtx, args, argNames, res); break;
                 default: return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"No execute_{Name} method defined", Context));
             }
 
@@ -229,6 +241,137 @@ namespace RaLanguage.Interpreter.Values.Functions
                 return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, $"The specified type is not valid", Context));
             }
         });
+
+        private RuntimeResult ExecuteAnnotationsOf(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
+            var subj = c.SymbolTable.Get("__subj");
+            var key = ResolveMetadataKey(subj);
+            if (key == null)
+                return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, $"Cannot resolve metadata target for value of type '{subj.Type}'", Context));
+
+            var anns = MetadataRegistry.Global.GetEffective(key, MetadataKeyResolver.ForContext(c));
+            var list = new List<RuntimeValue>();
+            foreach (var a in anns) list.Add(a);
+            return new RuntimeResult().Success(new ListValue(list).SetContext(ctx).SetPos(PositionStart, PositionEnd));
+        });
+
+        private RuntimeResult ExecuteHasAnnotation(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
+            var subj = c.SymbolTable.Get("__subj");
+            var ann = c.SymbolTable.Get("__ann");
+            var key = ResolveMetadataKey(subj);
+            if (key == null)
+                return new RuntimeResult().Success(new BooleanValue(false).SetContext(ctx).SetPos(PositionStart, PositionEnd));
+
+            var nameStr = ann is StringValue sv ? sv.Value : ann.ToString() ?? "";
+            var has = MetadataRegistry.Global.HasAnnotationEffective(key, nameStr, MetadataKeyResolver.ForContext(c));
+            return new RuntimeResult().Success(new BooleanValue(has).SetContext(ctx).SetPos(PositionStart, PositionEnd));
+        });
+
+        private RuntimeResult ExecuteAnnotationArg(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
+            var subj = c.SymbolTable.Get("__subj");
+            var ann = c.SymbolTable.Get("__ann");
+            var keyArg = c.SymbolTable.Get("__key");
+            var targetKey = ResolveMetadataKey(subj);
+            if (targetKey == null)
+                return new RuntimeResult().Success(new NullValue().SetContext(ctx).SetPos(PositionStart, PositionEnd));
+
+            var nameStr = ann is StringValue sv ? sv.Value : ann.ToString() ?? "";
+            var keyStr = keyArg is StringValue kv ? kv.Value : keyArg.ToString() ?? "";
+            var found = MetadataRegistry.Global.FindEffective(targetKey, nameStr, MetadataKeyResolver.ForContext(c));
+            if (found != null)
+            {
+                var v = found.Get(keyStr);
+                if (v != null) return new RuntimeResult().Success(v.Copy().SetContext(ctx).SetPos(PositionStart, PositionEnd));
+            }
+            return new RuntimeResult().Success(new NullValue().SetContext(ctx).SetPos(PositionStart, PositionEnd));
+        });
+
+        private RuntimeResult ExecuteAnnotationTargets(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
+            var keys = new List<RuntimeValue>();
+            foreach (var k in MetadataRegistry.Global.Keys)
+            {
+                keys.Add(new StringValue(k).SetContext(ctx).SetPos(PositionStart, PositionEnd));
+            }
+            return new RuntimeResult().Success(new ListValue(keys).SetContext(ctx).SetPos(PositionStart, PositionEnd));
+        });
+
+        private RuntimeResult ExecuteValidate(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
+            var val = c.SymbolTable.Get("__val");
+            var ann = c.SymbolTable.Get("__ann");
+            if (ann is not AnnotationInstanceValue inst)
+                return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, "validate(value, ann) requires an annotation instance as second argument", Context));
+            var err = AnnotationValidator.Validate(inst, val, "value", c);
+            if (err != null)
+                return new RuntimeResult().Success(new StringValue(err.Details).SetContext(ctx).SetPos(PositionStart, PositionEnd));
+            return new RuntimeResult().Success(new NullValue().SetContext(ctx).SetPos(PositionStart, PositionEnd));
+        });
+
+        private RuntimeResult ExecuteValidateTarget(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
+            var val = c.SymbolTable.Get("__val");
+            var keyArg = c.SymbolTable.Get("__key");
+            if (keyArg is not StringValue ks)
+                return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, "validate_target(value, key) requires a string key", Context));
+            var err = AnnotationValidator.ValidateTarget(ks.Value, val, ks.Value, c);
+            if (err != null)
+                return new RuntimeResult().Success(new StringValue(err.Details).SetContext(ctx).SetPos(PositionStart, PositionEnd));
+            return new RuntimeResult().Success(new NullValue().SetContext(ctx).SetPos(PositionStart, PositionEnd));
+        });
+
+        private RuntimeResult ExecuteValidateDeferred(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
+            var errs = AnnotationValidator.DrainAndRunDeferred();
+            var list = new List<RuntimeValue>();
+            foreach (var e in errs)
+            {
+                list.Add(new StringValue(e.Details).SetContext(ctx).SetPos(PositionStart, PositionEnd));
+            }
+            return new RuntimeResult().Success(new ListValue(list).SetContext(ctx).SetPos(PositionStart, PositionEnd));
+        });
+
+        private RuntimeResult ExecuteRunTests(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
+            var results = TestRunner.RunAll(c);
+            int passed = 0, failed = 0, skipped = 0;
+            foreach (var r in results)
+            {
+                Console.WriteLine(r.Format());
+                if (r.Skipped) skipped++;
+                else if (r.Passed) passed++;
+                else failed++;
+            }
+            Console.WriteLine($"\nResults: {passed} passed, {failed} failed, {skipped} skipped");
+
+            var summary = new List<(RuntimeValue, RuntimeValue)>
+            {
+                (new StringValue("passed").SetContext(c).SetPos(PositionStart, PositionEnd),
+                 new IntegerValue(passed).SetContext(c).SetPos(PositionStart, PositionEnd)),
+                (new StringValue("failed").SetContext(c).SetPos(PositionStart, PositionEnd),
+                 new IntegerValue(failed).SetContext(c).SetPos(PositionStart, PositionEnd)),
+                (new StringValue("skipped").SetContext(c).SetPos(PositionStart, PositionEnd),
+                 new IntegerValue(skipped).SetContext(c).SetPos(PositionStart, PositionEnd))
+            };
+            return new RuntimeResult().Success(new MapValue(summary).SetContext(ctx).SetPos(PositionStart, PositionEnd));
+        });
+
+        private RuntimeResult ExecuteCoerceValue(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
+            var val = c.SymbolTable.Get("__val");
+            var keyArg = c.SymbolTable.Get("__key");
+            if (keyArg is not StringValue ks)
+                return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, "coerce_value(value, key) requires a string key", Context));
+            var (newVal, err) = AnnotationValidator.CoerceTarget(ks.Value, val, ks.Value, c);
+            if (err != null)
+                return new RuntimeResult().Failure(err);
+            return new RuntimeResult().Success(newVal.Copy().SetContext(ctx).SetPos(PositionStart, PositionEnd));
+        });
+
+        private static string? ResolveMetadataKey(RuntimeValue target)
+        {
+            if (target is StringValue sv) return sv.Value;
+            if (target is FunctionValue fv) return fv.MetadataKey ?? MetadataTarget.BuildKey(AnnotationTargetKind.Function, null, fv.Name);
+            if (target is ClassTypeValue ctv) return MetadataTarget.BuildKey(AnnotationTargetKind.Class, null, ctv.ClassName);
+            if (target is ClassInstanceValue civ) return MetadataTarget.BuildKey(AnnotationTargetKind.Class, null, civ.Definition.ClassName);
+            if (target is AnnotationTypeValue atv) return MetadataTarget.BuildKey(AnnotationTargetKind.Annotation, null, atv.AnnotationName);
+            if (target is Structs.StructTypeValue stv) return MetadataTarget.BuildKey(AnnotationTargetKind.Struct, null, stv.StructName);
+            if (target is Structs.StructInstanceValue siv) return MetadataTarget.BuildKey(AnnotationTargetKind.Struct, null, siv.Definition.StructName);
+            return null;
+        }
 
         public sealed override RuntimeValue Copy()
         {

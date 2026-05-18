@@ -1,4 +1,5 @@
 using RaLanguage.Lexer.Tokens;
+using RaLanguage.Parser.Nodes.Annotations;
 using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Types;
 
@@ -11,9 +12,11 @@ namespace RaLanguage.Parser.Nodes.Functions
         public List<TypeDescriptor?> ArgTypes { get; }
         public List<bool> IsRefParams { get; }
         public List<AstNode?> ParamDefaults { get; }
+        public List<List<AnnotationApplicationNode>?> ParamAnnotations { get; }
         public bool HasVarArgs { get; }
         public Token? VarArgNameTok { get; }
         public TypeDescriptor? VarArgType { get; }
+        public List<AnnotationApplicationNode>? VarArgAnnotations { get; set; }
         public TypeDescriptor? ReturnType { get; }
         public AstNode? BodyNode { get; }
         public bool ShouldAutoReturn { get; }
@@ -52,7 +55,8 @@ namespace RaLanguage.Parser.Nodes.Functions
             bool isOverride = false,
             bool isAbstract = false,
             bool isStatic = false,
-            List<WhereConstraintNode>? whereConstraints = null
+            List<WhereConstraintNode>? whereConstraints = null,
+            List<List<AnnotationApplicationNode>?>? paramAnnotations = null
         ) : base(AstNodeType.FunctionDefinition)
         {
             VarNameTok = varNameTok;
@@ -60,6 +64,7 @@ namespace RaLanguage.Parser.Nodes.Functions
             ArgTypes = argTypes ?? new List<TypeDescriptor?>();
             IsRefParams = isRefParams ?? new List<bool>();
             ParamDefaults = paramDefaults ?? new List<AstNode?>();
+            ParamAnnotations = paramAnnotations ?? new List<List<AnnotationApplicationNode>?>();
             HasVarArgs = hasVarArgs;
             VarArgNameTok = varArgNameTok;
             VarArgType = varArgType;

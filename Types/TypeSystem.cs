@@ -242,6 +242,15 @@ namespace RaLanguage.Types
 
                 var expected = constraint.ConstraintType.Substitute(bindings);
 
+                if (RaLanguage.Interpreter.Runtime.Annotations.ConstraintAnnotationRegistry.IsConstraintAnnotation(expected.Name))
+                {
+                    if (!RaLanguage.Interpreter.Runtime.Annotations.ConstraintAnnotationRegistry.IsSatisfied(expected.Name, boundType))
+                    {
+                        return $"Generic parameter '{constraint.ParameterName}' is bound to '{boundType}', but constraint '{expected.Name}' is not satisfied";
+                    }
+                    continue;
+                }
+
                 if (!StrictTypeEquals(boundType, expected))
                 {
                     return $"Generic parameter '{constraint.ParameterName}' is bound to '{boundType}', but the 'where' clause requires exactly '{expected}'";

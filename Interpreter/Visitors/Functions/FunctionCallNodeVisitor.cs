@@ -1,6 +1,7 @@
 ﻿using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Functions;
 using RaLanguage.Interpreter.Values.Primitives;
@@ -68,6 +69,15 @@ namespace RaLanguage.Interpreter.Visitors.Functions
 
             if (calleeVal is BaseFunctionValue bfunc)
             {
+                var metaKey = AnnotationInterceptors.ResolveCalleeMetadataKey(calleeVal);
+                var calleeName = AnnotationInterceptors.ResolveCalleeName(calleeVal);
+
+                if (metaKey != null)
+                {
+                    var beforeErr = AnnotationInterceptors.RunBefore(metaKey, calleeName, positionalArgs, context);
+                    if (beforeErr != null) return res.Failure(beforeErr);
+                }
+
                 var resolvedTypeArgs = ResolveTypeArgs(node.GenericTypeArgs, context);
                 RuntimeValue? callResult = null;
                 var fnExecRes = bfunc.ExecuteWithNamedArgs(positionalArgs, namedArgs, resolvedTypeArgs);
@@ -83,6 +93,12 @@ namespace RaLanguage.Interpreter.Visitors.Functions
                 else
                 {
                     callResult = fnReturn;
+                }
+
+                if (metaKey != null)
+                {
+                    var afterErr = AnnotationInterceptors.RunAfter(metaKey, calleeName, callResult, context);
+                    if (afterErr != null) return res.Failure(afterErr);
                 }
 
                 var outVal = callResult.Copy().SetPos(node.PositionStart, node.PositionEnd).SetContext(context);

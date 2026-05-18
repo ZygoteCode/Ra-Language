@@ -67,6 +67,8 @@
         ImportAll,
         ImportSelective,
         ImportAlias,
-        OperatorDefinition
+        OperatorDefinition,
+        AnnotationApplication,
+        AnnotationDefinition
     }
 }

@@ -2,6 +2,7 @@
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Parser.Nodes;
@@ -64,6 +65,14 @@ namespace RaLanguage.Interpreter.Visitors.Enums
                 .SetPos(node.PositionStart, node.PositionEnd);
 
             context.SymbolTable.Set(enumName, enumTypeValue);
+
+            if (node.HasAnnotations)
+            {
+                var target = new MetadataTarget(AnnotationTargetKind.Enum, null, enumName);
+                var annErr = AnnotationProcessor.Process(node.Annotations, target, context, interpreter);
+                if (annErr != null) return res.Failure(annErr);
+            }
+
             return res.Success(enumTypeValue);
         }
 

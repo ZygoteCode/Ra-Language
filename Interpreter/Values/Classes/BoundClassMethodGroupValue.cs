@@ -1,5 +1,6 @@
 ﻿using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Values.Functions;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Parser.Nodes;
@@ -91,6 +92,9 @@ namespace RaLanguage.Interpreter.Values.Classes
                         Context));
                 }
 
+                var retErr = ValidateReturn(selected, bodyRes.FuncReturnValue, bindResult.Value.Context);
+                if (retErr != null) return res.Failure(retErr);
+
                 return res.Success(bodyRes.FuncReturnValue);
             }
 
@@ -107,7 +111,31 @@ namespace RaLanguage.Interpreter.Values.Classes
                     Context));
             }
 
+            var retErr2 = ValidateReturn(selected, retValue, bindResult.Value.Context);
+            if (retErr2 != null) return res.Failure(retErr2);
+
             return res.Success(retValue);
+        }
+
+        private RaLanguage.Errors.Error? ValidateReturn(FunctionDefinitionNode selected, RuntimeValue value, Context execCtx)
+        {
+            var methodName = selected.VarNameTok?.Value?.ToString() ?? Name;
+            var key = MetadataTarget.BuildKey(AnnotationTargetKind.Return, Definition.ClassName, methodName);
+            var verr = AnnotationValidator.ValidateTarget(key, value, $"return of '{Definition.ClassName}.{methodName}'", execCtx);
+            if (verr != null) return verr;
+
+            var methodKey = MetadataTarget.BuildKey(
+                selected.IsConstructor ? AnnotationTargetKind.Constructor : AnnotationTargetKind.Method,
+                Definition.ClassName,
+                methodName);
+            var postErr = ContractEvaluator.CheckPostconditions(methodKey, execCtx, value);
+            if (postErr != null) return postErr;
+
+            var classKey = MetadataTarget.BuildKey(AnnotationTargetKind.Class, null, Definition.ClassName);
+            var invErr = ContractEvaluator.CheckInvariants(classKey, execCtx);
+            if (invErr != null) return invErr;
+
+            return null;
         }
 
         private bool CanBindSignature(
@@ -343,6 +371,39 @@ namespace RaLanguage.Interpreter.Values.Classes
                     .SetPos(PositionStart, PositionEnd);
 
                 execCtx.SymbolTable.Set(method.VarArgNameTok?.Value?.ToString() ?? "params", varArgList);
+            }
+
+            {
+                var owner = $"{Definition.ClassName}.{method.VarNameTok?.Value?.ToString() ?? Name}";
+                var keys = new List<string>(finalAssigned.Keys);
+                foreach (var k in keys)
+                {
+                    var paramKey = MetadataTarget.BuildKey(AnnotationTargetKind.Parameter, owner, k);
+                    var (newVal, verr) = AnnotationValidator.CoerceAndValidate(paramKey, finalAssigned[k], $"parameter '{k}'", execCtx);
+                    if (verr != null) return (RuntimeError)verr;
+                    if (!ReferenceEquals(newVal, finalAssigned[k]))
+                    {
+                        finalAssigned[k] = newVal;
+                        newVal.SetContext(execCtx);
+                        execCtx.SymbolTable.Set(k, newVal);
+                    }
+                }
+
+                if (method.HasVarArgs)
+                {
+                    var varname = method.VarArgNameTok?.Value?.ToString() ?? "params";
+                    var paramKey = MetadataTarget.BuildKey(AnnotationTargetKind.Parameter, owner, varname);
+                    var listVal = execCtx.SymbolTable.Get(varname);
+                    if (listVal != null)
+                    {
+                        var (newVal, verr) = AnnotationValidator.CoerceAndValidate(paramKey, listVal, $"variadic '{varname}'", execCtx);
+                        if (verr != null) return (RuntimeError)verr;
+                        if (!ReferenceEquals(newVal, listVal))
+                        {
+                            execCtx.SymbolTable.Set(varname, newVal);
+                        }
+                    }
+                }
             }
 
             bindResult = resSuccess(execCtx);

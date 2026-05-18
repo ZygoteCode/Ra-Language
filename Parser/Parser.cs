@@ -2,6 +2,7 @@
 using RaLanguage.Lexer;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes;
+using RaLanguage.Parser.Nodes.Annotations;
 using RaLanguage.Parser.Nodes.Classes;
 using RaLanguage.Parser.Nodes.Enums;
 using RaLanguage.Parser.Nodes.Functions;
@@ -224,6 +225,23 @@ namespace RaLanguage.Parser
         }
 
         private ParserResult ParseStatement()
+        {
+            if (_currentToken.Type != TokenType.AT_SIGN)
+                return ParseStatementCore();
+
+            var res = new ParserResult();
+            var (annotations, err) = ParseAnnotationListInline(res);
+            if (err != null) return res.Failure(err);
+
+            var innerRes = ParseStatementCore();
+            var innerNode = res.Register(innerRes);
+            if (res.Error != null) return res;
+
+            AnnotationAttacher.Attach(innerNode, annotations);
+            return innerNode != null ? res.Success(innerNode) : res;
+        }
+
+        private ParserResult ParseStatementCore()
         {
             var res = new ParserResult();
             var positionStart = _currentToken.PositionStart;
@@ -1422,6 +1440,16 @@ namespace RaLanguage.Parser
                     var importDef = res.Register(ParseImportStatement());
                     if (res.Error != null) return res;
                     return res.Success(importDef);
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Annotation:
+                    var annDef = res.Register(ParseAnnotationDefinition(false));
+                    if (res.Error != null) return res;
+                    return res.Success(annDef);
+                case TokenType.AT_SIGN:
+                {
+                    var (annNode, annErr) = ParseSingleAnnotationApplication(res);
+                    if (annErr != null) return res.Failure(annErr);
+                    return res.Success(annNode!);
+                }
             }
 
             return res.Failure(new InvalidSyntaxError(tok.PositionStart, tok.PositionEnd, "Expected int, float, identifier, '+', '-', '(', '[', 'if', 'for', 'while', 'fn'"));
@@ -1884,6 +1912,14 @@ namespace RaLanguage.Parser
                 if (_currentToken.Type == TokenType.RBRACKET)
                     break;
 
+                List<AnnotationApplicationNode>? memberAnnotations = null;
+                if (_currentToken.Type == TokenType.AT_SIGN)
+                {
+                    var (annList, annErr) = ParseAnnotationListInline(res);
+                    if (annErr != null) return res.Failure(annErr);
+                    memberAnnotations = annList;
+                }
+
                 bool memberPublic = false;
                 bool isAbstract = false;
 
@@ -1913,7 +1949,7 @@ namespace RaLanguage.Parser
                     foreach (var d in declNode.Declarations)
                     {
                         var (nameTokh, defaultValueNode, typeNode) = d;
-                        fields.Add(new StructFieldDefinitionNode(
+                        var fieldNode = new StructFieldDefinitionNode(
                             memberPublic,
                             nameTokh,
                             typeNode,
@@ -1922,7 +1958,9 @@ namespace RaLanguage.Parser
                             false,
                             false,
                             declNode.DeclarationType
-                        ));
+                        );
+                        AnnotationAttacher.Attach(fieldNode, memberAnnotations);
+                        fields.Add(fieldNode);
                     }
 
                     if (_currentToken.Type == TokenType.NEWLINE)
@@ -2011,7 +2049,7 @@ namespace RaLanguage.Parser
                     bodyNode = null;
                 }
 
-                methods.Add(new TraitMethodDefinitionNode(
+                var traitMethodNode = new TraitMethodDefinitionNode(
                     methodNameTok,
                     sigNode.ArgNameToks,
                     sigNode.ArgTypes,
@@ -2024,7 +2062,9 @@ namespace RaLanguage.Parser
                     bodyNode,
                     bodyNode != null,
                     isAbstract
-                ));
+                );
+                AnnotationAttacher.Attach(traitMethodNode, memberAnnotations);
+                methods.Add(traitMethodNode);
 
                 while (_currentToken.Type == TokenType.NEWLINE)
                 {
@@ -2119,6 +2159,14 @@ namespace RaLanguage.Parser
                     Advance();
                 }
 
+                List<AnnotationApplicationNode>? memberAnnotations = null;
+                if (_currentToken.Type == TokenType.AT_SIGN)
+                {
+                    var (annList, annErr) = ParseAnnotationListInline(res);
+                    if (annErr != null) return res.Failure(annErr);
+                    memberAnnotations = annList;
+                }
+
                 bool memberPublic = false;
                 if (_currentToken.Matches(Keyword.Pub))
                 {
@@ -2145,7 +2193,7 @@ namespace RaLanguage.Parser
                     foreach (var d in declNode.Declarations)
                     {
                         var (nameTokh, typeNode, _) = d;
-                        fields.Add(new StructFieldDefinitionNode(
+                        var fieldNode = new StructFieldDefinitionNode(
                             memberPublic,
                             nameTokh,
                             d.Item3,
@@ -2154,7 +2202,9 @@ namespace RaLanguage.Parser
                             false,
                             false,
                             declNode.DeclarationType
-                        ));
+                        );
+                        AnnotationAttacher.Attach(fieldNode, memberAnnotations);
+                        fields.Add(fieldNode);
                     }
 
                     if (_currentToken.Type == TokenType.NEWLINE)
@@ -2294,7 +2344,9 @@ namespace RaLanguage.Parser
                     returnType = parsedType;
                 }
 
-                methods.Add(new InterfaceMethodSignatureNode(methodNameTok, argNameToks, argTypes, returnType));
+                var ifaceMethodNode = new InterfaceMethodSignatureNode(methodNameTok, argNameToks, argTypes, returnType);
+                AnnotationAttacher.Attach(ifaceMethodNode, memberAnnotations);
+                methods.Add(ifaceMethodNode);
 
                 if (_currentToken.Type == TokenType.NEWLINE)
                 {
@@ -2393,6 +2445,12 @@ namespace RaLanguage.Parser
                 var variableDecl = res.Register(ParseVariableDeclaration(isPublic: true));
                 if (res.Error != null) return res;
                 return res.Success(variableDecl);
+            }
+            else if (_currentToken.Matches(Keyword.Annotation))
+            {
+                var annDef = res.Register(ParseAnnotationDefinition(true));
+                if (res.Error != null) return res;
+                return res.Success(annDef);
             }
 
             return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'struct' or 'class'."));
@@ -2571,6 +2629,14 @@ namespace RaLanguage.Parser
                     Advance();
                 }
 
+                List<AnnotationApplicationNode>? memberAnnotations = null;
+                if (_currentToken.Type == TokenType.AT_SIGN)
+                {
+                    var (annList, annErr) = ParseAnnotationListInline(res);
+                    if (annErr != null) return res.Failure(annErr);
+                    memberAnnotations = annList;
+                }
+
                 bool isMemberPublic = false,
                     isMemberOverride = false,
                     isMemberAbstract = false,
@@ -2633,7 +2699,7 @@ namespace RaLanguage.Parser
                     var declNode = (VariableDeclarationNode)declRes.Node!;
                     foreach (var d in declNode.Declarations)
                     {
-                        fields.Add(new StructFieldDefinitionNode(
+                        var fieldNode = new StructFieldDefinitionNode(
                             isMemberPublic,
                             d.Item1,
                             d.Item3,
@@ -2642,7 +2708,9 @@ namespace RaLanguage.Parser
                             isMemberAbstract,
                             isMemberOverride,
                             declNode.DeclarationType
-                        ));
+                        );
+                        AnnotationAttacher.Attach(fieldNode, memberAnnotations);
+                        fields.Add(fieldNode);
                     }
 
                     if (_currentToken.Type == TokenType.NEWLINE)
@@ -2665,7 +2733,9 @@ namespace RaLanguage.Parser
                     var fnRes = ParseFunctionDefinition(ownerTypeName: className, isPublic: isMemberPublic, isOverride: isMemberOverride, isAbstract: isMemberAbstract, isStatic: isMemberStatic, _currentToken.Type == TokenType.IDENTIFIER && _currentToken.Value.ToString() == className);
                     if (fnRes.Error != null) return fnRes;
 
-                    methods.Add((FunctionDefinitionNode) fnRes.Node!);
+                    var methodNode = (FunctionDefinitionNode)fnRes.Node!;
+                    AnnotationAttacher.Attach(methodNode, memberAnnotations);
+                    methods.Add(methodNode);
                     if (_currentToken.Type == TokenType.NEWLINE)
                     {
                         res.RegisterAdvancement();
@@ -2680,7 +2750,9 @@ namespace RaLanguage.Parser
                     var opRes = ParseOperatorDefinition(isPublic: isMemberPublic, isOverride: isMemberOverride, isStatic: isMemberStatic, ownerTypeName: className);
                     if (opRes.Error != null) return opRes;
 
-                    operators.Add((RaLanguage.Parser.Nodes.Classes.OperatorDefinitionNode) opRes.Node!);
+                    var opNode = (RaLanguage.Parser.Nodes.Classes.OperatorDefinitionNode)opRes.Node!;
+                    AnnotationAttacher.Attach(opNode, memberAnnotations);
+                    operators.Add(opNode);
                     if (_currentToken.Type == TokenType.NEWLINE)
                     {
                         res.RegisterAdvancement();
@@ -4297,6 +4369,8 @@ namespace RaLanguage.Parser
             var argTypes = new List<TypeDescriptor?>();
             var isRefParams = new List<bool>();
             var paramDefaults = new List<AstNode?>();
+            var paramAnnotations = new List<List<AnnotationApplicationNode>?>();
+            List<AnnotationApplicationNode>? varArgAnnotations = null;
             bool hasVarArgs = false;
             Token? varArgNameTok = null;
             TypeDescriptor? varArgType = null;
@@ -4308,10 +4382,24 @@ namespace RaLanguage.Parser
                 goto otherRparen;
             }
 
-            if (_currentToken.Type == TokenType.IDENTIFIER || _currentToken.Type == TokenType.SPREAD || _currentToken.Matches(Keyword.Ref))
+            if (_currentToken.Type == TokenType.IDENTIFIER || _currentToken.Type == TokenType.SPREAD || _currentToken.Matches(Keyword.Ref) || _currentToken.Type == TokenType.AT_SIGN)
             {
                 while (true)
                 {
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    List<AnnotationApplicationNode>? pendingParamAnnotations = null;
+                    if (_currentToken.Type == TokenType.AT_SIGN)
+                    {
+                        var (annList, annErr) = ParseAnnotationListInline(res);
+                        if (annErr != null) return res.Failure(annErr);
+                        pendingParamAnnotations = annList;
+                    }
+
                     if (_currentToken.Type == TokenType.SPREAD)
                     {
                         hasVarArgs = true;
@@ -4358,6 +4446,7 @@ namespace RaLanguage.Parser
                         if (_currentToken.Type != TokenType.RPAREN)
                             return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Variadic parameter must be the last parameter"));
 
+                        varArgAnnotations = pendingParamAnnotations;
                         break;
                     }
                     else
@@ -4393,6 +4482,7 @@ namespace RaLanguage.Parser
 
                         var paramTok = _currentToken;
                         argNameToks.Add(paramTok);
+                        paramAnnotations.Add(pendingParamAnnotations);
                         res.RegisterAdvancement();
                         Advance();
 
@@ -4579,8 +4669,9 @@ namespace RaLanguage.Parser
                     isOverride,
                     isAbstract,
                     isStatic,
-                    whereConstraints
-                ));
+                    whereConstraints,
+                    paramAnnotations
+                ) { VarArgAnnotations = varArgAnnotations });
             }
 
             while (_currentToken.Type == TokenType.NEWLINE)
@@ -4609,8 +4700,9 @@ namespace RaLanguage.Parser
                     isOverride,
                     isAbstract,
                     isStatic,
-                    whereConstraints
-                ));
+                    whereConstraints,
+                    paramAnnotations
+                ) { VarArgAnnotations = varArgAnnotations });
             }
 
             res.RegisterAdvancement();
@@ -4643,8 +4735,9 @@ namespace RaLanguage.Parser
                 isOverride,
                 isAbstract,
                 isStatic,
-                whereConstraints
-            ));
+                whereConstraints,
+                paramAnnotations
+            ) { VarArgAnnotations = varArgAnnotations });
             }
             finally
             {
@@ -4724,6 +4817,14 @@ namespace RaLanguage.Parser
                 if (_currentToken.Type == TokenType.RBRACKET)
                     break;
 
+                List<AnnotationApplicationNode>? memberAnnotations = null;
+                if (_currentToken.Type == TokenType.AT_SIGN)
+                {
+                    var (annList, annErr) = ParseAnnotationListInline(res);
+                    if (annErr != null) return res.Failure(annErr);
+                    memberAnnotations = annList;
+                }
+
                 bool memberPublic = false;
 
                 while (_currentToken.Type == TokenType.NEWLINE)
@@ -4756,7 +4857,7 @@ namespace RaLanguage.Parser
                     var declNode = (VariableDeclarationNode)declRes.Node!;
                     foreach (var d in declNode.Declarations)
                     {
-                        fields.Add(new StructFieldDefinitionNode(
+                        var fieldNode = new StructFieldDefinitionNode(
                             declNode.IsPublic,
                             d.Item1,
                             d.Item3,
@@ -4765,7 +4866,9 @@ namespace RaLanguage.Parser
                             false,
                             false,
                             declNode.DeclarationType
-                        ));
+                        );
+                        AnnotationAttacher.Attach(fieldNode, memberAnnotations);
+                        fields.Add(fieldNode);
                     }
 
                     if (_currentToken.Type == TokenType.NEWLINE)
@@ -4788,7 +4891,9 @@ namespace RaLanguage.Parser
                     var fnRes = ParseFunctionDefinition(ownerTypeName: structName, isPublic: memberPublic, isDeclaringConstructor: _currentToken.Type == TokenType.IDENTIFIER && _currentToken.Value.ToString() == structName);
                     if (fnRes.Error != null) return fnRes;
 
-                    methods.Add(new StructMethodDefinitionNodeFromFunctionDefinition((FunctionDefinitionNode)fnRes.Node!));
+                    var methodNode = (FunctionDefinitionNode)fnRes.Node!;
+                    AnnotationAttacher.Attach(methodNode, memberAnnotations);
+                    methods.Add(new StructMethodDefinitionNodeFromFunctionDefinition(methodNode));
                     if (_currentToken.Type == TokenType.NEWLINE)
                     {
                         res.RegisterAdvancement();
@@ -4803,7 +4908,9 @@ namespace RaLanguage.Parser
                     var opRes = ParseOperatorDefinition(isPublic: memberPublic, ownerTypeName: null);
                     if (opRes.Error != null) return opRes;
 
-                    operators.Add((OperatorDefinitionNode) opRes.Node!);
+                    var opNode = (OperatorDefinitionNode)opRes.Node!;
+                    AnnotationAttacher.Attach(opNode, memberAnnotations);
+                    operators.Add(opNode);
                     if (_currentToken.Type == TokenType.NEWLINE)
                     {
                         res.RegisterAdvancement();
@@ -5090,12 +5197,311 @@ namespace RaLanguage.Parser
                 res.RegisterAdvancement();
                 Advance();
             }
-            
+
             if (_currentToken.Type == TokenType.NEWLINE)
             {
                 res.RegisterAdvancement();
                 Advance();
             }
+        }
+
+        private (List<AnnotationApplicationNode>? List, Errors.Error? Error) ParseAnnotationListInline(ParserResult outerRes)
+        {
+            if (_currentToken.Type != TokenType.AT_SIGN)
+                return (null, null);
+
+            var list = new List<AnnotationApplicationNode>();
+
+            while (_currentToken.Type == TokenType.AT_SIGN)
+            {
+                var (node, err) = ParseSingleAnnotationApplication(outerRes);
+                if (err != null) return (null, err);
+                list.Add(node!);
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    outerRes.RegisterAdvancement();
+                    Advance();
+                }
+            }
+
+            return (list, null);
+        }
+
+        private (AnnotationApplicationNode? Node, Errors.Error? Error) ParseSingleAnnotationApplication(ParserResult outerRes)
+        {
+            if (_currentToken.Type != TokenType.AT_SIGN)
+                return (null, new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '@'"));
+
+            var startPos = _currentToken.PositionStart;
+            outerRes.RegisterAdvancement();
+            Advance();
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                outerRes.RegisterAdvancement();
+                Advance();
+            }
+
+            if (_currentToken.Type != TokenType.IDENTIFIER)
+                return (null, new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected annotation name after '@'"));
+
+            var nameTok = _currentToken;
+            Position endPos = nameTok.PositionEnd;
+            outerRes.RegisterAdvancement();
+            Advance();
+
+            var positional = new List<AstNode>();
+            var named = new List<(Token, AstNode)>();
+
+            if (_currentToken.Type == TokenType.LPAREN)
+            {
+                outerRes.RegisterAdvancement();
+                Advance();
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    outerRes.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type != TokenType.RPAREN)
+                {
+                    while (true)
+                    {
+                        while (_currentToken.Type == TokenType.NEWLINE)
+                        {
+                            outerRes.RegisterAdvancement();
+                            Advance();
+                        }
+
+                        Token? namedKey = null;
+                        if (_currentToken.Type == TokenType.IDENTIFIER &&
+                            _tokenIndex + 1 < _tokens.Count &&
+                            _tokens[_tokenIndex + 1].Type == TokenType.EQ)
+                        {
+                            namedKey = _currentToken;
+                            outerRes.RegisterAdvancement();
+                            Advance();
+                            outerRes.RegisterAdvancement();
+                            Advance();
+
+                            while (_currentToken.Type == TokenType.NEWLINE)
+                            {
+                                outerRes.RegisterAdvancement();
+                                Advance();
+                            }
+                        }
+
+                        var exprRes = ParseExpression();
+                        var exprNode = outerRes.Register(exprRes);
+                        if (outerRes.Error != null) return (null, outerRes.Error);
+
+                        if (namedKey != null) named.Add((namedKey.Value, exprNode));
+                        else positional.Add(exprNode);
+
+                        while (_currentToken.Type == TokenType.NEWLINE)
+                        {
+                            outerRes.RegisterAdvancement();
+                            Advance();
+                        }
+
+                        if (_currentToken.Type == TokenType.COMMA)
+                        {
+                            outerRes.RegisterAdvancement();
+                            Advance();
+                            while (_currentToken.Type == TokenType.NEWLINE)
+                            {
+                                outerRes.RegisterAdvancement();
+                                Advance();
+                            }
+                            if (_currentToken.Type == TokenType.RPAREN) break;
+                            continue;
+                        }
+
+                        break;
+                    }
+                }
+
+                if (_currentToken.Type != TokenType.RPAREN)
+                    return (null, new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ')' or ',' in annotation arguments"));
+
+                endPos = _currentToken.PositionEnd;
+                outerRes.RegisterAdvancement();
+                Advance();
+            }
+
+            return (new AnnotationApplicationNode(nameTok, positional, named, startPos, endPos), null);
+        }
+
+        private ParserResult ParseAnnotationDefinition(bool isPublic)
+        {
+            var res = new ParserResult();
+
+            if (!_currentToken.Matches(Keyword.Annotation))
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'annotation'"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            if (_currentToken.Type != TokenType.IDENTIFIER)
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected annotation name"));
+
+            var nameTok = _currentToken;
+            res.RegisterAdvancement();
+            Advance();
+
+            var parameters = new List<AnnotationParameterNode>();
+
+            if (_currentToken.Type == TokenType.LPAREN)
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type != TokenType.RPAREN)
+                {
+                    bool sawDefault = false;
+                    while (true)
+                    {
+                        while (_currentToken.Type == TokenType.NEWLINE)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                        }
+
+                        bool isVarArgs = false;
+                        if (_currentToken.Type == TokenType.SPREAD)
+                        {
+                            isVarArgs = true;
+                            res.RegisterAdvancement();
+                            Advance();
+                        }
+
+                        if (_currentToken.Type != TokenType.IDENTIFIER)
+                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected parameter name"));
+
+                        var paramName = _currentToken;
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        TypeDescriptor? paramType = null;
+                        if (_currentToken.Type == TokenType.COLON)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+
+                            while (_currentToken.Type == TokenType.NEWLINE)
+                            {
+                                res.RegisterAdvancement();
+                                Advance();
+                            }
+
+                            paramType = ParseType(res);
+                            if (paramType == null)
+                                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':' in annotation parameter"));
+                        }
+
+                        AstNode? defaultValue = null;
+                        if (_currentToken.Type == TokenType.EQ)
+                        {
+                            sawDefault = true;
+                            res.RegisterAdvancement();
+                            Advance();
+
+                            while (_currentToken.Type == TokenType.NEWLINE)
+                            {
+                                res.RegisterAdvancement();
+                                Advance();
+                            }
+
+                            defaultValue = res.Register(ParseExpression());
+                            if (res.Error != null) return res;
+                        }
+                        else if (sawDefault && !isVarArgs)
+                        {
+                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Parameters without default cannot appear after parameters with default"));
+                        }
+
+                        parameters.Add(new AnnotationParameterNode(paramName, paramType, defaultValue, isVarArgs));
+
+                        if (isVarArgs) break;
+
+                        while (_currentToken.Type == TokenType.NEWLINE)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                        }
+
+                        if (_currentToken.Type == TokenType.COMMA)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                            while (_currentToken.Type == TokenType.NEWLINE)
+                            {
+                                res.RegisterAdvancement();
+                                Advance();
+                            }
+                            if (_currentToken.Type == TokenType.RPAREN) break;
+                            continue;
+                        }
+
+                        break;
+                    }
+                }
+
+                if (_currentToken.Type != TokenType.RPAREN)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ')' after annotation parameters"));
+
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            if (_currentToken.Type == TokenType.LBRACKET)
+            {
+                res.RegisterAdvancement();
+                Advance();
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+                if (_currentToken.Type != TokenType.RBRACKET)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Annotation body must be empty"));
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            var defNode = new AnnotationDefinitionNode(nameTok, isPublic, parameters);
+            defNode.PositionEnd = _currentToken.PositionEnd;
+            return res.Success(defNode);
+        }
+    }
+
+    internal static class AnnotationAttacher
+    {
+        public static void Attach(AstNode? target, List<AnnotationApplicationNode>? annotations)
+        {
+            if (target == null || annotations == null || annotations.Count == 0) return;
+            target.Annotations ??= new List<AnnotationApplicationNode>();
+            target.Annotations.AddRange(annotations);
         }
     }
 }

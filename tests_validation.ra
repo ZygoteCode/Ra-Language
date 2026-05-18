@@ -1,0 +1,120 @@
+// ============ Ra Language Validation Suite ============
+
+fn must_fail(label: string, callback): string {
+    try {
+        callback();
+        ret label + " UNEXPECTED OK";
+    } catch (e) {
+        ret label + " => caught: " + e;
+    }
+}
+
+print("=== 1. @min / @max happy path ===");
+fn pay(@min(0) @max(1000) amount: int): int { ret amount; }
+print(pay(500));
+
+print("=== 2. @min violation ===");
+fn call_neg() => pay(-5);
+print(must_fail("@min", call_neg));
+
+print("=== 3. @max violation ===");
+fn call_over() => pay(9999);
+print(must_fail("@max", call_over));
+
+print("=== 4. @range ===");
+fn age_set(@range(min = 0, max = 130) age: int): int { ret age; }
+print(age_set(25));
+fn call_age_over() => age_set(200);
+print(must_fail("@range", call_age_over));
+
+print("=== 5. @not_empty ===");
+fn greet(@not_empty name: string): string { ret "hello, " + name; }
+print(greet("ra"));
+fn call_empty() => greet("");
+print(must_fail("@not_empty", call_empty));
+
+print("=== 6. @length ===");
+fn login(@length(min = 3, max = 12) user: string): string { ret user; }
+print(login("ra-lang"));
+fn call_short() => login("ab");
+fn call_long() => login("toomuchlongname");
+print(must_fail("@length short", call_short));
+print(must_fail("@length long", call_long));
+
+print("=== 7. @pattern ===");
+fn email(@pattern(regex = "^[a-z]+@[a-z]+\\.[a-z]+$") addr: string): string { ret addr; }
+print(email("hi@ra.dev"));
+fn call_bad_email() => email("BAD");
+print(must_fail("@pattern", call_bad_email));
+
+print("=== 8. @positive / @non_negative ===");
+fn sqrt_in(@non_negative v: int): int { ret v; }
+print(sqrt_in(0));
+fn call_neg2() => sqrt_in(-1);
+print(must_fail("@non_negative", call_neg2));
+
+print("=== 9. @one_of ===");
+fn pick(@one_of("red", "green", "blue") color: string): string { ret color; }
+print(pick("red"));
+fn call_purple() => pick("purple");
+print(must_fail("@one_of", call_purple));
+
+print("=== 10. Variable declaration validation ===");
+@min(0) @max(100)
+const SCORE = 87;
+print(SCORE);
+fn def_bad_var(): null {
+    @min(0) @max(100)
+    const BAD = 999;
+    ret null;
+}
+print(must_fail("var validation", def_bad_var));
+
+print("=== 11. Class field on construct + assignment ===");
+pub class Account {
+    @min(0)
+    pub var balance: int;
+    pub Account(b: int) { self.balance = b; }
+}
+var acc = Account(100);
+print(acc.balance);
+fn neg_set() => acc.balance = -50;
+print(must_fail("field @min on assign", neg_set));
+
+fn bad_ctor() => Account(-999);
+print(must_fail("field @min on construct", bad_ctor));
+
+print("=== 12. @validator + custom fn ===");
+fn must_be_even(value, ann): bool { ret value % 2 == 0; }
+
+@target("parameter", "variable")
+@validator(check = "must_be_even", message = "{subject}: value {value} must be even")
+annotation Even() {}
+
+fn buy(@Even count: int): int { ret count; }
+print(buy(4));
+fn call_odd() => buy(7);
+print(must_fail("@Even", call_odd));
+
+print("=== 13. @predicate built-in ===");
+fn is_multiple_of_3(value, ann): bool {
+    ret value % 3 == 0;
+}
+fn use_mult3(@predicate(check = "is_multiple_of_3", message = "{value} not divisible by 3") n: int): int { ret n; }
+print(use_mult3(9));
+fn call_not_mult3() => use_mult3(10);
+print(must_fail("@predicate", call_not_mult3));
+
+print("=== 14. Manual validate_target() ===");
+print(validate_target(500, "param:pay.amount"));   // null (ok)
+print(validate_target(-3, "param:pay.amount"));    // string error
+
+print("=== 15. Composition: @composes(not_null, not_empty) ===");
+@composes(not_null, not_empty)
+annotation Required() {}
+fn submit(@Required title: string): string { ret title; }
+print(submit("hello"));
+fn call_empty_submit() => submit("");
+print(must_fail("@Required empty", call_empty_submit));
+
+print("=== ALL VALIDATION TESTS PASSED ===");

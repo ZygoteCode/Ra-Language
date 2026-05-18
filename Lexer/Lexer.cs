@@ -164,6 +164,7 @@ namespace RaLanguage.Lexer
                     case '}': tokens.Add(new Token(TokenType.RBRACKET, null, GetPos())); Advance(c); break;
                     case '~': tokens.Add(new Token(TokenType.BITWISE_NOT, null, GetPos())); Advance(c); break;
                     case ',': tokens.Add(new Token(TokenType.COMMA, null, GetPos())); Advance(c); break;
+                    case '@': tokens.Add(new Token(TokenType.AT_SIGN, null, GetPos())); Advance(c); break;
 
                     default:
                         if (c < 128 && s_isDigit[c])
@@ -871,7 +872,8 @@ namespace RaLanguage.Lexer
                 { "from", Keyword.From },
                 { "operator", Keyword.Operator },
                 { "ref", Keyword.Ref },
-                { "where", Keyword.Where }
+                { "where", Keyword.Where },
+                { "annotation", Keyword.Annotation }
             };
         }
 

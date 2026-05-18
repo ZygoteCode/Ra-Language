@@ -1,6 +1,7 @@
 ﻿using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Values.Interfaces;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Parser.Nodes.Interfaces;
@@ -74,6 +75,29 @@ namespace RaLanguage.Interpreter.Visitors.Interfaces
                 declaredType: new TypeDescriptor(name),
                 isStaticallyTyped: true,
                 isPublic: node.IsPublic);
+
+            if (node.HasAnnotations)
+            {
+                var target = new MetadataTarget(AnnotationTargetKind.Interface, null, name);
+                var annErr = AnnotationProcessor.Process(node.Annotations, target, context, interpreter);
+                if (annErr != null) return res.Failure(annErr);
+            }
+
+            foreach (var method in node.Methods)
+            {
+                if (!method.HasAnnotations) continue;
+                var t = new MetadataTarget(AnnotationTargetKind.Method, name, method.NameTok.Value?.ToString() ?? "");
+                var annErr = AnnotationProcessor.Process(method.Annotations, t, context, interpreter);
+                if (annErr != null) return res.Failure(annErr);
+            }
+
+            foreach (var field in node.Fields)
+            {
+                if (!field.HasAnnotations) continue;
+                var t = new MetadataTarget(AnnotationTargetKind.Field, name, field.NameTok.Value?.ToString() ?? "");
+                var annErr = AnnotationProcessor.Process(field.Annotations, t, context, interpreter);
+                if (annErr != null) return res.Failure(annErr);
+            }
 
             return res.Success(iface);
         }

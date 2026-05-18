@@ -1,6 +1,7 @@
 ﻿using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Values.Structs;
 using RaLanguage.Parser.Nodes.Structs;
 using RaLanguage.Parser.Nodes.Variables;
@@ -49,6 +50,29 @@ namespace RaLanguage.Interpreter.Visitors.Structs
 
             ValidateToStringMethod(node, context, ref res);
             if (res.ShouldReturn()) return res;
+
+            var structTarget = new MetadataTarget(AnnotationTargetKind.Struct, null, name);
+            if (node.HasAnnotations)
+            {
+                var annErr = AnnotationProcessor.Process(node.Annotations, structTarget, context, interpreter);
+                if (annErr != null) return res.Failure(annErr);
+            }
+
+            foreach (var field in node.Fields)
+            {
+                if (!field.HasAnnotations) continue;
+                var fieldTarget = new MetadataTarget(AnnotationTargetKind.Field, name, field.NameTok.Value?.ToString() ?? "");
+                var annErr = AnnotationProcessor.Process(field.Annotations, fieldTarget, context, interpreter);
+                if (annErr != null) return res.Failure(annErr);
+            }
+
+            foreach (var method in node.Methods)
+            {
+                if (!method.HasAnnotations) continue;
+                var methodTarget = new MetadataTarget(AnnotationTargetKind.Method, name, method.NameTok.Value?.ToString() ?? "");
+                var annErr = AnnotationProcessor.Process(method.Annotations, methodTarget, context, interpreter);
+                if (annErr != null) return res.Failure(annErr);
+            }
 
             return res.Success(value);
         }

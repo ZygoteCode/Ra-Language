@@ -1,6 +1,7 @@
 ﻿using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Classes;
 using RaLanguage.Interpreter.Values.Primitives;
@@ -69,6 +70,11 @@ namespace RaLanguage.Interpreter.Visitors.Members
                         if (currentValue.Type != RuntimeValueType.Null && !currentValue.IsCopy)
                             return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{memberName}' is a let field and was already assigned", context));
                     }
+
+                    var fieldKey = MetadataTarget.BuildKey(AnnotationTargetKind.Field, instance.Definition.ClassName, memberName);
+                    var (coerced, verr) = AnnotationValidator.CoerceAndValidate(fieldKey, value, $"field '{instance.Definition.ClassName}.{memberName}'", context);
+                    if (verr != null) return res.Failure(verr);
+                    value = coerced;
 
                     instance.SetMember(memberName, value);
                     return res.Success(value.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));

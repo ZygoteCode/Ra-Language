@@ -1,6 +1,7 @@
 ﻿using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer.Tokens;
@@ -80,6 +81,22 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                     value.VariableDeclarationType = VariableDeclarationType.VARIABLE;
 
                 context.SymbolTable.Set(varName, value, isLetFlag, declaredType, isStaticallyTyped, node.IsPublic);
+
+                if (node.HasAnnotations)
+                {
+                    var target = new MetadataTarget(AnnotationTargetKind.Variable, null, varName);
+                    var annErr = AnnotationProcessor.Process(node.Annotations, target, context, interpreter);
+                    if (annErr != null) return res.Failure(annErr);
+
+                    var (coerced, cverr) = AnnotationValidator.CoerceAndValidate(target.Key, value, $"variable '{varName}'", context);
+                    if (cverr != null) return res.Failure(cverr);
+                    if (!ReferenceEquals(coerced, value))
+                    {
+                        value = coerced;
+                        context.SymbolTable.Set(varName, value, isLetFlag, declaredType, isStaticallyTyped, node.IsPublic);
+                    }
+                }
+
                 values.Add(value);
             }
 

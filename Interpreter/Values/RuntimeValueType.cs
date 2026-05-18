@@ -35,6 +35,8 @@
         TraitType,
         ModuleWrapper,
         Reference,
-        GenericTypeBinding
+        GenericTypeBinding,
+        AnnotationType,
+        AnnotationInstance
     }
 }

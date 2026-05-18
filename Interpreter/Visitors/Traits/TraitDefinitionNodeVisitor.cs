@@ -1,6 +1,7 @@
 ﻿using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Values.Traits;
 using RaLanguage.Parser.Nodes.Traits;
 using RaLanguage.Parser.Nodes.Variables;
@@ -55,6 +56,29 @@ namespace RaLanguage.Interpreter.Visitors.Traits
                 declaredType: new TypeDescriptor(traitName),
                 isStaticallyTyped: true,
                 isPublic: node.IsPublic);
+
+            if (node.HasAnnotations)
+            {
+                var target = new MetadataTarget(AnnotationTargetKind.Trait, null, traitName);
+                var annErr = AnnotationProcessor.Process(node.Annotations, target, context, interpreter);
+                if (annErr != null) return res.Failure(annErr);
+            }
+
+            foreach (var method in node.Methods)
+            {
+                if (!method.HasAnnotations) continue;
+                var t = new MetadataTarget(AnnotationTargetKind.Method, traitName, method.NameTok?.Value?.ToString() ?? "");
+                var annErr = AnnotationProcessor.Process(method.Annotations, t, context, interpreter);
+                if (annErr != null) return res.Failure(annErr);
+            }
+
+            foreach (var field in node.Fields)
+            {
+                if (!field.HasAnnotations) continue;
+                var t = new MetadataTarget(AnnotationTargetKind.Field, traitName, field.NameTok.Value?.ToString() ?? "");
+                var annErr = AnnotationProcessor.Process(field.Annotations, t, context, interpreter);
+                if (annErr != null) return res.Failure(annErr);
+            }
 
             return res.Success(traitValue);
         }

@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors.Types;
+using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Values.Functions;
 using RaLanguage.Parser.Nodes.Functions;
 using RaLanguage.Types;
@@ -23,6 +24,9 @@ namespace RaLanguage.Interpreter.Values.Primitives
             MethodNode = methodNode;
             IsStatic = isStatic;
         }
+
+        protected override string? ParameterOwnerForMetadata
+            => $"{Definition.ClassName}.{MethodNode.VarNameTok?.Value?.ToString() ?? "<method>"}";
 
         public override RuntimeResult Execute(List<RuntimeValue> args)
             => ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
@@ -154,6 +158,9 @@ namespace RaLanguage.Interpreter.Values.Primitives
                     return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Return type mismatch in method '{Name}': expected '{instantiatedReturnType}', got '{bodyRes.FuncReturnValue.Type}'", Context));
                 }
 
+                var retErr = ValidateReturn(bodyRes.FuncReturnValue, bindRes.execCtx!);
+                if (retErr != null) return res.Failure(retErr);
+
                 return res.Success(bodyRes.FuncReturnValue);
             }
 
@@ -167,7 +174,31 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Return type mismatch in method '{Name}': expected '{instantiatedReturnType}', got '{retValue.Type}'", Context));
             }
 
+            var retErr2 = ValidateReturn(retValue, bindRes.execCtx!);
+            if (retErr2 != null) return res.Failure(retErr2);
+
             return res.Success(retValue);
+        }
+
+        private RaLanguage.Errors.Error? ValidateReturn(RuntimeValue value, RaLanguage.Interpreter.Runtime.Context execCtx)
+        {
+            var methodName = MethodNode.VarNameTok?.Value?.ToString() ?? Name;
+            var key = MetadataTarget.BuildKey(AnnotationTargetKind.Return, Definition.ClassName, methodName);
+            var verr = AnnotationValidator.ValidateTarget(key, value, $"return of '{Definition.ClassName}.{Name}'", execCtx);
+            if (verr != null) return verr;
+
+            var methodKey = MetadataTarget.BuildKey(
+                MethodNode.IsConstructor ? AnnotationTargetKind.Constructor : AnnotationTargetKind.Method,
+                Definition.ClassName,
+                methodName);
+            var postErr = ContractEvaluator.CheckPostconditions(methodKey, execCtx, value);
+            if (postErr != null) return postErr;
+
+            var classKey = MetadataTarget.BuildKey(AnnotationTargetKind.Class, null, Definition.ClassName);
+            var invErr = ContractEvaluator.CheckInvariants(classKey, execCtx);
+            if (invErr != null) return invErr;
+
+            return null;
         }
 
         public override RuntimeValue Copy()
