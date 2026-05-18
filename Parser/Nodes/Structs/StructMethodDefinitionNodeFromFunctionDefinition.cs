@@ -22,6 +22,8 @@ namespace RaLanguage.Parser.Nodes.Structs
             )
         {
             Annotations = fn.Annotations;
+            IsAsync = fn.IsAsync;
+            IsAsyncStream = fn.IsAsyncStream;
         }
     }
 }

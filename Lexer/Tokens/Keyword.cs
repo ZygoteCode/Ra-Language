@@ -64,5 +64,9 @@
         Ref,
         Where,
         Annotation,
+        Async,
+        Await,
+        Spawn,
+        Emit,
     }
 }

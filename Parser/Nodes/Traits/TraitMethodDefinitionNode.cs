@@ -18,6 +18,8 @@ namespace RaLanguage.Parser.Nodes.Traits
         public AstNode? BodyNode { get; }
         public bool ShouldAutoReturn { get; }
         public bool IsAbstract { get; }
+        public bool IsAsync { get; set; }
+        public bool IsAsyncStream { get; set; }
 
         public Token? NameTokAlias => NameTok;
         public bool HasBody => BodyNode != null;

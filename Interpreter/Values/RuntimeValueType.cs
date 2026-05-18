@@ -37,6 +37,9 @@
         Reference,
         GenericTypeBinding,
         AnnotationType,
-        AnnotationInstance
+        AnnotationInstance,
+        Task,
+        Channel,
+        Stream
     }
 }

@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Lexer;
+using RaLanguage.Interpreter.Runtime.Async;
 
 namespace RaLanguage.Interpreter.Runtime
 {
@@ -13,6 +14,7 @@ namespace RaLanguage.Interpreter.Runtime
         public ExtensionRegistry Extensions { get; }
         public bool AreCallsBlocked { get; set; }
         public bool IsInConstructor { get; set; }
+        public AsyncContext? AsyncCtx { get; set; }
 
         public Context(string displayName, Context? parent = null, Position? parentEntryPos = null, ExtensionRegistry? extensions = null)
         {
@@ -22,6 +24,7 @@ namespace RaLanguage.Interpreter.Runtime
             SymbolTable = new SymbolTable(parent?.SymbolTable);
             Extensions = extensions ?? parent?.Extensions ?? new ExtensionRegistry();
             IsInConstructor = false;
+            AsyncCtx = parent?.AsyncCtx;
         }
 
         public Context Copy()
@@ -29,6 +32,7 @@ namespace RaLanguage.Interpreter.Runtime
             var newCtx = new Context(DisplayName, this, ParentEntryPos, Extensions);
             newCtx.SymbolTable = new SymbolTable(newCtx.Parent?.SymbolTable);
             newCtx.IsInConstructor = IsInConstructor;
+            newCtx.AsyncCtx = AsyncCtx;
             return newCtx;
         }
 

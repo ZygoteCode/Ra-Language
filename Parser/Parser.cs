@@ -262,6 +262,12 @@ namespace RaLanguage.Parser
                         var expr2 = res.Register(ParseExpression());
                         if (res.Error != null) Reverse(res.ToReverseCount);
                         return res.Success(new YieldNode(expr2, positionStart, _currentToken.PositionStart));
+                    case Keyword.Emit:
+                        res.RegisterAdvancement();
+                        Advance();
+                        var emitExpr = res.Register(ParseExpression());
+                        if (res.Error != null) return res;
+                        return res.Success(new RaLanguage.Parser.Nodes.Async.EmitNode(emitExpr, positionStart, _currentToken.PositionStart));
                     case Keyword.Continue:
                         res.RegisterAdvancement();
                         Advance();
@@ -720,6 +726,24 @@ namespace RaLanguage.Parser
                 }
 
                 return res.Success(new TypeofNode(expr));
+            }
+            else if (_currentToken.Matches(Keyword.Await))
+            {
+                var awaitStart = _currentToken.PositionStart;
+                res.RegisterAdvancement();
+                Advance();
+                var inner = res.Register(ParseExpression());
+                if (res.Error != null) return res;
+                return res.Success(new RaLanguage.Parser.Nodes.Async.AwaitNode(inner, awaitStart, _currentToken.PositionStart));
+            }
+            else if (_currentToken.Matches(Keyword.Spawn))
+            {
+                var spawnStart = _currentToken.PositionStart;
+                res.RegisterAdvancement();
+                Advance();
+                var inner = res.Register(ParseExpression());
+                if (res.Error != null) return res;
+                return res.Success(new RaLanguage.Parser.Nodes.Async.SpawnNode(inner, spawnStart, _currentToken.PositionStart));
             }
             else if (_currentToken.Matches(Keyword.NameOf))
             {
@@ -1392,6 +1416,10 @@ namespace RaLanguage.Parser
                     var funcDef = res.Register(ParseFunctionDefinition());
                     if (res.Error != null) return res;
                     return res.Success(funcDef);
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Async:
+                    var asyncDef = res.Register(ParseAsyncFunctionDefinition());
+                    if (res.Error != null) return res;
+                    return res.Success(asyncDef);
                 case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Do:
                     var doWhileExpr = res.Register(ParseDoWhileExpression());
                     if (res.Error != null) return res;
@@ -2011,6 +2039,34 @@ namespace RaLanguage.Parser
                     }
                 }
 
+                bool traitMemberAsync = false;
+                bool traitMemberAsyncStream = false;
+                if (_currentToken.Matches(Keyword.Async))
+                {
+                    traitMemberAsync = true;
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    if (_currentToken.Type == TokenType.IDENTIFIER && string.Equals(_currentToken.Value?.ToString(), "stream", System.StringComparison.Ordinal))
+                    {
+                        traitMemberAsyncStream = true;
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        while (_currentToken.Type == TokenType.NEWLINE)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                        }
+                    }
+                }
+
                 if (!_currentToken.Matches(Keyword.Fn))
                     return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'fn' inside trait"));
 
@@ -2089,6 +2145,8 @@ namespace RaLanguage.Parser
                     bodyNode != null,
                     isAbstract
                 );
+                traitMethodNode.IsAsync = traitMemberAsync;
+                traitMethodNode.IsAsyncStream = traitMemberAsyncStream;
                 AnnotationAttacher.Attach(traitMethodNode, memberAnnotations);
                 methods.Add(traitMethodNode);
 
@@ -2466,6 +2524,12 @@ namespace RaLanguage.Parser
                 if (res.Error != null) return res;
                 return res.Success(funcDef);
             }
+            else if (_currentToken.Matches(Keyword.Async))
+            {
+                var asyncDef = res.Register(ParseAsyncFunctionDefinition(isPublic: true));
+                if (res.Error != null) return res;
+                return res.Success(asyncDef);
+            }
             else if (_currentToken.Matches(Keyword.Var) || _currentToken.Matches(Keyword.Final) || _currentToken.Matches(Keyword.Let) || _currentToken.Matches(Keyword.Const))
             {
                 var variableDecl = res.Register(ParseVariableDeclaration(isPublic: true));
@@ -2754,9 +2818,37 @@ namespace RaLanguage.Parser
                     Advance();
                 }
 
+                bool isMemberAsync = false;
+                bool isMemberAsyncStream = false;
+                if (_currentToken.Matches(Keyword.Async))
+                {
+                    isMemberAsync = true;
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    if (_currentToken.Type == TokenType.IDENTIFIER && string.Equals(_currentToken.Value?.ToString(), "stream", System.StringComparison.Ordinal))
+                    {
+                        isMemberAsyncStream = true;
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        while (_currentToken.Type == TokenType.NEWLINE)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                        }
+                    }
+                }
+
                 if (_currentToken.Matches(Keyword.Fn) || (_currentToken.Type == TokenType.IDENTIFIER && _currentToken.Value.ToString() == className))
                 {
-                    var fnRes = ParseFunctionDefinition(ownerTypeName: className, isPublic: isMemberPublic, isOverride: isMemberOverride, isAbstract: isMemberAbstract, isStatic: isMemberStatic, _currentToken.Type == TokenType.IDENTIFIER && _currentToken.Value.ToString() == className);
+                    var fnRes = ParseFunctionDefinition(ownerTypeName: className, isPublic: isMemberPublic, isOverride: isMemberOverride, isAbstract: isMemberAbstract, isStatic: isMemberStatic, isDeclaringConstructor: _currentToken.Type == TokenType.IDENTIFIER && _currentToken.Value.ToString() == className, isAsync: isMemberAsync, isAsyncStream: isMemberAsyncStream);
                     if (fnRes.Error != null) return fnRes;
 
                     var methodNode = (FunctionDefinitionNode)fnRes.Node!;
@@ -3837,6 +3929,75 @@ namespace RaLanguage.Parser
                 Advance();
             }
 
+            if (_currentToken.Matches(Keyword.Await))
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type != TokenType.IDENTIFIER)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier after 'for await'"));
+
+                var awaitVarName = _currentToken;
+                res.RegisterAdvancement();
+                Advance();
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (!_currentToken.Matches(Keyword.In))
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'in' after 'for await <id>'"));
+
+                res.RegisterAdvancement();
+                Advance();
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                var awaitStreamExpr = res.Register(ParseExpression());
+                if (res.Error != null) return res;
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type == TokenType.COLON)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                    var bodyInline = res.Register(ParseStatement());
+                    if (res.Error != null) return res;
+                    return res.Success(new RaLanguage.Parser.Nodes.Async.ForAwaitNode(awaitVarName, awaitStreamExpr, bodyInline, false));
+                }
+                else if (_currentToken.Type == TokenType.LBRACKET)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                    var bodyBlock = res.Register(ParseStatements());
+                    if (res.Error != null) return res;
+                    if (_currentToken.Type != TokenType.RBRACKET)
+                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}'"));
+                    res.RegisterAdvancement();
+                    Advance();
+                    return res.Success(new RaLanguage.Parser.Nodes.Async.ForAwaitNode(awaitVarName, awaitStreamExpr, bodyBlock, true));
+                }
+
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' or '{' after 'for await ... in ...'"));
+            }
+
             if (_currentToken.Type == TokenType.LPAREN)
             {
                 res.RegisterAdvancement();
@@ -4317,7 +4478,43 @@ namespace RaLanguage.Parser
             };
         }
 
-        private ParserResult ParseFunctionDefinition(string? ownerTypeName = null, bool isPublic = false, bool isOverride = false, bool isAbstract = false, bool isStatic = false, bool isDeclaringConstructor = false)
+        private ParserResult ParseAsyncFunctionDefinition(bool isPublic = false)
+        {
+            var res = new ParserResult();
+
+            if (!_currentToken.Matches(Keyword.Async))
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'async'"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            bool isAsyncStream = false;
+            if (_currentToken.Type == TokenType.IDENTIFIER && string.Equals(_currentToken.Value?.ToString(), "stream", System.StringComparison.Ordinal))
+            {
+                isAsyncStream = true;
+                res.RegisterAdvancement();
+                Advance();
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+            }
+
+            if (!_currentToken.Matches(Keyword.Fn))
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'fn' after 'async' (or 'async stream')"));
+
+            return ParseFunctionDefinition(isPublic: isPublic, isAsync: true, isAsyncStream: isAsyncStream);
+        }
+
+        private ParserResult ParseFunctionDefinition(string? ownerTypeName = null, bool isPublic = false, bool isOverride = false, bool isAbstract = false, bool isStatic = false, bool isDeclaringConstructor = false, bool isAsync = false, bool isAsyncStream = false)
         {
             var res = new ParserResult();
 
@@ -4714,7 +4911,7 @@ namespace RaLanguage.Parser
                     isStatic,
                     whereConstraints,
                     paramAnnotations
-                ) { VarArgAnnotations = varArgAnnotations });
+                ) { VarArgAnnotations = varArgAnnotations, IsAsync = isAsync, IsAsyncStream = isAsyncStream });
             }
 
             while (_currentToken.Type == TokenType.NEWLINE)
@@ -4745,7 +4942,7 @@ namespace RaLanguage.Parser
                     isStatic,
                     whereConstraints,
                     paramAnnotations
-                ) { VarArgAnnotations = varArgAnnotations });
+                ) { VarArgAnnotations = varArgAnnotations, IsAsync = isAsync, IsAsyncStream = isAsyncStream });
             }
 
             res.RegisterAdvancement();
@@ -4780,7 +4977,7 @@ namespace RaLanguage.Parser
                 isStatic,
                 whereConstraints,
                 paramAnnotations
-            ) { VarArgAnnotations = varArgAnnotations });
+            ) { VarArgAnnotations = varArgAnnotations, IsAsync = isAsync, IsAsyncStream = isAsyncStream });
             }
             finally
             {
@@ -4929,9 +5126,37 @@ namespace RaLanguage.Parser
                     Advance();
                 }
 
+                bool memberIsAsync = false;
+                bool memberIsAsyncStream = false;
+                if (_currentToken.Matches(Keyword.Async))
+                {
+                    memberIsAsync = true;
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    if (_currentToken.Type == TokenType.IDENTIFIER && string.Equals(_currentToken.Value?.ToString(), "stream", System.StringComparison.Ordinal))
+                    {
+                        memberIsAsyncStream = true;
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        while (_currentToken.Type == TokenType.NEWLINE)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                        }
+                    }
+                }
+
                 if (_currentToken.Matches(Keyword.Fn) || (_currentToken.Type == TokenType.IDENTIFIER && _currentToken.Value.ToString() == structName))
                 {
-                    var fnRes = ParseFunctionDefinition(ownerTypeName: structName, isPublic: memberPublic, isDeclaringConstructor: _currentToken.Type == TokenType.IDENTIFIER && _currentToken.Value.ToString() == structName);
+                    var fnRes = ParseFunctionDefinition(ownerTypeName: structName, isPublic: memberPublic, isDeclaringConstructor: _currentToken.Type == TokenType.IDENTIFIER && _currentToken.Value.ToString() == structName, isAsync: memberIsAsync, isAsyncStream: memberIsAsyncStream);
                     if (fnRes.Error != null) return fnRes;
 
                     var methodNode = (FunctionDefinitionNode)fnRes.Node!;

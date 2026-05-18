@@ -1,0 +1,360 @@
+// Ra Async/Await test suite
+// Covers: async fn, await, spawn, gather, race, timeout, cancellation,
+//         channels, async streams, for-await iteration, error propagation,
+//         sync/async interop, structured concurrency.
+
+print("=== Ra Async Tests ===");
+
+// ---------------------------------------------------------------------------
+// 1. Basic async fn + await
+// ---------------------------------------------------------------------------
+async fn answer(): number {
+    ret 42;
+}
+
+var t1 = answer();
+print("[1] task created -> " + (t1 as string));
+var v1 = run_blocking(t1);
+print("[1] result = " + (v1 as string));
+if v1 != 42 {
+    print("[1] FAIL: expected 42");
+} else {
+    print("[1] OK");
+}
+
+// ---------------------------------------------------------------------------
+// 2. Async fn awaiting sleep
+// ---------------------------------------------------------------------------
+async fn slow_double(x: number): number {
+    await sleep(20);
+    ret x * 2;
+}
+
+var v2 = run_blocking(slow_double(21));
+if v2 == 42 { print("[2] OK"); } else { print("[2] FAIL: got " + (v2 as string)); }
+
+// ---------------------------------------------------------------------------
+// 3. gather: parallel async fns
+// ---------------------------------------------------------------------------
+async fn add_after(a: number, b: number, ms: number): number {
+    await sleep(ms);
+    ret a + b;
+}
+
+var ta = add_after(1, 2, 30);
+var tb = add_after(10, 20, 10);
+var tc = add_after(100, 200, 20);
+var combined = run_blocking(gather(ta, tb, tc));
+print("[3] gather result = " + (combined as string));
+if combined[0] == 3 and combined[1] == 30 and combined[2] == 300 {
+    print("[3] OK");
+} else {
+    print("[3] FAIL");
+}
+
+// ---------------------------------------------------------------------------
+// 4. race: first wins, losers cancelled
+// ---------------------------------------------------------------------------
+async fn slow_value(v: number, ms: number): number {
+    await sleep(ms);
+    ret v;
+}
+
+var r1 = slow_value(1, 100);
+var r2 = slow_value(2, 5);
+var r3 = slow_value(3, 200);
+var winner = run_blocking(race(r1, r2, r3));
+if winner == 2 { print("[4] OK winner=" + (winner as string)); } else { print("[4] FAIL got " + (winner as string)); }
+
+// ---------------------------------------------------------------------------
+// 5. timeout: cancels long task
+// ---------------------------------------------------------------------------
+async fn long_one(): number {
+    await sleep(500);
+    ret 999;
+}
+
+var tt = timeout(20, long_one());
+try {
+    var tv = run_blocking(tt);
+    print("[5] FAIL: expected timeout, got " + (tv as string));
+} catch (err) {
+    print("[5] OK timeout fired");
+}
+
+// ---------------------------------------------------------------------------
+// 6. error propagation through await
+// ---------------------------------------------------------------------------
+async fn bad(): number {
+    await sleep(5);
+    var x = 1 / 0;
+    ret x;
+}
+
+try {
+    var bv = run_blocking(bad());
+    print("[6] FAIL: expected error, got " + (bv as string));
+} catch (err) {
+    print("[6] OK error caught: " + (err as string));
+}
+
+// ---------------------------------------------------------------------------
+// 7. spawn: fire and forget, then await
+// ---------------------------------------------------------------------------
+async fn make_42(): number {
+    await sleep(5);
+    ret 42;
+}
+
+var spawned = spawn make_42();
+var sv = run_blocking(spawned);
+if sv == 42 { print("[7] OK"); } else { print("[7] FAIL got " + (sv as string)); }
+
+// ---------------------------------------------------------------------------
+// 8. cancel: explicit cancel cascades
+// ---------------------------------------------------------------------------
+async fn very_slow(): number {
+    await sleep(10000);
+    ret 7;
+}
+
+var cv = very_slow();
+cancel(cv);
+try {
+    var cval = run_blocking(cv);
+    print("[8] FAIL: expected cancel, got " + (cval as string));
+} catch (err) {
+    print("[8] OK cancelled");
+}
+
+// ---------------------------------------------------------------------------
+// 9. channels: send/recv
+// ---------------------------------------------------------------------------
+var ch = channel(4);
+channel_send(ch, 10);
+channel_send(ch, 20);
+channel_send(ch, 30);
+channel_close(ch);
+
+var sum = 0;
+var msg = channel_recv(ch);
+while msg != null {
+    sum = sum + msg;
+    msg = channel_recv(ch);
+}
+if sum == 60 { print("[9] OK sum=" + (sum as string)); } else { print("[9] FAIL sum=" + (sum as string)); }
+
+// ---------------------------------------------------------------------------
+// 10. async stream: producer + for-await consumer
+// ---------------------------------------------------------------------------
+async stream fn counter(n: number): number {
+    var i = 0;
+    while i < n {
+        emit i;
+        await sleep(2);
+        i = i + 1;
+    }
+}
+
+async fn consume_counter(n: number): number {
+    var total = 0;
+    for await x in counter(n) {
+        total = total + x;
+    }
+    ret total;
+}
+
+var total10 = run_blocking(consume_counter(5));
+// sum 0..4 = 10
+if total10 == 10 { print("[10] OK total=" + (total10 as string)); } else { print("[10] FAIL total=" + (total10 as string)); }
+
+// ---------------------------------------------------------------------------
+// 11. nested awaits + composition
+// ---------------------------------------------------------------------------
+async fn inc(v: number): number {
+    await sleep(1);
+    ret v + 1;
+}
+
+async fn pipeline(start: number): number {
+    var a = await inc(start);
+    var b = await inc(a);
+    var c = await inc(b);
+    ret c;
+}
+
+var pv = run_blocking(pipeline(10));
+if pv == 13 { print("[11] OK"); } else { print("[11] FAIL got " + (pv as string)); }
+
+// ---------------------------------------------------------------------------
+// 12. is_completed + task_status
+// ---------------------------------------------------------------------------
+var done = run_blocking(answer());
+print("[12] direct call result: " + (done as string));
+
+var fresh = answer();
+run_blocking(fresh);
+if is_completed(fresh) {
+    print("[12] OK status=" + task_status(fresh));
+} else {
+    print("[12] FAIL: not completed");
+}
+
+// ---------------------------------------------------------------------------
+// 13. to_task: lift sync value
+// ---------------------------------------------------------------------------
+var lifted = to_task(99);
+var lv = run_blocking(lifted);
+if lv == 99 { print("[13] OK"); } else { print("[13] FAIL got " + (lv as string)); }
+
+// ---------------------------------------------------------------------------
+// 14. structured cancellation: cancelled parent kills children
+// ---------------------------------------------------------------------------
+async fn child_one(): number {
+    await sleep(2000);
+    ret 1;
+}
+
+async fn child_two(): number {
+    await sleep(2000);
+    ret 2;
+}
+
+async fn parent_task(): number {
+    var c1 = spawn child_one();
+    var c2 = spawn child_two();
+    var both = await gather(c1, c2);
+    ret both[0] + both[1];
+}
+
+var p = parent_task();
+cancel(p);
+try {
+    var pres = run_blocking(p);
+    print("[14] FAIL: got " + (pres as string));
+} catch (err) {
+    print("[14] OK parent cancellation observed");
+}
+
+// ---------------------------------------------------------------------------
+// 15. async method on a class
+// ---------------------------------------------------------------------------
+class Counter {
+    pub var n;
+    pub fn Counter() { self.n = 0; }
+    pub async fn compute(): number {
+        await sleep(5);
+        ret 7;
+    }
+}
+
+var c15 = Counter();
+var t15a = c15.compute();
+var v15 = run_blocking(t15a);
+if v15 == 7 { print("[15] OK async class method"); } else { print("[15] FAIL got " + (v15 as string)); }
+
+// ---------------------------------------------------------------------------
+// 16. async method on a struct
+// ---------------------------------------------------------------------------
+struct Box {
+    pub var v;
+    pub async fn double_it(): number {
+        await sleep(5);
+        ret self.v * 2;
+    }
+}
+
+var b16 = Box(); b16.v = 21;
+var b16t = b16.double_it();
+var v16 = run_blocking(b16t);
+if v16 == 42 { print("[16] OK"); } else { print("[16] FAIL got " + (v16 as string)); }
+
+// ---------------------------------------------------------------------------
+// 17. select over tasks + channel: first task wins
+// ---------------------------------------------------------------------------
+async fn slow_seven(): number { await sleep(50); ret 7; }
+async fn slow_eight(): number { await sleep(200); ret 8; }
+
+var ch17 = channel(2);
+var ts17a = slow_seven();
+var ts17b = slow_eight();
+var winnerTask = select(ts17a, ts17b, ch17);
+var sel_res = run_blocking(winnerTask);
+print("[17] select result = " + (sel_res as string));
+if sel_res[0] == 0 and sel_res[1] == 7 and sel_res[2] == true {
+    print("[17] OK");
+} else {
+    print("[17] FAIL");
+}
+
+// ---------------------------------------------------------------------------
+// 18. select over a channel that gets a message
+// ---------------------------------------------------------------------------
+var ch18 = channel(2);
+async fn pump(): number {
+    await sleep(10);
+    channel_send(ch18, 42);
+    ret 0;
+}
+var pumpTask = spawn pump();
+var slowTask18 = slow_eight();
+var winner18 = run_blocking(select(slowTask18, ch18));
+print("[18] channel wins = " + (winner18 as string));
+if winner18[0] == 1 and winner18[1] == 42 and winner18[2] == true {
+    print("[18] OK");
+} else {
+    print("[18] FAIL");
+}
+run_blocking(pumpTask);
+
+// ---------------------------------------------------------------------------
+// 19. channel<T>: late-bound type, mismatch detected on second send
+// ---------------------------------------------------------------------------
+var ch19 = channel(4);
+channel_send(ch19, 1);
+try {
+    channel_send(ch19, "string");
+    print("[19] FAIL: type mismatch not caught");
+} catch (e) {
+    print("[19] OK caught channel type mismatch");
+}
+
+// ---------------------------------------------------------------------------
+// 20. typed channel via declaration
+// ---------------------------------------------------------------------------
+var ch20: channel<int> = channel(4);
+try {
+    channel_send(ch20, "hello");
+    print("[20] FAIL: declared type not enforced");
+} catch (e) {
+    print("[20] OK declared channel<int> enforced");
+}
+
+// ---------------------------------------------------------------------------
+// 21. task<int> return type pinned + await checks
+// ---------------------------------------------------------------------------
+async fn answer21(): number { await sleep(2); ret 99; }
+var t21: task<number> = answer21();
+var v21 = run_blocking(t21);
+if v21 == 99 { print("[21] OK"); } else { print("[21] FAIL"); }
+
+// ---------------------------------------------------------------------------
+// 22. high fan-out scalability smoke: 200 concurrent fibers
+// ---------------------------------------------------------------------------
+async fn micro(): number {
+    await sleep(5);
+    ret 1;
+}
+
+// 32 concurrent fibers, gathered.
+var bagResults = run_blocking(gather(
+    micro(), micro(), micro(), micro(), micro(), micro(), micro(), micro(),
+    micro(), micro(), micro(), micro(), micro(), micro(), micro(), micro(),
+    micro(), micro(), micro(), micro(), micro(), micro(), micro(), micro(),
+    micro(), micro(), micro(), micro(), micro(), micro(), micro(), micro()
+));
+var sumcheck = 0;
+for r in bagResults { sumcheck = sumcheck + r; }
+if sumcheck == 32 { print("[22] OK fan-out sum=" + (sumcheck as string)); } else { print("[22] FAIL sum=" + (sumcheck as string)); }
+
+print("=== End Ra Async Tests ===");

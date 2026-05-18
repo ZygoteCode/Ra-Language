@@ -53,6 +53,18 @@ namespace RaLanguage.Interpreter.Values.Classes
                     Context));
             }
 
+            // Async methods route through BoundClassMethodValue, which knows how
+            // to wrap the body in a scheduler-bound fiber and return a TaskValue.
+            // We could duplicate the logic here, but delegating keeps a single
+            // execution path for both sync and async methods.
+            if (selected.IsAsync || selected.IsAsyncStream)
+            {
+                var bound = new BoundClassMethodValue(Definition, SelfInstance, selected, isStatic: false)
+                    .SetContext(Context)
+                    .SetPos(PositionStart, PositionEnd);
+                return ((BoundClassMethodValue)bound).ExecuteWithNamedArgs(positionalArgs, namedArgs);
+            }
+
             var execCtx = GenerateNewContext();
 
             execCtx.SymbolTable.Set(

@@ -19,6 +19,7 @@ using RaLanguage.Interpreter.Visitors.Structs;
 using RaLanguage.Interpreter.Visitors.Traits;
 using RaLanguage.Interpreter.Visitors.Variables;
 using RaLanguage.Interpreter.Visitors.Imports;
+using RaLanguage.Interpreter.Visitors.Async;
 using RaLanguage.Lexer;
 using RaLanguage.Parser.Nodes;
 
@@ -97,6 +98,10 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.ImportAlias] = new ImportNodeVisitor();
             _visitors[(int)AstNodeType.AnnotationDefinition] = new AnnotationDefinitionNodeVisitor();
             _visitors[(int)AstNodeType.AnnotationApplication] = new AnnotationApplicationNodeVisitor();
+            _visitors[(int)AstNodeType.Await] = new AwaitNodeVisitor();
+            _visitors[(int)AstNodeType.Spawn] = new SpawnNodeVisitor();
+            _visitors[(int)AstNodeType.Emit] = new EmitNodeVisitor();
+            _visitors[(int)AstNodeType.ForAwait] = new ForAwaitNodeVisitor();
         }
 
         public RuntimeResult Visit(AstNode node, Context context)

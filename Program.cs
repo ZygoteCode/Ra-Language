@@ -31,7 +31,27 @@ namespace RaLanguage
             "validate_target",
             "validate_deferred",
             "coerce_value",
-            "run_tests"
+            "run_tests",
+            "sleep",
+            "yield_now",
+            "gather",
+            "race",
+            "timeout",
+            "cancel",
+            "is_cancelled",
+            "is_completed",
+            "task_status",
+            "current_task",
+            "channel",
+            "channel_send",
+            "channel_recv",
+            "channel_close",
+            "channel_is_closed",
+            "channel_count",
+            "to_task",
+            "run_blocking",
+            "task_result",
+            "select"
         };
 
         static Program()

@@ -69,6 +69,10 @@
         ImportAlias,
         OperatorDefinition,
         AnnotationApplication,
-        AnnotationDefinition
+        AnnotationDefinition,
+        Await,
+        Spawn,
+        Emit,
+        ForAwait
     }
 }

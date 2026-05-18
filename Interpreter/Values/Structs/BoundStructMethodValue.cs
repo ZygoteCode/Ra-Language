@@ -1,6 +1,7 @@
 ﻿using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Runtime.Async;
 using RaLanguage.Interpreter.Values.Functions;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Interpreter.Values.Structs;
@@ -31,10 +32,29 @@ namespace RaLanguage.Interpreter.Values.Structs
 
         public sealed override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
         {
+            if (MethodNode.IsAsync || MethodNode.IsAsyncStream)
+            {
+                var capturedPositional = positionalArgs;
+                var capturedNamed = namedArgs;
+                return AsyncMethodDispatch.Dispatch(
+                    MethodNode.IsAsync,
+                    MethodNode.IsAsyncStream,
+                    Name,
+                    Context,
+                    PositionStart,
+                    PositionEnd,
+                    asyncCtxOverride => ExecuteSyncBody(capturedPositional, capturedNamed, asyncCtxOverride));
+            }
+            return ExecuteSyncBody(positionalArgs, namedArgs, null);
+        }
+
+        private RuntimeResult ExecuteSyncBody(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, AsyncContext? asyncCtxOverride)
+        {
             var res = new RuntimeResult();
             var interpreter = new Interpreter();
 
             var execCtx = GenerateNewContext();
+            if (asyncCtxOverride != null) execCtx.AsyncCtx = asyncCtxOverride;
             execCtx.SymbolTable.Set(
                 "self",
                 SelfInstance,

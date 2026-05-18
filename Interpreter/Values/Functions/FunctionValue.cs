@@ -1,5 +1,7 @@
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime.Annotations;
+using RaLanguage.Interpreter.Runtime.Async;
+using RaLanguage.Interpreter.Values.Async;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes;
@@ -23,6 +25,8 @@ namespace RaLanguage.Interpreter.Values.Functions
         public List<string> GenericTypeParams { get; } = new List<string>();
         public List<WhereConstraintNode> WhereConstraints { get; } = new List<WhereConstraintNode>();
         public string? MetadataKey { get; set; }
+        public bool IsAsync { get; set; }
+        public bool IsAsyncStream { get; set; }
         public sealed override RuntimeValueType Type => RuntimeValueType.Function;
 
         public FunctionValue(
@@ -61,6 +65,62 @@ namespace RaLanguage.Interpreter.Values.Functions
         }
 
         public sealed override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs)
+        {
+            if (IsAsync || IsAsyncStream)
+            {
+                return ExecuteAsyncDispatch(positionalArgs, namedArgs, explicitTypeArgs);
+            }
+            return ExecuteBodySync(positionalArgs, namedArgs, explicitTypeArgs, null);
+        }
+
+        private RuntimeResult ExecuteAsyncDispatch(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs)
+        {
+            var res = new RuntimeResult();
+            var capturedArgs = positionalArgs;
+            var capturedNamed = namedArgs;
+            var capturedTypeArgs = explicitTypeArgs;
+            var callerCtx = Context;
+            var parentAsync = callerCtx?.AsyncCtx;
+
+            if (IsAsyncStream)
+            {
+                var stream = new AsyncStreamCore(8, parentAsync?.CancellationScope);
+                var streamValue = new AsyncStreamValue(stream).SetContext(callerCtx).SetPos(PositionStart, PositionEnd);
+                if (ReturnType != null && !ReturnType.IsTypeParameter())
+                {
+                    ((AsyncStreamValue)streamValue).ElementType = ReturnType;
+                }
+                var producer = AsyncScheduler.Schedule($"stream:{Name}", parentAsync, childAsyncCtx =>
+                {
+                    childAsyncCtx.InsideAsyncStream = true;
+                    childAsyncCtx.CurrentStreamProducer = new RaLanguage.Interpreter.Runtime.Async.StreamProducerAdapter(stream, (AsyncStreamValue)streamValue);
+                    var streamRes = ExecuteBodySync(capturedArgs, capturedNamed, capturedTypeArgs, childAsyncCtx);
+                    stream.Close();
+                    return (streamRes.Value ?? streamRes.FuncReturnValue, streamRes.Error);
+                });
+                stream.AttachProducer(producer);
+                return res.Success(streamValue);
+            }
+
+            var task = AsyncScheduler.Schedule($"async:{Name}", parentAsync, childAsyncCtx =>
+            {
+                childAsyncCtx.InsideAsyncFunction = true;
+                var taskRes = ExecuteBodySync(capturedArgs, capturedNamed, capturedTypeArgs, childAsyncCtx);
+                if (taskRes.Error != null) return (null, taskRes.Error);
+                var produced = taskRes.FuncReturnValue ?? taskRes.Value;
+                return (produced, null);
+            });
+
+            var taskValue = new TaskValue(task);
+            if (ReturnType != null && !ReturnType.IsTypeParameter())
+            {
+                taskValue.ElementType = ReturnType;
+            }
+            return res.Success(taskValue.SetContext(callerCtx).SetPos(PositionStart, PositionEnd));
+        }
+
+
+        private RuntimeResult ExecuteBodySync(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs, AsyncContext? asyncCtxOverride)
         {
             var res = new RuntimeResult();
             var bindings = new Dictionary<string, TypeDescriptor>(StringComparer.Ordinal);
@@ -156,6 +216,11 @@ namespace RaLanguage.Interpreter.Values.Functions
             if (err != null)
             {
                 return res.Failure(err);
+            }
+
+            if (asyncCtxOverride != null)
+            {
+                execCtx!.AsyncCtx = asyncCtxOverride;
             }
 
             foreach (var kv in bindings)

@@ -27,6 +27,8 @@ namespace RaLanguage.Parser.Nodes.Functions
         public bool IsOverride { get; }
         public bool IsAbstract { get; }
         public bool IsStatic { get; }
+        public bool IsAsync { get; set; }
+        public bool IsAsyncStream { get; set; }
 
         Token? ICallableMethodDefinition.NameTok => VarNameTok;
         List<bool> ICallableMethodDefinition.IsRefParams => IsRefParams;
