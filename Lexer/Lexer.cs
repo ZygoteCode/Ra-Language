@@ -877,7 +877,7 @@ namespace RaLanguage.Lexer
                 { "async", Keyword.Async },
                 { "await", Keyword.Await },
                 { "spawn", Keyword.Spawn },
-                { "emit", Keyword.Emit }
+                { "emit", Keyword.Emit },
                 { "namespace", Keyword.Namespace },
                 { "using", Keyword.Using }
             };
