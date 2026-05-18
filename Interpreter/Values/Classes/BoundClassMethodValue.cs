@@ -1,5 +1,6 @@
 ﻿using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime.Annotations;
+using RaLanguage.Interpreter.Runtime.Async;
 using RaLanguage.Interpreter.Values.Functions;
 using RaLanguage.Parser.Nodes.Functions;
 using RaLanguage.Types;
@@ -38,10 +39,30 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs)
         {
+            if (MethodNode.IsAsync || MethodNode.IsAsyncStream)
+            {
+                var capturedPositional = positionalArgs;
+                var capturedNamed = namedArgs;
+                var capturedTypeArgs = explicitTypeArgs;
+                return AsyncMethodDispatch.Dispatch(
+                    MethodNode.IsAsync,
+                    MethodNode.IsAsyncStream,
+                    Name,
+                    Context,
+                    PositionStart,
+                    PositionEnd,
+                    asyncCtxOverride => ExecuteSyncBody(capturedPositional, capturedNamed, capturedTypeArgs, asyncCtxOverride));
+            }
+            return ExecuteSyncBody(positionalArgs, namedArgs, explicitTypeArgs, null);
+        }
+
+        private RuntimeResult ExecuteSyncBody(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs, AsyncContext? asyncCtxOverride)
+        {
             var res = new RuntimeResult();
             var interpreter = new Interpreter();
 
             var execCtx = GenerateNewContext();
+            if (asyncCtxOverride != null) execCtx.AsyncCtx = asyncCtxOverride;
 
             if (!IsStatic && SelfInstance != null)
             {
@@ -141,6 +162,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 var gtv = new Primitives.GenericTypeValue(kv.Key, kv.Value).SetContext(bindRes.execCtx).SetPos(PositionStart, PositionEnd);
                 bindRes.execCtx.SymbolTable.Set(kv.Key, gtv, isLet: true, declaredType: new TypeDescriptor("type"), isStaticallyTyped: true, isPublic: false);
+            }
+
+            if (asyncCtxOverride != null)
+            {
+                bindRes.execCtx!.AsyncCtx = asyncCtxOverride;
             }
 
             var bodyRes = interpreter.Visit(MethodNode.BodyNode, bindRes.execCtx!);

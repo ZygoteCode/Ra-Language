@@ -18,6 +18,8 @@ namespace RaLanguage.Parser.Nodes.Structs
         public TypeDescriptor? ReturnType { get; }
         public AstNode BodyNode { get; }
         public bool ShouldAutoReturn { get; }
+        public bool IsAsync { get; set; }
+        public bool IsAsyncStream { get; set; }
 
         public StructMethodDefinitionNode(
             bool isPublic,

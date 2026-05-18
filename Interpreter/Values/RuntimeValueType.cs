@@ -38,6 +38,9 @@
         GenericTypeBinding,
         AnnotationType,
         AnnotationInstance,
+        Task,
+        Channel,
+        Stream
         Namespace
     }
 }

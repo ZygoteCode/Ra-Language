@@ -70,6 +70,10 @@
         OperatorDefinition,
         AnnotationApplication,
         AnnotationDefinition,
+        Await,
+        Spawn,
+        Emit,
+        ForAwait
         NamespaceDeclaration,
         UsingNamespace
     }

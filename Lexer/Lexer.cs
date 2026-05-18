@@ -874,6 +874,10 @@ namespace RaLanguage.Lexer
                 { "ref", Keyword.Ref },
                 { "where", Keyword.Where },
                 { "annotation", Keyword.Annotation },
+                { "async", Keyword.Async },
+                { "await", Keyword.Await },
+                { "spawn", Keyword.Spawn },
+                { "emit", Keyword.Emit }
                 { "namespace", Keyword.Namespace },
                 { "using", Keyword.Using }
             };

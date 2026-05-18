@@ -176,6 +176,12 @@ namespace RaLanguage.Types
                     return true;
                 case RuntimeValueType.Function:
                     return string.Equals(target.Name, "function", StringComparison.Ordinal);
+                case RuntimeValueType.Task:
+                    return string.Equals(target.Name, "task", StringComparison.Ordinal);
+                case RuntimeValueType.Channel:
+                    return string.Equals(target.Name, "channel", StringComparison.Ordinal);
+                case RuntimeValueType.Stream:
+                    return string.Equals(target.Name, "stream", StringComparison.Ordinal);
                 default:
                     return false;
             }
@@ -217,7 +223,8 @@ namespace RaLanguage.Types
             "int", "long", "float", "double",
             "uint", "ulong", "short", "ushort",
             "int128", "uint128", "decimal", "byte",
-            "list", "set", "map", "tuple", "function", "type"
+            "list", "set", "map", "tuple", "function", "type",
+            "task", "channel", "stream"
         };
 
         private static bool IsLikelyUnresolvedUserType(TypeDescriptor target)
@@ -339,6 +346,12 @@ namespace RaLanguage.Types
                     var t = (TupleValue)val;
                     var args = t.Elements.Select(GetDescriptorFromRuntimeValue).ToList();
                     return new TypeDescriptor("tuple", args);
+                case RuntimeValueType.Task:
+                    return new TypeDescriptor("task");
+                case RuntimeValueType.Channel:
+                    return new TypeDescriptor("channel");
+                case RuntimeValueType.Stream:
+                    return new TypeDescriptor("stream");
                 case RuntimeValueType.ClassInstance:
                     return new TypeDescriptor(((ClassInstanceValue)val).Definition.ClassName);
                 case RuntimeValueType.ClassType:

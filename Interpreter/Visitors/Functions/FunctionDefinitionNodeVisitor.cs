@@ -33,6 +33,9 @@ namespace RaLanguage.Interpreter.Visitors.Functions
                 .SetContext(context)
                 .SetPos(node.PositionStart, node.PositionEnd);
 
+            funcValue.IsAsync = node.IsAsync;
+            funcValue.IsAsyncStream = node.IsAsyncStream;
+
             if (node.VarNameTok != null)
             {
                 context.SymbolTable.Set(funcName, funcValue, isPublic: node.IsPublic);

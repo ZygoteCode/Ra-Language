@@ -40,7 +40,12 @@ namespace RaLanguage.Interpreter.Values.Functions
                 case "validate_deferred": argNames = new List<string>(); methodResult = ExecuteValidateDeferred(execCtx, args, argNames, res); break;
                 case "coerce_value": argNames = new List<string> { "__val", "__key" }; methodResult = ExecuteCoerceValue(execCtx, args, argNames, res); break;
                 case "run_tests": argNames = new List<string>(); methodResult = ExecuteRunTests(execCtx, args, argNames, res); break;
-                default: return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"No execute_{Name} method defined", Context));
+                default:
+                    if (AsyncBuiltins.IsAsyncBuiltin(Name))
+                    {
+                        return AsyncBuiltins.Execute(Name, args, Context ?? execCtx, PositionStart, PositionEnd);
+                    }
+                    return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"No execute_{Name} method defined", Context));
             }
 
             return methodResult;

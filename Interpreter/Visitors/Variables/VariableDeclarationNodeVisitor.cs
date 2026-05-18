@@ -48,6 +48,20 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                 {
                     if (!TypeSystem.IsAssignable(context, declaredType, value))
                         return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Type mismatch: cannot assign value of type '{value.Type}' to '{declaredType}'", context));
+
+                    // Late-bind generic element type onto async values when the
+                    // declared type carries one (e.g. var ch: channel<int> = ...;).
+                    // Subsequent send/emit/await operations enforce it.
+                    if (declaredType.GenericArgs != null && declaredType.GenericArgs.Count > 0)
+                    {
+                        var inner = declaredType.GenericArgs[0];
+                        if (value is RaLanguage.Interpreter.Values.Async.ChannelValue cv && cv.ElementType == null)
+                            cv.ElementType = inner;
+                        else if (value is RaLanguage.Interpreter.Values.Async.AsyncStreamValue sv && sv.ElementType == null)
+                            sv.ElementType = inner;
+                        else if (value is RaLanguage.Interpreter.Values.Async.TaskValue tv && tv.ElementType == null)
+                            tv.ElementType = inner;
+                    }
                 }
 
                 bool isLetFlag = node.DeclarationType == VariableDeclarationType.LET;
