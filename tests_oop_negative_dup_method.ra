@@ -1,6 +1,0 @@
-pub class Twin {
-    pub fn foo() { ret 1; }
-    pub fn foo() { ret 2; }
-}
-
-print("UNREACHABLE");

@@ -1,9 +1,0 @@
-pub class Box {
-    pub var size: int = 1;
-}
-
-pub class BigBox : Box {
-    pub var size: int = 9;
-}
-
-print("UNREACHABLE");

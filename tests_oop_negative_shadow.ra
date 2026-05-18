@@ -1,9 +1,0 @@
-pub class Base {
-    pub fn foo() { ret 1; }
-}
-
-pub class Child : Base {
-    pub fn foo() { ret 2; }
-}
-
-print("UNREACHABLE");
