@@ -1,6 +1,7 @@
 ﻿using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes;
@@ -17,6 +18,8 @@ namespace RaLanguage.Interpreter.Values.Functions
         {
             Name = name ?? "<anonymous>";
         }
+
+        protected virtual string? ParameterOwnerForMetadata => Name;
 
         public Context GenerateNewContext()
         {
@@ -207,7 +210,54 @@ namespace RaLanguage.Interpreter.Values.Functions
                 execCtx.SymbolTable.Set(varname, listVal);
             }
 
+            var owner = ParameterOwnerForMetadata;
+            if (owner != null)
+            {
+                var keys = new List<string>(finalAssigned.Keys);
+                foreach (var key in keys)
+                {
+                    var paramKey = MetadataTarget.BuildKey(AnnotationTargetKind.Parameter, owner, key);
+                    var (newVal, verr) = AnnotationValidator.CoerceAndValidate(paramKey, finalAssigned[key], $"parameter '{key}'", execCtx);
+                    if (verr != null) return (null, verr);
+                    if (!ReferenceEquals(newVal, finalAssigned[key]))
+                    {
+                        finalAssigned[key] = newVal;
+                        newVal.SetContext(execCtx);
+                        execCtx.SymbolTable.Set(key, newVal);
+                    }
+                }
+                if (hasVarArgs)
+                {
+                    var varname = varArgNameTok?.Value?.ToString() ?? "params";
+                    var paramKey = MetadataTarget.BuildKey(AnnotationTargetKind.Parameter, owner, varname);
+                    var listVal = execCtx.SymbolTable.Get(varname);
+                    if (listVal != null)
+                    {
+                        var (newVal, verr) = AnnotationValidator.CoerceAndValidate(paramKey, listVal, $"variadic '{varname}'", execCtx);
+                        if (verr != null) return (null, verr);
+                        if (!ReferenceEquals(newVal, listVal))
+                        {
+                            execCtx.SymbolTable.Set(varname, newVal);
+                        }
+                    }
+                }
+
+                var contractKey = ContractMetadataKey(owner);
+                if (contractKey != null)
+                {
+                    var preErr = ContractEvaluator.CheckPreconditions(contractKey, execCtx);
+                    if (preErr != null) return (null, preErr);
+                }
+            }
+
             return (execCtx, null);
+        }
+
+        protected virtual string? ContractMetadataKey(string owner)
+        {
+            return owner.Contains('.', System.StringComparison.Ordinal)
+                ? MetadataTarget.BuildKey(AnnotationTargetKind.Method, owner.Substring(0, owner.IndexOf('.')), owner.Substring(owner.IndexOf('.') + 1))
+                : MetadataTarget.BuildKey(AnnotationTargetKind.Function, null, owner);
         }
 
         public RuntimeResult CheckAndPopulateArgs(

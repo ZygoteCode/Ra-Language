@@ -77,6 +77,7 @@
         ARROW_RIGHT,
         NEWLINE,
         EOF,
-        REF
+        REF,
+        AT_SIGN
     }
 }

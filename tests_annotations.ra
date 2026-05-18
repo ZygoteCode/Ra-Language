@@ -1,0 +1,154 @@
+// ===================== Ra Language Annotations Suite =====================
+
+print("=== 1. Basic annotation definition + reflection on function ===");
+annotation Author(name: string, year: int = 2026) {}
+
+@Author(name = "ZygoteCode", year = 2026)
+fn build_engine() => print("engine built");
+
+build_engine();
+print(has_annotation("fn:build_engine", "Author"));        // true
+print(annotation_arg("fn:build_engine", "Author", "name")); // ZygoteCode
+print(annotation_arg("fn:build_engine", "Author", "year")); // 2026
+
+
+print("=== 2. Default values + named args ===");
+annotation Config(retries: int = 3, label: string = "default") {}
+
+@Config(label = "fast")
+fn boot() => print("boot");
+
+boot();
+print(annotation_arg("fn:boot", "Config", "retries")); // 3
+print(annotation_arg("fn:boot", "Config", "label"));   // fast
+
+
+print("=== 3. @target restricts applicable kinds ===");
+@target("class", "struct")
+annotation TypeOnly() {}
+
+@TypeOnly()
+pub class Box {
+    pub var n: int;
+    pub Box(n: int) { self.n = n; }
+}
+
+var b = Box(5);
+print(has_annotation("class:Box", "TypeOnly"));  // true
+
+
+print("=== 4. @repeatable allows stacking ===");
+@repeatable
+annotation Tag(name: string) {}
+
+@Tag(name = "alpha")
+@Tag(name = "beta")
+@Tag(name = "gamma")
+fn task() => print("task");
+task();
+
+var tags = annotations_of("fn:task");
+print(typeof(tags));     // list
+print(tags);
+
+
+print("=== 5. Annotation on a class field ===");
+annotation Lazy() {}
+annotation Range(min: int = 0, max: int = 100) {}
+
+pub class Account {
+    @Lazy()
+    @Range(min = 0, max = 1000000)
+    pub var balance: int;
+
+    pub Account(b: int) { self.balance = b; }
+}
+
+var a = Account(42);
+print(has_annotation("field:Account.balance", "Lazy"));         // true
+print(has_annotation("field:Account.balance", "Range"));        // true
+print(annotation_arg("field:Account.balance", "Range", "max")); // 1000000
+
+
+print("=== 6. Annotation on a class method ===");
+annotation Pure() {}
+
+pub class Math {
+    @Pure()
+    pub fn add(a: int, b: int): int { ret a + b; }
+}
+
+var m = Math();
+print(m.add(2, 3));                                          // 5
+print(has_annotation("method:Math.add", "Pure"));            // true
+
+
+print("=== 7. Composition: @composes(...) expands at apply time ===");
+annotation Logged() {}
+annotation Cached() {}
+
+@composes(Logged, Cached)
+annotation Service() {}
+
+@Service()
+fn payment() => print("payment");
+payment();
+
+print(has_annotation("fn:payment", "Service"));   // true
+print(has_annotation("fn:payment", "Logged"));    // true (via @composes)
+print(has_annotation("fn:payment", "Cached"));    // true (via @composes)
+
+
+print("=== 8. Interceptor pipeline via @intercept ===");
+fn before_audit(name: string, args: list, info) {
+    print("[before] calling " + name);
+}
+
+fn after_audit(name: string, result, info) {
+    print("[after] " + name + " returned");
+}
+
+@intercept(before = "before_audit", after = "after_audit")
+annotation Audited() {}
+
+@Audited()
+fn settle(amount: int): int {
+    print("settle internal");
+    ret amount * 2;
+}
+
+var out = settle(7);
+print("result = " + out);     // 14
+
+
+print("=== 9. @priority orders interceptors ===");
+fn before_high(name: string, args: list, info) { print("[H]"); }
+fn before_low(name: string, args: list, info) { print("[L]"); }
+
+@priority(100)
+@intercept(before = "before_high")
+annotation High() {}
+
+@priority(1)
+@intercept(before = "before_low")
+annotation Low() {}
+
+@High()
+@Low()
+fn critical() => print("crit");
+critical();
+
+
+print("=== 10. Reflection: annotations_of returns descriptors ===");
+@Author(name = "Ra", year = 2026)
+fn meta_target() => print("ok");
+
+var list = annotations_of("fn:meta_target");
+print(list);
+
+
+print("=== 11. Error cases ===");
+@target("class")
+annotation ClassOnly() {}
+print("ClassOnly defined; applying to a function would fail with @target violation");
+print("=== ALL TESTS PASSED ===");

@@ -3,6 +3,7 @@ using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
+using RaLanguage.Interpreter.Visitors.Annotations;
 using RaLanguage.Interpreter.Visitors.Classes;
 using RaLanguage.Interpreter.Visitors.Enums;
 using RaLanguage.Interpreter.Visitors.Extensions;
@@ -94,6 +95,8 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.ImportAll] = new ImportNodeVisitor();
             _visitors[(int)AstNodeType.ImportSelective] = new ImportNodeVisitor();
             _visitors[(int)AstNodeType.ImportAlias] = new ImportNodeVisitor();
+            _visitors[(int)AstNodeType.AnnotationDefinition] = new AnnotationDefinitionNodeVisitor();
+            _visitors[(int)AstNodeType.AnnotationApplication] = new AnnotationApplicationNodeVisitor();
         }
 
         public RuntimeResult Visit(AstNode node, Context context)

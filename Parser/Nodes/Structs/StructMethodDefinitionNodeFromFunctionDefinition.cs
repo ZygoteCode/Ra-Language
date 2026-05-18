@@ -21,6 +21,7 @@ namespace RaLanguage.Parser.Nodes.Structs
                 fn.ShouldAutoReturn
             )
         {
+            Annotations = fn.Annotations;
         }
     }
 }

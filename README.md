@@ -23,7 +23,7 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [ ] (EXPERIMENT) Execute C# code in Ra Language.
   - [ ] (EXPERIMENT) Execute C++ code in Ra Language.
   - [ ] Declare variables with tuples types.
-  - [ ] Implement annotations/decorators.
+  - [x] Implement annotations/decorators — full subsystem with typed parameters, defaults, named arguments, meta-annotations (`@target`, `@repeatable`, `@inherited`, `@sealed`, `@composes`, `@priority`, `@intercept`, `@deprecated`), composition, runtime metadata registry, reflection built-ins (`annotations_of`, `has_annotation`, `annotation_arg`, `annotation_targets`), and call-site interceptor pipeline.
   - [ ] Implement unit tests, integration tests, implementation tests, CI/CD pipeline.
   - [ ] Fix that child classes inheriting a class can declare a function already declared from inherited but without override.
 

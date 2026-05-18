@@ -1,4 +1,5 @@
 using RaLanguage.Errors.Types;
+using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes;
@@ -21,6 +22,7 @@ namespace RaLanguage.Interpreter.Values.Functions
         public bool ShouldAutoReturn { get; }
         public List<string> GenericTypeParams { get; } = new List<string>();
         public List<WhereConstraintNode> WhereConstraints { get; } = new List<WhereConstraintNode>();
+        public string? MetadataKey { get; set; }
         public sealed override RuntimeValueType Type => RuntimeValueType.Function;
 
         public FunctionValue(
@@ -175,6 +177,9 @@ namespace RaLanguage.Interpreter.Values.Functions
                         return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Return type mismatch in function '{Name}': expected '{instantiatedReturnType}', got '{retVal.Type}'", Context));
                 }
 
+                var retErr = ValidateReturnValue(retVal, execCtx);
+                if (retErr != null) return res.Failure(retErr);
+
                 return res.Success(retVal.SetContext(Context).SetPos(PositionStart, PositionEnd));
             }
 
@@ -187,12 +192,26 @@ namespace RaLanguage.Interpreter.Values.Functions
                     return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Return type mismatch in function '{Name}': expected '{instantiatedReturnType}', got '{retValue.Type}'", Context));
             }
 
+            var retErr2 = ValidateReturnValue(retValue, execCtx);
+            if (retErr2 != null) return res.Failure(retErr2);
+
             return res.Success(retValue.SetContext(Context).SetPos(PositionStart, PositionEnd));
+        }
+
+        private RaLanguage.Errors.Error? ValidateReturnValue(RuntimeValue value, RaLanguage.Interpreter.Runtime.Context execCtx)
+        {
+            if (string.IsNullOrEmpty(Name) || Name == "<anonymous>") return null;
+            var key = MetadataTarget.BuildKey(AnnotationTargetKind.Return, null, Name);
+            var verr = AnnotationValidator.ValidateTarget(key, value, $"return of '{Name}'", execCtx);
+            if (verr != null) return verr;
+
+            var fnKey = MetadataTarget.BuildKey(AnnotationTargetKind.Function, null, Name);
+            return ContractEvaluator.CheckPostconditions(fnKey, execCtx, value);
         }
 
         public sealed override RuntimeValue Copy()
         {
-            return new FunctionValue(
+            var clone = new FunctionValue(
                 Name,
                 BodyNode,
                 ArgNames,
@@ -207,6 +226,8 @@ namespace RaLanguage.Interpreter.Values.Functions
                 GenericTypeParams,
                 WhereConstraints
             ).SetContext(Context).SetPos(PositionStart, PositionEnd);
+            ((FunctionValue)clone).MetadataKey = MetadataKey;
+            return clone;
         }
 
         public sealed override string ToString() => $"<function {Name}>";

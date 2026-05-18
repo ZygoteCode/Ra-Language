@@ -1,6 +1,7 @@
 ﻿using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Runtime.Classes;
 using RaLanguage.Interpreter.Values.Classes;
 using RaLanguage.Interpreter.Values.Functions;
@@ -461,7 +462,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
 
-            InitializeFieldChain(instance, Context, this);
+            var initFieldErr = InitializeFieldChain(instance, Context, this);
+            if (initFieldErr != null) return res.Failure(initFieldErr);
 
             var ownCtor = ResolveOwnConstructor(positionalArgs, namedArgs);
             if (ownCtor != null)
@@ -504,10 +506,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return res.Success(instance);
         }
 
-        private static void InitializeFieldChain(ClassInstanceValue instance, Context context, ClassTypeValue type)
+        private static Error? InitializeFieldChain(ClassInstanceValue instance, Context context, ClassTypeValue type)
         {
             if (type.BaseClass != null)
-                InitializeFieldChain(instance, context, type.BaseClass);
+            {
+                var baseErr = InitializeFieldChain(instance, context, type.BaseClass);
+                if (baseErr != null) return baseErr;
+            }
 
             foreach (var field in type.Fields)
             {
@@ -520,8 +525,18 @@ namespace RaLanguage.Interpreter.Values.Primitives
                         value = initRes.Value;
                 }
 
-                instance.SetField(field.NameTok.Value?.ToString() ?? "", value, field.IsPublic, field.FieldType, field.DeclarationType);
+                var fieldName = field.NameTok.Value?.ToString() ?? "";
+                var fieldKey = MetadataTarget.BuildKey(
+                    field.IsStatic ? AnnotationTargetKind.StaticField : AnnotationTargetKind.Field,
+                    type.ClassName,
+                    fieldName);
+                var (coerced, verr) = AnnotationValidator.CoerceAndValidate(fieldKey, value, $"field '{type.ClassName}.{fieldName}'", context);
+                if (verr != null) return verr;
+                value = coerced;
+
+                instance.SetField(fieldName, value, field.IsPublic, field.FieldType, field.DeclarationType);
             }
+            return null;
         }
 
         public List<FunctionDefinitionNode> GetAllMethodsByName(string name)

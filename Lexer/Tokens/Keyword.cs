@@ -63,5 +63,6 @@
         Operator,
         Ref,
         Where,
+        Annotation,
     }
 }

@@ -1,9 +1,11 @@
 ﻿using RaLanguage.Errors;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Functions;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Interpreter.Visitors.Imports;
+using System.Collections.Generic;
 using System.Diagnostics;
 
 namespace RaLanguage
@@ -20,7 +22,16 @@ namespace RaLanguage
             "drop",
             "is_public",
             "is_field_public",
-            "is_field_static"
+            "is_field_static",
+            "annotations_of",
+            "has_annotation",
+            "annotation_arg",
+            "annotation_targets",
+            "validate",
+            "validate_target",
+            "validate_deferred",
+            "coerce_value",
+            "run_tests"
         };
 
         static Program()
@@ -36,6 +47,9 @@ namespace RaLanguage
             {
                 GlobalSymbolTable.Set(builtInFunction, new BuiltInFunctionValue(builtInFunction));
             }
+
+            BuiltInAnnotations.RegisterAll(GlobalSymbolTable);
+            MetadataRegistry.Global.Clear();
 
             string basePath = Directory.GetCurrentDirectory();
             ImportNodeVisitor.InitializeModuleManager(basePath);
@@ -82,6 +96,15 @@ namespace RaLanguage
                 {
                     Console.WriteLine(diagnostic);
                 }
+            }
+
+            DeriveTransformer.Apply(parseResult.Node);
+
+            var staticDiagnostics = StaticAnalyzer.Analyze(parseResult.Node, GlobalSymbolTable);
+            if (staticDiagnostics.Count > 0)
+            {
+                Console.WriteLine($"[StaticAnalyzer] {staticDiagnostics.Count} warning(s) found:");
+                foreach (var d in staticDiagnostics) Console.WriteLine(d);
             }
 
             var interpreter = new Interpreter.Interpreter();

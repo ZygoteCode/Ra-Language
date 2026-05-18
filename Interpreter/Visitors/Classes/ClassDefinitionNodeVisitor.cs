@@ -1,10 +1,12 @@
 ﻿using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Interfaces;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Interpreter.Values.Traits;
+using RaLanguage.Interpreter.Visitors.Functions;
 using RaLanguage.Parser.Nodes.Classes;
 using RaLanguage.Parser.Nodes.Functions;
 using RaLanguage.Parser.Nodes.Variables;
@@ -213,7 +215,95 @@ namespace RaLanguage.Interpreter.Visitors.Classes
                 declaredType: new TypeDescriptor(className),
                 isStaticallyTyped: true,
                 isPublic: node.IsPublic);
-            
+
+            var classTarget = new MetadataTarget(AnnotationTargetKind.Class, null, className);
+            if (node.HasAnnotations)
+            {
+                var annErr = AnnotationProcessor.Process(node.Annotations, classTarget, context, interpreter);
+                if (annErr != null) return res.Failure(annErr);
+            }
+
+            if (classValue.BaseClass != null)
+            {
+                foreach (var method in node.Methods)
+                {
+                    if (!method.IsOverride) continue;
+                    var methodName = method.VarNameTok?.Value?.ToString() ?? "";
+                    var baseKey = MetadataTarget.BuildKey(AnnotationTargetKind.Method, classValue.BaseClass.ClassName, methodName);
+                    var sealedAnn = MetadataRegistry.Global.FindEffective(baseKey, "sealed", MetadataKeyResolver.ForContext(context));
+                    if (sealedAnn != null)
+                    {
+                        return res.Failure(new RuntimeError(
+                            method.PositionStart,
+                            method.PositionEnd,
+                            $"Method '{methodName}' is sealed on base class '{classValue.BaseClass.ClassName}' and cannot be overridden",
+                            context));
+                    }
+
+                    foreach (var ann in MetadataRegistry.Global.GetByKey(baseKey))
+                    {
+                        if (ann.Definition.IsSealed)
+                        {
+                            return res.Failure(new RuntimeError(
+                                method.PositionStart,
+                                method.PositionEnd,
+                                $"Method '{methodName}' is sealed by '@{ann.DefinitionName}' on base class '{classValue.BaseClass.ClassName}' and cannot be overridden",
+                                context));
+                        }
+                    }
+                }
+
+                foreach (var field in node.Fields)
+                {
+                    if (!field.IsOverride) continue;
+                    var fieldName = field.NameTok.Value?.ToString() ?? "";
+                    var baseKey = MetadataTarget.BuildKey(AnnotationTargetKind.Field, classValue.BaseClass.ClassName, fieldName);
+                    foreach (var ann in MetadataRegistry.Global.GetByKey(baseKey))
+                    {
+                        if (ann.Definition.IsSealed)
+                        {
+                            return res.Failure(new RuntimeError(
+                                field.PositionStart,
+                                field.PositionEnd,
+                                $"Field '{fieldName}' is sealed by '@{ann.DefinitionName}' on base class '{classValue.BaseClass.ClassName}' and cannot be overridden",
+                                context));
+                        }
+                    }
+                }
+            }
+
+            foreach (var field in node.Fields)
+            {
+                if (!field.HasAnnotations) continue;
+                var kind = field.IsStatic ? AnnotationTargetKind.StaticField : AnnotationTargetKind.Field;
+                var fieldTarget = new MetadataTarget(kind, className, field.NameTok.Value?.ToString() ?? "");
+                var annErr = AnnotationProcessor.Process(field.Annotations, fieldTarget, context, interpreter);
+                if (annErr != null) return res.Failure(annErr);
+            }
+
+            foreach (var method in node.Methods)
+            {
+                var name = method.VarNameTok?.Value?.ToString() ?? className;
+                if (method.HasAnnotations)
+                {
+                    var kind = method.IsConstructor ? AnnotationTargetKind.Constructor : AnnotationTargetKind.Method;
+                    var methodTarget = new MetadataTarget(kind, className, name);
+                    var annErr = AnnotationProcessor.Process(method.Annotations, methodTarget, context, interpreter);
+                    if (annErr != null) return res.Failure(annErr);
+                }
+
+                var paramErr = FunctionDefinitionNodeVisitor.RegisterParameterAnnotations(method, $"{className}.{name}", context, interpreter);
+                if (paramErr != null) return res.Failure(paramErr);
+            }
+
+            foreach (var op in node.Operators)
+            {
+                if (!op.HasAnnotations) continue;
+                var opTarget = new MetadataTarget(AnnotationTargetKind.Operator, className, op.OperatorTok.Type.ToString());
+                var annErr = AnnotationProcessor.Process(op.Annotations, opTarget, context, interpreter);
+                if (annErr != null) return res.Failure(annErr);
+            }
+
             return res.Success(classValue);
         }
 
