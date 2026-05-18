@@ -64,5 +64,7 @@
         Ref,
         Where,
         Annotation,
+        Namespace,
+        Using,
     }
 }

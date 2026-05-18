@@ -48,6 +48,7 @@ namespace RaLanguage.Interpreter.Visitors.Special
                 RuntimeValueType.InterfaceType => "interface",
                 RuntimeValueType.TraitType => "trait",
                 RuntimeValueType.ModuleWrapper => "module",
+                RuntimeValueType.Namespace => "namespace",
                 RuntimeValueType.GenericTypeBinding => ((GenericTypeValue)value).BoundType?.ToString() ?? "type",
                 _ => ""
             };

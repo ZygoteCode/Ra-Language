@@ -1,0 +1,78 @@
+// ===================== Ra Language Namespaces Negative Suite =====================
+
+print("=== 1. Namespace name conflicts with existing variable ===");
+var Conflict = 42;
+try {
+    namespace Conflict {
+        pub fn x() { ret 1; }
+    }
+    print("UNREACHABLE 1");
+} catch (e) {
+    print("caught namespace/variable conflict");
+}
+
+
+print("=== 2. Using an undefined namespace fails ===");
+try {
+    using DoesNotExist;
+    print("UNREACHABLE 2");
+} catch (e) {
+    print("caught undefined namespace in 'using'");
+}
+
+
+print("=== 3. Member access on a missing leaf ===");
+namespace Boxed {
+    pub fn one() { ret 1; }
+}
+
+try {
+    print(Boxed.two());
+    print("UNREACHABLE 3");
+} catch (e) {
+    print("caught missing namespace member");
+}
+
+
+print("=== 4. Access non-public member from outside ===");
+namespace Walled {
+    fn secret() { ret "no peeking"; }
+    pub fn handshake() { ret "hi"; }
+}
+print(Walled.handshake());
+try {
+    print(Walled.secret());
+    print("UNREACHABLE 4");
+} catch (e) {
+    print("caught non-public access");
+}
+
+
+print("=== 5. 'return' is not valid at namespace scope ===");
+// Direct syntactic injection of `ret` at namespace top-level should fail
+try {
+    namespace BadReturn {
+        ret 5;
+    }
+    print("UNREACHABLE 5");
+} catch (e) {
+    print("caught 'return' at namespace scope");
+}
+
+
+print("=== 6. Deeply nested still preserves canonical identity ===");
+namespace X.Y.Z {
+    pub fn a() { ret "a"; }
+}
+namespace X {
+    namespace Y {
+        namespace Z {
+            pub fn b() { ret "b"; }
+        }
+    }
+}
+// Same canonical X.Y.Z, both members visible
+print(X.Y.Z.a() + X.Y.Z.b());      // -> ab
+
+
+print("=== Negative namespaces suite finished ===");

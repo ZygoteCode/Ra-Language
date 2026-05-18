@@ -16,6 +16,7 @@ using RaLanguage.Parser.Nodes.Structs;
 using RaLanguage.Parser.Nodes.Traits;
 using RaLanguage.Parser.Nodes.Variables;
 using RaLanguage.Parser.Nodes.Imports;
+using RaLanguage.Parser.Nodes.Namespaces;
 using RaLanguage.Types;
 
 namespace RaLanguage.Parser
@@ -1440,6 +1441,14 @@ namespace RaLanguage.Parser
                     var importDef = res.Register(ParseImportStatement());
                     if (res.Error != null) return res;
                     return res.Success(importDef);
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Namespace:
+                    var nsDef = res.Register(ParseNamespaceDeclaration());
+                    if (res.Error != null) return res;
+                    return res.Success(nsDef);
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Using:
+                    var usingDef = res.Register(ParseUsingStatement());
+                    if (res.Error != null) return res;
+                    return res.Success(usingDef);
                 case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Annotation:
                     var annDef = res.Register(ParseAnnotationDefinition(false));
                     if (res.Error != null) return res;
@@ -1647,6 +1656,139 @@ namespace RaLanguage.Parser
             }
 
             return res.Success(new ImportSelectiveNode(spec, symbolNames, positionStart, _currentToken.PositionEnd));
+        }
+
+        private ParserResult ParseNamespaceDeclaration()
+        {
+            var res = new ParserResult();
+            var positionStart = _currentToken.PositionStart;
+
+            res.RegisterAdvancement();
+            Advance();
+
+            SkipNewlines(res);
+
+            var segments = ParseQualifiedNameSegments(res);
+            if (res.Error != null) return res;
+            if (segments == null || segments.Count == 0)
+            {
+                return res.Failure(new InvalidSyntaxError(
+                    _currentToken.PositionStart, _currentToken.PositionEnd,
+                    "Expected namespace name after 'namespace'"));
+            }
+
+            SkipNewlines(res);
+
+            if (_currentToken.Type != TokenType.LBRACKET)
+            {
+                return res.Failure(new InvalidSyntaxError(
+                    _currentToken.PositionStart, _currentToken.PositionEnd,
+                    "Expected '{' to open namespace body"));
+            }
+
+            var bodyStart = _currentToken.PositionStart;
+            res.RegisterAdvancement();
+            Advance();
+
+            var body = res.Register(ParseStatements());
+            if (res.Error != null) return res;
+
+            if (_currentToken.Type != TokenType.RBRACKET)
+            {
+                return res.Failure(new InvalidSyntaxError(
+                    _currentToken.PositionStart, _currentToken.PositionEnd,
+                    "Expected '}' to close namespace body"));
+            }
+
+            var bodyEnd = _currentToken.PositionEnd;
+            res.RegisterAdvancement();
+            Advance();
+
+            return res.Success(new NamespaceDeclarationNode(
+                segments,
+                body!,
+                isFileScoped: false,
+                positionStart,
+                bodyEnd));
+        }
+
+        private ParserResult ParseUsingStatement()
+        {
+            var res = new ParserResult();
+            var positionStart = _currentToken.PositionStart;
+
+            res.RegisterAdvancement();
+            Advance();
+
+            SkipNewlines(res);
+
+            var segments = ParseQualifiedNameSegments(res);
+            if (res.Error != null) return res;
+            if (segments == null || segments.Count == 0)
+            {
+                return res.Failure(new InvalidSyntaxError(
+                    _currentToken.PositionStart, _currentToken.PositionEnd,
+                    "Expected namespace name after 'using'"));
+            }
+
+            Token? aliasTok = null;
+            if (_currentToken.Type == TokenType.KEYWORD && _currentToken.Matches(Keyword.As))
+            {
+                res.RegisterAdvancement();
+                Advance();
+                SkipNewlines(res);
+
+                if (_currentToken.Type != TokenType.IDENTIFIER)
+                {
+                    return res.Failure(new InvalidSyntaxError(
+                        _currentToken.PositionStart, _currentToken.PositionEnd,
+                        "Expected identifier after 'as' in using directive"));
+                }
+                aliasTok = _currentToken;
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            return res.Success(new UsingNamespaceNode(
+                segments,
+                aliasTok,
+                positionStart,
+                _currentToken.PositionEnd));
+        }
+
+        private List<Token>? ParseQualifiedNameSegments(ParserResult res)
+        {
+            if (_currentToken.Type != TokenType.IDENTIFIER)
+            {
+                res.Failure(new InvalidSyntaxError(
+                    _currentToken.PositionStart, _currentToken.PositionEnd,
+                    "Expected identifier"));
+                return null;
+            }
+
+            var segments = new List<Token> { _currentToken };
+            res.RegisterAdvancement();
+            Advance();
+
+            while (_currentToken.Type == TokenType.DOT)
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                if (_currentToken.Type != TokenType.IDENTIFIER)
+                {
+                    res.Failure(new InvalidSyntaxError(
+                        _currentToken.PositionStart, _currentToken.PositionEnd,
+                        "Expected identifier after '.'"));
+                    return null;
+                }
+
+                segments.Add(_currentToken);
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            return segments;
         }
 
         private Interpreter.Modules.ModuleSpecifier? ParseModuleSpecifier(ParserResult res)
