@@ -19,7 +19,13 @@ namespace RaLanguage.Interpreter.Visitors.Classes
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "'super' is only available inside class instance methods/constructors", context));
 
             var self = (ClassInstanceValue)selfEntry.Value;
-            return res.Success(new SuperProxyValue(self, self.Definition).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+
+            // Use the lexically-owning class (the class in whose body we are executing) instead
+            // of the dynamic type of `self`. This is what makes super-chains terminate: inside
+            // B's ctor body invoked on a C instance, `super` must walk B.BaseClass, not
+            // C.BaseClass — otherwise super(...) loops back into B forever.
+            var owner = context.CurrentClassMethodOwner ?? self.Definition;
+            return res.Success(new SuperProxyValue(self, owner).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
     }
 }

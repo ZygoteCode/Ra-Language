@@ -64,6 +64,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
             var execCtx = GenerateNewContext();
             if (asyncCtxOverride != null) execCtx.AsyncCtx = asyncCtxOverride;
 
+            execCtx.CurrentClassMethodOwner = Definition;
+
             if (!IsStatic && SelfInstance != null)
             {
                 execCtx.SymbolTable.Set(
@@ -152,6 +154,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
                     isPublic: false
                 );
             }
+
+            bindRes.execCtx!.CurrentClassMethodOwner = Definition;
 
             if (MethodNode.IsConstructor)
             {

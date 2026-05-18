@@ -1,0 +1,5 @@
+pub class Lonely {
+    pub override fn foo() { ret 1; }
+}
+
+print("UNREACHABLE");

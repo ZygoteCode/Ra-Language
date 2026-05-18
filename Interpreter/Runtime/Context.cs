@@ -1,5 +1,6 @@
 ﻿using RaLanguage.Lexer;
 using RaLanguage.Interpreter.Runtime.Async;
+using RaLanguage.Interpreter.Values.Primitives;
 
 namespace RaLanguage.Interpreter.Runtime
 {
@@ -16,6 +17,11 @@ namespace RaLanguage.Interpreter.Runtime
         public bool IsInConstructor { get; set; }
         public AsyncContext? AsyncCtx { get; set; }
 
+        // The class whose method body is currently executing, captured lexically (NOT the
+        // dynamic type of `self`). Used by `super` resolution so that, inside B's method body
+        // invoked on a C instance, `super` walks B.BaseClass instead of C.BaseClass.
+        public ClassTypeValue? CurrentClassMethodOwner { get; set; }
+
         public Context(string displayName, Context? parent = null, Position? parentEntryPos = null, ExtensionRegistry? extensions = null)
         {
             DisplayName = displayName;
@@ -25,6 +31,7 @@ namespace RaLanguage.Interpreter.Runtime
             Extensions = extensions ?? parent?.Extensions ?? new ExtensionRegistry();
             IsInConstructor = false;
             AsyncCtx = parent?.AsyncCtx;
+            CurrentClassMethodOwner = parent?.CurrentClassMethodOwner;
         }
 
         public Context Copy()
@@ -33,6 +40,7 @@ namespace RaLanguage.Interpreter.Runtime
             newCtx.SymbolTable = new SymbolTable(newCtx.Parent?.SymbolTable);
             newCtx.IsInConstructor = IsInConstructor;
             newCtx.AsyncCtx = AsyncCtx;
+            newCtx.CurrentClassMethodOwner = CurrentClassMethodOwner;
             return newCtx;
         }
 

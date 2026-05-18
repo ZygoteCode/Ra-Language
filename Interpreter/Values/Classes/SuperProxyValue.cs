@@ -28,7 +28,7 @@ namespace RaLanguage.Interpreter.Values.Classes
             if (BaseClass == null)
                 return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Class '{CurrentClass.ClassName}' has no base class", Context));
 
-            if (Context?.SymbolTable?.GetEntry("__in_constructor__") == null)
+            if (Context == null || !Context.IsInConstructor)
                 return res.Failure(new RuntimeError(PositionStart, PositionEnd, "'super(...)' can only be used inside a constructor", Context));
 
             var ctor = BaseClass.ResolveOwnConstructor(positionalArgs, namedArgs);

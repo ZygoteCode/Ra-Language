@@ -202,6 +202,7 @@ namespace RaLanguage.Interpreter.Values.Traits
             }
 
             var execCtx = GenerateNewContext();
+            execCtx.CurrentClassMethodOwner = OwnerType;
             execCtx.SymbolTable.Set(
                 "self",
                 Instance,

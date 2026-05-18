@@ -1,4 +1,5 @@
-﻿using RaLanguage.Errors.Types;
+﻿using RaLanguage.Errors;
+using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
@@ -94,35 +95,8 @@ namespace RaLanguage.Interpreter.Visitors.Classes
                 }
             }
 
-            foreach (var method in node.Methods.Where(m => m.IsOverride))
-            {
-                if (method.IsConstructor)
-                    return res.Failure(new RuntimeError(method.PositionStart, method.PositionEnd, "Constructors cannot be marked override", context));
-
-                if (!classValue.HasInheritedOrTraitMethodSignature(method))
-                {
-                    return res.Failure(new RuntimeError(
-                        method.PositionStart,
-                        method.PositionEnd,
-                        $"No base/trait method found to override for '{method.VarNameTok?.Value}'",
-                        context));
-                }
-            }
-
-            foreach (var field in node.Fields.Where(f => f.IsOverride))
-            {
-                if (field.IsStatic)
-                    return res.Failure(new RuntimeError(field.PositionStart, field.PositionEnd, "Static fields cannot be marked override", context));
-
-                if (!classValue.HasInheritedOrTraitField(field))
-                {
-                    return res.Failure(new RuntimeError(
-                        field.PositionStart,
-                        field.PositionEnd,
-                        $"No base/trait field found to override for '{field.NameTok.Value?.ToString()}'",
-                        context));
-                }
-            }
+            var contractErr = ValidateInheritanceContract(node, classValue, context);
+            if (contractErr != null) return res.Failure(contractErr);
 
             foreach (var field in node.Fields.Where(f => f.IsAbstract))
             {
@@ -185,9 +159,6 @@ namespace RaLanguage.Interpreter.Visitors.Classes
                     field.IsPublic,
                     field.FieldType);
             }
-
-            ValidateOverrides(node, classValue, context, ref res);
-            if (res.ShouldReturn()) return res;
 
             ValidateToStringMethod(node, classValue, context, ref res);
             if (res.ShouldReturn()) return res;
@@ -307,51 +278,181 @@ namespace RaLanguage.Interpreter.Visitors.Classes
             return res.Success(classValue);
         }
 
-        private void ValidateOverrides(ClassDefinitionNode node, ClassTypeValue classValue, Context context, ref RuntimeResult res)
+        private Error? ValidateInheritanceContract(ClassDefinitionNode node, ClassTypeValue classValue, Context context)
         {
+            var className = classValue.ClassName;
+
+            var ownMethodSignatures = new Dictionary<string, FunctionDefinitionNode>(StringComparer.Ordinal);
+            foreach (var method in node.Methods)
+            {
+                if (method.IsConstructor) continue;
+
+                var key = MethodSignature.KeyOf(method);
+                if (ownMethodSignatures.TryGetValue(key, out _))
+                {
+                    return new RuntimeError(
+                        method.PositionStart,
+                        method.PositionEnd,
+                        $"Duplicate method '{method.VarNameTok?.Value}' with the same signature in class '{className}'",
+                        context);
+                }
+
+                ownMethodSignatures[key] = method;
+            }
+
+            var ownFieldNames = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var field in node.Fields)
+            {
+                var fieldName = field.NameTok.Value?.ToString() ?? "";
+                if (!ownFieldNames.Add(fieldName))
+                {
+                    return new RuntimeError(
+                        field.PositionStart,
+                        field.PositionEnd,
+                        $"Duplicate field '{fieldName}' in class '{className}'",
+                        context);
+                }
+            }
+
+            foreach (var method in node.Methods)
+            {
+                if (method.IsConstructor || method.IsOverride || method.IsAbstract) continue;
+
+                if (classValue.HasInheritedOrTraitMethodSignature(method))
+                {
+                    var methodName = method.VarNameTok?.Value?.ToString() ?? "<anonymous>";
+                    var origin = DescribeMethodOrigin(classValue, method);
+
+                    return new RuntimeError(
+                        method.PositionStart,
+                        method.PositionEnd,
+                        $"Method '{methodName}' in class '{className}' shadows the same-signature member from {origin}. " +
+                        $"Mark it 'override' to replace the inherited definition, or rename it.",
+                        context);
+                }
+            }
+
             foreach (var method in node.Methods.Where(m => m.IsOverride))
             {
+                var methodName = method.VarNameTok?.Value?.ToString() ?? "<anonymous>";
+
                 if (method.IsConstructor)
                 {
-                    res = res.Failure(new RuntimeError(method.PositionStart, method.PositionEnd, "Constructors cannot be marked override", context));
-                    return;
+                    return new RuntimeError(
+                        method.PositionStart,
+                        method.PositionEnd,
+                        $"Constructors cannot be marked 'override' in class '{className}'",
+                        context);
                 }
 
-                if (classValue.BaseClass == null)
+                if (classValue.BaseClass == null && classValue.Traits.Count == 0)
                 {
-                    res = res.Failure(new RuntimeError(method.PositionStart, method.PositionEnd, $"Method '{method.VarNameTok?.Value}' is marked override but class has no base class", context));
-                    return;
+                    return new RuntimeError(
+                        method.PositionStart,
+                        method.PositionEnd,
+                        $"Method '{methodName}' is marked 'override' but class '{className}' has no base class or trait",
+                        context);
                 }
 
-                var candidate = classValue.BaseClass.ResolveMethod(method.VarNameTok?.Value?.ToString() ?? "", new List<RuntimeValue>(), new Dictionary<string, RuntimeValue>());
-                if (candidate == null)
+                if (!classValue.HasInheritedOrTraitMethodSignature(method))
                 {
-                    res = res.Failure(new RuntimeError(method.PositionStart, method.PositionEnd, $"No base method found to override for '{method.VarNameTok?.Value}'", context));
-                    return;
-                }
-
-                if (!SameSignature(method, candidate))
-                {
-                    res = res.Failure(new RuntimeError(method.PositionStart, method.PositionEnd, $"Override signature mismatch for method '{method.VarNameTok?.Value}'", context));
-                    return;
+                    return new RuntimeError(
+                        method.PositionStart,
+                        method.PositionEnd,
+                        $"No matching base or trait-default method found to override for '{methodName}' in class '{className}'. " +
+                        $"The override must match the inherited signature exactly.",
+                        context);
                 }
             }
+
+            foreach (var field in node.Fields)
+            {
+                if (field.IsOverride || field.IsAbstract) continue;
+
+                if (classValue.HasInheritedOrTraitField(field))
+                {
+                    var fieldName = field.NameTok.Value?.ToString() ?? "";
+                    return new RuntimeError(
+                        field.PositionStart,
+                        field.PositionEnd,
+                        $"Field '{fieldName}' in class '{className}' shadows an inherited or trait field. " +
+                        $"Mark it 'override' to replace the inherited definition, or rename it.",
+                        context);
+                }
+            }
+
+            foreach (var field in node.Fields.Where(f => f.IsOverride))
+            {
+                var fieldName = field.NameTok.Value?.ToString() ?? "";
+
+                if (field.IsStatic)
+                {
+                    return new RuntimeError(
+                        field.PositionStart,
+                        field.PositionEnd,
+                        $"Static fields cannot be marked 'override' (field '{fieldName}' in class '{className}')",
+                        context);
+                }
+
+                if (!classValue.HasInheritedOrTraitField(field))
+                {
+                    return new RuntimeError(
+                        field.PositionStart,
+                        field.PositionEnd,
+                        $"No matching base or trait field found to override for '{fieldName}' in class '{className}'",
+                        context);
+                }
+            }
+
+            var traitDefaultOrigins = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            foreach (var trait in classValue.Traits)
+            {
+                foreach (var method in trait.Methods.Where(m => m.HasBody))
+                {
+                    var key = MethodSignature.KeyOf(method);
+                    if (!traitDefaultOrigins.TryGetValue(key, out var origins))
+                    {
+                        origins = new List<string>();
+                        traitDefaultOrigins[key] = origins;
+                    }
+
+                    if (!origins.Contains(trait.TraitName, StringComparer.Ordinal))
+                        origins.Add(trait.TraitName);
+                }
+            }
+
+            foreach (var entry in traitDefaultOrigins)
+            {
+                if (entry.Value.Count <= 1) continue;
+                if (ownMethodSignatures.ContainsKey(entry.Key)) continue;
+
+                return new RuntimeError(
+                    node.PositionStart,
+                    node.PositionEnd,
+                    $"Class '{className}' inherits conflicting default method implementations from traits {string.Join(", ", entry.Value)} " +
+                    $"for the same signature. Provide an 'override' in the class to disambiguate.",
+                    context);
+            }
+
+            return null;
         }
 
-        private bool SameSignature(FunctionDefinitionNode a, FunctionDefinitionNode b)
+        private static string DescribeMethodOrigin(ClassTypeValue classValue, FunctionDefinitionNode method)
         {
-            if (a.ArgNameToks.Count != b.ArgNameToks.Count) return false;
-            if (a.HasVarArgs != b.HasVarArgs) return false;
-            if (a.ArgTypes.Count != b.ArgTypes.Count) return false;
+            if (classValue.BaseClass != null && classValue.BaseClass.HasMethodSignatureInHierarchy(method))
+                return $"base class '{classValue.BaseClass.ClassName}'";
 
-            for (int i = 0; i < a.ArgTypes.Count; i++)
+            var methodName = method.VarNameTok?.Value?.ToString() ?? "";
+            foreach (var trait in classValue.Traits)
             {
-                var x = a.ArgTypes[i]?.ToString() ?? "";
-                var y = b.ArgTypes[i]?.ToString() ?? "";
-                if (!string.Equals(x, y, StringComparison.Ordinal)) return false;
+                if (trait.GetDefaultMethodsByName(methodName)
+                    .Any(m => MethodSignature.MatchesSignature(m, method)))
+                {
+                    return $"trait '{trait.TraitName}'";
+                }
             }
 
-            return true;
+            return "an inherited member";
         }
 
         private void ValidateToStringMethod(ClassDefinitionNode node, ClassTypeValue classValue, Context context, ref RuntimeResult res)
