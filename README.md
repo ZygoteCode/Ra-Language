@@ -22,7 +22,7 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [x] Implement annotations/decorators — full subsystem with typed parameters, defaults, named arguments, meta-annotations (`@target`, `@repeatable`, `@inherited`, `@sealed`, `@composes`, `@priority`, `@intercept`, `@deprecated`), composition, runtime metadata registry, reflection built-ins (`annotations_of`, `has_annotation`, `annotation_arg`, `annotation_targets`), and call-site interceptor pipeline.
   - [x] Improve import system.
   - [x] Implement a complete namespaces system.
-  - [ ] Implement async/await programming.
+  - [x] Implement async/await programming.
   - [ ] Implement built-in functions for reflections and complex language operations (ex. native sys calls).
   - [ ] (EXPERIMENT) Execute Assembly code in Ra Language with Reloaded.Assembler / FASM.NET.
   - [ ] (EXPERIMENT) Execute C# code in Ra Language.
