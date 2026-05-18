@@ -40,7 +40,7 @@
         AnnotationInstance,
         Task,
         Channel,
-        Stream
+        Stream,
         Namespace
     }
 }
