@@ -1,4 +1,5 @@
-﻿using RaLanguage.Errors.Types;
+﻿using RaLanguage.Errors;
+using RaLanguage.Errors.Types;
 using RaLanguage.Lexer;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes;
@@ -99,12 +100,29 @@ namespace RaLanguage.Parser
             var res = ParseStatements();
             if (res.Error == null && _currentToken.Type != TokenType.EOF)
             {
-                res.Failure(new InvalidSyntaxError(
-                    _currentToken.PositionStart, _currentToken.PositionEnd,
-                    "Token cannot appear after previous tokens"
-                ));
+                res.Failure(ParserDiagnostics.TrailingToken(_currentToken));
             }
             return new ParseResult(res.Node, res.Diagnostics);
+        }
+
+        internal static string DescribeToken(Token token)
+        {
+            switch (token.Type)
+            {
+                case TokenType.EOF: return "end of input";
+                case TokenType.NEWLINE: return "newline";
+                case TokenType.IDENTIFIER:
+                    return token.Value != null ? $"identifier '{token.Value}'" : "identifier";
+                case TokenType.INT:
+                case TokenType.FLOAT:
+                    return token.Value != null ? $"number '{token.Value}'" : "number literal";
+                case TokenType.STRING_TEXT:
+                    return "string literal";
+                case TokenType.KEYWORD:
+                    return token.Value != null ? $"keyword '{token.Value.ToString()!.ToLowerInvariant()}'" : "keyword";
+                default:
+                    return token.Value != null ? $"'{token.Value}'" : $"'{token.Type}'";
+            }
         }
 
         private ParserResult ParseStatements()
@@ -200,12 +218,38 @@ namespace RaLanguage.Parser
                 }
                 else
                 {
-                    stmt = res.TryRegister(ParseStatement());
-
-                    if (res.Error != null)
+                    // Don't attempt to parse a statement when we've already reached
+                    // a natural terminator — otherwise ParseStatement would emit a
+                    // bogus "expected expression but found EOF / '}'" diagnostic.
+                    if (_currentToken.Type == TokenType.EOF ||
+                        _currentToken.Type == TokenType.RBRACKET)
                     {
-                        return res;
+                        break;
                     }
+
+                    var stmtRes = ParseStatement();
+                    var stmtNode = res.Register(stmtRes);
+
+                    if (stmtRes.Error != null)
+                    {
+                        // Panic-mode recovery: record the failure (diagnostics are
+                        // already in the bag via Register) and keep scanning so later
+                        // statements still produce their own diagnostics instead of
+                        // being hidden by the first broken one. Stop at the next
+                        // newline / closing brace so the outer loop can re-enter.
+                        res.Error = null;
+                        while (_currentToken.Type != TokenType.EOF &&
+                               _currentToken.Type != TokenType.NEWLINE &&
+                               _currentToken.Type != TokenType.RBRACKET)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                        }
+                        moreStatements = true;
+                        continue;
+                    }
+
+                    stmt = stmtNode;
                 }
 
                 if (stmt == null)
@@ -216,6 +260,22 @@ namespace RaLanguage.Parser
                 }
 
                 statements.Add(stmt);
+            }
+
+            // If recovery emitted diagnostics but produced no fatal Error, the outer
+            // driver still needs to know parsing failed. Surface the first error so
+            // ParseResult.HasErrors reports correctly.
+            if (res.Error == null && res.Diagnostics.HasErrors)
+            {
+                var firstErr = res.Diagnostics.FirstError;
+                if (firstErr != null)
+                {
+                    res.Error = new InvalidSyntaxError(
+                        firstErr.PrimarySpan.Start,
+                        firstErr.PrimarySpan.End,
+                        firstErr.Title,
+                        firstErr.Code);
+                }
             }
 
             return res.Success(new ScopeNode(
@@ -306,7 +366,8 @@ namespace RaLanguage.Parser
 
                         if (_currentToken.Type != TokenType.IDENTIFIER)
                         {
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier"));
+                            return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken, after: "'goto'",
+                                help: "goto targets a label declared as 'name:'"));
                         }
 
                         Token varName = _currentToken;
@@ -340,10 +401,9 @@ namespace RaLanguage.Parser
             var expression = res.Register(ParseExpression());
             if (res.Error != null)
             {
-                return res.Failure(new InvalidSyntaxError(
-                    _currentToken.PositionStart, _currentToken.PositionEnd,
-                    "Expected 'return', 'continue', 'break', 'var', 'if', 'for', 'while', 'fn', int, float, identifier, '+', '-', '(', '[' or 'not'"
-                ));
+                // Preserve the deeper parser error (ParseExpression already produced a
+                // specific diagnostic). Only fall back to a synthetic message if none.
+                return res;
             }
             return res.Success(expression);
         }
@@ -368,7 +428,7 @@ namespace RaLanguage.Parser
             }
 
             if (!_currentToken.Matches(Keyword.For))
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'for' after 'retry'"));
+                return res.Failure(ParserDiagnostics.ExpectedRetryFor(_currentToken));
 
             res.RegisterAdvancement();
             Advance();
@@ -383,7 +443,7 @@ namespace RaLanguage.Parser
             }
 
             if (!_currentToken.Matches(Keyword.Times))
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'times' after retry count"));
+                return res.Failure(ParserDiagnostics.ExpectedRetryTimes(_currentToken));
 
             res.RegisterAdvancement();
             Advance();
@@ -411,7 +471,7 @@ namespace RaLanguage.Parser
             }
 
             if (_currentToken.Type != TokenType.LBRACKET)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{'"));
+                return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '{', context: "the retry body"));
 
             res.RegisterAdvancement();
             Advance();
@@ -420,7 +480,7 @@ namespace RaLanguage.Parser
             if (res.Error != null) return res;
 
             if (_currentToken.Type != TokenType.RBRACKET)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}' after retry body"));
+                return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{', context: "the retry body"));
 
             res.RegisterAdvancement();
             Advance();
@@ -444,7 +504,7 @@ namespace RaLanguage.Parser
                 }
 
                 if (_currentToken.Type != TokenType.LBRACKET)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{' after 'else'"));
+                    return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '{', context: "the retry 'else' branch"));
 
                 res.RegisterAdvancement();
                 Advance();
@@ -453,7 +513,7 @@ namespace RaLanguage.Parser
                 if (res.Error != null) return res;
 
                 if (_currentToken.Type != TokenType.RBRACKET)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}' after retry else-body"));
+                    return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{', context: "the retry 'else' branch"));
 
                 res.RegisterAdvancement();
                 Advance();
@@ -575,7 +635,7 @@ namespace RaLanguage.Parser
             }
 
             if (_currentToken.Type != TokenType.IDENTIFIER)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected generic type parameter name"));
+                return res.Failure(ParserDiagnostics.ExpectedGenericParamName(_currentToken));
 
             genericTypeParams.Add(_currentToken.Value?.ToString() ?? "");
             res.RegisterAdvancement();
@@ -599,11 +659,11 @@ namespace RaLanguage.Parser
                 }
 
                 if (_currentToken.Type != TokenType.IDENTIFIER)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected generic type parameter name"));
+                    return res.Failure(ParserDiagnostics.ExpectedGenericParamName(_currentToken));
 
                 var name = _currentToken.Value?.ToString() ?? "";
                 if (genericTypeParams.Contains(name))
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, $"Duplicate generic type parameter '{name}'"));
+                    return res.Failure(ParserDiagnostics.DuplicateGenericParam(name, _currentToken.PositionStart, _currentToken.PositionEnd));
 
                 genericTypeParams.Add(name);
                 res.RegisterAdvancement();
@@ -617,7 +677,7 @@ namespace RaLanguage.Parser
             }
 
             if (_currentToken.Type != TokenType.GT)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '>' after generic type parameters"));
+                return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '>', '<', context: "the generic type parameter list"));
 
             res.RegisterAdvancement();
             Advance();
@@ -640,7 +700,7 @@ namespace RaLanguage.Parser
                 return res.Success(null);
 
             if (genericTypeParams == null || genericTypeParams.Count == 0)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "'where' clause requires generic type parameters"));
+                return res.Failure(ParserDiagnostics.WhereClauseRequiresGeneric(_currentToken.PositionStart, _currentToken.PositionEnd));
 
             res.RegisterAdvancement();
             Advance();
@@ -654,16 +714,18 @@ namespace RaLanguage.Parser
                 }
 
                 if (_currentToken.Type != TokenType.IDENTIFIER)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected generic type parameter name in 'where' clause"));
+                    return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
+                        after: "'where'",
+                        help: "the 'where' clause constrains one of the declared generic parameters"));
 
                 var paramTok = _currentToken;
                 var paramName = paramTok.Value?.ToString() ?? "";
 
                 if (!genericTypeParams.Contains(paramName))
-                    return res.Failure(new InvalidSyntaxError(paramTok.PositionStart, paramTok.PositionEnd, $"'where' clause references unknown generic parameter '{paramName}'"));
+                    return res.Failure(ParserDiagnostics.UnknownGenericParam(paramName, paramTok.PositionStart, paramTok.PositionEnd));
 
                 if (constraints.Any(c => string.Equals(c.ParameterName, paramName, StringComparison.Ordinal)))
-                    return res.Failure(new InvalidSyntaxError(paramTok.PositionStart, paramTok.PositionEnd, $"Duplicate 'where' constraint for '{paramName}'"));
+                    return res.Failure(ParserDiagnostics.DuplicateWhereConstraint(paramName, paramTok.PositionStart, paramTok.PositionEnd));
 
                 res.RegisterAdvancement();
                 Advance();
@@ -675,7 +737,8 @@ namespace RaLanguage.Parser
                 }
 
                 if (_currentToken.Type != TokenType.COLON)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' after 'where' parameter name"));
+                    return res.Failure(ParserDiagnostics.ExpectedColon(_currentToken,
+                        context: "after the parameter name in a 'where' clause"));
 
                 res.RegisterAdvancement();
                 Advance();
@@ -688,7 +751,7 @@ namespace RaLanguage.Parser
 
                 var constraintType = ParseType(res);
                 if (constraintType == null)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':' in 'where' clause"));
+                    return res.Failure(ParserDiagnostics.ExpectedTypeAfterColon(_currentToken, where: "a 'where' clause constraint"));
 
                 constraints.Add(new WhereConstraintNode(paramTok, constraintType));
 
@@ -758,7 +821,9 @@ namespace RaLanguage.Parser
 
                     if (_currentToken.Type != TokenType.IDENTIFIER)
                     {
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier"));
+                        return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
+                            after: "'nameof('",
+                            help: "nameof(x) returns the textual name of a declared symbol"));
                     }
 
                     Token tok = _currentToken;
@@ -767,7 +832,7 @@ namespace RaLanguage.Parser
 
                     if (_currentToken.Type != TokenType.RPAREN)
                     {
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ')'"));
+                        return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, ')', '(', context: "the 'nameof' argument"));
                     }
 
                     res.RegisterAdvancement();
@@ -779,7 +844,9 @@ namespace RaLanguage.Parser
                 {
                     if (_currentToken.Type != TokenType.IDENTIFIER)
                     {
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier"));
+                        return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
+                            after: "'nameof'",
+                            help: "nameof requires a symbol name, e.g. 'nameof myVar' or 'nameof(myVar)'"));
                     }
 
                     Token tok = _currentToken;
@@ -803,7 +870,7 @@ namespace RaLanguage.Parser
                     var parsedType = ParseType(res);
                     if (parsedType == null)
                     {
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after 'as'"));
+                        return res.Failure(ParserDiagnostics.ExpectedTypeName(_currentToken, after: "'as'"));
                     }
 
                     var castNode = new CastNode(leftNode, parsedType);
@@ -815,10 +882,9 @@ namespace RaLanguage.Parser
 
             if (res.Error != null)
             {
-                return res.Failure(new InvalidSyntaxError(
-                    _currentToken.PositionStart, _currentToken.PositionEnd,
-                    "Expected 'var', 'if', 'for', 'while', 'fn', int, float, identifier, '+', '-', '(', '[' or 'not'"
-                ));
+                // ParseBinaryOperation / ParseBitwiseOrExpression already emitted a
+                // specific diagnostic for the offending token; bubble it up untouched.
+                return res;
             }
 
             if (_currentToken.Type == TokenType.QUESTION_MARK)
@@ -832,10 +898,8 @@ namespace RaLanguage.Parser
 
                 if (_currentToken.Type != TokenType.COLON)
                 {
-                    return res.Failure(new InvalidSyntaxError(
-                        _currentToken.PositionStart, _currentToken.PositionEnd,
-                        "Expected ':' after expression in ternary operator"
-                    ));
+                    return res.Failure(ParserDiagnostics.ExpectedColon(_currentToken,
+                        context: "to separate the two branches of the '?:' ternary"));
                 }
 
                 res.RegisterAdvancement();
@@ -873,10 +937,9 @@ namespace RaLanguage.Parser
                 }
                 else
                 {
-                    return res.Failure(new InvalidSyntaxError(
+                    return res.Failure(ParserDiagnostics.InvalidAssignmentTarget(
                         leftNode.PositionStart, leftNode.PositionEnd,
-                        "Invalid assignment target. You can only assign values to variables or list elements."
-                    ));
+                        "only variables, indexed access (a[i]) and member access (a.b) may appear on the left of an assignment"));
                 }
             }
 
@@ -975,10 +1038,10 @@ namespace RaLanguage.Parser
 
             if (res.Error != null)
             {
-                return res.Failure(new InvalidSyntaxError(
-                   _currentToken.PositionStart, _currentToken.PositionEnd,
-                   "Expected int, float, identifier, '+', '-', '(', '[', 'if', 'for', 'while', 'fn' or 'not'"
-               ));
+                // The inner comparison parser already produced a precise diagnostic
+                // for the offending token; preserve it rather than overwriting with a
+                // generic "expected one of N tokens" fallback.
+                return res;
             }
 
             return res.Success(b_node);
@@ -1211,7 +1274,9 @@ namespace RaLanguage.Parser
                         }
 
                         if (_currentToken.Type != TokenType.RPAREN)
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ',' or ')'"));
+                            return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                                "',' or ')'",
+                                contextHint: "argument lists are comma-separated and end with ')'"));
 
                         res.RegisterAdvancement();
                         Advance();
@@ -1229,7 +1294,7 @@ namespace RaLanguage.Parser
                     if (res.Error != null) return res;
 
                     if (_currentToken.Type != TokenType.RSQUARE)
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ']'"));
+                        return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, ']', '[', context: "an index expression"));
 
                     var rBracketEndPos = _currentToken.PositionEnd;
                     res.RegisterAdvancement();
@@ -1243,7 +1308,7 @@ namespace RaLanguage.Parser
                     Advance();
 
                     if (_currentToken.Type != TokenType.IDENTIFIER)
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected member name after '.'"));
+                        return res.Failure(ParserDiagnostics.ExpectedMemberName(_currentToken));
 
                     Token memberTok = _currentToken;
                     res.RegisterAdvancement();
@@ -1293,7 +1358,7 @@ namespace RaLanguage.Parser
 
                             if (_currentToken.Type != TokenType.INTERP_END)
                             {
-                                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}' to close interpolation"));
+                                return res.Failure(ParserDiagnostics.ExpectedInterpClose(_currentToken));
                             }
 
                             res.RegisterAdvancement();
@@ -1369,7 +1434,7 @@ namespace RaLanguage.Parser
 
                         if (_currentToken.Type != TokenType.RPAREN)
                         {
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ')' after tuple"));
+                            return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, ')', '(', context: "the tuple literal"));
                         }
 
                         var tupleEndPos = _currentToken.PositionEnd;
@@ -1387,7 +1452,9 @@ namespace RaLanguage.Parser
                             return res.Success(firstExpr);
                         }
 
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ',' or ')'"));
+                        return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                            "',' (continuing the tuple) or ')' (closing the parenthesized expression)",
+                            contextHint: "parenthesized expressions need ')', tuples need ',' between their elements"));
                     }
                 case TokenType.LSQUARE:
                     var listExpr = res.Register(ParseListExpression());
@@ -1493,7 +1560,7 @@ namespace RaLanguage.Parser
                 }
             }
 
-            return res.Failure(new InvalidSyntaxError(tok.PositionStart, tok.PositionEnd, "Expected int, float, identifier, '+', '-', '(', '[', 'if', 'for', 'while', 'fn'"));
+            return res.Failure(ParserDiagnostics.ExpectedExpression(tok));
         }
 
         private ParserResult ParseExtensionDefinition()
@@ -1509,17 +1576,19 @@ namespace RaLanguage.Parser
             }
 
             if (!_currentToken.Matches(Keyword.Extend))
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'extend'"));
+                return res.Failure(ParserDiagnostics.ExpectedKeyword(_currentToken, "extend",
+                    context: "to start an extension block",
+                    help: "extension syntax: 'extend TargetType { fn ... }'"));
 
             res.RegisterAdvancement();
             Advance();
 
             var targetType = ParseType(res);
             if (targetType == null)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected target type after 'extend'"));
+                return res.Failure(ParserDiagnostics.ExpectedTypeName(_currentToken, after: "'extend'"));
 
             if (_currentToken.Type != TokenType.LBRACKET)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{'"));
+                return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '{', context: "the extension body"));
 
             res.RegisterAdvancement();
             Advance();
@@ -1546,7 +1615,9 @@ namespace RaLanguage.Parser
                 }
 
                 if (!_currentToken.Matches(Keyword.Fn))
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'fn' inside extension"));
+                    return res.Failure(ParserDiagnostics.ExpectedKeyword(_currentToken, "fn",
+                        context: "to declare an extension method",
+                        help: "only 'fn' declarations are allowed inside an extension body"));
 
                 var fnRes = ParseFunctionDefinition(isPublic: methodPublic);
                 if (fnRes.Error != null) return fnRes;
@@ -1554,13 +1625,13 @@ namespace RaLanguage.Parser
                 var fnNode = (FunctionDefinitionNode)fnRes.Node!;
 
                 if (fnNode.IsConstructor)
-                    return res.Failure(new InvalidSyntaxError(fnNode.PositionStart, fnNode.PositionEnd, "Extensions cannot declare constructors"));
+                    return res.Failure(ParserDiagnostics.ExtensionConstructorNotAllowed(fnNode.PositionStart, fnNode.PositionEnd));
 
                 if (fnNode.IsAbstract)
-                    return res.Failure(new InvalidSyntaxError(fnNode.PositionStart, fnNode.PositionEnd, "Extension methods must have a body"));
+                    return res.Failure(ParserDiagnostics.ExtensionMethodNeedsBody(fnNode.PositionStart, fnNode.PositionEnd));
 
                 if (fnNode.BodyNode == null)
-                    return res.Failure(new InvalidSyntaxError(fnNode.PositionStart, fnNode.PositionEnd, "Extension methods must have a body"));
+                    return res.Failure(ParserDiagnostics.ExtensionMethodNeedsBody(fnNode.PositionStart, fnNode.PositionEnd));
 
                 methods.Add(fnNode);
 
@@ -1598,7 +1669,10 @@ namespace RaLanguage.Parser
             {
                 return res.Failure(new InvalidSyntaxError(
                     _currentToken.PositionStart, _currentToken.PositionEnd,
-                    "Expected string path, '{' or dotted module name after 'import'"));
+                    $"expected a string path, '{{' selector or dotted module name after 'import' but found {DescribeToken(_currentToken)}",
+                    DiagnosticCode.ParserExpectedToken,
+                    help: "imports look like 'import \"./mod.ra\"', 'import std.io' or 'import { a, b } from \"./mod.ra\"'",
+                    primaryLabel: "module specifier expected here"));
             }
 
             if (_currentToken.Type == TokenType.KEYWORD && _currentToken.Matches(Keyword.As))
@@ -1610,9 +1684,9 @@ namespace RaLanguage.Parser
 
                 if (_currentToken.Type != TokenType.IDENTIFIER)
                 {
-                    return res.Failure(new InvalidSyntaxError(
-                        _currentToken.PositionStart, _currentToken.PositionEnd,
-                        "Expected identifier after 'as'"));
+                    return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
+                        after: "'as'",
+                        help: "the alias must be a single identifier, e.g. 'import std.io as IO'"));
                 }
 
                 var aliasTok = _currentToken;
@@ -1637,9 +1711,9 @@ namespace RaLanguage.Parser
 
                 if (_currentToken.Type != TokenType.IDENTIFIER)
                 {
-                    return res.Failure(new InvalidSyntaxError(
-                        _currentToken.PositionStart, _currentToken.PositionEnd,
-                        "Expected identifier in import list"));
+                    return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
+                        after: "'{'",
+                        help: "the selective import list contains comma-separated symbol names"));
                 }
 
                 symbolNames.Add(_currentToken);
@@ -1655,9 +1729,9 @@ namespace RaLanguage.Parser
                 }
                 else if (_currentToken.Type != TokenType.RBRACKET)
                 {
-                    return res.Failure(new InvalidSyntaxError(
-                        _currentToken.PositionStart, _currentToken.PositionEnd,
-                        "Expected ',' or '}' in import list"));
+                    return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                        "',' or '}'",
+                        contextHint: "the selective import list is comma-separated and ends with '}'"));
                 }
             }
 
@@ -1668,9 +1742,7 @@ namespace RaLanguage.Parser
 
             if (!_currentToken.Matches(Keyword.From))
             {
-                return res.Failure(new InvalidSyntaxError(
-                    _currentToken.PositionStart, _currentToken.PositionEnd,
-                    "Expected 'from' after import list"));
+                return res.Failure(ParserDiagnostics.ExpectedFromAfterImport(_currentToken));
             }
 
             res.RegisterAdvancement();
@@ -1682,9 +1754,7 @@ namespace RaLanguage.Parser
             if (res.Error != null) return res;
             if (spec == null)
             {
-                return res.Failure(new InvalidSyntaxError(
-                    _currentToken.PositionStart, _currentToken.PositionEnd,
-                    "Expected string path or dotted module name after 'from'"));
+                return res.Failure(ParserDiagnostics.ExpectedImportSource(_currentToken));
             }
 
             return res.Success(new ImportSelectiveNode(spec, symbolNames, positionStart, _currentToken.PositionEnd));
@@ -1704,18 +1774,16 @@ namespace RaLanguage.Parser
             if (res.Error != null) return res;
             if (segments == null || segments.Count == 0)
             {
-                return res.Failure(new InvalidSyntaxError(
-                    _currentToken.PositionStart, _currentToken.PositionEnd,
-                    "Expected namespace name after 'namespace'"));
+                return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
+                    after: "'namespace'",
+                    help: "namespace names are dotted identifiers, e.g. 'namespace system.io { ... }'"));
             }
 
             SkipNewlines(res);
 
             if (_currentToken.Type != TokenType.LBRACKET)
             {
-                return res.Failure(new InvalidSyntaxError(
-                    _currentToken.PositionStart, _currentToken.PositionEnd,
-                    "Expected '{' to open namespace body"));
+                return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '{', context: "the namespace body"));
             }
 
             var bodyStart = _currentToken.PositionStart;
@@ -1727,9 +1795,7 @@ namespace RaLanguage.Parser
 
             if (_currentToken.Type != TokenType.RBRACKET)
             {
-                return res.Failure(new InvalidSyntaxError(
-                    _currentToken.PositionStart, _currentToken.PositionEnd,
-                    "Expected '}' to close namespace body"));
+                return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{', context: "the namespace body"));
             }
 
             var bodyEnd = _currentToken.PositionEnd;
@@ -1758,9 +1824,9 @@ namespace RaLanguage.Parser
             if (res.Error != null) return res;
             if (segments == null || segments.Count == 0)
             {
-                return res.Failure(new InvalidSyntaxError(
-                    _currentToken.PositionStart, _currentToken.PositionEnd,
-                    "Expected namespace name after 'using'"));
+                return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
+                    after: "'using'",
+                    help: "using takes a dotted namespace path, e.g. 'using system.io'"));
             }
 
             Token? aliasTok = null;
@@ -1772,9 +1838,9 @@ namespace RaLanguage.Parser
 
                 if (_currentToken.Type != TokenType.IDENTIFIER)
                 {
-                    return res.Failure(new InvalidSyntaxError(
-                        _currentToken.PositionStart, _currentToken.PositionEnd,
-                        "Expected identifier after 'as' in using directive"));
+                    return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
+                        after: "'as'",
+                        help: "the using-alias must be a single identifier, e.g. 'using system.io as IO'"));
                 }
                 aliasTok = _currentToken;
                 res.RegisterAdvancement();
@@ -1792,9 +1858,8 @@ namespace RaLanguage.Parser
         {
             if (_currentToken.Type != TokenType.IDENTIFIER)
             {
-                res.Failure(new InvalidSyntaxError(
-                    _currentToken.PositionStart, _currentToken.PositionEnd,
-                    "Expected identifier"));
+                res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
+                    help: "qualified names are dotted identifiers (e.g. 'system.io.console')"));
                 return null;
             }
 
@@ -1809,9 +1874,9 @@ namespace RaLanguage.Parser
 
                 if (_currentToken.Type != TokenType.IDENTIFIER)
                 {
-                    res.Failure(new InvalidSyntaxError(
-                        _currentToken.PositionStart, _currentToken.PositionEnd,
-                        "Expected identifier after '.'"));
+                    res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
+                        after: "'.'",
+                        help: "each dotted segment must be an identifier"));
                     return null;
                 }
 
@@ -1847,9 +1912,9 @@ namespace RaLanguage.Parser
 
                     if (_currentToken.Type != TokenType.IDENTIFIER)
                     {
-                        res.Failure(new InvalidSyntaxError(
-                            _currentToken.PositionStart, _currentToken.PositionEnd,
-                            "Expected identifier after '.' in module path"));
+                        res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
+                            after: "'.' in module path",
+                            help: "module paths are dotted identifiers, e.g. 'std.io.file'"));
                         return null;
                     }
 
@@ -1890,7 +1955,7 @@ namespace RaLanguage.Parser
             bool sawDefault = false;
 
             if (_currentToken.Type != TokenType.LPAREN)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '('"));
+                return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '(', context: "the parameter list"));
 
             res.RegisterAdvancement();
             Advance();
@@ -1906,7 +1971,9 @@ namespace RaLanguage.Parser
                         Advance();
 
                         if (_currentToken.Type != TokenType.IDENTIFIER)
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier after '...'"));
+                            return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
+                                after: "'...'",
+                                help: "variadic parameters take an identifier, e.g. '...args: int'"));
 
                         varArgNameTok = _currentToken;
                         res.RegisterAdvancement();
@@ -1919,13 +1986,13 @@ namespace RaLanguage.Parser
 
                             var parsed = ParseType(res);
                             if (parsed == null)
-                                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':' for vararg"));
+                                return res.Failure(ParserDiagnostics.ExpectedVarArgsType(_currentToken));
 
                             varArgType = parsed;
                         }
 
                         if (_currentToken.Type != TokenType.RPAREN)
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Variadic parameter must be the last parameter"));
+                            return res.Failure(ParserDiagnostics.VariadicMustBeLast(_currentToken.PositionStart, _currentToken.PositionEnd));
 
                         break;
                     }
@@ -1945,7 +2012,7 @@ namespace RaLanguage.Parser
                     }
 
                     if (_currentToken.Type != TokenType.IDENTIFIER)
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected parameter name"));
+                        return res.Failure(ParserDiagnostics.ExpectedParameterName(_currentToken, hostingConstruct: "parameter list"));
 
                     var paramTok = _currentToken;
                     argNameToks.Add(paramTok);
@@ -1960,7 +2027,7 @@ namespace RaLanguage.Parser
 
                         var parsed = ParseType(res);
                         if (parsed == null)
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':'"));
+                            return res.Failure(ParserDiagnostics.ExpectedTypeAfterColon(_currentToken, where: "a parameter declaration"));
 
                         if (isRef)
                         {
@@ -1986,7 +2053,7 @@ namespace RaLanguage.Parser
                     }
                     else if (sawDefault)
                     {
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Parameters without default cannot appear after parameters with default"));
+                        return res.Failure(ParserDiagnostics.DefaultParameterMustBeTrailing(_currentToken.PositionStart, _currentToken.PositionEnd));
                     }
 
                     paramDefaults.Add(defaultExpr);
@@ -2004,12 +2071,16 @@ namespace RaLanguage.Parser
                 }
 
                 if (_currentToken.Type != TokenType.RPAREN)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ',' or ')'"));
+                    return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                        "',' or ')'",
+                        contextHint: "parameter lists are comma-separated and end with ')'"));
             }
             else
             {
                 if (_currentToken.Type != TokenType.RPAREN)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier or ')'"));
+                    return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                        "a parameter name or ')'",
+                        contextHint: "parameter lists begin with names or '...' and end with ')'"));
             }
 
             res.RegisterAdvancement();
@@ -2022,7 +2093,7 @@ namespace RaLanguage.Parser
 
                 var parsed = ParseType(res);
                 if (parsed == null)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected return type after ':'"));
+                    return res.Failure(ParserDiagnostics.ExpectedTypeAfterColon(_currentToken, where: "the return type annotation"));
 
                 returnType = parsed;
             }
@@ -2044,7 +2115,8 @@ namespace RaLanguage.Parser
             var res = new ParserResult();
 
             if (!_currentToken.Matches(Keyword.Trait))
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'trait'"));
+                return res.Failure(ParserDiagnostics.ExpectedKeyword(_currentToken, "trait",
+                    context: "to start a trait declaration"));
 
             res.RegisterAdvancement();
             Advance();
@@ -2056,7 +2128,9 @@ namespace RaLanguage.Parser
             }
 
             if (_currentToken.Type != TokenType.IDENTIFIER)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected trait name"));
+                return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
+                    after: "'trait'",
+                    help: "trait declarations begin with a name, e.g. 'trait Printable { ... }'"));
 
             var nameTok = _currentToken;
             res.RegisterAdvancement();
@@ -2087,7 +2161,7 @@ namespace RaLanguage.Parser
             }
 
             if (_currentToken.Type != TokenType.LBRACKET)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{'"));
+                return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '{', context: "the trait body"));
 
             res.RegisterAdvancement();
             Advance();
@@ -2214,7 +2288,9 @@ namespace RaLanguage.Parser
                 }
 
                 if (!_currentToken.Matches(Keyword.Fn))
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'fn' inside trait"));
+                    return res.Failure(ParserDiagnostics.ExpectedKeyword(_currentToken, "fn",
+                        context: "to declare a trait method",
+                        help: "trait bodies contain field declarations or 'fn' method signatures"));
 
                 res.RegisterAdvancement();
                 Advance();
@@ -2226,7 +2302,9 @@ namespace RaLanguage.Parser
                 }
 
                 if (_currentToken.Type != TokenType.IDENTIFIER)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected method name"));
+                    return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
+                        after: "'fn'",
+                        help: "every method declaration needs a name following 'fn'"));
 
                 var methodNameTok = _currentToken;
                 res.RegisterAdvancement();
@@ -2267,7 +2345,7 @@ namespace RaLanguage.Parser
                     if (res.Error != null) return res;
 
                     if (_currentToken.Type != TokenType.RBRACKET)
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}'"));
+                        return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{', context: "the trait method body"));
 
                     res.RegisterAdvancement();
                     Advance();
@@ -2327,7 +2405,7 @@ namespace RaLanguage.Parser
             }
 
             if (_currentToken.Type != TokenType.IDENTIFIER)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected interface name"));
+                return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken, after: "'interface'", help: "interface declarations begin with a name, e.g. 'interface Drawable { fn draw(); }'"));
 
             Token nameTok = _currentToken;
             res.RegisterAdvancement();
@@ -2358,7 +2436,7 @@ namespace RaLanguage.Parser
             }
 
             if (_currentToken.Type != TokenType.LBRACKET)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{'"));
+                return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '{'));
 
             res.RegisterAdvancement();
             Advance();
@@ -2447,7 +2525,9 @@ namespace RaLanguage.Parser
                 }
 
                 if (!_currentToken.Matches(Keyword.Fn))
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'fn' or field declaration inside interface"));
+                    return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                        "'fn' (for methods) or a field declaration",
+                        contextHint: "interface bodies contain method signatures ('fn ...') or field declarations ('var', 'let', 'const', 'final')"));
 
                 res.RegisterAdvancement();
                 Advance();
@@ -2459,7 +2539,7 @@ namespace RaLanguage.Parser
                 }
 
                 if (_currentToken.Type != TokenType.IDENTIFIER)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected method name"));
+                    return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken, after: "'fn'", help: "every method declaration needs a name following 'fn'"));
 
                 while (_currentToken.Type == TokenType.NEWLINE)
                 {
@@ -2478,7 +2558,7 @@ namespace RaLanguage.Parser
                 }
 
                 if (_currentToken.Type != TokenType.LPAREN)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '('"));
+                    return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '('));
 
                 res.RegisterAdvancement();
                 Advance();
@@ -2497,7 +2577,7 @@ namespace RaLanguage.Parser
                     while (true)
                     {
                         if (_currentToken.Type != TokenType.IDENTIFIER)
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected parameter name"));
+                            return res.Failure(ParserDiagnostics.ExpectedParameterName(_currentToken));
 
                         var argTok = _currentToken;
                         argNameToks.Add(argTok);
@@ -2525,7 +2605,7 @@ namespace RaLanguage.Parser
 
                             var parsedType = ParseType(res);
                             if (parsedType == null)
-                                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':'"));
+                                return res.Failure(ParserDiagnostics.ExpectedTypeAfterColon(_currentToken));
 
                             argType = parsedType;
                         }
@@ -2543,7 +2623,7 @@ namespace RaLanguage.Parser
                     }
 
                     if (_currentToken.Type != TokenType.RPAREN)
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ',' or ')'"));
+                        return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken, "',' or ')'", contextHint: "the parameter / argument list is comma-separated and ends with ')'"));
                 }
 
                 res.RegisterAdvancement();
@@ -2569,7 +2649,7 @@ namespace RaLanguage.Parser
 
                     var parsedType = ParseType(res);
                     if (parsedType == null)
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected return type after ':'"));
+                        return res.Failure(ParserDiagnostics.ExpectedTypeAfterColon(_currentToken, where: "the return type annotation"));
 
                     returnType = parsedType;
                 }
@@ -2689,7 +2769,7 @@ namespace RaLanguage.Parser
                 return res.Success(annDef);
             }
 
-            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'struct' or 'class'."));
+            return res.Failure(ParserDiagnostics.ExpectedOneOfKeywords(_currentToken, new[] { "struct", "class" }, context: "after the access / modifier list"));
         }
 
         private ParserResult ParseClassDefinition(bool isPublic, bool isAbstract, bool isStatic)
@@ -2705,7 +2785,7 @@ namespace RaLanguage.Parser
             }
 
             if (_currentToken.Type != TokenType.IDENTIFIER)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected class name"));
+                return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken, after: "'class'", help: "class declarations begin with a name, e.g. 'class Point { ... }'"));
 
             while (_currentToken.Type == TokenType.NEWLINE)
             {
@@ -2740,7 +2820,7 @@ namespace RaLanguage.Parser
 
                     baseType = ParseType(res);
                     if (baseType == null)
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected base class after ':'"));
+                        return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken, after: "':'", help: "the ':' in a class header is followed by the base class name"));
 
                     continue;
                 }
@@ -2766,7 +2846,7 @@ namespace RaLanguage.Parser
                     {
                         var ifaceType = ParseType(res);
                         if (ifaceType == null)
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected interface name after 'impl'"));
+                            return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken, after: "'impl'", help: "list the implemented interface(s) after 'impl', e.g. 'class C impl I1, I2 { ... }'"));
 
                         withTraits.Add(ifaceType);
 
@@ -2804,7 +2884,7 @@ namespace RaLanguage.Parser
                     {
                         var ifaceType = ParseType(res);
                         if (ifaceType == null)
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected interface name after 'impl'"));
+                            return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken, after: "'impl'", help: "list the implemented interface(s) after 'impl', e.g. 'class C impl I1, I2 { ... }'"));
 
                         implementedInterfaces.Add(ifaceType);
 
@@ -2835,11 +2915,13 @@ namespace RaLanguage.Parser
                     continue;
                 }
 
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' base class, 'impl' interfaces, 'where' clause, or '{'"));
+                return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                    "':' (base class), 'impl' (interfaces), 'where' (constraints) or '{' (body)",
+                    contextHint: "after a class name you may declare a base class with ':', interfaces with 'impl', constraints with 'where', or open the body with '{'"));
             }
 
             if (_currentToken.Type != TokenType.LBRACKET)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{'"));
+                return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '{'));
 
             res.RegisterAdvancement();
             Advance();
@@ -2884,7 +2966,7 @@ namespace RaLanguage.Parser
                     {
                         if (isMemberPublic)
                         {
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Member is already public"));
+                            return res.Failure(ParserDiagnostics.DuplicateModifier("pub", _currentToken.PositionStart, _currentToken.PositionEnd));
                         }
 
                         isMemberPublic = true;
@@ -2894,7 +2976,7 @@ namespace RaLanguage.Parser
                     {
                         if (isMemberOverride)
                         {
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Member is already override"));
+                            return res.Failure(ParserDiagnostics.DuplicateModifier("override", _currentToken.PositionStart, _currentToken.PositionEnd));
                         }
 
                         isMemberOverride = true;
@@ -2904,7 +2986,7 @@ namespace RaLanguage.Parser
                     {
                         if (isMemberAbstract)
                         {
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Member is already abstract"));
+                            return res.Failure(ParserDiagnostics.DuplicateModifier("abstract", _currentToken.PositionStart, _currentToken.PositionEnd));
                         }
 
                         isMemberAbstract = true;
@@ -2914,7 +2996,7 @@ namespace RaLanguage.Parser
                     {
                         if (isMemberStatic)
                         {
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Member is already static"));
+                            return res.Failure(ParserDiagnostics.DuplicateModifier("static", _currentToken.PositionStart, _currentToken.PositionEnd));
                         }
 
                         isMemberStatic = true;
@@ -3026,10 +3108,9 @@ namespace RaLanguage.Parser
                     continue;
                 }
 
-                return res.Failure(new InvalidSyntaxError(
-                    _currentToken.PositionStart,
-                    _currentToken.PositionEnd,
-                    "Expected field declaration, 'fn', or 'operator'"));
+                return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                    "a field declaration ('var' / 'let' / 'const' / 'final'), a method ('fn') or an operator overload ('operator')",
+                    contextHint: "class / struct bodies allow only fields, methods and operator overloads"));
             }
 
             res.RegisterAdvancement();
@@ -3048,7 +3129,7 @@ namespace RaLanguage.Parser
             var res = new ParserResult();
 
             if (!_currentToken.Matches(Keyword.Enum))
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'enum'"));
+                return res.Failure(ParserDiagnostics.ExpectedKeyword(_currentToken, "enum", context: "to start an enum declaration"));
 
             res.RegisterAdvancement();
             Advance();
@@ -3060,7 +3141,7 @@ namespace RaLanguage.Parser
             }
 
             if (_currentToken.Type != TokenType.IDENTIFIER)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected enum name"));
+                return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken, after: "'enum'", help: "enum declarations begin with a name, e.g. 'enum Color { Red, Green, Blue }'"));
 
             Token nameTok = _currentToken;
             res.RegisterAdvancement();
@@ -3091,7 +3172,7 @@ namespace RaLanguage.Parser
             }
 
             if (_currentToken.Type != TokenType.LBRACKET)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{'"));
+                return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '{'));
 
             res.RegisterAdvancement();
             Advance();
@@ -3115,7 +3196,7 @@ namespace RaLanguage.Parser
                     }
 
                     if (_currentToken.Type != TokenType.IDENTIFIER)
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected enum member name"));
+                        return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken, after: "previous enum member or '{'", help: "enum members are comma-separated identifiers (e.g. 'enum E { A, B, C }')"));
 
                     Token memberTok = _currentToken;
                     res.RegisterAdvancement();
@@ -3179,7 +3260,7 @@ namespace RaLanguage.Parser
             }
 
             if (_currentToken.Type != TokenType.RBRACKET)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}'"));
+                return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{'));
 
             res.RegisterAdvancement();
             Advance();
@@ -3205,7 +3286,7 @@ namespace RaLanguage.Parser
             }
 
             if (_currentToken.Type != TokenType.LBRACKET)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{' after 'try'"));
+                return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '{', context: "the try block"));
 
             res.RegisterAdvancement();
             Advance();
@@ -3214,7 +3295,7 @@ namespace RaLanguage.Parser
             if (res.Error != null) return res;
 
             if (_currentToken.Type != TokenType.RBRACKET)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}' after try block"));
+                return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{', context: "the try block"));
 
             res.RegisterAdvancement();
             Advance();
@@ -3248,7 +3329,7 @@ namespace RaLanguage.Parser
                 }
 
                 if (_currentToken.Type != TokenType.LPAREN)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '(' after 'catch'"));
+                    return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '(', context: "the catch clause"));
 
                 res.RegisterAdvancement();
                 Advance();
@@ -3260,7 +3341,7 @@ namespace RaLanguage.Parser
                 }
 
                 if (_currentToken.Type != TokenType.IDENTIFIER)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier in 'catch (identifier)'"));
+                    return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken, after: "'catch ('", help: "catch clauses bind the thrown value, e.g. 'catch (err) { ... }'"));
 
                 catchVarTok = _currentToken;
                 res.RegisterAdvancement();
@@ -3273,7 +3354,7 @@ namespace RaLanguage.Parser
                 }
 
                 if (_currentToken.Type != TokenType.RPAREN)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ')' after catch identifier"));
+                    return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, ')', '(', context: "the catch binder"));
 
                 res.RegisterAdvancement();
                 Advance();
@@ -3285,7 +3366,7 @@ namespace RaLanguage.Parser
                 }
 
                 if (_currentToken.Type != TokenType.LBRACKET)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{' after 'catch(...)'"));
+                    return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '{', context: "the catch body"));
 
                 res.RegisterAdvancement();
                 Advance();
@@ -3294,7 +3375,7 @@ namespace RaLanguage.Parser
                 if (res.Error != null) return res;
 
                 if (_currentToken.Type != TokenType.RBRACKET)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}' after catch block"));
+                    return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{', context: "the catch block"));
 
                 res.RegisterAdvancement();
                 Advance();
@@ -3328,7 +3409,7 @@ namespace RaLanguage.Parser
                 }
 
                 if (_currentToken.Type != TokenType.LBRACKET)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{' after 'finally'"));
+                    return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '{', context: "the finally block"));
 
                 res.RegisterAdvancement();
                 Advance();
@@ -3337,7 +3418,7 @@ namespace RaLanguage.Parser
                 if (res.Error != null) return res;
 
                 if (_currentToken.Type != TokenType.RBRACKET)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}' after finally block"));
+                    return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{', context: "the finally block"));
 
                 res.RegisterAdvancement();
                 Advance();
@@ -3373,7 +3454,7 @@ namespace RaLanguage.Parser
 
                 if (_currentToken.Type != TokenType.RBRACKET)
                 {
-                    return res.Failure(new InvalidSyntaxError(positionStart, _currentToken.PositionStart, "Expected '}'"));
+                    return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{'));
                 }
 
                 res.RegisterAdvancement();
@@ -3387,7 +3468,7 @@ namespace RaLanguage.Parser
 
                 if (!_currentToken.Matches(Keyword.While))
                 {
-                    return res.Failure(new InvalidSyntaxError(positionStart, _currentToken.PositionStart, "Expected 'while' keyword"));
+                    return res.Failure(ParserDiagnostics.ExpectedKeyword(_currentToken, "while", context: "to close the loop", help: "do-while loops are 'do { ... } while expr'"));
                 }
 
                 res.RegisterAdvancement();
@@ -3414,7 +3495,7 @@ namespace RaLanguage.Parser
 
                 if (!_currentToken.Matches(Keyword.While))
                 {
-                    return res.Failure(new InvalidSyntaxError(positionStart, _currentToken.PositionStart, "Expected 'while' keyword"));
+                    return res.Failure(ParserDiagnostics.ExpectedKeyword(_currentToken, "while", context: "to close the loop", help: "do-while loops are 'do { ... } while expr'"));
                 }
 
                 res.RegisterAdvancement();
@@ -3429,7 +3510,7 @@ namespace RaLanguage.Parser
                 return res.Success(new DoWhileNode(conditionExpr, bodyNode, false));
             }
 
-            return res.Failure(new InvalidSyntaxError(positionStart, _currentToken.PositionStart, "Expected ':' or '{'"));
+            return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken, "':' or '{'", contextHint: "single-line bodies use ':', multi-line bodies use '{ ... }'"));
         }
 
         private ParserResult ParseSetExpression()
@@ -3438,7 +3519,7 @@ namespace RaLanguage.Parser
             var positionStart = _currentToken.PositionStart;
 
             if (_currentToken.Type != TokenType.LBRACKET)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{'"));
+                return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '{'));
 
             res.RegisterAdvancement();
             Advance();
@@ -3455,8 +3536,11 @@ namespace RaLanguage.Parser
             {
                 var firstExpr = res.Register(ParseExpression());
                 if (res.Error != null)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd,
-                        "Expected '}', 'var', 'if', 'for', 'while', 'fn', int, float, identifier, '+', '-', '(', '{' or 'not'"));
+                {
+                    // ParseExpression already produced a more accurate diagnostic
+                    // for the offending token inside the set/map literal — propagate it.
+                    return res;
+                }
 
                 if (_currentToken.Type == TokenType.COLON)
                 {
@@ -3506,7 +3590,7 @@ namespace RaLanguage.Parser
             }
 
             if (_currentToken.Type != TokenType.RBRACKET)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ',' or '}'"));
+                return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken, "',' or '}'", contextHint: "the map / set literal is comma-separated and ends with '}'"));
 
             var rBracketEndPos = _currentToken.PositionEnd;
             res.RegisterAdvancement();
@@ -3522,7 +3606,7 @@ namespace RaLanguage.Parser
                 {
                     if (!el.IsPair)
                     {
-                        return res.Failure(new InvalidSyntaxError(positionStart, rBracketEndPos, "Mixing map entries and set elements is not allowed"));
+                        return res.Failure(ParserDiagnostics.MapAndSetCannotMix(positionStart, rBracketEndPos));
                     }
                     pairs.Add((el.Key!, el.Value!));
                 }
@@ -3543,7 +3627,7 @@ namespace RaLanguage.Parser
             var positionStart = _currentToken.PositionStart;
 
             if (_currentToken.Type != TokenType.LSQUARE)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '['"));
+                return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '[', context: "the list / array literal"));
 
             res.RegisterAdvancement();
             Advance();
@@ -3563,8 +3647,7 @@ namespace RaLanguage.Parser
 
                     var spreadExpr = res.Register(ParseExpression());
                     if (res.Error != null)
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd,
-                            "Expected expression after '...' in list"));
+                        return res.Failure(ParserDiagnostics.ExpectedExprAfterEllipsis(_currentToken));
 
                     elementNodes.Add(new SpreadNode(spreadTok, spreadExpr));
                 }
@@ -3572,8 +3655,11 @@ namespace RaLanguage.Parser
                 {
                     var first = res.Register(ParseExpression());
                     if (res.Error != null)
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd,
-                            "Expected ']', 'var', 'if', 'for', 'while', 'fn', int, float, identifier, '+', '-', '(', '[' or 'not'"));
+                    {
+                        // ParseExpression already produced a precise diagnostic for the
+                        // offending token inside the list literal — propagate it directly.
+                        return res;
+                    }
 
                     elementNodes.Add(first);
                 }
@@ -3602,7 +3688,7 @@ namespace RaLanguage.Parser
                 }
 
                 if (_currentToken.Type != TokenType.RSQUARE)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ',' or ']'"));
+                    return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken, "',' or ']'", contextHint: "list literals are comma-separated and end with ']'"));
 
                 res.RegisterAdvancement();
                 Advance();
@@ -3629,7 +3715,7 @@ namespace RaLanguage.Parser
             (AstNode, bool)? elseCase = null;
 
             if (!_currentToken.Matches(caseKeyword))
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, $"Expected '{caseKeyword}'"));
+                return res.Failure(ParserDiagnostics.ExpectedKeyword(_currentToken, caseKeyword.ToString().ToLowerInvariant()));
 
             res.RegisterAdvancement();
             Advance();
@@ -3655,7 +3741,7 @@ namespace RaLanguage.Parser
 
                 if (_currentToken.Type != TokenType.RBRACKET)
                 {
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}'"));
+                    return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{'));
                 }
 
                 res.RegisterAdvancement();
@@ -3690,7 +3776,7 @@ namespace RaLanguage.Parser
                 return res.Success(new IfCasesWrapperNode(cases, elseCase));
             }
 
-            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' or '{'"));
+            return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken, "':' or '{'", contextHint: "single-line bodies start with ':', multi-line bodies use '{ ... }'"));
         }
 
         private ParserResult ParseIfExpressionBOrC()
@@ -3752,7 +3838,7 @@ namespace RaLanguage.Parser
                     }
                     else
                     {
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}'"));
+                        return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{'));
                     }
                 }
                 else if (_currentToken.Type == TokenType.COLON)
@@ -3783,7 +3869,7 @@ namespace RaLanguage.Parser
             }
 
             if (_currentToken.Type != TokenType.LPAREN)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '(' after 'switch'"));
+                return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '(', context: "the switch discriminant"));
 
             res.RegisterAdvancement();
             Advance();
@@ -3798,7 +3884,7 @@ namespace RaLanguage.Parser
             if (res.Error != null) return res;
 
             if (_currentToken.Type != TokenType.RPAREN)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ')' after switch expression"));
+                return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, ')', '(', context: "the switch discriminant"));
 
             res.RegisterAdvancement();
             Advance();
@@ -3810,7 +3896,7 @@ namespace RaLanguage.Parser
             }
 
             if (_currentToken.Type != TokenType.LBRACKET)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{' to open switch block"));
+                return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '{', context: "the switch body"));
 
             res.RegisterAdvancement();
             Advance();
@@ -3924,7 +4010,7 @@ namespace RaLanguage.Parser
                             var stmts = res.Register(ParseStatements());
                             if (res.Error != null) return res;
                             if (_currentToken.Type != TokenType.RBRACKET)
-                                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}'"));
+                                return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{'));
                             res.RegisterAdvancement();
                             Advance();
 
@@ -3945,7 +4031,7 @@ namespace RaLanguage.Parser
                     }
                     else
                     {
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' or '->' after case label"));
+                        return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken, "':' or '->'", contextHint: "case bodies use ':' (block) or '->' (single expression)"));
                     }
                 }
                 else if (_currentToken.Matches(Keyword.Default))
@@ -4014,7 +4100,7 @@ namespace RaLanguage.Parser
                             var stmts = res.Register(ParseStatements());
                             if (res.Error != null) return res;
                             if (_currentToken.Type != TokenType.RBRACKET)
-                                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}'"));
+                                return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{'));
                             res.RegisterAdvancement();
                             Advance();
                             body = stmts;
@@ -4041,12 +4127,12 @@ namespace RaLanguage.Parser
                     }
                     else
                     {
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' or '->' after default"));
+                        return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken, "':' or '->'", contextHint: "the default branch uses ':' (block) or '->' (single expression)"));
                     }
                 }
                 else
                 {
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'case' or 'default' in switch block"));
+                    return res.Failure(ParserDiagnostics.ExpectedCaseOrDefault(_currentToken));
                 }
 
                 while (_currentToken.Type == TokenType.NEWLINE)
@@ -4087,7 +4173,7 @@ namespace RaLanguage.Parser
                 }
 
                 if (_currentToken.Type != TokenType.IDENTIFIER)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier after 'for await'"));
+                    return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken, after: "'for await'", help: "syntax: 'for await x in stream { ... }'"));
 
                 var awaitVarName = _currentToken;
                 res.RegisterAdvancement();
@@ -4100,7 +4186,7 @@ namespace RaLanguage.Parser
                 }
 
                 if (!_currentToken.Matches(Keyword.In))
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'in' after 'for await <id>'"));
+                    return res.Failure(ParserDiagnostics.ExpectedKeyword(_currentToken, "in", context: "after the binder of 'for await'", help: "syntax: 'for await x in stream { ... }'"));
 
                 res.RegisterAdvancement();
                 Advance();
@@ -4135,13 +4221,15 @@ namespace RaLanguage.Parser
                     var bodyBlock = res.Register(ParseStatements());
                     if (res.Error != null) return res;
                     if (_currentToken.Type != TokenType.RBRACKET)
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}'"));
+                        return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{'));
                     res.RegisterAdvancement();
                     Advance();
                     return res.Success(new RaLanguage.Parser.Nodes.Async.ForAwaitNode(awaitVarName, awaitStreamExpr, bodyBlock, true));
                 }
 
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' or '{' after 'for await ... in ...'"));
+                return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                    "':' or '{'",
+                    contextHint: "'for await' bodies use ':' (single statement) or '{ ... }' (block)"));
             }
 
             if (_currentToken.Type == TokenType.LPAREN)
@@ -4178,7 +4266,7 @@ namespace RaLanguage.Parser
 
                 if (!skipCheck_1 && _currentToken.Type != TokenType.NEWLINE)
                 {
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ';'"));
+                    return res.Failure(ParserDiagnostics.ExpectedSemicolon(_currentToken));
                 }
 
                 if (!skipCheck_1)
@@ -4213,7 +4301,7 @@ namespace RaLanguage.Parser
 
                 if (!skipCheck_2 && _currentToken.Type != TokenType.NEWLINE)
                 {
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ';'"));
+                    return res.Failure(ParserDiagnostics.ExpectedSemicolon(_currentToken));
                 }
 
                 if (!skipCheck_2)
@@ -4254,7 +4342,7 @@ namespace RaLanguage.Parser
 
                 if (!skipCheck_3 && _currentToken.Type != TokenType.RPAREN)
                 {
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ')'"));
+                    return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, ')', '('));
                 }
 
                 if (!skipCheck_3)
@@ -4287,7 +4375,7 @@ namespace RaLanguage.Parser
                     if (res.Error != null) return res;
 
                     if (_currentToken.Type != TokenType.RBRACKET)
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}'"));
+                        return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{'));
 
                     res.RegisterAdvancement();
                     Advance();
@@ -4295,11 +4383,11 @@ namespace RaLanguage.Parser
                     return res.Success(new SuperForNode(initializationExpressions, conditionExpressions, stepExpressions, body, true));
                 }
 
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' or '{'"));
+                return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken, "':' or '{'", contextHint: "single-line bodies start with ':', multi-line bodies use '{ ... }'"));
             }
 
             if (_currentToken.Type != TokenType.IDENTIFIER)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier"));
+                return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken));
 
             var varName = _currentToken;
             res.RegisterAdvancement();
@@ -4320,7 +4408,7 @@ namespace RaLanguage.Parser
                 if (res.Error != null) return res;
 
                 if (!_currentToken.Matches(Keyword.To))
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'to'"));
+                    return res.Failure(ParserDiagnostics.ExpectedRangeTo(_currentToken));
 
                 res.RegisterAdvancement();
                 Advance();
@@ -4355,14 +4443,14 @@ namespace RaLanguage.Parser
                     if (res.Error != null) return res;
 
                     if (_currentToken.Type != TokenType.RBRACKET)
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}'"));
+                        return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{'));
 
                     res.RegisterAdvancement();
                     Advance();
                     return res.Success(new ForNode(varName, startValue, endValue, stepValue, body, true));
                 }
 
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' or '{'"));
+                return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken, "':' or '{'", contextHint: "single-line bodies start with ':', multi-line bodies use '{ ... }'"));
             }
             else if (_currentToken.Matches(Keyword.In))
             {
@@ -4403,7 +4491,7 @@ namespace RaLanguage.Parser
                     if (res.Error != null) return res;
 
                     if (_currentToken.Type != TokenType.RBRACKET)
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}'"));
+                        return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{'));
 
                     res.RegisterAdvancement();
                     Advance();
@@ -4412,7 +4500,7 @@ namespace RaLanguage.Parser
                 }
             }
 
-            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '=' or 'in'"));
+            return res.Failure(ParserDiagnostics.ExpectedForLoopBinder(_currentToken));
         }
 
         private ParserResult ParseWhileExpression()
@@ -4439,7 +4527,7 @@ namespace RaLanguage.Parser
                 if (res.Error != null) return res;
 
                 if (_currentToken.Type != TokenType.RBRACKET)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}'"));
+                    return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{'));
 
                 res.RegisterAdvancement();
                 Advance();
@@ -4455,7 +4543,7 @@ namespace RaLanguage.Parser
                 return res.Success(new WhileNode(condition, bodyInline, false));
             }
 
-            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ':' or '{'"));
+            return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken, "':' or '{'", contextHint: "single-line bodies start with ':', multi-line bodies use '{ ... }'"));
         }
 
         private ParserResult ParseOperatorDefinition(bool isPublic = false, bool isOverride = false, bool isStatic = false, string? ownerTypeName = null)
@@ -4473,10 +4561,7 @@ namespace RaLanguage.Parser
 
                 if (opKeyword != Keyword.And && opKeyword != Keyword.Or)
                 {
-                    return res.Failure(new InvalidSyntaxError(
-                        _currentToken.PositionStart,
-                        _currentToken.PositionEnd,
-                        "Invalid operator keyword. Only 'and' and 'or' are supported"));
+                    return res.Failure(ParserDiagnostics.InvalidOperatorOverload(_currentToken));
                 }
             }
             else if (!IsOperatorToken(_currentToken.Type))
@@ -4484,7 +4569,10 @@ namespace RaLanguage.Parser
                 return res.Failure(new InvalidSyntaxError(
                     _currentToken.PositionStart,
                     _currentToken.PositionEnd,
-                    "Expected operator symbol"));
+                    $"expected an operator symbol but found {DescribeToken(_currentToken)}",
+                    DiagnosticCode.ParserExpectedToken,
+                    help: "overloadable operators are '+', '-', '*', '/', '==', '!=', '<', '>', '<=', '>=', '&', '|', '^', '<<', '>>', 'and' or 'or'",
+                    primaryLabel: "operator symbol expected here"));
             }
 
             var operatorTok = _currentToken;
@@ -4500,7 +4588,7 @@ namespace RaLanguage.Parser
             {
 
             if (_currentToken.Type != TokenType.LPAREN)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '('"));
+                return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '('));
 
             res.RegisterAdvancement();
             Advance();
@@ -4512,7 +4600,7 @@ namespace RaLanguage.Parser
             }
 
             if (_currentToken.Type != TokenType.IDENTIFIER)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected parameter name"));
+                return res.Failure(ParserDiagnostics.ExpectedParameterName(_currentToken));
 
             var argNameTok = _currentToken;
             res.RegisterAdvancement();
@@ -4525,11 +4613,15 @@ namespace RaLanguage.Parser
                 Advance();
                 argType = ParseType(res);
                 if (argType == null)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected parameter type"));
+                    return res.Failure(ParserDiagnostics.ExpectedTypeName(_currentToken, after: "':'"));
             }
             else
             {
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Parameter must have explicit type"));
+                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd,
+                    "operator parameters require an explicit type annotation",
+                    DiagnosticCode.ParserExpectedType,
+                    help: "annotate each parameter with ': Type', e.g. 'operator+(rhs: Vec)'",
+                    primaryLabel: "missing parameter type"));
             }
 
             while (_currentToken.Type == TokenType.NEWLINE)
@@ -4539,7 +4631,7 @@ namespace RaLanguage.Parser
             }
 
             if (_currentToken.Type != TokenType.RPAREN)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ')'"));
+                return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, ')', '('));
 
             res.RegisterAdvancement();
             Advance();
@@ -4551,7 +4643,7 @@ namespace RaLanguage.Parser
                 Advance();
                 returnType = ParseType(res);
                 if (returnType == null)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected return type"));
+                    return res.Failure(ParserDiagnostics.ExpectedReturnType(_currentToken));
             }
 
             List<WhereConstraintNode> whereConstraints;
@@ -4585,11 +4677,13 @@ namespace RaLanguage.Parser
             }
             else
             {
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{' or '->'"));
+                return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                    "'{' (multi-statement body) or '->' (expression body)",
+                    contextHint: "operator overloads need a body: '{ ... }' or '=> expr'"));
             }
 
             if (bodyNode == null)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected operator body"));
+                return res.Failure(ParserDiagnostics.ExpectedOperatorBody(_currentToken));
 
             return res.Success(new RaLanguage.Parser.Nodes.Classes.OperatorDefinitionNode(
                 isPublic, isOverride, isStatic, operatorTok, argNameTok, argType, returnType, bodyNode, shouldAutoReturn, genericTypeParams, whereConstraints));
@@ -4629,7 +4723,7 @@ namespace RaLanguage.Parser
             var res = new ParserResult();
 
             if (!_currentToken.Matches(Keyword.Async))
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'async'"));
+                return res.Failure(ParserDiagnostics.ExpectedKeyword(_currentToken, "async", context: "to start an async function declaration"));
 
             res.RegisterAdvancement();
             Advance();
@@ -4655,7 +4749,9 @@ namespace RaLanguage.Parser
             }
 
             if (!_currentToken.Matches(Keyword.Fn))
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'fn' after 'async' (or 'async stream')"));
+                return res.Failure(ParserDiagnostics.ExpectedKeyword(_currentToken, "fn",
+                    context: "after 'async' (or 'async stream')",
+                    help: "async functions are declared 'async fn ...' or 'async stream fn ...'"));
 
             return ParseFunctionDefinition(isPublic: isPublic, isAsync: true, isAsyncStream: isAsyncStream);
         }
@@ -4667,7 +4763,7 @@ namespace RaLanguage.Parser
             if (!isDeclaringConstructor)
             {
                 if (!_currentToken.Matches(Keyword.Fn))
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'fn'"));
+                    return res.Failure(ParserDiagnostics.ExpectedKeyword(_currentToken, "fn", context: "to begin a function declaration"));
 
                 res.RegisterAdvancement();
                 Advance();
@@ -4676,7 +4772,11 @@ namespace RaLanguage.Parser
             {
                 if (_currentToken.Matches(Keyword.Fn))
                 {
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "The keyword 'fn' is not expected for constructors"));
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd,
+                    "constructors must not be preceded by the 'fn' keyword",
+                    DiagnosticCode.ParserInvalidSyntax,
+                    help: "declare constructors using the type name directly, e.g. 'Point(x, y) { ... }'",
+                    primaryLabel: "unexpected 'fn' before constructor"));
                 }
             }
 
@@ -4711,7 +4811,7 @@ namespace RaLanguage.Parser
                 }
 
                 if (_currentToken.Type != TokenType.LPAREN)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '('"));
+                    return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '('));
             }
             else if (_currentToken.Type == TokenType.LT)
             {
@@ -4725,7 +4825,7 @@ namespace RaLanguage.Parser
                 }
 
                 if (_currentToken.Type != TokenType.LPAREN)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '(' after generic parameters"));
+                    return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '(', context: "the parameter list (after the generic type parameters)"));
             }
             else
             {
@@ -4736,7 +4836,9 @@ namespace RaLanguage.Parser
                 }
 
                 if (_currentToken.Type != TokenType.LPAREN)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier or '('"));
+                    return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                        "a function name or '('",
+                        contextHint: "function declarations need either a name (e.g. 'fn foo(...)') or '(' for an anonymous function"));
             }
 
             PushGenericScope(genericTypeParams);
@@ -4799,7 +4901,7 @@ namespace RaLanguage.Parser
                         }
 
                         if (_currentToken.Type != TokenType.IDENTIFIER)
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier after '...'"));
+                            return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken, after: "'...'", help: "variadic parameters take an identifier, e.g. '...args: int'"));
 
                         varArgNameTok = _currentToken;
                         res.RegisterAdvancement();
@@ -4824,13 +4926,13 @@ namespace RaLanguage.Parser
 
                             var parsed = ParseType(res);
                             if (parsed == null)
-                                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':' for vararg"));
+                                return res.Failure(ParserDiagnostics.ExpectedVarArgsType(_currentToken));
 
                             varArgType = parsed;
                         }
 
                         if (_currentToken.Type != TokenType.RPAREN)
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Variadic parameter must be the last parameter"));
+                            return res.Failure(ParserDiagnostics.VariadicMustBeLast(_currentToken.PositionStart, _currentToken.PositionEnd));
 
                         varArgAnnotations = pendingParamAnnotations;
                         break;
@@ -4858,7 +4960,7 @@ namespace RaLanguage.Parser
                         }
 
                         if (_currentToken.Type != TokenType.IDENTIFIER)
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected parameter name"));
+                            return res.Failure(ParserDiagnostics.ExpectedParameterName(_currentToken));
 
                         while (_currentToken.Type == TokenType.NEWLINE)
                         {
@@ -4892,7 +4994,7 @@ namespace RaLanguage.Parser
 
                             var parsed = ParseType(res);
                             if (parsed == null)
-                                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':'"));
+                                return res.Failure(ParserDiagnostics.ExpectedTypeAfterColon(_currentToken));
 
                             if (isRef)
                             {
@@ -4924,7 +5026,7 @@ namespace RaLanguage.Parser
                         }
                         else if (sawDefault)
                         {
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Parameters without default cannot appear after parameters with default"));
+                            return res.Failure(ParserDiagnostics.DefaultParameterMustBeTrailing(_currentToken.PositionStart, _currentToken.PositionEnd));
                         }
 
                         paramDefaults.Add(defaultExpr);
@@ -4955,7 +5057,7 @@ namespace RaLanguage.Parser
                 }
 
                 if (_currentToken.Type != TokenType.RPAREN)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ',' or ')'"));
+                    return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken, "',' or ')'", contextHint: "the parameter / argument list is comma-separated and ends with ')'"));
             }
             else
             {
@@ -4966,7 +5068,7 @@ namespace RaLanguage.Parser
                 }
 
                 if (_currentToken.Type != TokenType.RPAREN)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier or ')'"));
+                    return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken, "a parameter name or ')'", contextHint: "parameter lists begin with names or '...' and end with ')'"));
             }
 
             otherRparen:  res.RegisterAdvancement();
@@ -4992,7 +5094,7 @@ namespace RaLanguage.Parser
 
                 var parsed = ParseType(res);
                 if (parsed == null)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected return type after ':'"));
+                    return res.Failure(ParserDiagnostics.ExpectedTypeAfterColon(_currentToken, where: "the return type annotation"));
 
                 returnType = parsed;
             }
@@ -5098,7 +5200,7 @@ namespace RaLanguage.Parser
             if (res.Error != null) return res;
 
             if (_currentToken.Type != TokenType.RBRACKET)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}'"));
+                return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{'));
 
             res.RegisterAdvancement();
             Advance();
@@ -5144,7 +5246,7 @@ namespace RaLanguage.Parser
             }
 
             if (_currentToken.Type != TokenType.IDENTIFIER)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected struct name"));
+                return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken, after: "'struct'", help: "struct declarations begin with a name, e.g. 'struct Point { x: int, y: int }'"));
 
             var nameTok = _currentToken;
             var structName = nameTok.Value?.ToString() ?? "";
@@ -5177,7 +5279,7 @@ namespace RaLanguage.Parser
             }
 
             if (_currentToken.Type != TokenType.LBRACKET)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{'"));
+                return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '{'));
 
             res.RegisterAdvancement();
             Advance();
@@ -5334,10 +5436,9 @@ namespace RaLanguage.Parser
                     continue;
                 }
 
-                return res.Failure(new InvalidSyntaxError(
-                    _currentToken.PositionStart,
-                    _currentToken.PositionEnd,
-                    "Expected field declaration, 'fn', or 'operator'"));
+                return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                    "a field declaration ('var' / 'let' / 'const' / 'final'), a method ('fn') or an operator overload ('operator')",
+                    contextHint: "class / struct bodies allow only fields, methods and operator overloads"));
             }
 
             res.RegisterAdvancement();
@@ -5375,7 +5476,7 @@ namespace RaLanguage.Parser
             List<(Token, AstNode?, TypeDescriptor?)> declarations = new List<(Token, AstNode?, TypeDescriptor?)>();
 
             if (_currentToken.Type != TokenType.IDENTIFIER)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier"));
+                return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken));
 
             while (_currentToken.Type == TokenType.IDENTIFIER)
             {
@@ -5393,7 +5494,7 @@ namespace RaLanguage.Parser
                     var parsedType = ParseType(res);
                     if (parsedType == null)
                     {
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':'"));
+                        return res.Failure(ParserDiagnostics.ExpectedTypeAfterColon(_currentToken));
                     }
                     declaredType = parsedType;
                 }
@@ -5452,7 +5553,7 @@ namespace RaLanguage.Parser
             List<(Token, AstNode?, TypeDescriptor?)> declarations = new List<(Token, AstNode?, TypeDescriptor?)>();
 
             if (_currentToken.Type != TokenType.IDENTIFIER)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier"));
+                return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken));
 
             while (_currentToken.Type == TokenType.IDENTIFIER)
             {
@@ -5470,17 +5571,14 @@ namespace RaLanguage.Parser
                     var parsedType = ParseType(res);
                     if (parsedType == null)
                     {
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':'"));
+                        return res.Failure(ParserDiagnostics.ExpectedTypeAfterColon(_currentToken));
                     }
                     declaredType = parsedType;
                 }
 
                 if (_currentToken.Type == TokenType.EQ)
                 {
-                    return res.Failure(new InvalidSyntaxError(
-                        _currentToken.PositionStart,
-                        _currentToken.PositionEnd,
-                        "Interface fields cannot have default values"));
+                    return res.Failure(ParserDiagnostics.InterfaceFieldHasDefault(_currentToken.PositionStart, _currentToken.PositionEnd));
                 }
 
                 declarations.Add((varName, null, declaredType));
@@ -5523,7 +5621,7 @@ namespace RaLanguage.Parser
             List<(Token, AstNode?, TypeDescriptor?)> declarations = new List<(Token, AstNode?, TypeDescriptor?)>();
 
             if (_currentToken.Type != TokenType.IDENTIFIER)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected identifier"));
+                return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken));
 
             while (_currentToken.Type == TokenType.IDENTIFIER)
             {
@@ -5541,7 +5639,7 @@ namespace RaLanguage.Parser
                     var parsedType = ParseType(res);
                     if (parsedType == null)
                     {
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':'"));
+                        return res.Failure(ParserDiagnostics.ExpectedTypeAfterColon(_currentToken));
                     }
                     declaredType = parsedType;
                 }
@@ -5602,17 +5700,16 @@ namespace RaLanguage.Parser
 
         private void SkipToNextStatement(ParserResult res)
         {
+            // Advance through the current broken statement until a statement-terminator
+            // is reached. We deliberately stop *at* the NEWLINE/RBRACKET/etc rather than
+            // consuming it, so the outer ParseStatements loop's "next statement requires
+            // a newline" check can still observe the separator and continue iterating
+            // — this is what enables multi-error reporting across several statements.
             while (_currentToken.Type != TokenType.EOF &&
                    _currentToken.Type != TokenType.NEWLINE &&
                    _currentToken.Type != TokenType.RBRACKET &&
                    _currentToken.Type != TokenType.RPAREN &&
                    _currentToken.Type != TokenType.RSQUARE)
-            {
-                res.RegisterAdvancement();
-                Advance();
-            }
-
-            if (_currentToken.Type == TokenType.NEWLINE)
             {
                 res.RegisterAdvancement();
                 Advance();
@@ -5645,7 +5742,7 @@ namespace RaLanguage.Parser
         private (AnnotationApplicationNode? Node, Errors.Error? Error) ParseSingleAnnotationApplication(ParserResult outerRes)
         {
             if (_currentToken.Type != TokenType.AT_SIGN)
-                return (null, new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '@'"));
+                return (null, ParserDiagnostics.ExpectedAtSign(_currentToken));
 
             var startPos = _currentToken.PositionStart;
             outerRes.RegisterAdvancement();
@@ -5658,7 +5755,7 @@ namespace RaLanguage.Parser
             }
 
             if (_currentToken.Type != TokenType.IDENTIFIER)
-                return (null, new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected annotation name after '@'"));
+                return (null, ParserDiagnostics.ExpectedAnnotationName(_currentToken, after: "'@'"));
 
             var nameTok = _currentToken;
             Position endPos = nameTok.PositionEnd;
@@ -5738,7 +5835,9 @@ namespace RaLanguage.Parser
                 }
 
                 if (_currentToken.Type != TokenType.RPAREN)
-                    return (null, new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ')' or ',' in annotation arguments"));
+                    return (null, ParserDiagnostics.UnexpectedToken(_currentToken,
+                        "',' or ')'",
+                        contextHint: "annotation argument lists are comma-separated and end with ')'"));
 
                 endPos = _currentToken.PositionEnd;
                 outerRes.RegisterAdvancement();
@@ -5753,7 +5852,7 @@ namespace RaLanguage.Parser
             var res = new ParserResult();
 
             if (!_currentToken.Matches(Keyword.Annotation))
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'annotation'"));
+                return res.Failure(ParserDiagnostics.ExpectedKeyword(_currentToken, "annotation", context: "to start an annotation declaration"));
 
             res.RegisterAdvancement();
             Advance();
@@ -5765,7 +5864,7 @@ namespace RaLanguage.Parser
             }
 
             if (_currentToken.Type != TokenType.IDENTIFIER)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected annotation name"));
+                return res.Failure(ParserDiagnostics.ExpectedAnnotationName(_currentToken, after: "'annotation'"));
 
             var nameTok = _currentToken;
             res.RegisterAdvancement();
@@ -5804,7 +5903,7 @@ namespace RaLanguage.Parser
                         }
 
                         if (_currentToken.Type != TokenType.IDENTIFIER)
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected parameter name"));
+                            return res.Failure(ParserDiagnostics.ExpectedParameterName(_currentToken));
 
                         var paramName = _currentToken;
                         res.RegisterAdvancement();
@@ -5824,7 +5923,7 @@ namespace RaLanguage.Parser
 
                             paramType = ParseType(res);
                             if (paramType == null)
-                                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected type after ':' in annotation parameter"));
+                                return res.Failure(ParserDiagnostics.ExpectedTypeAfterColon(_currentToken, where: "an annotation parameter"));
                         }
 
                         AstNode? defaultValue = null;
@@ -5845,7 +5944,7 @@ namespace RaLanguage.Parser
                         }
                         else if (sawDefault && !isVarArgs)
                         {
-                            return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Parameters without default cannot appear after parameters with default"));
+                            return res.Failure(ParserDiagnostics.DefaultParameterMustBeTrailing(_currentToken.PositionStart, _currentToken.PositionEnd));
                         }
 
                         parameters.Add(new AnnotationParameterNode(paramName, paramType, defaultValue, isVarArgs));
@@ -5876,7 +5975,7 @@ namespace RaLanguage.Parser
                 }
 
                 if (_currentToken.Type != TokenType.RPAREN)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ')' after annotation parameters"));
+                    return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, ')', '(', context: "the annotation parameter list"));
 
                 res.RegisterAdvancement();
                 Advance();
@@ -5898,7 +5997,7 @@ namespace RaLanguage.Parser
                     Advance();
                 }
                 if (_currentToken.Type != TokenType.RBRACKET)
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Annotation body must be empty"));
+                    return res.Failure(ParserDiagnostics.AnnotationBodyMustBeEmpty(_currentToken.PositionStart, _currentToken.PositionEnd));
                 res.RegisterAdvancement();
                 Advance();
             }
@@ -5914,7 +6013,7 @@ namespace RaLanguage.Parser
             var positionStart = _currentToken.PositionStart;
 
             if (!_currentToken.Matches(Keyword.Asm))
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected 'asm'"));
+                return res.Failure(ParserDiagnostics.ExpectedKeyword(_currentToken, "asm", context: "to start an inline assembly block"));
 
             res.RegisterAdvancement();
             Advance();
@@ -5945,7 +6044,7 @@ namespace RaLanguage.Parser
                         else break;
                     }
                     if (_currentToken.Type != TokenType.RPAREN)
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected ')' in asm return type list"));
+                        return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, ')', '(', context: "the asm return type list"));
                     res.RegisterAdvancement();
                     Advance();
                 }
@@ -5957,14 +6056,14 @@ namespace RaLanguage.Parser
                 }
                 else
                 {
-                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected return type after '->'"));
+                    return res.Failure(ParserDiagnostics.ExpectedReturnType(_currentToken));
                 }
             }
 
             while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
 
             if (_currentToken.Type != TokenType.LBRACKET)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '{' to open asm block"));
+                return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '{', context: "the asm block"));
 
             res.RegisterAdvancement();
             Advance();
@@ -5990,7 +6089,7 @@ namespace RaLanguage.Parser
                     if (res.Error != null) return res;
 
                     if (_currentToken.Type != TokenType.INTERP_END)
-                        return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}' to close %{...} interpolation"));
+                        return res.Failure(ParserDiagnostics.ExpectedAsmInterpClose(_currentToken));
 
                     string? typeHint = _currentToken.Value as string;
                     var interpEndPos = _currentToken.PositionEnd;
@@ -6002,7 +6101,7 @@ namespace RaLanguage.Parser
             }
 
             if (_currentToken.Type != TokenType.RBRACKET)
-                return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd, "Expected '}' to close asm block"));
+                return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{', context: "the asm block"));
 
             var positionEnd = _currentToken.PositionEnd;
             res.RegisterAdvancement();

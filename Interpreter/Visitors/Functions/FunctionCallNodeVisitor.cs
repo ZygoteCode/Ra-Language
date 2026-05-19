@@ -1,4 +1,5 @@
-﻿using RaLanguage.Errors.Types;
+﻿using RaLanguage.Errors;
+using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
@@ -19,14 +20,24 @@ namespace RaLanguage.Interpreter.Visitors.Functions
 
             if (context.AreCallsBlocked)
             {
-                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Function calls are blocked in this context", context));
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                    "function calls are not allowed in this context",
+                    context,
+                    code: DiagnosticCode.RuntimeGeneric,
+                    primaryLabel: "calls disabled here",
+                    help: "this expression runs in a context (e.g. an annotation argument) where calls are forbidden"));
             }
 
             var calleeVal = res.Register(interpreter.Visit(node.NodeToCall, context));
             if (res.ShouldReturn()) return res;
             if (calleeVal == null)
             {
-                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Attempted to call a null value", context));
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                    "attempted to call a null value",
+                    context,
+                    code: DiagnosticCode.RuntimeGeneric,
+                    primaryLabel: "callee is null",
+                    help: "check that the variable holds a function / closure before invoking it"));
             }
 
             var positionalArgs = new List<RuntimeValue>();
@@ -56,7 +67,12 @@ namespace RaLanguage.Interpreter.Visitors.Functions
                         string name = argNode.NameTok.Value.ToString() ?? "";
                         if (namedArgs.ContainsKey(name))
                         {
-                            return res.Failure(new RuntimeError(argNode.PositionStart, argNode.PositionEnd, $"Duplicate named argument '{name}'", context));
+                            return res.Failure(new RuntimeError(argNode.PositionStart, argNode.PositionEnd,
+                                $"duplicate named argument '{name}'",
+                                context,
+                                code: DiagnosticCode.RuntimeGeneric,
+                                primaryLabel: "this name was already supplied",
+                                help: "named arguments must be unique within a single call"));
                         }
                         namedArgs[name] = evaluated;
                     }
@@ -133,7 +149,12 @@ namespace RaLanguage.Interpreter.Visitors.Functions
 
                 var entry = context.SymbolTable.GetEntry(varName);
                 if (entry == null)
-                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is not defined", context));
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                        $"'{varName}' is not defined",
+                        context,
+                        code: DiagnosticCode.RuntimeUndefinedSymbol,
+                        primaryLabel: "no such symbol in scope",
+                        help: $"declare '{varName}' before passing it by reference, or check the spelling"));
 
                 var refValue = new ReferenceValue(context.SymbolTable, varName)
                     .SetContext(context)

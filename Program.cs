@@ -116,13 +116,9 @@ namespace RaLanguage
 
             if (lexerDiagnostics.HasErrors)
             {
-                Console.WriteLine("Lexer errors found:");
-                Console.WriteLine(lexerDiagnostics);
-                return (null, new Errors.Types.InvalidSyntaxError(
-                    new Lexer.Position(0, 0, 0, fn, text),
-                    new Lexer.Position(0, 0, 0, fn, text),
-                    $"Lexer failed with {lexerDiagnostics.Diagnostics.Count(d => d.Severity == Errors.DiagnosticSeverity.Error)} error(s)"
-                ));
+                PrintDiagnostics(lexerDiagnostics);
+                Console.WriteLine($"[Ra Language] Compilation aborted: lexing failed ({lexerDiagnostics.Summary()}).");
+                return (null, null);
             }
 
             var parser = new Parser.Parser(tokens);
@@ -130,27 +126,13 @@ namespace RaLanguage
 
             if (parseResult.HasErrors)
             {
-                Console.WriteLine("Parser errors found:");
-                Console.WriteLine(parseResult.Diagnostics);
-                return (null, new Errors.Types.InvalidSyntaxError(
-                    new Lexer.Position(0, 0, 0, fn, text),
-                    new Lexer.Position(0, 0, 0, fn, text),
-                    $"Parser failed with {parseResult.Diagnostics.Diagnostics.Count(d => d.Severity == Errors.DiagnosticSeverity.Error)} error(s)"
-                ));
+                PrintDiagnostics(parseResult.Diagnostics);
+                Console.WriteLine($"[Ra Language] Compilation aborted: parsing failed ({parseResult.Diagnostics.Summary()}).");
+                return (null, null);
             }
 
-            if (lexerDiagnostics.HasWarnings || parseResult.Diagnostics.HasWarnings)
-            {
-                Console.WriteLine("Warnings:");
-                foreach (var diagnostic in lexerDiagnostics.Diagnostics.Where(d => d.Severity == Errors.DiagnosticSeverity.Warning))
-                {
-                    Console.WriteLine(diagnostic);
-                }
-                foreach (var diagnostic in parseResult.Diagnostics.Diagnostics.Where(d => d.Severity == Errors.DiagnosticSeverity.Warning))
-                {
-                    Console.WriteLine(diagnostic);
-                }
-            }
+            if (lexerDiagnostics.HasWarnings) PrintDiagnostics(lexerDiagnostics, onlyWarnings: true);
+            if (parseResult.Diagnostics.HasWarnings) PrintDiagnostics(parseResult.Diagnostics, onlyWarnings: true);
 
             DeriveTransformer.Apply(parseResult.Node);
 
@@ -167,6 +149,29 @@ namespace RaLanguage
             var result = interpreter.Visit(parseResult.Node, context);
 
             return (result.Value, result.Error);
+        }
+
+        private const int MaxRenderedDiagnostics = 5;
+
+        private static void PrintDiagnostics(Errors.DiagnosticBag bag, bool onlyWarnings = false)
+        {
+            int shown = 0;
+            int total = 0;
+            foreach (var d in bag.Diagnostics)
+            {
+                if (onlyWarnings && d.Severity != Errors.DiagnosticSeverity.Warning) continue;
+                total++;
+                if (shown >= MaxRenderedDiagnostics) continue;
+                Console.WriteLine(d);
+                Console.WriteLine();
+                shown++;
+            }
+            int omitted = total - shown;
+            if (omitted > 0)
+            {
+                Console.WriteLine($"... {omitted} additional diagnostic{(omitted == 1 ? "" : "s")} omitted ...");
+                Console.WriteLine();
+            }
         }
 
         public static void Main(string[] args)

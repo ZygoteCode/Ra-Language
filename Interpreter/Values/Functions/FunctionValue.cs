@@ -1,3 +1,4 @@
+using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Runtime.Async;
@@ -128,7 +129,12 @@ namespace RaLanguage.Interpreter.Values.Functions
             if (explicitTypeArgs != null && explicitTypeArgs.Count > 0)
             {
                 if (explicitTypeArgs.Count != GenericTypeParams.Count)
-                    return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Wrong number of type arguments for function '{Name}': expected {GenericTypeParams.Count}, got {explicitTypeArgs.Count}", Context));
+                    return res.Failure(new RuntimeError(PositionStart, PositionEnd,
+                        $"wrong number of type arguments for function '{Name}': expected {GenericTypeParams.Count}, got {explicitTypeArgs.Count}",
+                        Context,
+                        code: DiagnosticCode.RuntimeTypeMismatch,
+                        primaryLabel: $"{explicitTypeArgs.Count} type argument{(explicitTypeArgs.Count == 1 ? "" : "s")} supplied here",
+                        help: $"function '{Name}' declares {GenericTypeParams.Count} generic parameter{(GenericTypeParams.Count == 1 ? "" : "s")} ({string.Join(", ", GenericTypeParams)})"));
 
                 for (int i = 0; i < GenericTypeParams.Count; i++)
                 {
@@ -187,13 +193,23 @@ namespace RaLanguage.Interpreter.Values.Functions
                 {
                     if (!bindings.ContainsKey(gname))
                     {
-                        return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Generic parameter '{gname}' of function '{Name}' could not be resolved; provide explicit type arguments", Context));
+                        return res.Failure(new RuntimeError(PositionStart, PositionEnd,
+                            $"generic parameter '{gname}' of function '{Name}' could not be inferred",
+                            Context,
+                            code: DiagnosticCode.RuntimeTypeMismatch,
+                            primaryLabel: $"type of '{gname}' is unknown at this call site",
+                            help: $"supply explicit type arguments, e.g. '{Name}<...>(args)'"));
                     }
                 }
 
                 var constraintErr = TypeSystem.ValidateWhereConstraints(bindings, WhereConstraints);
                 if (constraintErr != null)
-                    return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Where-constraint violated in function '{Name}': {constraintErr}", Context));
+                    return res.Failure(new RuntimeError(PositionStart, PositionEnd,
+                        $"'where' constraint violated when calling '{Name}': {constraintErr}",
+                        Context,
+                        code: DiagnosticCode.RuntimeTypeMismatch,
+                        primaryLabel: "constraint check failed at this call",
+                        help: "review the 'where' clause of the function and the inferred / supplied type arguments"));
             }
 
             List<TypeDescriptor?> instantiatedArgTypes = null;
@@ -239,7 +255,12 @@ namespace RaLanguage.Interpreter.Values.Functions
                 if (instantiatedReturnType != null && !instantiatedReturnType.IsTypeParameter())
                 {
                     if (!TypeSystem.IsAssignable(execCtx, instantiatedReturnType, retVal))
-                        return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Return type mismatch in function '{Name}': expected '{instantiatedReturnType}', got '{retVal.Type}'", Context));
+                        return res.Failure(new RuntimeError(PositionStart, PositionEnd,
+                            $"return type mismatch in function '{Name}': expected '{instantiatedReturnType}', got '{retVal.Type}'",
+                            Context,
+                            code: DiagnosticCode.RuntimeTypeMismatch,
+                            primaryLabel: $"this 'return' yields '{retVal.Type.ToString().ToLowerInvariant()}'",
+                            help: $"either change the return type annotation to '{retVal.Type.ToString().ToLowerInvariant()}' or convert the value to '{instantiatedReturnType}'"));
                 }
 
                 var retErr = ValidateReturnValue(retVal, execCtx);

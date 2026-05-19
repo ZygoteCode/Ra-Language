@@ -18,18 +18,38 @@ namespace RaLanguage.Interpreter.Visitors.Variables
             var varName = node.VarNameTok.Value?.ToString();
 
             if (string.IsNullOrEmpty(varName))
-                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Invalid assignment target", context));
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                    "invalid assignment target",
+                    context,
+                    code: DiagnosticCode.RuntimeGeneric,
+                    primaryLabel: "the left-hand side has no resolvable name",
+                    help: "assignments target variables ('x = ...'), members ('obj.f = ...') or indexes ('a[i] = ...')"));
 
             var currentValue = context.SymbolTable.Get(varName);
             var entry = context.SymbolTable.GetEntry(varName);
 
             if (currentValue == null)
-                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is not defined", context));
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                    $"'{varName}' is not defined",
+                    context,
+                    code: DiagnosticCode.RuntimeUndefinedSymbol,
+                    primaryLabel: "no such variable in scope",
+                    help: $"declare '{varName}' with 'var', 'let', 'const' or 'final' before assigning to it"));
 
             if (currentValue.VariableDeclarationType == VariableDeclarationType.CONST)
-                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is a constant variable and cannot be modified at runtime", context));
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                    $"cannot assign to '{varName}': it is declared 'const'",
+                    context,
+                    code: DiagnosticCode.RuntimeGeneric,
+                    primaryLabel: "this binding is immutable",
+                    help: "use 'var' if you need a mutable binding"));
             else if (currentValue.VariableDeclarationType == VariableDeclarationType.FINAL && currentValue.Type != RuntimeValueType.Null)
-                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is a final variable and cannot be modified at runtime", context));
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                    $"cannot reassign '{varName}': 'final' bindings may only be initialized once",
+                    context,
+                    code: DiagnosticCode.RuntimeGeneric,
+                    primaryLabel: "this binding is already initialized",
+                    help: "use 'var' for a fully mutable binding, or initialize the 'final' binding at declaration"));
 
             var operation = node.AssignmentToken;
 
@@ -121,7 +141,12 @@ namespace RaLanguage.Interpreter.Visitors.Variables
             if (entry2.IsStaticallyTyped && entry2.DeclaredType != null)
             {
                 if (!TypeSystem.IsAssignable(context, entry2.DeclaredType, result!))
-                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Type mismatch: cannot assign value of type '{result.Type.ToString().ToLower()}' to variable '{varName}' of type '{entry2.DeclaredType}'", context));
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                        $"type mismatch: cannot assign value of type '{result.Type.ToString().ToLower()}' to '{varName}' (declared '{entry2.DeclaredType}')",
+                        context,
+                        code: DiagnosticCode.RuntimeTypeMismatch,
+                        primaryLabel: $"value of type '{result.Type.ToString().ToLower()}' assigned here",
+                        help: $"either cast the value with 'as {entry2.DeclaredType}' or declare '{varName}' with a compatible type"));
             }
 
             var declType2 = entry2.Value?.VariableDeclarationType ?? VariableDeclarationType.VARIABLE;

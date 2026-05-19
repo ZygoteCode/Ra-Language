@@ -121,10 +121,20 @@ namespace RaLanguage.Interpreter
         {
             var entry = context.SymbolTable.GetEntry(name);
             if (entry == null)
-                return (null, new RuntimeError(posStart, posEnd, $"'{name}' is not defined", context));
+                return (null, new RuntimeError(posStart, posEnd,
+                    $"'{name}' is not defined",
+                    context,
+                    code: DiagnosticCode.RuntimeUndefinedSymbol,
+                    primaryLabel: "no such symbol in scope",
+                    help: $"declare '{name}' with 'var', 'let', 'const' or 'final' before using it, or check the spelling"));
 
             if (entry.IsMoved)
-                return (null, new RuntimeError(posStart, posEnd, $"Variable '{name}' was moved", context));
+                return (null, new RuntimeError(posStart, posEnd,
+                    $"value of '{name}' was already moved",
+                    context,
+                    code: DiagnosticCode.RuntimeMovedValue,
+                    primaryLabel: "used here after move",
+                    help: "non-copy 'let' bindings transfer ownership on use; rebind the value or take a copy"));
 
             if (entry.IsLet && !entry.Value.IsCopy)
             {
