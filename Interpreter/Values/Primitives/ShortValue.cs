@@ -501,46 +501,46 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public sealed override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Byte)
-                return (new BooleanValue((byte)Value == ((ByteValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of((byte)Value == ((ByteValue)other).Value).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Decimal)
-                return (new BooleanValue((decimal)Value == ((DecimalValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of((decimal)Value == ((DecimalValue)other).Value).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.UnsignedInt128)
-                return (new BooleanValue((UInt128)Value == ((UnsignedInt128Value)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of((UInt128)Value == ((UnsignedInt128Value)other).Value).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.UnsignedLong)
-                return (new BooleanValue((ulong) Value == ((UnsignedLongValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of((ulong) Value == ((UnsignedLongValue)other).Value).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Short)
-                return (new BooleanValue(Value == ((ShortValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value == ((ShortValue)other).Value).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.UnsignedShort)
-                return (new BooleanValue(Value == ((UnsignedShortValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value == ((UnsignedShortValue)other).Value).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Int128)
-                return (new BooleanValue(Value == ((Int128Value)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value == ((Int128Value)other).Value).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.Long)
-                return (new BooleanValue((long)Value == AsLong(other)).SetContext(Context), null);
+                return (BooleanValue.Of((long)Value == AsLong(other)).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Float)
-                return (new BooleanValue((float)Value == ((FloatValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of((float)Value == ((FloatValue)other).Value).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Double)
-                return (new BooleanValue((double)Value == ((DoubleValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of((double)Value == ((DoubleValue)other).Value).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Number)
-                return (new BooleanValue(PromoteToInteger().GetComparisonEq(other).Item1?.IsTrue() == true).SetContext(Context), null);
+                return (BooleanValue.Of(PromoteToInteger().GetComparisonEq(other).Item1?.IsTrue() == true).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Boolean)
             {
                 var b = (BooleanValue)other;
-                return (new BooleanValue((b.Value && Value == 1) || (!b.Value && Value == 0)).SetContext(Context), null);
+                return (BooleanValue.Of((b.Value && Value == 1) || (!b.Value && Value == 0)).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.String)
-                return (new BooleanValue(Value.ToString() == ((StringValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value.ToString() == ((StringValue)other).Value).SetContext(Context), null);
 
             return base.GetComparisonEq(other);
         }
@@ -548,31 +548,31 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public sealed override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
         {
             var eq = GetComparisonEq(other).Item1;
-            if (eq is BooleanValue b) return (new BooleanValue(!b.Value).SetContext(Context), null);
+            if (eq is BooleanValue b) return (BooleanValue.Of(!b.Value).SetContext(Context), null);
             return base.GetComparisonNe(other);
         }
 
         public sealed override (RuntimeValue?, Error?) GetComparisonLt(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Byte)
-                return (new BooleanValue((byte)Value < ((ByteValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of((byte)Value < ((ByteValue)other).Value).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Decimal)
-                return (new BooleanValue((decimal)Value < ((DecimalValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of((decimal)Value < ((DecimalValue)other).Value).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Short)
-                return (new BooleanValue(Value < ((ShortValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value < ((ShortValue)other).Value).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.UnsignedInteger
                 || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Int128
                 || other.Type == RuntimeValueType.UnsignedLong || other.Type == RuntimeValueType.UnsignedInt128)
-                return (new BooleanValue((long)Value < AsLong(other)).SetContext(Context), null);
+                return (BooleanValue.Of((long)Value < AsLong(other)).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Float)
-                return (new BooleanValue((float)Value < ((FloatValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of((float)Value < ((FloatValue)other).Value).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Double)
-                return (new BooleanValue((double)Value < ((DoubleValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of((double)Value < ((DoubleValue)other).Value).SetContext(Context), null);
 
             return base.GetComparisonLt(other);
         }
@@ -580,22 +580,22 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public sealed override (RuntimeValue?, Error?) GetComparisonGt(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Short)
-                return (new BooleanValue(Value > ((ShortValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value > ((ShortValue)other).Value).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.UnsignedInteger
                 || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Int128
                 || other.Type == RuntimeValueType.UnsignedLong || other.Type == RuntimeValueType.UnsignedInt128
                 || other.Type == RuntimeValueType.Byte)
-                return (new BooleanValue((long)Value > AsLong(other)).SetContext(Context), null);
+                return (BooleanValue.Of((long)Value > AsLong(other)).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Float)
-                return (new BooleanValue((float)Value > ((FloatValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of((float)Value > ((FloatValue)other).Value).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Double)
-                return (new BooleanValue((double)Value > ((DoubleValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of((double)Value > ((DoubleValue)other).Value).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Decimal)
-                return (new BooleanValue((decimal)Value > ((DecimalValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of((decimal)Value > ((DecimalValue)other).Value).SetContext(Context), null);
 
             return base.GetComparisonGt(other);
         }
@@ -603,22 +603,22 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public sealed override (RuntimeValue?, Error?) GetComparisonLte(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Short)
-                return (new BooleanValue(Value <= ((ShortValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value <= ((ShortValue)other).Value).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.UnsignedInteger
                 || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Int128
                 || other.Type == RuntimeValueType.UnsignedLong || other.Type == RuntimeValueType.UnsignedInt128
                 || other.Type == RuntimeValueType.Byte)
-                return (new BooleanValue((long)Value <= AsLong(other)).SetContext(Context), null);
+                return (BooleanValue.Of((long)Value <= AsLong(other)).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Float)
-                return (new BooleanValue((float)Value <= ((FloatValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of((float)Value <= ((FloatValue)other).Value).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Double)
-                return (new BooleanValue((double)Value <= ((DoubleValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of((double)Value <= ((DoubleValue)other).Value).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Decimal)
-                return (new BooleanValue((decimal)Value <= ((DecimalValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of((decimal)Value <= ((DecimalValue)other).Value).SetContext(Context), null);
 
             return base.GetComparisonLte(other);
         }
@@ -626,22 +626,22 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public sealed override (RuntimeValue?, Error?) GetComparisonGte(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Short)
-                return (new BooleanValue(Value >= ((ShortValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value >= ((ShortValue)other).Value).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.UnsignedInteger
                 || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Int128
                 || other.Type == RuntimeValueType.UnsignedLong || other.Type == RuntimeValueType.UnsignedInt128
                 || other.Type == RuntimeValueType.Byte)
-                return (new BooleanValue((long)Value >= AsLong(other)).SetContext(Context), null);
+                return (BooleanValue.Of((long)Value >= AsLong(other)).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Float)
-                return (new BooleanValue((float)Value >= ((FloatValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of((float)Value >= ((FloatValue)other).Value).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Double)
-                return (new BooleanValue((double)Value >= ((DoubleValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of((double)Value >= ((DoubleValue)other).Value).SetContext(Context), null);
 
             if (other.Type == RuntimeValueType.Decimal)
-                return (new BooleanValue((decimal)Value >= ((DecimalValue)other).Value).SetContext(Context), null);
+                return (BooleanValue.Of((decimal)Value >= ((DecimalValue)other).Value).SetContext(Context), null);
 
             return base.GetComparisonGte(other);
         }
@@ -723,7 +723,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
             if (string.Equals(tn, "bool", StringComparison.Ordinal))
             {
-                return (new BooleanValue(Value != 0).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                return (BooleanValue.Of(Value != 0).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             return base.CastTo(targetType);
@@ -731,7 +731,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public sealed override RuntimeValue Copy()
         {
-            return new ShortValue(Value).SetPos(PositionStart, PositionEnd).SetContext(Context);
+            // Immutable primitive: sharing the same instance is safe and removes per-read allocations.
+            return this;
         }
 
         public sealed override bool IsTrue() => Value != 0;

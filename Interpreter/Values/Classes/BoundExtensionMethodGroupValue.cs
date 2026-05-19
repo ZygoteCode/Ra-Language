@@ -70,8 +70,8 @@ namespace RaLanguage.Interpreter.Values.Classes
                 return res.Success(bodyRes.FuncReturnValue);
 
             var retValue = selected.ShouldAutoReturn
-                ? (bodyRes.Value ?? new NullValue().SetContext(Context).SetPos(PositionStart, PositionEnd))
-                : new NullValue().SetContext(Context).SetPos(PositionStart, PositionEnd);
+                ? (bodyRes.Value ?? NullValue.Null.SetContext(Context).SetPos(PositionStart, PositionEnd))
+                : NullValue.Null.SetContext(Context).SetPos(PositionStart, PositionEnd);
 
             return res.Success(retValue);
         }

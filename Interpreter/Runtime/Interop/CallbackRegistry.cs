@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -119,7 +119,7 @@ namespace RaLanguage.Interpreter.Runtime.Interop
         public static int Count => _alive.Count;
 
         private static RuntimeValue Wrap(IntPtr p) =>
-            p == IntPtr.Zero ? (RuntimeValue)new NullValue() : new NativeHandleValue(p, NativeHandleKind.Pointer);
+            p == IntPtr.Zero ? (RuntimeValue)NullValue.Null : new NativeHandleValue(p, NativeHandleKind.Pointer);
 
         private static RuntimeValue InvokeRa(BaseFunctionValue fn, Context ctx, RuntimeValue[] args)
         {
@@ -128,12 +128,12 @@ namespace RaLanguage.Interpreter.Runtime.Interop
                 var list = new List<RuntimeValue>(args.Length);
                 for (int i = 0; i < args.Length; i++) list.Add(args[i]);
                 var res = fn.Execute(list);
-                if (res.Error != null) return new NullValue();
-                return res.Value ?? new NullValue();
+                if (res.Error != null) return NullValue.Null;
+                return res.Value ?? NullValue.Null;
             }
             catch
             {
-                return new NullValue();
+                return NullValue.Null;
             }
         }
 

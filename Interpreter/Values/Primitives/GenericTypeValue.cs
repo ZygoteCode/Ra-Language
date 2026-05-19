@@ -1,4 +1,4 @@
-using RaLanguage.Errors;
+﻿using RaLanguage.Errors;
 using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Primitives
@@ -27,16 +27,16 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other is GenericTypeValue g)
             {
                 bool eq = TypeSystem.StrictTypeEquals(BoundType, g.BoundType);
-                return (new BooleanValue(eq).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                return (BooleanValue.Of(eq).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
-            return (new BooleanValue(false).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            return (BooleanValue.Of(false).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
         }
 
         public override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
         {
             var (eq, err) = GetComparisonEq(other);
             if (err != null) return (null, err);
-            return (new BooleanValue(!((BooleanValue)eq!).Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            return (BooleanValue.Of(!((BooleanValue)eq!).Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
         }
 
         public override string ToString() => BoundType?.ToString() ?? ParameterName;

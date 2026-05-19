@@ -1,4 +1,4 @@
-﻿using RaLanguage.Errors.Types;
+using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
@@ -22,8 +22,9 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 ));
             }
 
-            var newContext = context.Copy();
-            var collection = res.Register(interpreter.Visit(node.CollectionNode, newContext));
+            var loopContext = context.Copy();
+            var loopSymbols = loopContext.SymbolTable!;
+            var collection = res.Register(interpreter.Visit(node.CollectionNode, loopContext));
             if (res.Error != null) return res;
 
             if (collection.Type != RuntimeValueType.List && collection.Type != RuntimeValueType.Set && collection.Type != RuntimeValueType.Map && collection.Type != RuntimeValueType.Tuple)
@@ -34,49 +35,72 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 ));
             }
 
-            List<RuntimeValue> iterElements = new List<RuntimeValue>();
+            // Seed the iteration variable so subsequent updates hit the entry directly without
+            // walking the parent scope chain.
+            loopSymbols.Set(varName, NullValue.Null);
+            var iterEntry = loopSymbols.GetEntry(varName);
+
+            // Body scope reused across iterations; cleared between iterations to drop locals.
+            var bodyContext = loopContext.Copy();
+            var bodySymbols = bodyContext.SymbolTable!;
 
             if (collection.Type == RuntimeValueType.List)
             {
-                iterElements = ((ListValue)collection).Elements;
+                var elements = ((ListValue)collection).Elements;
+                for (int idx = 0; idx < elements.Count; idx++)
+                {
+                    iterEntry!.Value = elements[idx];
+                    if (ExecuteBody(node, bodyContext, bodySymbols, interpreter, res, context)) return res;
+                    if (res.LoopShouldBreak) break;
+                }
             }
             else if (collection.Type == RuntimeValueType.Set)
             {
-                iterElements = ((SetValue)collection).Elements.ToList();
+                foreach (var element in ((SetValue)collection).Elements)
+                {
+                    iterEntry!.Value = element;
+                    if (ExecuteBody(node, bodyContext, bodySymbols, interpreter, res, context)) return res;
+                    if (res.LoopShouldBreak) break;
+                }
             }
             else if (collection.Type == RuntimeValueType.Tuple)
             {
-                iterElements = ((TupleValue)collection).Elements;
+                var elements = ((TupleValue)collection).Elements;
+                for (int idx = 0; idx < elements.Count; idx++)
+                {
+                    iterEntry!.Value = elements[idx];
+                    if (ExecuteBody(node, bodyContext, bodySymbols, interpreter, res, context)) return res;
+                    if (res.LoopShouldBreak) break;
+                }
             }
             else if (collection.Type == RuntimeValueType.Map)
             {
-                MapValue m = (MapValue)collection;
-
-                foreach (var pair in m.Pairs)
+                var pairs = ((MapValue)collection).Pairs;
+                for (int idx = 0; idx < pairs.Count; idx++)
                 {
-                    List<RuntimeValue> values = new List<RuntimeValue>();
-
-                    values.Add(pair.Key);
-                    values.Add(pair.Value);
-
-                    iterElements.Add(new TupleValue(values).SetContext(context));
+                    var pair = pairs[idx];
+                    iterEntry!.Value = new TupleValue(new System.Collections.Generic.List<RuntimeValue> { pair.Key, pair.Value });
+                    if (ExecuteBody(node, bodyContext, bodySymbols, interpreter, res, context)) return res;
+                    if (res.LoopShouldBreak) break;
                 }
             }
 
-            foreach (RuntimeValue runtimeValue in iterElements)
-            {
-                newContext.SymbolTable.Set(varName, runtimeValue);
-                Context actualContext = newContext.Copy();
-                var value = res.Register(interpreter.Visit(node.BodyNode, actualContext));
-                if (res.Error != null) return res;
-                context.ApplyChangesFrom(actualContext);
+            context.ApplyChangesFrom(bodyContext);
+            return res.Success(NullValue.Null);
+        }
 
-                if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak) return res;
-                if (res.LoopShouldContinue) continue;
-                if (res.LoopShouldBreak) break;
-            }
+        private static bool ExecuteBody(ForEachNode node, Context bodyContext, RaLanguage.Interpreter.Runtime.SymbolTable bodySymbols, IInterpreter interpreter, RuntimeResult res, Context outer)
+        {
+            bodySymbols.Clear();
+            bodyContext.ScopeSkipCopy = true;
+            res.Register(interpreter.Visit(node.BodyNode, bodyContext));
+            if (res.Error != null) return true;
+            outer.ApplyChangesFrom(bodyContext);
 
-            return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+            if (res.LoopShouldContinue) return false;
+            if (res.LoopShouldBreak) return false;
+            if (res.ShouldReturn()) return true;
+            return false;
         }
     }
 }

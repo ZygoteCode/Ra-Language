@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Runtime.InteropServices;
@@ -174,7 +174,7 @@ namespace RaLanguage.Interpreter.Visitors.Asm
                 case "u32": case "uint": return new UnsignedIntegerValue((uint)(raw & 0xffffffff));
                 case "i64": case "long": return new LongValue(raw);
                 case "u64": case "ulong":return new UnsignedLongValue(unchecked((ulong)raw));
-                case "bool": return new BooleanValue(raw != 0);
+                case "bool": return BooleanValue.Of(raw != 0);
                 case "ptr": return new NativeHandleValue((IntPtr)raw, NativeHandleKind.Pointer);
                 default: return new LongValue(raw);
             }

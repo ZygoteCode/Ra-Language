@@ -12,27 +12,27 @@ namespace RaLanguage.Interpreter.Values
 {
     public abstract class RuntimeValue
     {
-        public Position PositionStart { get; private set; }
-        public Position PositionEnd { get; private set; }
-        public Context Context { get; private set; }
-        public VariableDeclarationType VariableDeclarationType { get; set; } = VariableDeclarationType.VARIABLE;
+        public Position PositionStart { get; protected set; }
+        public Position PositionEnd { get; protected set; }
+        public Context Context { get; protected set; }
+        public virtual VariableDeclarationType VariableDeclarationType { get; set; } = VariableDeclarationType.VARIABLE;
         public abstract RuntimeValueType Type { get; }
         public virtual bool IsCopy => false;
 
-        public RuntimeValue SetPos(Position positionStart, Position positionEnd)
+        public virtual RuntimeValue SetPos(Position positionStart, Position positionEnd)
         {
             PositionStart = positionStart;
             PositionEnd = positionEnd;
             return this;
         }
 
-        public RuntimeValue SetContext(Context context)
+        public virtual RuntimeValue SetContext(Context context)
         {
             Context = context;
             return this;
         }
 
-        public RuntimeValue SetDeclarationType(VariableDeclarationType declarationType)
+        public virtual RuntimeValue SetDeclarationType(VariableDeclarationType declarationType)
         {
             VariableDeclarationType = declarationType;
             return this;
@@ -80,12 +80,12 @@ namespace RaLanguage.Interpreter.Values
 
         public virtual (RuntimeValue?, Error?) AndedBy(RuntimeValue other)
         {
-            return (new BooleanValue(IsTrue() && other.IsTrue()), null);
+            return (BooleanValue.Of(IsTrue() && other.IsTrue()), null);
         }
 
         public virtual (RuntimeValue?, Error?) OredBy(RuntimeValue other)
         {
-            return (new BooleanValue(IsTrue() || other.IsTrue()), null);
+            return (BooleanValue.Of(IsTrue() || other.IsTrue()), null);
         }
 
         public virtual (RuntimeValue?, Error?) InCollection(RuntimeValue other)
@@ -96,10 +96,10 @@ namespace RaLanguage.Interpreter.Values
 
                 foreach (var element in l.Elements)
                 {
-                    if (element.Equals(this)) return (new BooleanValue(true), null);
+                    if (element.Equals(this)) return (BooleanValue.Of(true), null);
                 }
 
-                return (new BooleanValue(false), null);
+                return (BooleanValue.Of(false), null);
             }
             else if (other.Type == RuntimeValueType.Set)
             {
@@ -107,22 +107,22 @@ namespace RaLanguage.Interpreter.Values
 
                 foreach (var element in s.Elements)
                 {
-                    if (element.Equals(this)) return (new BooleanValue(true), null);
+                    if (element.Equals(this)) return (BooleanValue.Of(true), null);
                 }
 
-                return (new BooleanValue(false), null);
+                return (BooleanValue.Of(false), null);
             }
             else if (other.Type == RuntimeValueType.String && Type == RuntimeValueType.String)
             {
                 StringValue s1 = (StringValue)other;
                 StringValue s2 = (StringValue)this;
-                return (new BooleanValue(s1.Value.Contains(s2.Value)), null);
+                return (BooleanValue.Of(s1.Value.Contains(s2.Value)), null);
             }
             else if (other.Type == RuntimeValueType.String && Type == RuntimeValueType.Number)
             {
                 StringValue s1 = (StringValue)other;
                 NumberValue n1 = (NumberValue)this;
-                return (new BooleanValue(s1.Value.Contains(n1.Value.ToString())), null);
+                return (BooleanValue.Of(s1.Value.Contains(n1.Value.ToString())), null);
             }
             else if (other.Type == RuntimeValueType.Tuple)
             {
@@ -130,10 +130,10 @@ namespace RaLanguage.Interpreter.Values
 
                 foreach (var element in t.Elements)
                 {
-                    if (element.Equals(this)) return (new BooleanValue(true), null);
+                    if (element.Equals(this)) return (BooleanValue.Of(true), null);
                 }
 
-                return (new BooleanValue(false), null);
+                return (BooleanValue.Of(false), null);
             }
             else if (other.Type == RuntimeValueType.Map && Type == RuntimeValueType.Tuple)
             {
@@ -146,10 +146,10 @@ namespace RaLanguage.Interpreter.Values
 
                 foreach (var e in m.Pairs)
                 {
-                    if (e.Key.Equals(v1) && e.Value.Equals(v2)) return (new BooleanValue(true), null);
+                    if (e.Key.Equals(v1) && e.Value.Equals(v2)) return (BooleanValue.Of(true), null);
                 }
 
-                return (new BooleanValue(false), null);
+                return (BooleanValue.Of(false), null);
             }
 
             return (null, IllegalOperation(other));
@@ -189,7 +189,7 @@ namespace RaLanguage.Interpreter.Values
 
             if (string.Equals(tn, "bool", StringComparison.Ordinal))
             {
-                return (new BooleanValue(IsTrue()).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                return (BooleanValue.Of(IsTrue()).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             if (string.Equals(tn, "int", StringComparison.Ordinal))

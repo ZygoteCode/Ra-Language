@@ -25,7 +25,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Enum)
             {
                 var e = (EnumValue)other;
-                return (new BooleanValue(EnumName == e.EnumName && UnderlyingValue == e.UnderlyingValue).SetContext(Context), null);
+                return (BooleanValue.Of(EnumName == e.EnumName && UnderlyingValue == e.UnderlyingValue).SetContext(Context), null);
             }
 
             return base.GetComparisonEq(other);
@@ -35,7 +35,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
         {
             var eq = GetComparisonEq(other).Item1;
             if (eq is BooleanValue b)
-                return (new BooleanValue(!b.Value).SetContext(Context), null);
+                return (BooleanValue.Of(!b.Value).SetContext(Context), null);
 
             return base.GetComparisonNe(other);
         }

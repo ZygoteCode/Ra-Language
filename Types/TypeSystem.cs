@@ -23,31 +23,21 @@ namespace RaLanguage.Types
                 
                 if (target.RefElementType != null)
                 {
-                    if (value is ReferenceValue refValue)
+                    if (value is IReferenceValue refValue)
                     {
                         try
                         {
                             var actualValue = refValue.Value;
-                            return IsAssignable(context, target.RefElementType, actualValue);
+                            if (actualValue != null)
+                            {
+                                return IsAssignable(context, target.RefElementType, actualValue);
+                            }
                         }
                         catch
                         {
                             return false;
                         }
                     }
-                    try
-                    {
-                        var prop = value.GetType().GetProperty("Value");
-                        if (prop != null)
-                        {
-                            var actualValue = prop.GetValue(value) as RuntimeValue;
-                            if (actualValue != null)
-                            {
-                                return IsAssignable(context, target.RefElementType, actualValue);
-                            }
-                        }
-                    }
-                    catch { }
                     return false;
                 }
                 return true;
@@ -365,33 +355,22 @@ namespace RaLanguage.Types
                 case RuntimeValueType.EnumType:
                     return new TypeDescriptor(((EnumTypeValue)val).EnumName);
                 case RuntimeValueType.Reference:
-                    if (val is ReferenceValue refValue)
+                    if (val is IReferenceValue refValueAny)
                     {
                         try
                         {
-                            var actualValue = refValue.Value;
-                            var elementType = GetDescriptorFromRuntimeValue(actualValue);
-                            return TypeDescriptor.RefType(elementType);
-                        }
-                        catch
-                        {
-                            return new TypeDescriptor("ref unknown");
-                        }
-                    }
-                    try
-                    {
-                        var prop = val.GetType().GetProperty("Value");
-                        if (prop != null)
-                        {
-                            var actualValue = prop.GetValue(val) as RuntimeValue;
+                            var actualValue = refValueAny.Value;
                             if (actualValue != null)
                             {
                                 var elementType = GetDescriptorFromRuntimeValue(actualValue);
                                 return TypeDescriptor.RefType(elementType);
                             }
                         }
+                        catch
+                        {
+                            return new TypeDescriptor("ref unknown");
+                        }
                     }
-                    catch { }
                     return new TypeDescriptor("ref unknown");
                 default:
                     return new TypeDescriptor(val.Type.ToString().ToLower());

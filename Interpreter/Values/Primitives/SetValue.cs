@@ -176,8 +176,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 int wrapped = ((idx % ordered.Count) + ordered.Count) % ordered.Count;
                 return (ordered[wrapped], null);
             }
-            if (ContainsEqual(other)) return (new BooleanValue(true).SetContext(Context), null);
-            return (new BooleanValue(false).SetContext(Context), null);
+            if (ContainsEqual(other)) return (BooleanValue.Of(true).SetContext(Context), null);
+            return (BooleanValue.Of(false).SetContext(Context), null);
         }
 
         public sealed override (RuntimeValue?, Error?) BitwiseLeftShiftedBy(RuntimeValue other)
@@ -289,7 +289,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 var sv = (SetValue)other;
                 bool eq = SetEqualsByComparison(sv, token);
-                return (new BooleanValue(eq).SetContext(Context), null);
+                return (BooleanValue.Of(eq).SetContext(Context), null);
             }
             if ((other.Type == RuntimeValueType.List || other.Type == RuntimeValueType.Set) &&
                 (other.Type == RuntimeValueType.List ? ((ListValue)other).Elements.Count == 1 : ((SetValue)other).Elements.Count == 1))
@@ -306,10 +306,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
                         TokenType.STRICT_NE => a.GetComparisonStrictNe(single).Item1,
                         _ => null
                     };
-                    if (cmp == null) return (new BooleanValue(false).SetContext(Context), null);
-                    if (cmp.IsTrue()) return (new BooleanValue(true).SetContext(Context), null);
+                    if (cmp == null) return (BooleanValue.Of(false).SetContext(Context), null);
+                    if (cmp.IsTrue()) return (BooleanValue.Of(true).SetContext(Context), null);
                 }
-                return (new BooleanValue(false).SetContext(Context), null);
+                return (BooleanValue.Of(false).SetContext(Context), null);
             }
 
             if ((other.Type == RuntimeValueType.Number || other.Type == RuntimeValueType.String ||
@@ -324,11 +324,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
                     TokenType.STRICT_NE => single.GetComparisonStrictNe(other).Item1,
                     _ => null
                 };
-                if (cmp == null) return (new BooleanValue(false).SetContext(Context), null);
-                return (new BooleanValue(cmp.IsTrue()).SetContext(Context), null);
+                if (cmp == null) return (BooleanValue.Of(false).SetContext(Context), null);
+                return (BooleanValue.Of(cmp.IsTrue()).SetContext(Context), null);
             }
 
-            return (new BooleanValue(false).SetContext(Context), null);
+            return (BooleanValue.Of(false).SetContext(Context), null);
         }
 
         public sealed override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other) => EvaluateComparison(other, TokenType.EE);

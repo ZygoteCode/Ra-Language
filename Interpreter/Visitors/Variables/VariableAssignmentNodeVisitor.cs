@@ -3,6 +3,7 @@ using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
+using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes;
 using RaLanguage.Parser.Nodes.Variables;
@@ -25,10 +26,10 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                     primaryLabel: "the left-hand side has no resolvable name",
                     help: "assignments target variables ('x = ...'), members ('obj.f = ...') or indexes ('a[i] = ...')"));
 
-            var currentValue = context.SymbolTable.Get(varName);
             var entry = context.SymbolTable.GetEntry(varName);
+            var currentValue = entry?.Value;
 
-            if (currentValue == null)
+            if (currentValue == null || entry == null)
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
                     $"'{varName}' is not defined",
                     context,
@@ -36,14 +37,14 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                     primaryLabel: "no such variable in scope",
                     help: $"declare '{varName}' with 'var', 'let', 'const' or 'final' before assigning to it"));
 
-            if (currentValue.VariableDeclarationType == VariableDeclarationType.CONST)
+            if (entry.DeclarationType == VariableDeclarationType.CONST)
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
                     $"cannot assign to '{varName}': it is declared 'const'",
                     context,
                     code: DiagnosticCode.RuntimeGeneric,
                     primaryLabel: "this binding is immutable",
                     help: "use 'var' if you need a mutable binding"));
-            else if (currentValue.VariableDeclarationType == VariableDeclarationType.FINAL && currentValue.Type != RuntimeValueType.Null)
+            else if (entry.DeclarationType == VariableDeclarationType.FINAL && currentValue.Type != RuntimeValueType.Null)
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
                     $"cannot reassign '{varName}': 'final' bindings may only be initialized once",
                     context,
@@ -71,17 +72,9 @@ namespace RaLanguage.Interpreter.Visitors.Variables
             (RuntimeValue? result, Error? error) = (null, null);
 
             RuntimeValue operationTarget = currentValue;
-            if (currentValue.Type == RuntimeValueType.Reference)
+            if (currentValue is IReferenceValue refRead)
             {
-                try
-                {
-                    var valueProp = currentValue.GetType().GetProperty("Value");
-                    if (valueProp != null)
-                    {
-                        operationTarget = valueProp.GetValue(currentValue) as RuntimeValue ?? currentValue;
-                    }
-                }
-                catch { }
+                operationTarget = refRead.Value;
             }
 
             switch (operation.Type)
@@ -107,24 +100,19 @@ namespace RaLanguage.Interpreter.Visitors.Variables
 
             if (error != null) return res.Failure(error);
             
-            if (currentValue.Type == RuntimeValueType.Reference)
+            if (currentValue is IReferenceValue refWrite)
             {
                 try
                 {
-                    var valueProp = currentValue.GetType().GetProperty("Value");
-                    if (valueProp != null)
+                    RuntimeValue? newValue = TypeChecker.GetNewType(entry.DeclaredType, result, context, node);
+
+                    if (newValue == null)
                     {
-                        RuntimeValue? newValue = TypeChecker.GetNewType(entry.DeclaredType, result, context, node);
-                        
-                        if (newValue == null)
-                        {
-                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Failed to parse value", context));
-                        }
-                        
-                        valueProp.SetValue(currentValue, newValue);
-                        
-                        return res.Success(newValue.SetPos(node.PositionStart, node.PositionEnd));
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Failed to parse value", context));
                     }
+
+                    refWrite.Value = newValue;
+                    return res.Success(newValue.SetPos(node.PositionStart, node.PositionEnd));
                 }
                 catch (Exception ex)
                 {
@@ -132,7 +120,6 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                 }
             }
             
-            var declType = currentValue.VariableDeclarationType;
             var entry2 = context.SymbolTable.GetEntry(varName);
 
             if (entry2 == null)
@@ -149,7 +136,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                         help: $"either cast the value with 'as {entry2.DeclaredType}' or declare '{varName}' with a compatible type"));
             }
 
-            var declType2 = entry2.Value?.VariableDeclarationType ?? VariableDeclarationType.VARIABLE;
+            var declType2 = entry2.DeclarationType;
             RuntimeValue? newValue2 = TypeChecker.GetNewType(entry2.DeclaredType, result, context, node);
 
             if (newValue2 == null)
@@ -158,8 +145,9 @@ namespace RaLanguage.Interpreter.Visitors.Variables
             }
 
             result = newValue2;
-            context.SymbolTable.Set(varName, result!.SetDeclarationType(declType2));
-            return res.Success(result!.SetPos(node.PositionStart, node.PositionEnd).SetDeclarationType(declType2));
+            result.VariableDeclarationType = declType2;
+            context.SymbolTable.SetWithDeclarationType(varName, result!, entry2.IsLet, entry2.DeclaredType, entry2.IsStaticallyTyped, entry2.IsPublic, declType2);
+            return res.Success(result!.SetPos(node.PositionStart, node.PositionEnd));
         }
     }
 }

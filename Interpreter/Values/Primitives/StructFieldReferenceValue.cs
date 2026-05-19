@@ -6,7 +6,7 @@ using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
-    public class StructFieldReferenceValue : RuntimeValue
+    public class StructFieldReferenceValue : RuntimeValue, IReferenceValue
     {
         public StructInstanceValue Instance { get; }
         public string FieldName { get; }

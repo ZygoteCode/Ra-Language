@@ -1,4 +1,4 @@
-using RaLanguage.Errors;
+﻿using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
@@ -42,7 +42,7 @@ namespace RaLanguage.Interpreter.Visitors.Async
                 if (closed) break;
                 if (!ok) break;
 
-                context.SymbolTable.Set(varName, value ?? new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                context.SymbolTable.Set(varName, value ?? NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
 
                 var bodyRes = interpreter.Visit(node.BodyNode, context);
                 if (bodyRes.Error != null)
@@ -72,7 +72,7 @@ namespace RaLanguage.Interpreter.Visitors.Async
             }
 
             if (node.ShouldReturnNull)
-                return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                return res.Success(NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
 
             return res.Success(new ListValue(elements).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }

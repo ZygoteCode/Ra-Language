@@ -110,7 +110,7 @@ namespace RaLanguage.Interpreter.Values.Structs
 
             foreach (var field in Fields)
             {
-                RuntimeValue fieldValue = new NullValue().SetContext(Context).SetPos(PositionStart, PositionEnd);
+                RuntimeValue fieldValue = NullValue.Null.SetContext(Context).SetPos(PositionStart, PositionEnd);
 
                 if (field.DefaultValueNode != null)
                 {

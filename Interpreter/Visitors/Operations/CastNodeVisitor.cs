@@ -19,7 +19,7 @@ namespace RaLanguage.Interpreter.Visitors.Operations
             if (val == null) return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast null value", context));
             (RuntimeValue? casted, Error? error) = val.CastTo(node.TargetType);
             if (error != null) return res.Failure(error);
-            if (casted == null) return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+            if (casted == null) return res.Success(NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
             return res.Success(casted.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
     }

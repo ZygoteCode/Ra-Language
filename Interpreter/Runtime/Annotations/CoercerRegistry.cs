@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Globalization;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
@@ -117,7 +117,7 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
         private static (RuntimeValue?, string?) ToBool(RuntimeValue v, Context ctx)
         {
             if (v is BooleanValue) return (v, null);
-            return (new BooleanValue(v.IsTrue()).SetContext(ctx).SetPos(v.PositionStart, v.PositionEnd), null);
+            return (BooleanValue.Of(v.IsTrue()).SetContext(ctx).SetPos(v.PositionStart, v.PositionEnd), null);
         }
 
         private static (RuntimeValue?, string?) Trim(RuntimeValue v, Context ctx)

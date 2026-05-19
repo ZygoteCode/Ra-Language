@@ -102,7 +102,7 @@ namespace RaLanguage.Interpreter.Visitors.Functions
 
                 if (fnReturn == null)
                 {
-                    callResult = new NullValue()
+                    callResult = NullValue.Null
                         .SetContext(context)
                         .SetPos(node.PositionStart, node.PositionEnd);
                 }
@@ -127,7 +127,7 @@ namespace RaLanguage.Interpreter.Visitors.Functions
 
             if (execReturn == null)
             {
-                var nullVal = new NullValue()
+                var nullVal = NullValue.Null
                     .SetContext(context)
                     .SetPos(node.PositionStart, node.PositionEnd);
                 return res.Success(nullVal);

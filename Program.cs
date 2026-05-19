@@ -184,6 +184,12 @@ namespace RaLanguage
 
             if (args.Length > 0)
             {
+                if (args.Length == 1 && string.Equals(args[0], "--bench", StringComparison.OrdinalIgnoreCase))
+                {
+                    RunMicrobenchmark();
+                    return;
+                }
+
                 string totalArgs = "";
 
                 foreach (string arg in args)
@@ -309,6 +315,57 @@ namespace RaLanguage
                         currentProcess.Kill();
                         break;
                 }
+            }
+        }
+
+        private static void RunMicrobenchmark()
+        {
+            // Two-phase microbenchmark: warmup to populate JIT + AOT inlining decisions, then
+            // measured runs. Reports wall-clock time and managed-heap allocation delta per
+            // benchmark so optimization passes have a numerical regression signal.
+            string[] benches = { "bench_hotloop.ra", "bench_arithmetic.ra" };
+
+            Console.WriteLine("[Ra Language] Microbenchmark mode.");
+            foreach (var bench in benches)
+            {
+                if (!File.Exists(bench))
+                {
+                    Console.WriteLine($"  skip: {bench} not found in {Directory.GetCurrentDirectory()}");
+                    continue;
+                }
+
+                string text = File.ReadAllText(bench);
+
+                // Warmup
+                for (int i = 0; i < 3; i++)
+                {
+                    InitializeSymbolTable();
+                    Run(bench, text);
+                }
+
+                const int Iterations = 5;
+                long bestMs = long.MaxValue;
+                long totalMs = 0;
+                long totalTicks = 0;
+                long allocBefore = GC.GetTotalAllocatedBytes(precise: false);
+
+                for (int i = 0; i < Iterations; i++)
+                {
+                    InitializeSymbolTable();
+                    var sw = Stopwatch.StartNew();
+                    Run(bench, text);
+                    sw.Stop();
+                    if (sw.ElapsedMilliseconds < bestMs) bestMs = sw.ElapsedMilliseconds;
+                    totalMs += sw.ElapsedMilliseconds;
+                    totalTicks += sw.ElapsedTicks;
+                }
+
+                long allocAfter = GC.GetTotalAllocatedBytes(precise: false);
+                double allocPerRunMb = (allocAfter - allocBefore) / (double)Iterations / 1_048_576.0;
+                double avgMs = totalMs / (double)Iterations;
+                double avgTicks = totalTicks / (double)Iterations;
+
+                Console.WriteLine($"  {bench}: best={bestMs}ms avg={avgMs:F1}ms avg_ticks={avgTicks:F0} alloc/run={allocPerRunMb:F2}MB");
             }
         }
 

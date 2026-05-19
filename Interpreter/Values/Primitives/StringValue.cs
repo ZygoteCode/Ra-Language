@@ -169,7 +169,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var s = (StringValue)other;
                 var baseStr = NormalizeNFC(Value);
                 var needle = NormalizeNFC(s.Value);
-                return (new BooleanValue(baseStr.Contains(needle)), null);
+                return (BooleanValue.Of(baseStr.Contains(needle)), null);
             }
             return base.ModuledBy(other);
         }
@@ -379,7 +379,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var a = NormalizeNFC(Value);
                 var b = NormalizeNFC(s.Value);
                 int cmp = String.CompareOrdinal(a, b);
-                return (new BooleanValue(cmp < 0).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
+                return (BooleanValue.Of(cmp < 0).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
             }
             return base.GetComparisonLt(other);
         }
@@ -392,7 +392,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var a = NormalizeNFC(Value);
                 var b = NormalizeNFC(s.Value);
                 int cmp = String.CompareOrdinal(a, b);
-                return (new BooleanValue(cmp > 0).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
+                return (BooleanValue.Of(cmp > 0).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
             }
             return base.GetComparisonGt(other);
         }
@@ -405,7 +405,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var a = NormalizeNFC(Value);
                 var b = NormalizeNFC(s.Value);
                 int cmp = String.CompareOrdinal(a, b);
-                return (new BooleanValue(cmp <= 0).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
+                return (BooleanValue.Of(cmp <= 0).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
             }
             return base.GetComparisonLte(other);
         }
@@ -418,14 +418,14 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var a = NormalizeNFC(Value);
                 var b = NormalizeNFC(s.Value);
                 int cmp = String.CompareOrdinal(a, b);
-                return (new BooleanValue(cmp >= 0).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
+                return (BooleanValue.Of(cmp >= 0).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
             }
             return base.GetComparisonGte(other);
         }
 
         public sealed override (RuntimeValue?, Error?) Notted()
         {
-            return (new BooleanValue(!IsTrue()).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
+            return (BooleanValue.Of(!IsTrue()).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
         }
 
         public sealed override (RuntimeValue?, Error?) BitwiseNotted()
@@ -437,7 +437,9 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public sealed override RuntimeValue Copy()
         {
-            return new StringValue(Value).SetPos(PositionStart, PositionEnd).SetContext(Context);
+            // StringValue wraps an immutable string. Sharing the same instance is safe and
+            // removes a per-read allocation for any string-typed variable access.
+            return this;
         }
 
         public sealed override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
@@ -445,21 +447,21 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.String)
             {
                 var s = (StringValue)other;
-                return (new BooleanValue(NormalizeNFC(s.Value) == NormalizeNFC(Value)).SetContext(Context), null);
+                return (BooleanValue.Of(NormalizeNFC(s.Value) == NormalizeNFC(Value)).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Number)
             {
                 var n = (NumberValue)other;
-                return (new BooleanValue(n.Value.ToString() == Value).SetContext(Context), null);
+                return (BooleanValue.Of(n.Value.ToString() == Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Boolean)
             {
                 var b = (BooleanValue)other;
-                return (new BooleanValue(b.Value.ToString() == Value).SetContext(Context), null);
+                return (BooleanValue.Of(b.Value.ToString() == Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Null)
             {
-                return (new BooleanValue(Value == "null").SetContext(Context), null);
+                return (BooleanValue.Of(Value == "null").SetContext(Context), null);
             }
             return base.GetComparisonEq(other);
         }
@@ -470,7 +472,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (eqRes != null && eqRes.Type == RuntimeValueType.Boolean)
             {
                 var b = (BooleanValue)eqRes;
-                return (new BooleanValue(!b.Value).SetContext(Context), null);
+                return (BooleanValue.Of(!b.Value).SetContext(Context), null);
             }
             return base.GetComparisonNe(other);
         }
@@ -479,22 +481,22 @@ namespace RaLanguage.Interpreter.Values.Primitives
         {
             if (other.Type != RuntimeValueType.String)
             {
-                return (new BooleanValue(false).SetContext(Context), null);
+                return (BooleanValue.Of(false).SetContext(Context), null);
             }
 
             StringValue s = (StringValue)other;
-            return (new BooleanValue(s.Value == Value).SetContext(Context), null);
+            return (BooleanValue.Of(s.Value == Value).SetContext(Context), null);
         }
 
         public sealed override (RuntimeValue?, Error?) GetComparisonStrictNe(RuntimeValue other)
         {
             if (other.Type != RuntimeValueType.String)
             {
-                return (new BooleanValue(true).SetContext(Context), null);
+                return (BooleanValue.Of(true).SetContext(Context), null);
             }
 
             StringValue s = (StringValue)other;
-            return (new BooleanValue(s.Value != Value).SetContext(Context), null);
+            return (BooleanValue.Of(s.Value != Value).SetContext(Context), null);
         }
 
         public sealed override string ToString() => Value;

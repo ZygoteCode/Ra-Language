@@ -315,20 +315,20 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 if (other.Type == RuntimeValueType.Number)
                 {
                     var lhsBig = BigNumber.Parse(Value.ToString(CultureInfo.InvariantCulture));
-                    return (new BooleanValue(lhsBig == ((NumberValue)other).Value).SetContext(Context), null);
+                    return (BooleanValue.Of(lhsBig == ((NumberValue)other).Value).SetContext(Context), null);
                 }
 
                 return base.GetComparisonEq(other);
             }
 
-            return (new BooleanValue(Value == rhs).SetContext(Context), null);
+            return (BooleanValue.Of(Value == rhs).SetContext(Context), null);
         }
 
         public sealed override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
         {
             var eq = GetComparisonEq(other).Item1;
             if (eq is BooleanValue b)
-                return (new BooleanValue(!b.Value).SetContext(Context), null);
+                return (BooleanValue.Of(!b.Value).SetContext(Context), null);
 
             return base.GetComparisonNe(other);
         }
@@ -340,13 +340,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 if (other.Type == RuntimeValueType.Number)
                 {
                     var lhsBig = BigNumber.Parse(Value.ToString(CultureInfo.InvariantCulture));
-                    return (new BooleanValue(lhsBig < ((NumberValue)other).Value).SetContext(Context), null);
+                    return (BooleanValue.Of(lhsBig < ((NumberValue)other).Value).SetContext(Context), null);
                 }
 
                 return base.GetComparisonLt(other);
             }
 
-            return (new BooleanValue(Value < rhs).SetContext(Context), null);
+            return (BooleanValue.Of(Value < rhs).SetContext(Context), null);
         }
 
         public sealed override (RuntimeValue?, Error?) GetComparisonGt(RuntimeValue other)
@@ -356,20 +356,20 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 if (other.Type == RuntimeValueType.Number)
                 {
                     var lhsBig = BigNumber.Parse(Value.ToString(CultureInfo.InvariantCulture));
-                    return (new BooleanValue(lhsBig > ((NumberValue)other).Value).SetContext(Context), null);
+                    return (BooleanValue.Of(lhsBig > ((NumberValue)other).Value).SetContext(Context), null);
                 }
 
                 return base.GetComparisonGt(other);
             }
 
-            return (new BooleanValue(Value > rhs).SetContext(Context), null);
+            return (BooleanValue.Of(Value > rhs).SetContext(Context), null);
         }
 
         public sealed override (RuntimeValue?, Error?) GetComparisonLte(RuntimeValue other)
         {
             var gt = GetComparisonGt(other).Item1;
             if (gt is BooleanValue b)
-                return (new BooleanValue(!b.Value).SetContext(Context), null);
+                return (BooleanValue.Of(!b.Value).SetContext(Context), null);
 
             return base.GetComparisonLte(other);
         }
@@ -378,7 +378,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
         {
             var lt = GetComparisonLt(other).Item1;
             if (lt is BooleanValue b)
-                return (new BooleanValue(!b.Value).SetContext(Context), null);
+                return (BooleanValue.Of(!b.Value).SetContext(Context), null);
 
             return base.GetComparisonGte(other);
         }
@@ -530,7 +530,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
             if (string.Equals(tn, "bool", StringComparison.Ordinal))
             {
-                return (new BooleanValue(Value != 0m).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                return (BooleanValue.Of(Value != 0m).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             return base.CastTo(targetType);
@@ -538,7 +538,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public sealed override RuntimeValue Copy()
         {
-            return new DecimalValue(Value).SetPos(PositionStart, PositionEnd).SetContext(Context);
+            // Immutable primitive: sharing the same instance is safe and removes per-read allocations.
+            return this;
         }
 
         public sealed override bool IsTrue() => Value != 0m;

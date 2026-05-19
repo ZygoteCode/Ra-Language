@@ -9,7 +9,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
     {
         protected sealed override RuntimeResult VisitNode(NullNode node, Context context, IInterpreter interpreter)
         {
-            return new RuntimeResult().Success(new NullValue().SetPos(node.PositionStart, node.PositionEnd).SetContext(context));
+            return new RuntimeResult().Success(NullValue.Null.SetPos(node.PositionStart, node.PositionEnd).SetContext(context));
         }
     }
 }

@@ -1,0 +1,10 @@
+// Microbenchmark exercising the visitor dispatch + symbol table on a tight integer
+// loop. Used by `dotnet run -- --bench` to compare interpreter throughput.
+var i = 0;
+var n = 200000;
+var sum = 0;
+while i < n {
+    sum = sum + i;
+    i = i + 1;
+}
+print(sum);

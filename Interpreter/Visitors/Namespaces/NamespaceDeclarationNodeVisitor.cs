@@ -1,4 +1,4 @@
-using RaLanguage.Errors.Types;
+﻿using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Namespaces;
@@ -96,7 +96,7 @@ namespace RaLanguage.Interpreter.Visitors.Namespaces
 
             FreezeFunctionClosures(leafNamespace, bodyContext);
 
-            return res.Success(new NullValue()
+            return res.Success(NullValue.Null
                 .SetContext(context)
                 .SetPos(node.PositionStart, node.PositionEnd));
         }

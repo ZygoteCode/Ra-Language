@@ -58,7 +58,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 if (res.LoopShouldBreak) break;
             }
 
-            return res.Success(new NullValue().SetPos(node.PositionStart, node.PositionEnd).SetContext(context));
+            return res.Success(NullValue.Null.SetPos(node.PositionStart, node.PositionEnd).SetContext(context));
         }
     }
 }

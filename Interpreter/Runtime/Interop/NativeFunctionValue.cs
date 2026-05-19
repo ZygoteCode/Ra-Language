@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -333,7 +333,7 @@ namespace RaLanguage.Interpreter.Runtime.Interop
                 byte* p = (byte*)buf;
                 return kind switch
                 {
-                    NativeTypeKind.Bool => (RuntimeValue)new BooleanValue(*(int*)p != 0),
+                    NativeTypeKind.Bool => (RuntimeValue)BooleanValue.Of(*(int*)p != 0),
                     NativeTypeKind.Int8 => new IntegerValue(*(sbyte*)p),
                     NativeTypeKind.UInt8 => new IntegerValue(*p),
                     NativeTypeKind.Int16 => new IntegerValue(*(short*)p),

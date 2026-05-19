@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using RaLanguage.Errors;
@@ -224,7 +224,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             {
                 var result = bf.Execute(callArgs);
                 if (result.Error != null) return new RuntimeResult().Failure(result.Error);
-                return Ok(result.Value ?? new NullValue(), ctx, p1, p2);
+                return Ok(result.Value ?? NullValue.Null, ctx, p1, p2);
             }
             return Fail(ctx, p1, p2, $"invoke: '{TypeKind(target)}' is not callable");
         }
@@ -246,7 +246,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
                     .SetContext(ctx).SetPos(p1, p2);
                 var r = ((BaseFunctionValue)bound).Execute(callArgs);
                 if (r.Error != null) return new RuntimeResult().Failure(r.Error);
-                return Ok(r.Value ?? new NullValue(), ctx, p1, p2);
+                return Ok(r.Value ?? NullValue.Null, ctx, p1, p2);
             }
             if (receiver is StructInstanceValue si)
             {
@@ -255,7 +255,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
                 var bound = new BoundStructMethodValue(si.Definition, si, m).SetContext(ctx).SetPos(p1, p2);
                 var r = ((BaseFunctionValue)bound).Execute(callArgs);
                 if (r.Error != null) return new RuntimeResult().Failure(r.Error);
-                return Ok(r.Value ?? new NullValue(), ctx, p1, p2);
+                return Ok(r.Value ?? NullValue.Null, ctx, p1, p2);
             }
             return Fail(ctx, p1, p2, $"invoke_method: receiver of type '{TypeKind(receiver)}' has no methods");
         }
@@ -273,7 +273,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             var bound = new BoundClassMethodValue(owner, null, method, true).SetContext(ctx).SetPos(p1, p2);
             var r = ((BaseFunctionValue)bound).Execute(callArgs);
             if (r.Error != null) return new RuntimeResult().Failure(r.Error);
-            return Ok(r.Value ?? new NullValue(), ctx, p1, p2);
+            return Ok(r.Value ?? NullValue.Null, ctx, p1, p2);
         }
 
         private static RuntimeResult NewInstance(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
@@ -288,13 +288,13 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             {
                 var r = ((BaseFunctionValue)ct).Execute(callArgs);
                 if (r.Error != null) return new RuntimeResult().Failure(r.Error);
-                return Ok(r.Value ?? new NullValue(), ctx, p1, p2);
+                return Ok(r.Value ?? NullValue.Null, ctx, p1, p2);
             }
             if (target is StructTypeValue st)
             {
                 var r = st.Execute(callArgs);
                 if (r.Error != null) return new RuntimeResult().Failure(r.Error);
-                return Ok(r.Value ?? new NullValue(), ctx, p1, p2);
+                return Ok(r.Value ?? NullValue.Null, ctx, p1, p2);
             }
             return Fail(ctx, p1, p2, $"new_instance: '{TypeKind(target)}' is not a constructible type");
         }

@@ -131,7 +131,7 @@ namespace RaLanguage.Interpreter.Values.Traits
 
                 var defRes = interpreter.Visit(def, execCtx);
                 if (defRes.Error != null) return (null, defRes.Error);
-                finalAssigned[argName] = defRes.Value ?? new NullValue().SetContext(execCtx).SetPos(def.PositionStart, def.PositionEnd);
+                finalAssigned[argName] = defRes.Value ?? NullValue.Null.SetContext(execCtx).SetPos(def.PositionStart, def.PositionEnd);
             }
 
             for (int i = 0; i < formalCount; i++)
@@ -222,8 +222,8 @@ namespace RaLanguage.Interpreter.Values.Traits
                 return res.Success(bodyRes.FuncReturnValue);
 
             var retValue = selected.ShouldAutoReturn
-                ? (bodyRes.Value ?? new NullValue().SetContext(Context).SetPos(PositionStart, PositionEnd))
-                : new NullValue().SetContext(Context).SetPos(PositionStart, PositionEnd);
+                ? (bodyRes.Value ?? NullValue.Null.SetContext(Context).SetPos(PositionStart, PositionEnd))
+                : NullValue.Null.SetContext(Context).SetPos(PositionStart, PositionEnd);
 
             return res.Success(retValue);
         }

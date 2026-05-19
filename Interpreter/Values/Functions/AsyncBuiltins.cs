@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -122,7 +122,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                         var wait = Task.Delay(ms, childCtx.Token);
                         wait.GetAwaiter().GetResult();
                     }
-                    return ((RuntimeValue?)new NullValue().SetPos(p1, p2), (Error?)null);
+                    return ((RuntimeValue?)NullValue.Null.SetPos(p1, p2), (Error?)null);
                 }
                 catch (OperationCanceledException)
                 {
@@ -138,7 +138,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             var task = AsyncScheduler.Schedule("yield_now", ctx?.AsyncCtx, childCtx =>
             {
                 Thread.Yield();
-                return ((RuntimeValue?)new NullValue().SetPos(p1, p2), (Error?)null);
+                return ((RuntimeValue?)NullValue.Null.SetPos(p1, p2), (Error?)null);
             });
             return res.Success(new TaskValue(task).SetContext(ctx).SetPos(p1, p2));
         }
@@ -183,7 +183,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                         for (int j = 0; j < tasks.Count; j++) tasks[j].RequestCancel();
                         return (null, t.Error);
                     }
-                    results.Add(t.Result ?? new NullValue());
+                    results.Add(t.Result ?? NullValue.Null);
                 }
                 return ((RuntimeValue?)new ListValue(results).SetPos(p1, p2), (Error?)null);
             });
@@ -261,17 +261,17 @@ namespace RaLanguage.Interpreter.Values.Functions
             if (args[0] is TaskValue tv)
             {
                 tv.Core.RequestCancel();
-                return res.Success(new NullValue().SetContext(ctx).SetPos(p1, p2));
+                return res.Success(NullValue.Null.SetContext(ctx).SetPos(p1, p2));
             }
             if (args[0] is AsyncStreamValue sv)
             {
                 sv.Core.Cancel();
-                return res.Success(new NullValue().SetContext(ctx).SetPos(p1, p2));
+                return res.Success(NullValue.Null.SetContext(ctx).SetPos(p1, p2));
             }
             if (args[0] is ChannelValue cv)
             {
                 cv.Channel.Close();
-                return res.Success(new NullValue().SetContext(ctx).SetPos(p1, p2));
+                return res.Success(NullValue.Null.SetContext(ctx).SetPos(p1, p2));
             }
             return res.Failure(new RuntimeError(p1, p2, "cancel: argument must be a task, stream, or channel", ctx));
         }
@@ -280,14 +280,14 @@ namespace RaLanguage.Interpreter.Values.Functions
         {
             var res = new RuntimeResult();
             if (args.Count != 1 || args[0] is not TaskValue tv) return res.Failure(new RuntimeError(p1, p2, "is_cancelled(task)", ctx));
-            return res.Success(new BooleanValue(tv.Core.IsCancelled).SetContext(ctx).SetPos(p1, p2));
+            return res.Success(BooleanValue.Of(tv.Core.IsCancelled).SetContext(ctx).SetPos(p1, p2));
         }
 
         private static RuntimeResult BuiltinIsCompleted(List<RuntimeValue> args, Context ctx, Position p1, Position p2)
         {
             var res = new RuntimeResult();
             if (args.Count != 1 || args[0] is not TaskValue tv) return res.Failure(new RuntimeError(p1, p2, "is_completed(task)", ctx));
-            return res.Success(new BooleanValue(tv.Core.IsCompleted).SetContext(ctx).SetPos(p1, p2));
+            return res.Success(BooleanValue.Of(tv.Core.IsCompleted).SetContext(ctx).SetPos(p1, p2));
         }
 
         private static RuntimeResult BuiltinTaskStatus(List<RuntimeValue> args, Context ctx, Position p1, Position p2)
@@ -301,7 +301,7 @@ namespace RaLanguage.Interpreter.Values.Functions
         {
             var res = new RuntimeResult();
             var cur = ctx?.AsyncCtx?.CurrentTask;
-            if (cur == null) return res.Success(new NullValue().SetContext(ctx).SetPos(p1, p2));
+            if (cur == null) return res.Success(NullValue.Null.SetContext(ctx).SetPos(p1, p2));
             return res.Success(new TaskValue(cur).SetContext(ctx).SetPos(p1, p2));
         }
 
@@ -330,7 +330,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             }
             var token = ctx?.AsyncCtx?.Token ?? CancellationToken.None;
             var ok = cv.Channel.Send(value, token);
-            return res.Success(new BooleanValue(ok).SetContext(ctx).SetPos(p1, p2));
+            return res.Success(BooleanValue.Of(ok).SetContext(ctx).SetPos(p1, p2));
         }
 
         private static RuntimeResult BuiltinChannelRecv(List<RuntimeValue> args, Context ctx, Position p1, Position p2)
@@ -339,9 +339,9 @@ namespace RaLanguage.Interpreter.Values.Functions
             if (args.Count != 1 || args[0] is not ChannelValue cv) return res.Failure(new RuntimeError(p1, p2, "channel_recv(ch)", ctx));
             var token = ctx?.AsyncCtx?.Token ?? CancellationToken.None;
             var (ok, value, closed) = cv.Channel.Receive(token);
-            if (!ok && closed) return res.Success(new NullValue().SetContext(ctx).SetPos(p1, p2));
+            if (!ok && closed) return res.Success(NullValue.Null.SetContext(ctx).SetPos(p1, p2));
             if (!ok) return res.Failure(new RuntimeError(p1, p2, "channel_recv cancelled", ctx));
-            return res.Success((value ?? new NullValue()).SetContext(ctx).SetPos(p1, p2));
+            return res.Success((value ?? NullValue.Null).SetContext(ctx).SetPos(p1, p2));
         }
 
         private static RuntimeResult BuiltinChannelClose(List<RuntimeValue> args, Context ctx, Position p1, Position p2)
@@ -349,14 +349,14 @@ namespace RaLanguage.Interpreter.Values.Functions
             var res = new RuntimeResult();
             if (args.Count != 1 || args[0] is not ChannelValue cv) return res.Failure(new RuntimeError(p1, p2, "channel_close(ch)", ctx));
             cv.Channel.Close();
-            return res.Success(new NullValue().SetContext(ctx).SetPos(p1, p2));
+            return res.Success(NullValue.Null.SetContext(ctx).SetPos(p1, p2));
         }
 
         private static RuntimeResult BuiltinChannelIsClosed(List<RuntimeValue> args, Context ctx, Position p1, Position p2)
         {
             var res = new RuntimeResult();
             if (args.Count != 1 || args[0] is not ChannelValue cv) return res.Failure(new RuntimeError(p1, p2, "channel_is_closed(ch)", ctx));
-            return res.Success(new BooleanValue(cv.Channel.IsClosed).SetContext(ctx).SetPos(p1, p2));
+            return res.Success(BooleanValue.Of(cv.Channel.IsClosed).SetContext(ctx).SetPos(p1, p2));
         }
 
         private static RuntimeResult BuiltinChannelCount(List<RuntimeValue> args, Context ctx, Position p1, Position p2)
@@ -380,7 +380,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             tv.Core.Wait();
             if (tv.Core.IsCancelled) return res.Failure(AsyncScheduler.MakeCancellationError(p1, p2, ctx));
             if (tv.Core.IsFaulted && tv.Core.Error != null) return res.Failure(tv.Core.Error);
-            return res.Success((tv.Core.Result ?? new NullValue()).SetContext(ctx).SetPos(p1, p2));
+            return res.Success((tv.Core.Result ?? NullValue.Null).SetContext(ctx).SetPos(p1, p2));
         }
 
         // select(cases...) -> task<tuple<int, value, bool>>
@@ -463,26 +463,26 @@ namespace RaLanguage.Interpreter.Values.Functions
                 {
                     case TaskValue tv:
                     {
-                        if (tv.Core.IsCancelled) { value = new NullValue(); ok = false; break; }
+                        if (tv.Core.IsCancelled) { value = NullValue.Null; ok = false; break; }
                         if (tv.Core.IsFaulted) { return (null, tv.Core.Error); }
-                        value = tv.Core.Result ?? new NullValue();
+                        value = tv.Core.Result ?? NullValue.Null;
                         break;
                     }
                     case ChannelValue cv:
                     {
                         var (gotItem, recvValue, closed) = cv.Channel.Receive(token);
-                        if (!gotItem && closed) { value = new NullValue(); ok = false; }
+                        if (!gotItem && closed) { value = NullValue.Null; ok = false; }
                         else if (!gotItem) { return (null, AsyncScheduler.MakeCancellationError(p1, p2, ctx, "select recv cancelled")); }
-                        else { value = recvValue ?? new NullValue(); }
+                        else { value = recvValue ?? NullValue.Null; }
                         break;
                     }
                     case AsyncStreamValue sv:
                     {
                         var pull = sv.Core.PullNext(token);
                         if (pull.error != null) return (null, pull.error);
-                        if (pull.closed) { value = new NullValue(); ok = false; }
+                        if (pull.closed) { value = NullValue.Null; ok = false; }
                         else if (!pull.ok) { return (null, AsyncScheduler.MakeCancellationError(p1, p2, ctx, "select pull cancelled")); }
-                        else { value = pull.value ?? new NullValue(); }
+                        else { value = pull.value ?? NullValue.Null; }
                         break;
                     }
                 }
@@ -490,7 +490,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                 var tuple = new TupleValue(new List<RuntimeValue> {
                     new IntegerValue(idx).SetPos(p1, p2),
                     value!.SetPos(p1, p2),
-                    new BooleanValue(ok).SetPos(p1, p2)
+                    BooleanValue.Of(ok).SetPos(p1, p2)
                 }).SetPos(p1, p2);
 
                 return ((RuntimeValue?)tuple, (Error?)null);
@@ -506,7 +506,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             if (!tv.Core.IsCompleted) return res.Failure(new RuntimeError(p1, p2, "task_result: task not yet completed (use await)", ctx));
             if (tv.Core.IsCancelled) return res.Failure(AsyncScheduler.MakeCancellationError(p1, p2, ctx));
             if (tv.Core.IsFaulted && tv.Core.Error != null) return res.Failure(tv.Core.Error);
-            return res.Success((tv.Core.Result ?? new NullValue()).SetContext(ctx).SetPos(p1, p2));
+            return res.Success((tv.Core.Result ?? NullValue.Null).SetContext(ctx).SetPos(p1, p2));
         }
     }
 }

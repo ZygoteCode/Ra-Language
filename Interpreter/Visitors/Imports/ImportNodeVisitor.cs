@@ -1,4 +1,4 @@
-using RaLanguage.Errors;
+﻿using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Modules;
@@ -101,7 +101,7 @@ namespace RaLanguage.Interpreter.Visitors.Imports
 
             MergeExtensions(context.Extensions, module.Extensions);
 
-            return result.Success(new NullValue()
+            return result.Success(NullValue.Null
                 .SetPos(node.PositionStart, node.PositionEnd)
                 .SetContext(context));
         }
@@ -140,7 +140,7 @@ namespace RaLanguage.Interpreter.Visitors.Imports
                     isPublic: true);
             }
 
-            return result.Success(new NullValue()
+            return result.Success(NullValue.Null
                 .SetPos(node.PositionStart, node.PositionEnd)
                 .SetContext(context));
         }
@@ -158,7 +158,7 @@ namespace RaLanguage.Interpreter.Visitors.Imports
             var moduleWrapper = new ModuleWrapperValue(node.Alias, module, context);
             context.SymbolTable?.Set(node.Alias, moduleWrapper, isPublic: true);
 
-            return result.Success(new NullValue()
+            return result.Success(NullValue.Null
                 .SetContext(context)
                 .SetPos(node.PositionStart, node.PositionEnd));
         }
@@ -204,7 +204,7 @@ namespace RaLanguage.Interpreter.Visitors.Imports
                 return (exported.SetContext(_context).SetPos(posStart, posEnd), null);
             }
 
-            return (new NullValue().SetContext(_context).SetPos(posStart, posEnd),
+            return (NullValue.Null.SetContext(_context).SetPos(posStart, posEnd),
                 new SymbolNotFoundError(posStart, posEnd,
                     $"Symbol '{key}' not found or not public in module '{_moduleName}'"));
         }

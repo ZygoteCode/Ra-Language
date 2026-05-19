@@ -299,7 +299,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             }
 
             int pos = IndexOfKey(Pairs, other);
-            return (new BooleanValue(pos >= 0).SetContext(Context), null);
+            return (BooleanValue.Of(pos >= 0).SetContext(Context), null);
         }
 
         public sealed override (RuntimeValue?, Error?) BitwiseLeftShiftedBy(RuntimeValue other)
@@ -398,29 +398,29 @@ namespace RaLanguage.Interpreter.Values.Primitives
         private (RuntimeValue?, Error?) EvaluateComparisonMap(RuntimeValue other, Func<RuntimeValue, RuntimeValue, (RuntimeValue?, Error?)> valueComparisonFunc)
         {
             if (other.Type != RuntimeValueType.Map)
-                return (new BooleanValue(false).SetContext(Context), null);
+                return (BooleanValue.Of(false).SetContext(Context), null);
 
             var oMap = (MapValue)other;
 
             if (Pairs.Count != oMap.Pairs.Count)
-                return (new BooleanValue(false).SetContext(Context), null);
+                return (BooleanValue.Of(false).SetContext(Context), null);
 
             foreach (var (k1, v1) in Pairs)
             {
                 int idx = IndexOfKey(oMap.Pairs, k1);
                 if (idx < 0)
-                    return (new BooleanValue(false).SetContext(Context), null);
+                    return (BooleanValue.Of(false).SetContext(Context), null);
 
                 var v2 = oMap.Pairs[idx].Value;
                 var (comparisonResult, comparisonError) = valueComparisonFunc(v1, v2);
                 if (comparisonError != null) return (null, comparisonError);
-                if (comparisonResult == null) return (new BooleanValue(false).SetContext(Context), null);
+                if (comparisonResult == null) return (BooleanValue.Of(false).SetContext(Context), null);
 
                 if (!comparisonResult.IsTrue())
-                    return (new BooleanValue(false).SetContext(Context), null);
+                    return (BooleanValue.Of(false).SetContext(Context), null);
             }
 
-            return (new BooleanValue(true).SetContext(Context), null);
+            return (BooleanValue.Of(true).SetContext(Context), null);
         }
 
         public sealed override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other) => EvaluateComparisonMap(other, (a, b) => a.GetComparisonEq(b));
@@ -430,7 +430,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public sealed override (RuntimeValue?, Error?) Notted()
         {
-            return (new BooleanValue(!IsTrue()).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
+            return (BooleanValue.Of(!IsTrue()).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
         }
 
         public sealed override (RuntimeValue?, Error?) BitwiseNotted()

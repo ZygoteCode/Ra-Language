@@ -5,7 +5,7 @@ using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
-    public class ListElementReferenceValue : RuntimeValue
+    public class ListElementReferenceValue : RuntimeValue, IReferenceValue
     {
         public ListValue List { get; }
         public int Index { get; }

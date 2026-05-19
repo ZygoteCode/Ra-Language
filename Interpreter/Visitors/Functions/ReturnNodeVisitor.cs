@@ -13,7 +13,7 @@ namespace RaLanguage.Interpreter.Visitors.Functions
         protected sealed override RuntimeResult VisitNode(ReturnNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
-            RuntimeValue value = new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+            RuntimeValue value = NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
 
             if (node.NodeToReturn != null)
             {

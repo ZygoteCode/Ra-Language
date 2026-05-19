@@ -28,7 +28,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                 if (context.SymbolTable.Get(varName) != null)
                     return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is already defined", context));
 
-                RuntimeValue value = new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                RuntimeValue value = NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                 TypeDescriptor? declaredType = declaration.Item3;
 
                 if (declaration.Item2 != null)
@@ -66,15 +66,15 @@ namespace RaLanguage.Interpreter.Visitors.Variables
 
                 bool isLetFlag = node.DeclarationType == VariableDeclarationType.LET;
                 bool isStaticallyTyped = declaredType != null;
+                var declTypeFlag = node.DeclarationType switch
+                {
+                    VariableDeclarationType.CONST => VariableDeclarationType.CONST,
+                    VariableDeclarationType.FINAL => VariableDeclarationType.FINAL,
+                    VariableDeclarationType.LET => VariableDeclarationType.LET,
+                    _ => VariableDeclarationType.VARIABLE,
+                };
 
-                if (node.DeclarationType == VariableDeclarationType.CONST)
-                    value.VariableDeclarationType = VariableDeclarationType.CONST;
-                else if (node.DeclarationType == VariableDeclarationType.FINAL)
-                    value.VariableDeclarationType = VariableDeclarationType.FINAL;
-                else if (node.DeclarationType == VariableDeclarationType.LET)
-                    value.VariableDeclarationType = VariableDeclarationType.LET;
-                else
-                    value.VariableDeclarationType = VariableDeclarationType.VARIABLE;
+                value.VariableDeclarationType = declTypeFlag;
 
                 RuntimeValue? newValue = TypeChecker.GetNewType(declaredType, value, context, node);
 
@@ -84,17 +84,9 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                 }
 
                 value = newValue;
+                value.VariableDeclarationType = declTypeFlag;
 
-                if (node.DeclarationType == VariableDeclarationType.CONST)
-                    value.VariableDeclarationType = VariableDeclarationType.CONST;
-                else if (node.DeclarationType == VariableDeclarationType.FINAL)
-                    value.VariableDeclarationType = VariableDeclarationType.FINAL;
-                else if (node.DeclarationType == VariableDeclarationType.LET)
-                    value.VariableDeclarationType = VariableDeclarationType.LET;
-                else
-                    value.VariableDeclarationType = VariableDeclarationType.VARIABLE;
-
-                context.SymbolTable.Set(varName, value, isLetFlag, declaredType, isStaticallyTyped, node.IsPublic);
+                context.SymbolTable.SetWithDeclarationType(varName, value, isLetFlag, declaredType, isStaticallyTyped, node.IsPublic, declTypeFlag);
 
                 if (node.HasAnnotations)
                 {
@@ -107,7 +99,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                     if (!ReferenceEquals(coerced, value))
                     {
                         value = coerced;
-                        context.SymbolTable.Set(varName, value, isLetFlag, declaredType, isStaticallyTyped, node.IsPublic);
+                        context.SymbolTable.SetWithDeclarationType(varName, value, isLetFlag, declaredType, isStaticallyTyped, node.IsPublic, declTypeFlag);
                     }
                 }
 
