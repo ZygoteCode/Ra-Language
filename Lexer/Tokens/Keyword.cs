@@ -70,5 +70,6 @@
         Emit,
         Namespace,
         Using,
+        Asm,
     }
 }

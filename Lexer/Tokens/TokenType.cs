@@ -78,6 +78,7 @@
         NEWLINE,
         EOF,
         REF,
-        AT_SIGN
+        AT_SIGN,
+        ASM_TEXT
     }
 }

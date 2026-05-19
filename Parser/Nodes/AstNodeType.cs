@@ -75,6 +75,9 @@
         Emit,
         ForAwait,
         NamespaceDeclaration,
-        UsingNamespace
+        UsingNamespace,
+        AsmBlock,
+        AsmTextPart,
+        AsmInterpPart
     }
 }

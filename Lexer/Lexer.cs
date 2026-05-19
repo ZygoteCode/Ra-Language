@@ -14,6 +14,7 @@ namespace RaLanguage.Lexer
         private int _idx;
         private int _ln;
         private int _col;
+        private bool _asmHeaderPending;
         private readonly DiagnosticBag _diagnostics = new DiagnosticBag();
 
         private static readonly bool[] s_isDigit = CreateDigitTable();
@@ -160,7 +161,21 @@ namespace RaLanguage.Lexer
                     case ')': tokens.Add(new Token(TokenType.RPAREN, null, GetPos())); Advance(c); break;
                     case '[': tokens.Add(new Token(TokenType.LSQUARE, null, GetPos())); Advance(c); break;
                     case ']': tokens.Add(new Token(TokenType.RSQUARE, null, GetPos())); Advance(c); break;
-                    case '{': tokens.Add(new Token(TokenType.LBRACKET, null, GetPos())); Advance(c); break;
+                    case '{':
+                        if (_asmHeaderPending)
+                        {
+                            var lbracePos = GetPos();
+                            Advance(c);
+                            tokens.Add(new Token(TokenType.LBRACKET, null, lbracePos, GetPos()));
+                            _asmHeaderPending = false;
+                            ProcessAsmBlock(span, tokens);
+                        }
+                        else
+                        {
+                            tokens.Add(new Token(TokenType.LBRACKET, null, GetPos()));
+                            Advance(c);
+                        }
+                        break;
                     case '}': tokens.Add(new Token(TokenType.RBRACKET, null, GetPos())); Advance(c); break;
                     case '~': tokens.Add(new Token(TokenType.BITWISE_NOT, null, GetPos())); Advance(c); break;
                     case ',': tokens.Add(new Token(TokenType.COMMA, null, GetPos())); Advance(c); break;
@@ -879,7 +894,8 @@ namespace RaLanguage.Lexer
                 { "spawn", Keyword.Spawn },
                 { "emit", Keyword.Emit },
                 { "namespace", Keyword.Namespace },
-                { "using", Keyword.Using }
+                { "using", Keyword.Using },
+                { "asm", Keyword.Asm }
             };
         }
 
@@ -943,11 +959,124 @@ namespace RaLanguage.Lexer
             if (s_keywords.TryGetValue(idStr, out Keyword keyword))
             {
                 tokens.Add(new Token(TokenType.KEYWORD, keyword, posStart, GetPos()));
+
+                if (keyword == Keyword.Asm)
+                {
+                    _asmHeaderPending = true;
+                }
             }
             else
             {
                 tokens.Add(new Token(TokenType.IDENTIFIER, idStr, posStart, GetPos()));
             }
+        }
+
+        private static int FindTopLevelColon(string s)
+        {
+            int depth = 0;
+            int parens = 0;
+            int squares = 0;
+            for (int i = s.Length - 1; i >= 0; i--)
+            {
+                char c = s[i];
+                if (c == ')') parens++;
+                else if (c == '(') parens--;
+                else if (c == ']') squares++;
+                else if (c == '[') squares--;
+                else if (c == '}') depth++;
+                else if (c == '{') depth--;
+                else if (c == ':' && depth == 0 && parens == 0 && squares == 0)
+                {
+                    if (i > 0 && s[i - 1] == ':') return -1;
+                    if (i + 1 < s.Length && s[i + 1] == ':') return -1;
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        private void ProcessAsmBlock(ReadOnlySpan<char> span, List<Token> tokens)
+        {
+            var segStartPos = GetPos();
+            var sb = new StringBuilder();
+
+            while (_idx < span.Length)
+            {
+                char c = span[_idx];
+
+                if (c == '}')
+                {
+                    tokens.Add(new Token(TokenType.ASM_TEXT, sb.ToString(), segStartPos, GetPos()));
+                    var rbracePos = GetPos();
+                    Advance(c);
+                    tokens.Add(new Token(TokenType.RBRACKET, null, rbracePos, GetPos()));
+                    return;
+                }
+
+                if (c == '%' && _idx + 1 < span.Length && span[_idx + 1] == '%')
+                {
+                    sb.Append('%');
+                    AdvanceMultiple(2, span);
+                    continue;
+                }
+
+                if (c == '%' && _idx + 1 < span.Length && span[_idx + 1] == '{')
+                {
+                    tokens.Add(new Token(TokenType.ASM_TEXT, sb.ToString(), segStartPos, GetPos()));
+                    sb.Clear();
+
+                    var interpStartPos = GetPos();
+                    AdvanceMultiple(2, span);
+                    tokens.Add(new Token(TokenType.INTERP_START, null, interpStartPos, GetPos()));
+
+                    int innerStartIdx = _idx;
+                    int braceCount = 1;
+                    while (_idx < span.Length && braceCount > 0)
+                    {
+                        if (span[_idx] == '{') braceCount++;
+                        else if (span[_idx] == '}') braceCount--;
+                        if (braceCount == 0) break;
+                        Advance(span[_idx]);
+                    }
+
+                    if (_idx >= span.Length)
+                    {
+                        _diagnostics.AddError("Unterminated %{...} interpolation in asm block", interpStartPos, GetPos());
+                        return;
+                    }
+
+                    string innerText = _text.Substring(innerStartIdx, _idx - innerStartIdx);
+
+                    string exprText = innerText;
+                    string? typeHint = null;
+                    int colonAt = FindTopLevelColon(innerText);
+                    if (colonAt > 0)
+                    {
+                        exprText = innerText.Substring(0, colonAt).TrimEnd();
+                        typeHint = innerText.Substring(colonAt + 1).Trim();
+                    }
+
+                    var innerLexer = new Lexer(_fn, exprText);
+                    var (innerTokens, innerDiagnostics) = innerLexer.MakeTokens();
+                    _diagnostics.AddRange(innerDiagnostics);
+                    foreach (var t in innerTokens)
+                    {
+                        if (t.Type != TokenType.EOF) tokens.Add(t);
+                    }
+
+                    var interpEndPos = GetPos();
+                    Advance(span[_idx]);
+                    tokens.Add(new Token(TokenType.INTERP_END, typeHint, interpEndPos, GetPos()));
+
+                    segStartPos = GetPos();
+                    continue;
+                }
+
+                sb.Append(c);
+                Advance(c);
+            }
+
+            _diagnostics.AddError("Unterminated asm block, expected '}'", segStartPos, GetPos());
         }
 
         #endregion
