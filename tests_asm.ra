@@ -1,0 +1,233 @@
+print("=== ASM x64 TESTS ===");
+
+print("--- platform ---");
+print(asm_arch());
+print(asm_supported());
+assert_eq(asm_arch(), "x64", "asm_arch should be x64");
+assert_eq(asm_supported(), true, "asm must be supported on this build");
+
+print("--- inline asm: constant return ---");
+let r1 = asm {
+    mov rax, 42
+    ret
+};
+print(r1);
+assert_eq(r1, 42, "inline asm should return RAX");
+
+print("--- inline asm: arithmetic ---");
+let r2 = asm {
+    mov rax, 10
+    add rax, 32
+    ret
+};
+assert_eq(r2, 42, "10 + 32 = 42");
+
+print("--- inline asm: hex / signed / negative ---");
+let r3 = asm {
+    mov rax, 0xFF
+    add rax, -1
+    ret
+};
+assert_eq(r3, 254, "0xFF + -1 = 254");
+
+print("--- inline asm: interpolation ---");
+let xv = 7;
+let yv = 35;
+let r4 = asm {
+    mov rax, %{xv}
+    add rax, %{yv}
+    ret
+};
+assert_eq(r4, 42, "interpolation %{xv} + %{yv}");
+
+print("--- inline asm: registers, push/pop, mul ---");
+let r5 = asm {
+    mov rax, 6
+    mov rcx, 7
+    push rcx
+    imul rax, rcx
+    pop rcx
+    ret
+};
+assert_eq(r5, 42, "6 * 7 = 42");
+
+print("--- inline asm: labels + branches ---");
+let r6 = asm {
+    mov rax, 0
+    mov rcx, 5
+loop_start:
+    add rax, rcx
+    dec rcx
+    cmp rcx, 0
+    jne loop_start
+    ret
+};
+assert_eq(r6, 15, "1+2+3+4+5 = 15");
+
+print("--- inline asm: memory operand on stack ---");
+let r7 = asm {
+    push 0
+    mov qword ptr [rsp], 99
+    mov rax, qword ptr [rsp]
+    pop rcx
+    ret
+};
+assert_eq(r7, 99, "round-trip qword through stack");
+
+print("--- inline asm: branches with set / movzx ---");
+let r8 = asm {
+    mov rax, 0
+    mov rcx, 5
+    cmp rcx, 3
+    setg al
+    movzx rax, al
+    ret
+};
+assert_eq(r8, 1, "5 > 3 -> 1");
+
+print("--- inline asm: shift ---");
+let r9 = asm {
+    mov rax, 1
+    shl rax, 10
+    ret
+};
+assert_eq(r9, 1024, "1 << 10");
+
+print("--- inline asm: xor self ---");
+let r10 = asm {
+    mov rax, 0x12345678
+    xor rax, rax
+    ret
+};
+assert_eq(r10, 0, "xor rax, rax = 0");
+
+print("--- asm_compile: callable function (add two i64) ---");
+let asm_add = asm_compile("i64(i64,i64)", "
+    mov rax, rcx
+    add rax, rdx
+    ret
+");
+let s1 = asm_add(11, 31);
+print(s1);
+assert_eq(s1, 42, "asm_compile add");
+
+print("--- asm_compile: i32 return, decrement ---");
+let asm_dec = asm_compile("i32(i32)", "
+    mov eax, ecx
+    sub eax, 1
+    ret
+");
+assert_eq(asm_dec(100), 99, "asm_compile decrement");
+
+print("--- asm_compile: callable, signed ops ---");
+let asm_neg = asm_compile("i64(i64)", "
+    mov rax, rcx
+    neg rax
+    ret
+");
+assert_eq(asm_neg(7), -7, "neg 7 = -7");
+
+print("--- asm_compose / asm_prepend ---");
+let prelude = "mov rax, 100";
+let body = "add rax, 23\nret";
+let composed = asm_compose(prelude, body);
+print(composed);
+let asm_combined = asm_compile("i64()", composed);
+assert_eq(asm_combined(), 123, "compose: 100 + 23");
+
+let with_pre = asm_prepend("xor rax, rax", "ret");
+let asm_zero = asm_compile("i64()", with_pre);
+assert_eq(asm_zero(), 0, "prepend xor + ret");
+
+print("--- asm_assemble: returns raw bytes ---");
+let bytes = asm_assemble("ret");
+print(len(bytes));
+assert_eq(len(bytes), 1, "ret = 1 byte (0xC3)");
+let bytes_xor = asm_assemble("xor rax, rax");
+assert_eq(len(bytes_xor), 3, "REX.W + 31 + C0 = 3 bytes");
+
+print("--- error: invalid mnemonic ---");
+try {
+    let bad = asm_compile("i64()", "totally_invalid_op\nret");
+    print("UNEXPECTED OK");
+} catch (e) {
+    print("got expected error (invalid mnemonic)");
+}
+
+print("--- error: unterminated jump label ---");
+try {
+    let bad2 = asm_compile("i64()", "jmp nonexistent\nret");
+    print("UNEXPECTED OK");
+} catch (e) {
+    print("got expected error (undefined label)");
+}
+
+print("--- compose multiple snippets ---");
+let three = asm_compose("mov rax, 1", "add rax, 2", "add rax, 3", "ret");
+let asm_six = asm_compile("i64()", three);
+assert_eq(asm_six(), 6, "1 + 2 + 3 = 6");
+
+print("--- region registry counts ---");
+print(asm_region_count());
+print(asm_region_bytes());
+
+print("--- 3-operand imul ---");
+let r11 = asm {
+    mov rcx, 7
+    imul rax, rcx, 6
+    ret
+};
+assert_eq(r11, 42, "imul rax, rcx, 6");
+
+print("--- lea ---");
+let r12 = asm {
+    mov rax, 10
+    mov rcx, 5
+    lea rax, [rax + rcx * 4 + 2]
+    ret
+};
+assert_eq(r12, 32, "lea computes 10 + 5*4 + 2");
+
+print("--- conditional branch with jge ---");
+let asm_max = asm_compile("i64(i64,i64)", "
+    mov rax, rcx
+    cmp rcx, rdx
+    jge done
+    mov rax, rdx
+done:
+    ret
+");
+assert_eq(asm_max(3, 7), 7, "max(3,7) = 7");
+assert_eq(asm_max(9, 2), 9, "max(9,2) = 9");
+
+print("--- double-arg via xmm: addsd ---");
+let asm_addsd = asm_compile("f64(f64,f64)", "
+    addsd xmm0, xmm1
+    ret
+");
+let d1 = asm_addsd(1.25, 2.75);
+print(d1);
+assert_eq(d1, 4.0, "1.25 + 2.75 = 4.0");
+
+print("--- cvtsi2sd / cvtsd2si round trip ---");
+let asm_round_trip = asm_compile("i64(i64)", "
+    cvtsi2sd xmm0, rcx
+    cvttsd2si rax, xmm0
+    ret
+");
+assert_eq(asm_round_trip(123), 123, "cvtsi2sd + cvttsd2si = identity");
+
+print("--- bitwise ops + bswap ---");
+let asm_bswap = asm_compile("u64(u64)", "
+    mov rax, rcx
+    bswap rax
+    ret
+");
+let b = asm_bswap(0x0102030405060708);
+print(format_hex(b));
+
+print("--- asm_invoke directly on compiled function ---");
+let direct = asm_invoke(asm_add, "i64(i64,i64)", 100, 23);
+assert_eq(direct, 123, "asm_invoke direct call");
+
+print("=== ASM TESTS PASSED ===");

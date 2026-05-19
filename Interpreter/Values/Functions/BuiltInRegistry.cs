@@ -63,6 +63,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                 ProcessBuiltins.Register();
                 InteropBuiltins.Register();
                 DebugBuiltins.Register();
+                AsmBuiltins.Register();
                 _initialized = true;
             }
         }
