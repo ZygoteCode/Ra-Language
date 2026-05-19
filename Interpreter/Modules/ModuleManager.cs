@@ -153,9 +153,10 @@ namespace RaLanguage.Interpreter.Modules
                 {
                     module.State = ModuleState.Failed;
                     _cache.Remove(absolute);
-                    return ModuleLoadResult.Failure(
-                        new ModuleLoadError(posStart, posEnd,
-                            $"Lexer errors in module '{absolute}':\n{lexerDiagnostics}"));
+                    var err = new ModuleLoadError(posStart, posEnd,
+                        $"failed to lex module '{absolute}' ({lexerDiagnostics.Summary()})");
+                    err.WithCause(lexerDiagnostics.FirstError);
+                    return ModuleLoadResult.Failure(err);
                 }
 
                 var parser = new Parser.Parser(tokens);
@@ -165,9 +166,10 @@ namespace RaLanguage.Interpreter.Modules
                 {
                     module.State = ModuleState.Failed;
                     _cache.Remove(absolute);
-                    return ModuleLoadResult.Failure(
-                        new ModuleLoadError(posStart, posEnd,
-                            $"Parser errors in module '{absolute}':\n{parseResult.Diagnostics}"));
+                    var err = new ModuleLoadError(posStart, posEnd,
+                        $"failed to parse module '{absolute}' ({parseResult.Diagnostics.Summary()})");
+                    err.WithCause(parseResult.Diagnostics.FirstError);
+                    return ModuleLoadResult.Failure(err);
                 }
 
                 if (parseResult.Node == null)

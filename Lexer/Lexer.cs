@@ -137,7 +137,13 @@ namespace RaLanguage.Lexer
                         {
                             var posStart = GetPos();
                             Advance(c);
-                            _diagnostics.AddError($"Unexpected character '$'", posStart, GetPos());
+                            _diagnostics.AddError(
+                                title: "unexpected '$' outside of an interpolated string literal",
+                                code: DiagnosticCode.LexerUnexpectedDollarSign,
+                                positionStart: posStart,
+                                positionEnd: GetPos(),
+                                phase: DiagnosticPhase.Lexing,
+                                help: "use $\"...\" / $'...' / $`...` to enable ${expression} interpolation");
                         }
                         break;
 
@@ -194,7 +200,17 @@ namespace RaLanguage.Lexer
                         {
                             var posStart = GetPos();
                             Advance(c);
-                            _diagnostics.AddError($"Illegal character '{c}'", posStart, GetPos());
+                            string repr = c >= 0x20 && c != 0x7F
+                                ? "'" + c + "'"
+                                : "\\u" + ((int)c).ToString("X4");
+                            _diagnostics.AddError(
+                                title: $"illegal character {repr} in source",
+                                code: DiagnosticCode.LexerIllegalCharacter,
+                                positionStart: posStart,
+                                positionEnd: GetPos(),
+                                phase: DiagnosticPhase.Lexing,
+                                primaryLabel: "not allowed here",
+                                help: "remove the character or quote it inside a string literal");
                         }
                         break;
                 }
@@ -397,13 +413,27 @@ namespace RaLanguage.Lexer
                     Advance(span[_idx]);
                     if (_idx >= span.Length || span[_idx] != '-')
                     {
-                        _diagnostics.AddError("Expected '-' character.", posStart, GetPos());
+                        _diagnostics.AddError(
+                            title: "expected '-' to open a CDATA block",
+                            code: DiagnosticCode.LexerExpectedCharacter,
+                            positionStart: posStart,
+                            positionEnd: GetPos(),
+                            phase: DiagnosticPhase.Lexing,
+                            primaryLabel: "expected '-' after '<!'",
+                            help: "CDATA blocks start with '<!--' and end with '-->'");
                         return;
                     }
                     Advance(span[_idx]);
                     if (_idx >= span.Length || span[_idx] != '-')
                     {
-                        _diagnostics.AddError("Expected '-' character.", posStart, GetPos());
+                        _diagnostics.AddError(
+                            title: "expected '-' to open a CDATA block",
+                            code: DiagnosticCode.LexerExpectedCharacter,
+                            positionStart: posStart,
+                            positionEnd: GetPos(),
+                            phase: DiagnosticPhase.Lexing,
+                            primaryLabel: "expected a second '-' after '<!-'",
+                            help: "CDATA blocks start with '<!--' and end with '-->'");
                         return;
                     }
                     Advance(span[_idx]);
@@ -652,7 +682,17 @@ namespace RaLanguage.Lexer
 
                     if (!anyDigit)
                     {
-                        _diagnostics.AddError("Invalid prefixed integer literal", posStart, GetPos());
+                        string family = (p | 0x20) == 'x' ? "hexadecimal"
+                                      : (p | 0x20) == 'b' ? "binary"
+                                      : "octal";
+                        _diagnostics.AddError(
+                            title: $"{family} literal has no digits",
+                            code: DiagnosticCode.LexerInvalidNumberLiteral,
+                            positionStart: posStart,
+                            positionEnd: GetPos(),
+                            phase: DiagnosticPhase.Lexing,
+                            primaryLabel: $"expected at least one {family} digit",
+                            help: $"write a {family} digit after the '0{p}' prefix, e.g. 0{p}1");
                     }
 
                     TryReadNumberSuffix(span, ref suffix, ref isFloat);
@@ -697,7 +737,14 @@ namespace RaLanguage.Lexer
 
                     if (_idx >= span.Length || !s_isDigit[span[_idx]])
                     {
-                        _diagnostics.AddError("Expected digits after exponent", posStart, GetPos());
+                        _diagnostics.AddError(
+                            title: "exponent has no digits",
+                            code: DiagnosticCode.LexerMissingExponentDigits,
+                            positionStart: posStart,
+                            positionEnd: GetPos(),
+                            phase: DiagnosticPhase.Lexing,
+                            primaryLabel: "expected one or more digits after 'e' / 'E'",
+                            help: "write the exponent digits, e.g. 1.0e10 or 2E+3");
                         break;
                     }
 
@@ -784,7 +831,14 @@ namespace RaLanguage.Lexer
 
                     if (braceCount != 0)
                     {
-                        _diagnostics.AddError("Unterminated interpolation in string literal", posStart, GetPos());
+                        _diagnostics.AddError(
+                            title: "unterminated interpolation in string literal",
+                            code: DiagnosticCode.LexerUnterminatedInterp,
+                            positionStart: interpStartPos,
+                            positionEnd: GetPos(),
+                            phase: DiagnosticPhase.Lexing,
+                            primaryLabel: "interpolation started here is never closed",
+                            help: "add a matching '}' to close the ${...} expression");
                     }
 
                     string innerText = _text.Substring(innerStartIdx, _idx - 1 - innerStartIdx);
@@ -810,7 +864,14 @@ namespace RaLanguage.Lexer
 
             if (_idx >= span.Length || span[_idx] != stringChar)
             {
-                _diagnostics.AddError("Unterminated string literal", posStart, GetPos());
+                _diagnostics.AddError(
+                    title: "unterminated string literal",
+                    code: DiagnosticCode.LexerUnterminatedString,
+                    positionStart: posStart,
+                    positionEnd: posStart.Advance(stringChar),
+                    phase: DiagnosticPhase.Lexing,
+                    primaryLabel: $"opening {stringChar} has no matching {stringChar}",
+                    help: $"add the matching {stringChar} on this line, or escape line breaks with \\n");
                 return;
             }
 
@@ -1041,7 +1102,14 @@ namespace RaLanguage.Lexer
 
                     if (_idx >= span.Length)
                     {
-                        _diagnostics.AddError("Unterminated %{...} interpolation in asm block", interpStartPos, GetPos());
+                        _diagnostics.AddError(
+                            title: "unterminated %{...} interpolation in asm block",
+                            code: DiagnosticCode.LexerUnterminatedAsmInterp,
+                            positionStart: interpStartPos,
+                            positionEnd: GetPos(),
+                            phase: DiagnosticPhase.Lexing,
+                            primaryLabel: "interpolation never closed",
+                            help: "close the asm interpolation with '}'");
                         return;
                     }
 
@@ -1076,7 +1144,14 @@ namespace RaLanguage.Lexer
                 Advance(c);
             }
 
-            _diagnostics.AddError("Unterminated asm block, expected '}'", segStartPos, GetPos());
+            _diagnostics.AddError(
+                title: "unterminated asm block",
+                code: DiagnosticCode.LexerUnterminatedAsmBlock,
+                positionStart: segStartPos,
+                positionEnd: GetPos(),
+                phase: DiagnosticPhase.Lexing,
+                primaryLabel: "asm block opened here is never closed",
+                help: "add a matching '}' to close the asm { ... } block");
         }
 
         #endregion

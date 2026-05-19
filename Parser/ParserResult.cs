@@ -1,4 +1,4 @@
-﻿using RaLanguage.Errors;
+using RaLanguage.Errors;
 using RaLanguage.Parser.Nodes;
 
 namespace RaLanguage.Parser
@@ -39,17 +39,41 @@ namespace RaLanguage.Parser
 
         public ParserResult Success(AstNode node)
         {
-            var resultNode = node;
-            Node = resultNode;
+            Node = node;
             return this;
         }
 
         public ParserResult Failure(Error error)
         {
-            var resultError = error;
-            Error = resultError;
-            Diagnostics.AddError($"{error.ErrorName}: {error.Details}", error.PositionStart, error.PositionEnd);
+            Error = error;
+            // Preserve the full Diagnostic (severity, code, span, label, help, chain).
+            // The previous implementation flattened to a plain string and lost span / code info.
+            // Dedupe: if the bag already holds a diagnostic at the same span+code, drop the
+            // duplicate so panic-mode recovery doesn't stack identical "expected X" messages
+            // emitted by successive parser layers unwinding through the same offending token.
+            if (!ContainsSameDiagnostic(error.Diagnostic))
+            {
+                Diagnostics.Add(error.Diagnostic);
+            }
             return this;
+        }
+
+        private bool ContainsSameDiagnostic(Diagnostic candidate)
+        {
+            if (candidate == null) return true;
+            var span = candidate.PrimarySpan;
+            for (int i = 0; i < Diagnostics.Diagnostics.Count; i++)
+            {
+                var existing = Diagnostics.Diagnostics[i];
+                if (existing.PrimarySpan.Start.Idx == span.Start.Idx &&
+                    existing.PrimarySpan.End.Idx == span.End.Idx &&
+                    existing.Code == candidate.Code &&
+                    string.Equals(existing.Title, candidate.Title, System.StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 }

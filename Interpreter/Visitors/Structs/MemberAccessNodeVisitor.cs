@@ -1,4 +1,5 @@
-﻿using RaLanguage.Errors.Types;
+﻿using RaLanguage.Errors;
+using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
@@ -27,7 +28,12 @@ namespace RaLanguage.Interpreter.Visitors.Members
             {
                 var enumType = (EnumTypeValue)target;
                 if (!enumType.HasMember(memberName))
-                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Enum '{enumType.EnumName}' has no member '{memberName}'", context));
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                        $"enum '{enumType.EnumName}' has no member '{memberName}'",
+                        context,
+                        code: DiagnosticCode.RuntimeUndefinedSymbol,
+                        primaryLabel: $"'{memberName}' is not a variant",
+                        help: $"available variants: {string.Join(", ", enumType.Members.Keys)}"));
 
                 return res.Success(enumType.GetMember(memberName));
             }
@@ -39,7 +45,12 @@ namespace RaLanguage.Interpreter.Visitors.Members
                 if (instance.HasField(memberName))
                 {
                     if (!instance.IsFieldPublic(memberName) && !IsInsideSameType(context, instance.Definition.StructName))
-                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Field '{memberName}' is not public", context));
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                            $"field '{memberName}' of struct '{instance.Definition.StructName}' is private",
+                            context,
+                            code: DiagnosticCode.RuntimeGeneric,
+                            primaryLabel: "accessed from outside the declaring struct",
+                            help: "mark the field with 'pub' to expose it, or access it only from within the struct's own methods"));
 
                     return res.Success(instance.GetField(memberName).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
@@ -48,7 +59,12 @@ namespace RaLanguage.Interpreter.Visitors.Members
                 if (method != null)
                 {
                     if (!method.IsPublic && !IsInsideSameType(context, instance.Definition.StructName))
-                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Method '{memberName}' is not public", context));
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                            $"method '{memberName}' of struct '{instance.Definition.StructName}' is private",
+                            context,
+                            code: DiagnosticCode.RuntimeGeneric,
+                            primaryLabel: "called from outside the declaring struct",
+                            help: "mark the method with 'pub' to expose it"));
 
                     return res.Success(new BoundStructMethodValue(instance.Definition, instance, method).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
@@ -57,7 +73,12 @@ namespace RaLanguage.Interpreter.Visitors.Members
                 if (ext.Count > 0)
                     return res.Success(new BoundExtensionMethodGroupValue(instance, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
 
-                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Struct '{instance.Definition.StructName}' has no member '{memberName}'", context));
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                    $"struct '{instance.Definition.StructName}' has no member named '{memberName}'",
+                    context,
+                    code: DiagnosticCode.RuntimeUndefinedSymbol,
+                    primaryLabel: "no such field, method or extension",
+                    help: "check the spelling, or add the member to the struct definition / an 'extend' block"));
             }
 
             if (target.Type == RuntimeValueType.ClassInstance)
@@ -75,14 +96,24 @@ namespace RaLanguage.Interpreter.Visitors.Members
                 if (ext.Count > 0)
                     return res.Success(new BoundExtensionMethodGroupValue(instance, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
 
-                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Class '{instance.Definition.ClassName}' has no member '{memberName}'", context));
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                    $"class '{instance.Definition.ClassName}' has no member named '{memberName}'",
+                    context,
+                    code: DiagnosticCode.RuntimeUndefinedSymbol,
+                    primaryLabel: "no such field, method or extension",
+                    help: "check the spelling, or add the member to the class / an 'extend' block"));
             }
 
             if (target.Type == RuntimeValueType.Super)
             {
                 var sup = (SuperProxyValue)target;
                 if (sup.BaseClass == null)
-                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "No base class available", context));
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                        "'super' cannot resolve a base class",
+                        context,
+                        code: DiagnosticCode.RuntimeGeneric,
+                        primaryLabel: "no base class is in scope here",
+                        help: "'super' is only meaningful inside methods of a class that extends another via ':'"));
 
                 if (sup.Instance.HasField(memberName))
                     return res.Success(sup.Instance.GetField(memberName).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
@@ -91,7 +122,12 @@ namespace RaLanguage.Interpreter.Visitors.Members
                 if (candidates.Count > 0)
                     return res.Success(new BoundMethodGroupValue(memberName, sup.Instance, sup.BaseClass, candidates).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
 
-                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Base class '{sup.BaseClass.ClassName}' has no member '{memberName}'", context));
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                    $"base class '{sup.BaseClass.ClassName}' has no member named '{memberName}'",
+                    context,
+                    code: DiagnosticCode.RuntimeUndefinedSymbol,
+                    primaryLabel: "no such inherited field or method",
+                    help: "verify the name and visibility of the inherited member"));
             }
 
             if (target.Type == RuntimeValueType.ClassType)
@@ -113,7 +149,12 @@ namespace RaLanguage.Interpreter.Visitors.Members
                         .SetPos(node.PositionStart, node.PositionEnd));
                 }
 
-                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Class '{classType.ClassName}' has no static member '{memberName}'", context));
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                    $"class '{classType.ClassName}' has no static member named '{memberName}'",
+                    context,
+                    code: DiagnosticCode.RuntimeUndefinedSymbol,
+                    primaryLabel: "no such static field or method",
+                    help: $"check the spelling, or declare '{memberName}' with 'static' inside class '{classType.ClassName}'"));
             }
 
             if (target.Type == RuntimeValueType.Namespace)

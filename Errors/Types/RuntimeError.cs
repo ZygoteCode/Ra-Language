@@ -1,7 +1,6 @@
-﻿using RaLanguage.Interpreter.Runtime;
+using System.Collections.Generic;
+using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Lexer;
-using RaLanguage.Utilities;
-using System.Runtime.CompilerServices;
 
 namespace RaLanguage.Errors.Types
 {
@@ -10,34 +9,58 @@ namespace RaLanguage.Errors.Types
         public Context Context { get; }
 
         public RuntimeError(Position positionStart, Position positionEnd, string details, Context context)
-            : base(positionStart, positionEnd, "Runtime Error", details)
+            : base(BuildDiagnostic(positionStart, positionEnd, details, context, DiagnosticCode.RuntimeGeneric, null, null, null))
         {
             Context = context;
         }
 
-        public sealed override string ToString()
+        public RuntimeError(Position positionStart, Position positionEnd, string details, Context context,
+            DiagnosticCode code, string? help = null, string? primaryLabel = null, string? category = null)
+            : base(BuildDiagnostic(positionStart, positionEnd, details, context, code, help, primaryLabel, category))
         {
-            var result = GenerateTraceback();
-            result += $"{ErrorName}: {Details}";
-            result += "\n\n" + Utils.StringWithArrows(PositionStart.Ftxt, PositionStart, PositionEnd);
-            return result;
+            Context = context;
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private string GenerateTraceback()
+        private static Diagnostic BuildDiagnostic(
+            Position s, Position e, string details, Context context,
+            DiagnosticCode code, string? help, string? primaryLabel, string? category)
         {
-            var result = "";
-            var pos = PositionStart;
-            var ctx = Context;
+            return new Diagnostic(
+                title: string.IsNullOrEmpty(details) ? "runtime error" : details,
+                severity: DiagnosticSeverity.Error,
+                primarySpan: new SourceSpan(s, e),
+                code: code.IsEmpty ? DiagnosticCode.RuntimeGeneric : code,
+                phase: DiagnosticPhase.Runtime,
+                category: category ?? "Runtime Error",
+                help: help,
+                primaryLabel: primaryLabel,
+                traceback: BuildTraceback(s, context));
+        }
 
-            while (ctx != null)
+        private static IReadOnlyList<TracebackFrame> BuildTraceback(Position primaryPos, Context? ctx)
+        {
+            var frames = new List<TracebackFrame>(4);
+            var pos = primaryPos;
+            var current = ctx;
+            while (current != null)
             {
-                result = $"  File {pos.Fn}, line {pos.Ln + 1}, in {ctx.DisplayName}\n" + result;
-                pos = ctx.ParentEntryPos ?? pos;
-                ctx = ctx.Parent;
+                var span = new SourceSpan(pos, pos);
+                var frame = new TracebackFrame(current.DisplayName, span);
+                if (frames.Count == 0 || !FramesMatch(frames[frames.Count - 1], frame))
+                {
+                    frames.Add(frame);
+                }
+                pos = current.ParentEntryPos ?? pos;
+                current = current.Parent;
             }
+            return frames;
+        }
 
-            return "Traceback (most recent call last):\n" + result;
+        private static bool FramesMatch(TracebackFrame a, TracebackFrame b)
+        {
+            return string.Equals(a.DisplayName, b.DisplayName, StringComparison.Ordinal)
+                && a.Span.Start.Idx == b.Span.Start.Idx
+                && string.Equals(a.Span.Start.Fn, b.Span.Start.Fn, StringComparison.Ordinal);
         }
     }
 }
