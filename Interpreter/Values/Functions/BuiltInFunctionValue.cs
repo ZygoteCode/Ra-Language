@@ -45,6 +45,10 @@ namespace RaLanguage.Interpreter.Values.Functions
                     {
                         return AsyncBuiltins.Execute(Name, args, Context ?? execCtx, PositionStart, PositionEnd);
                     }
+                    if (BuiltInRegistry.Contains(Name))
+                    {
+                        return BuiltInRegistry.Invoke(Name, Context ?? execCtx, args, PositionStart, PositionEnd);
+                    }
                     return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"No execute_{Name} method defined", Context));
             }
 

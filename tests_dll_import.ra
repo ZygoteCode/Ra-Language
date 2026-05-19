@@ -1,0 +1,112 @@
+@dll_import(library = "kernel32", entry_point = "GetTickCount")
+fn win_get_tick_count(): uint { ret 0; }
+
+@dll_import(library = "kernel32", entry_point = "GetCurrentProcessId")
+fn win_get_pid(): uint { ret 0; }
+
+@dll_import(library = "kernel32", entry_point = "GetCurrentThreadId")
+fn win_get_tid(): uint { ret 0; }
+
+@dll_import(library = "kernel32", entry_point = "Sleep")
+fn win_sleep(ms: uint) { ret 0; }
+
+@dll_import(library = "kernel32", entry_point = "GetCurrentProcess")
+fn win_current_process(): ptr { ret 0; }
+
+@dll_import(library = "kernel32", entry_point = "lstrlenW", charset = "utf16")
+fn win_strlen_w(s: string): int { ret 0; }
+
+@dll_import(library = "kernel32", entry_point = "lstrlenA", charset = "ansi")
+fn win_strlen_a(s: string): int { ret 0; }
+
+@dll_import(library = "user32", entry_point = "GetSystemMetrics")
+fn win_get_system_metrics(index: int): int { ret 0; }
+
+@dll_import(library = "definitely_does_not_exist_xyz")
+fn bad_lib(): int { ret 0; }
+
+@dll_import(library = "kernel32", entry_point = "ThisSymbolDoesNotExist")
+fn bad_symbol(): int { ret 0; }
+
+@dll_import(library = "libc", entry_point = "getpid")
+fn libc_getpid(): int { ret 0; }
+
+@dll_import(library = "libc", entry_point = "strlen", charset = "utf8")
+fn libc_strlen(s: string): long { ret 0; }
+
+print("=== @dll_import TESTS ===");
+print(os_name());
+
+if (os_name() == "windows") {
+    print("--- WinAPI integers ---");
+    var t1 = win_get_tick_count();
+    print((t1 as long) > 0);
+    win_sleep(15);
+    var t2 = win_get_tick_count();
+    var diff = (t2 as long) - (t1 as long);
+    print(diff >= 10);
+
+    print("--- WinAPI pid/tid ---");
+    print((win_get_pid() as long) == (process_pid() as long));
+    print((win_get_tid() as long) > 0);
+
+    print("--- WinAPI handle (pseudo-handle) ---");
+    var h = win_current_process();
+    print(typeof h);
+    print(h != null);
+
+    print("--- WinAPI strings (utf16) ---");
+    print(win_strlen_w("hello"));
+    print(win_strlen_w(""));
+    print(win_strlen_w("hello world"));
+
+    print("--- WinAPI strings (ansi) ---");
+    print(win_strlen_a("ansi-test"));
+
+    print("--- WinAPI system metrics (SM_CXSCREEN=0) ---");
+    var width = win_get_system_metrics(0);
+    print(width > 0);
+}
+
+if (os_name() == "linux") {
+    print("--- libc ---");
+    print(libc_getpid() > 0);
+    print(libc_strlen("hello world"));
+}
+
+if (os_name() == "macos") {
+    print("--- libc (macOS) ---");
+    print(libc_getpid() > 0);
+    print(libc_strlen("hello world"));
+}
+
+print("--- error: missing library ---");
+try {
+    bad_lib();
+    print("UNEXPECTED success");
+} catch (e) {
+    print("caught missing library");
+}
+
+print("--- error: missing symbol ---");
+if (os_name() == "windows") {
+    try {
+        bad_symbol();
+        print("UNEXPECTED success");
+    } catch (e) {
+        print("caught missing symbol");
+    }
+}
+
+if (os_name() == "windows") {
+    print("--- caching / perf: 5000 calls ---");
+    var t0 = monotonic_ms();
+    for (var i = 0; i < 5000; i++) {
+        win_get_tick_count();
+    }
+    var elapsed = monotonic_ms() - t0;
+    print(elapsed < 2000);
+    print("5000 calls done");
+}
+
+print("=== @dll_import passed ===");

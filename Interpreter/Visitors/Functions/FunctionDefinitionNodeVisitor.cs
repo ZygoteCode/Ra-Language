@@ -2,6 +2,7 @@
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
+using RaLanguage.Interpreter.Runtime.Interop;
 using RaLanguage.Interpreter.Values.Functions;
 using RaLanguage.Parser.Nodes.Functions;
 
@@ -46,6 +47,16 @@ namespace RaLanguage.Interpreter.Visitors.Functions
                     funcValue.MetadataKey = target.Key;
                     var annErr = AnnotationProcessor.Process(node.Annotations, target, context, interpreter);
                     if (annErr != null) return res.Failure(annErr);
+
+                    var (nativeFn, dllErr) = DllImportBinder.TryBind(node, funcName, target.Key, context);
+                    if (dllErr != null) return res.Failure(dllErr);
+                    if (nativeFn != null)
+                    {
+                        context.SymbolTable.Set(funcName, nativeFn, isPublic: node.IsPublic);
+                        var paramErr2 = RegisterParameterAnnotations(node, funcName, context, interpreter);
+                        if (paramErr2 != null) return res.Failure(paramErr2);
+                        return res.Success(nativeFn);
+                    }
                 }
                 else
                 {

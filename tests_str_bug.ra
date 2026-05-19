@@ -1,0 +1,18 @@
+@dll_import(library = "kernel32", entry_point = "lstrlenA")
+fn len_a(s: string): int { ret 0; }
+
+@dll_import(library = "kernel32", entry_point = "lstrlenW")
+fn len_w(s: string): int { ret 0; }
+
+@dll_import(library = "kernel32", entry_point = "lstrlenA", charset = "ansi")
+fn len_a_explicit(s: string): int { ret 0; }
+
+@dll_import(library = "kernel32", entry_point = "lstrlenW", charset = "utf16")
+fn len_w_explicit(s: string): int { ret 0; }
+
+print("--- charset default = auto (utf16 on win) ---");
+print("len_a('ciao')      = " + (len_a("ciao") as string));
+print("len_w('ciao')      = " + (len_w("ciao") as string));
+print("--- charset explicit ---");
+print("len_a_explicit     = " + (len_a_explicit("ciao") as string));
+print("len_w_explicit     = " + (len_w_explicit("ciao") as string));

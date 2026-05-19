@@ -72,6 +72,15 @@ namespace RaLanguage
             }
 
             BuiltInAnnotations.RegisterAll(BuiltinSymbolTable);
+
+            BuiltInRegistry.EnsureInitialized();
+            foreach (string registryBuiltin in BuiltInRegistry.AllNames)
+            {
+                if (BuiltinSymbolTable.GetEntry(registryBuiltin) == null)
+                {
+                    BuiltinSymbolTable.Set(registryBuiltin, new BuiltInFunctionValue(registryBuiltin));
+                }
+            }
             MetadataRegistry.Global.Clear();
             NamespaceRegistry.Global.Clear();
 
