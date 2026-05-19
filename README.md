@@ -24,11 +24,9 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [x] Implement a complete namespaces system.
   - [x] Implement async/await programming.
   - [x] Improved OOP system overall.
-  - [ ] Implement built-in functions for reflections and complex language operations (ex. native sys calls).
-  - [ ] Implement unit tests, integration tests, implementation tests, CI/CD pipeline.
-  - [ ] (EXPERIMENT) Execute Assembly code in Ra Language with Reloaded.Assembler / FASM.NET.
-  - [ ] (EXPERIMENT) Execute C# code in Ra Language.
-  - [ ] (EXPERIMENT) Execute C++ code in Ra Language.
+  - [x] Implement built-in functions for reflections and complex language operations (ex. native sys calls).
+  - [ ] Execute Assembly code in Ra Language with Reloaded.Assembler / FASM.NET.
+  - [ ] Execute C# code in Ra Language.
 
 Lots of more new ideas coming soon!<br/>
 
