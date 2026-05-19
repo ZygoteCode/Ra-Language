@@ -25,7 +25,7 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [x] Implement async/await programming.
   - [x] Improved OOP system overall.
   - [x] Implement built-in functions for reflections and complex language operations (ex. native sys calls).
-  - [ ] Execute Assembly code in Ra Language with Reloaded.Assembler / FASM.NET.
+  - [x] Execute Assembly code in Ra Language with Reloaded.Assembler / FASM.NET.
   - [ ] Execute C# code in Ra Language.
 
 Lots of more new ideas coming soon!<br/>
