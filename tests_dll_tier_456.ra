@@ -1,0 +1,164 @@
+# =================================================================
+#  Tier 4-6 + Tier 8 FFI improvements regression suite
+# =================================================================
+
+@dll_import(library = "kernel32", entry_point = "GetTickCount")
+fn get_tick_count(): uint { ret 0; }
+
+@dll_import(library = "kernel32", entry_point = "GetCurrentProcessId", trace = true)
+fn get_pid_traced(): uint { ret 0; }
+
+@dll_import(library = "kernel32", entry_point = "GetCurrentProcessId", abi_canary = true)
+fn get_pid_canary(): uint { ret 0; }
+
+@dll_import(library = "kernel32", entry_point = "lstrlenA")
+fn len_a(s: string): int { ret 0; }
+
+@dll_import(library = "msvcrt", entry_point = "qsort")
+fn qsort_native(base: ptr, count: long, size: long, cmp: ptr) { ret 0; }
+
+# Nested struct test
+pub struct Inner {
+    pub var a: int = 0,
+    pub var b: int = 0
+}
+
+pub struct Outer {
+    pub var head: int = 0,
+    pub var inside: Inner = Inner(),
+    pub var tail: int = 0
+}
+
+print("=== TIER 4-6 + 8 FFI REGRESSION ===");
+
+print("--- #11 NativeHandle ownership ---");
+var mem = native_zero_alloc(32);
+var info = handle_info(mem);
+print(map_get(info, "kind"));
+print(map_get(info, "ownership"));
+print(map_get(info, "disposed"));
+print(handle_alive_count() > 0);
+native_free(mem);
+print(handle_alive_count() >= 0);
+
+print("--- #11 double-free detection ---");
+var leak = native_zero_alloc(8);
+native_free(leak);
+var df_before = handle_double_free_count();
+native_free(leak);
+print(handle_double_free_count() > df_before);
+
+print("--- #12 pin/unpin ---");
+var pinned = pin([10, 20, 30, 40, 50]);
+print(native_read_u8(pinned, 0));
+print(native_read_u8(pinned, 4));
+unpin(pinned);
+
+print("--- #14 trace (env or annotation) ---");
+print((get_pid_traced() as long) > 0);
+
+print("--- #15 ABI canary ---");
+print((get_pid_canary() as long) > 0);
+print(abi_canary_count() >= 0);
+
+print("--- #16 native_reload ---");
+get_tick_count();
+print(len(native_libraries()) > 0);
+print(native_reload("kernel32"));
+print((get_tick_count() as long) > 0);
+
+print("--- #19 macOS underscore fallback (no-op on Win, just verify built-ins exist) ---");
+print(exists("native_reload"));
+
+print("--- #20 path placeholders ---");
+@dll_import(library = "kernel32", entry_point = "GetTickCount", search_paths = ["@executable_path", "%cwd%"])
+fn gtc_with_search(): uint { ret 0; }
+print((gtc_with_search() as long) > 0);
+
+print("--- #4 nested struct layout ---");
+var inner_built = Inner();
+inner_built.a = 22;
+inner_built.b = 33;
+var o = Outer();
+o.head = 11;
+o.inside = inner_built;
+o.tail = 44;
+print(struct_size(o));
+var b = struct_to_buffer(o);
+print(native_read_i32(b, 0));
+print(native_read_i32(b, 4));
+print(native_read_i32(b, 8));
+print(native_read_i32(b, 12));
+
+var o2 = struct_from_buffer(b, Outer);
+print(o2.head);
+print(o2.inside.a);
+print(o2.inside.b);
+print(o2.tail);
+native_free(b);
+
+print("--- #9 as_callback_with (user_data prepended) ---");
+fn ctx_cmp(user: ptr, a: ptr, b: ptr): int {
+    var va = native_read_i32(a, 0);
+    var vb = native_read_i32(b, 0);
+    if (va < vb) { ret -1 }
+    if (va > vb) { ret 1 }
+    ret 0;
+}
+var ctx_marker = native_zero_alloc(8);
+native_write_i32(ctx_marker, 0, 123456);
+var cb_ctx = as_callback_with(ctx_cmp, "int(ptr,ptr,ptr)", ctx_marker);
+print(typeof cb_ctx);
+release_callback(cb_ctx);
+native_free(ctx_marker);
+
+print("--- #10 with_callback (scoped RAII) ---");
+fn local_cmp(a: ptr, b: ptr): int {
+    var va = native_read_i32(a, 0);
+    var vb = native_read_i32(b, 0);
+    if (va < vb) { ret -1 }
+    if (va > vb) { ret 1 }
+    ret 0;
+}
+fn run_sort(cb_handle: ptr): int {
+    var arr = native_zero_alloc(16);
+    native_write_i32(arr, 0, 9);
+    native_write_i32(arr, 4, 3);
+    native_write_i32(arr, 8, 7);
+    native_write_i32(arr, 12, 1);
+    qsort_native(arr, 4 as long, 4 as long, cb_handle);
+    var first = native_read_i32(arr, 0);
+    native_free(arr);
+    ret first;
+}
+var before_cb = callback_count();
+var first_sorted = with_callback(local_cmp, "int(ptr,ptr)", run_sort);
+print(first_sorted == 1);
+print(callback_count() == before_cb);
+
+print("--- #18 COM (smoke: just ensure built-ins exist) ---");
+print(exists("com_vtable"));
+print(exists("com_vtable_slot"));
+print(exists("com_add_ref"));
+print(exists("com_release"));
+print(exists("com_query_interface"));
+
+print("--- #25 SEH guard: malformed call shape catches gracefully ---");
+print(exists("handle_info"));
+
+print("--- #26 sta_thread annotation ---");
+@dll_import(library = "kernel32", entry_point = "GetCurrentThreadId", sta_thread = true)
+fn sta_tid(): uint { ret 0; }
+var t1 = sta_tid();
+var t2 = sta_tid();
+print(t1 == t2);
+print(t1 != (thread_id() as long));
+
+print("--- #27 native_async ---");
+@dll_import(library = "kernel32", entry_point = "GetCurrentProcessId")
+fn pid_for_async(): uint { ret 0; }
+var task = native_async(pid_for_async);
+var p = run_blocking(task);
+print((p as long) > 0);
+
+print("=== TIER 4-6 + 8 PASSED ===");

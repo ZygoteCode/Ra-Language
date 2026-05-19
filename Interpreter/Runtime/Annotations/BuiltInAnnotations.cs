@@ -24,6 +24,7 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
         public const string Returns = "returns";
         public const string Deferred = "deferred";
         public const string Coerce = "coerce";
+        public const string DllImport = "dll_import";
 
         public static IEnumerable<AnnotationTypeValue> CreateAll()
         {
@@ -49,8 +50,45 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
             yield return MakeEnsures();
             yield return MakeInvariant();
             yield return MakeDerive();
+            yield return MakeDllImport();
             foreach (var v in BuiltInValidators.CreateAll())
                 yield return v;
+        }
+
+        private static AnnotationTypeValue MakeDllImport()
+        {
+            var paramLib = new AnnotationParameterNode(Tok("library"), new Types.TypeDescriptor("string"), MakeNullDefaultNode(), false);
+            var paramEntry = new AnnotationParameterNode(Tok("entry_point"), new Types.TypeDescriptor("string"), MakeNullDefaultNode(), false);
+            var paramConv = new AnnotationParameterNode(Tok("calling_convention"), new Types.TypeDescriptor("string"), MakeNullDefaultNode(), false);
+            var paramCharset = new AnnotationParameterNode(Tok("charset"), new Types.TypeDescriptor("string"), MakeNullDefaultNode(), false);
+            var paramExact = new AnnotationParameterNode(Tok("exact_spelling"), new Types.TypeDescriptor("bool"), MakeBoolDefaultNode(false), false);
+            var paramLastError = new AnnotationParameterNode(Tok("set_last_error"), new Types.TypeDescriptor("bool"), MakeBoolDefaultNode(false), false);
+            var paramPreserve = new AnnotationParameterNode(Tok("preserve_sig"), new Types.TypeDescriptor("bool"), MakeBoolDefaultNode(true), false);
+            var paramBestFit = new AnnotationParameterNode(Tok("best_fit_mapping"), new Types.TypeDescriptor("bool"), MakeBoolDefaultNode(true), false);
+            var paramThrowUnmappable = new AnnotationParameterNode(Tok("throw_on_unmappable_char"), new Types.TypeDescriptor("bool"), MakeBoolDefaultNode(false), false);
+            var paramSearchPaths = new AnnotationParameterNode(Tok("search_paths"), null, MakeNullDefaultNode(), false);
+            var paramName = new AnnotationParameterNode(Tok("name"), new Types.TypeDescriptor("string"), MakeNullDefaultNode(), false);
+            var paramStringFree = new AnnotationParameterNode(Tok("string_free"), new Types.TypeDescriptor("string"), MakeNullDefaultNode(), false);
+            var paramTrace = new AnnotationParameterNode(Tok("trace"), new Types.TypeDescriptor("bool"), MakeBoolDefaultNode(false), false);
+            var paramStaThread = new AnnotationParameterNode(Tok("sta_thread"), new Types.TypeDescriptor("bool"), MakeBoolDefaultNode(false), false);
+            var paramAbiCanary = new AnnotationParameterNode(Tok("abi_canary"), new Types.TypeDescriptor("bool"), MakeBoolDefaultNode(false), false);
+
+            var ann = new AnnotationTypeValue(DllImport, true,
+                new List<AnnotationParameterNode>
+                {
+                    paramLib, paramEntry, paramConv, paramCharset, paramExact, paramLastError,
+                    paramPreserve, paramBestFit, paramThrowUnmappable, paramSearchPaths, paramName, paramStringFree,
+                    paramTrace, paramStaThread, paramAbiCanary
+                }, isBuiltIn: true);
+            ann.AllowedTargets = new HashSet<AnnotationTargetKind> { AnnotationTargetKind.Function };
+            ann.IsRepeatable = false;
+            return ann;
+        }
+
+        private static Parser.Nodes.AstNode MakeBoolDefaultNode(bool value)
+        {
+            var tok = new Token(TokenType.KEYWORD, value ? Keyword.True : Keyword.False, new Position(0, 0, 0, "<builtin>", string.Empty));
+            return new Parser.Nodes.Primitives.BooleanNode(tok);
         }
 
         private static AnnotationTypeValue MakeTest()

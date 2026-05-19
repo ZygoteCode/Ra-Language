@@ -41,6 +41,7 @@
         Task,
         Channel,
         Stream,
-        Namespace
+        Namespace,
+        NativeHandle
     }
 }
