@@ -444,7 +444,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 var l = (ListValue)other;
                 int cmp = LexicographicCompareTo(l);
-                return (new BooleanValue(cmp < 0).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
+                return (BooleanValue.Of(cmp < 0).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
             }
             return base.GetComparisonLt(other);
         }
@@ -455,7 +455,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 var l = (ListValue)other;
                 int cmp = LexicographicCompareTo(l);
-                return (new BooleanValue(cmp > 0).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
+                return (BooleanValue.Of(cmp > 0).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
             }
             return base.GetComparisonGt(other);
         }
@@ -466,7 +466,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 var l = (ListValue)other;
                 int cmp = LexicographicCompareTo(l);
-                return (new BooleanValue(cmp <= 0).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
+                return (BooleanValue.Of(cmp <= 0).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
             }
             return base.GetComparisonLte(other);
         }
@@ -477,7 +477,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 var l = (ListValue)other;
                 int cmp = LexicographicCompareTo(l);
-                return (new BooleanValue(cmp >= 0).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
+                return (BooleanValue.Of(cmp >= 0).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
             }
             return base.GetComparisonGte(other);
         }
@@ -499,7 +499,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             }
             if (other.Type == RuntimeValueType.Boolean || other.Type == RuntimeValueType.Number)
             {
-                var outList = Elements.Select(e => e.AndedBy(other).Item1 ?? (RuntimeValue)new BooleanValue(false)).ToList();
+                var outList = Elements.Select(e => e.AndedBy(other).Item1 ?? (RuntimeValue)BooleanValue.Of(false)).ToList();
                 return (new ListValue(outList).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
             }
             return base.AndedBy(other);
@@ -522,7 +522,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             }
             if (other.Type == RuntimeValueType.Boolean || other.Type == RuntimeValueType.Number)
             {
-                var outList = Elements.Select(e => e.OredBy(other).Item1 ?? (RuntimeValue)new BooleanValue(false)).ToList();
+                var outList = Elements.Select(e => e.OredBy(other).Item1 ?? (RuntimeValue)BooleanValue.Of(false)).ToList();
                 return (new ListValue(outList).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
             }
             return base.OredBy(other);
@@ -573,7 +573,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
                 if (l.Elements.Count != elementsCount)
                 {
-                    return (new BooleanValue(false).SetContext(Context), null);
+                    return (BooleanValue.Of(false).SetContext(Context), null);
                 }
 
                 for (var i = 0; i < elementsCount; i++)
@@ -591,23 +591,23 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
                     if (comparisonResult == null)
                     {
-                        return (new BooleanValue(false).SetContext(Context), null);
+                        return (BooleanValue.Of(false).SetContext(Context), null);
                     }
 
                     if (comparisonResult.Type != RuntimeValueType.Boolean)
                     {
-                        return (new BooleanValue(false).SetContext(Context), null);
+                        return (BooleanValue.Of(false).SetContext(Context), null);
                     }
 
                     BooleanValue b = (BooleanValue)comparisonResult;
 
                     if (!b.Value)
                     {
-                        return (new BooleanValue(false).SetContext(Context), null);
+                        return (BooleanValue.Of(false).SetContext(Context), null);
                     }
                 }
 
-                return (new BooleanValue(true).SetContext(Context), null);
+                return (BooleanValue.Of(true).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Set)
             {
@@ -616,7 +616,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
                 if (s.Elements.Count != elementsCount)
                 {
-                    return (new BooleanValue(false).SetContext(Context), null);
+                    return (BooleanValue.Of(false).SetContext(Context), null);
                 }
 
                 List<RuntimeValue> theList = s.Elements.ToList();
@@ -636,23 +636,23 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
                     if (comparisonResult == null)
                     {
-                        return (new BooleanValue(false).SetContext(Context), null);
+                        return (BooleanValue.Of(false).SetContext(Context), null);
                     }
 
                     if (comparisonResult.Type != RuntimeValueType.Boolean)
                     {
-                        return (new BooleanValue(false).SetContext(Context), null);
+                        return (BooleanValue.Of(false).SetContext(Context), null);
                     }
 
                     BooleanValue b = (BooleanValue)comparisonResult;
 
                     if (!b.Value)
                     {
-                        return (new BooleanValue(false).SetContext(Context), null);
+                        return (BooleanValue.Of(false).SetContext(Context), null);
                     }
                 }
 
-                return (new BooleanValue(true).SetContext(Context), null);
+                return (BooleanValue.Of(true).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Number
                 && (tokenType == TokenType.EE || tokenType == TokenType.NE)
@@ -669,10 +669,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
                 if (comparisonResult == null)
                 {
-                    return (new BooleanValue(false).SetContext(Context), null);
+                    return (BooleanValue.Of(false).SetContext(Context), null);
                 }
 
-                return (new BooleanValue(comparisonResult.IsTrue()).SetContext(Context), null);
+                return (BooleanValue.Of(comparisonResult.IsTrue()).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.String
                 && (tokenType == TokenType.EE || tokenType == TokenType.NE)
@@ -689,10 +689,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
                 if (comparisonResult == null)
                 {
-                    return (new BooleanValue(false).SetContext(Context), null);
+                    return (BooleanValue.Of(false).SetContext(Context), null);
                 }
 
-                return (new BooleanValue(comparisonResult.IsTrue()).SetContext(Context), null);
+                return (BooleanValue.Of(comparisonResult.IsTrue()).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Boolean
                 && (tokenType == TokenType.EE || tokenType == TokenType.NE)
@@ -709,10 +709,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
                 if (comparisonResult == null)
                 {
-                    return (new BooleanValue(false).SetContext(Context), null);
+                    return (BooleanValue.Of(false).SetContext(Context), null);
                 }
 
-                return (new BooleanValue(comparisonResult.IsTrue()).SetContext(Context), null);
+                return (BooleanValue.Of(comparisonResult.IsTrue()).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Null
                 && (tokenType == TokenType.EE || tokenType == TokenType.NE)
@@ -729,13 +729,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
                 if (comparisonResult == null)
                 {
-                    return (new BooleanValue(false).SetContext(Context), null);
+                    return (BooleanValue.Of(false).SetContext(Context), null);
                 }
 
-                return (new BooleanValue(comparisonResult.IsTrue()).SetContext(Context), null);
+                return (BooleanValue.Of(comparisonResult.IsTrue()).SetContext(Context), null);
             }
 
-            return (new BooleanValue(false).SetContext(Context), null);
+            return (BooleanValue.Of(false).SetContext(Context), null);
         }
 
         public sealed override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)

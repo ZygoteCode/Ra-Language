@@ -84,7 +84,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             }
 
             Console.WriteLine(output);
-            return new RuntimeResult().Success(new NullValue().SetContext(ctx).SetPos(PositionStart, PositionEnd));
+            return new RuntimeResult().Success(NullValue.Null.SetContext(ctx).SetPos(PositionStart, PositionEnd));
         });
 
         private RuntimeResult ExecutePrintRet(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
@@ -113,7 +113,7 @@ namespace RaLanguage.Interpreter.Values.Functions
         private RuntimeResult ExecuteExists(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
             var value = c.SymbolTable.Get("symbol");
             SymbolEntry? retrieved = c.SymbolTable.GetEntry(value.ToString());
-            return new RuntimeResult().Success(new BooleanValue(retrieved != null).SetContext(ctx).SetPos(PositionStart, PositionEnd));
+            return new RuntimeResult().Success(BooleanValue.Of(retrieved != null).SetContext(ctx).SetPos(PositionStart, PositionEnd));
         });
 
         private RuntimeResult ExecuteDrop(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
@@ -127,7 +127,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             }
 
             c.SymbolTable.Remove(valueStr);
-            return new RuntimeResult().Success(new NullValue().SetContext(ctx).SetPos(PositionStart, PositionEnd));
+            return new RuntimeResult().Success(NullValue.Null.SetContext(ctx).SetPos(PositionStart, PositionEnd));
         });
 
         private RuntimeResult ExecuteIsPublic(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
@@ -140,7 +140,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                 return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, $"The symbol '{valueStr}' is not defined", Context));
             }
 
-            return new RuntimeResult().Success(new BooleanValue(retrieved.IsPublic).SetContext(ctx).SetPos(PositionStart, PositionEnd));
+            return new RuntimeResult().Success(BooleanValue.Of(retrieved.IsPublic).SetContext(ctx).SetPos(PositionStart, PositionEnd));
         });
 
         private RuntimeResult ExecuteIsFieldPublic(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
@@ -157,7 +157,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                     return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, $"The symbol '{symbolStr}' is not defined in type", Context));
                 }
 
-                return new RuntimeResult().Success(new BooleanValue(instance.IsFieldPublic(symbolStr)).SetContext(ctx).SetPos(PositionStart, PositionEnd));
+                return new RuntimeResult().Success(BooleanValue.Of(instance.IsFieldPublic(symbolStr)).SetContext(ctx).SetPos(PositionStart, PositionEnd));
             }
             else if (theType.Type == RuntimeValueType.ClassType)
             {
@@ -168,7 +168,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                     return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, $"The symbol '{symbolStr}' is not defined in type", Context));
                 }
 
-                return new RuntimeResult().Success(new BooleanValue(instance.IsStaticFieldPublic(symbolStr) || instance.IsFieldPublic(symbolStr)).SetContext(ctx).SetPos(PositionStart, PositionEnd));
+                return new RuntimeResult().Success(BooleanValue.Of(instance.IsStaticFieldPublic(symbolStr) || instance.IsFieldPublic(symbolStr)).SetContext(ctx).SetPos(PositionStart, PositionEnd));
             }
             else if (theType.Type == RuntimeValueType.StructInstance)
             {
@@ -179,7 +179,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                     return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, $"The symbol '{symbolStr}' is not defined in type", Context));
                 }
 
-                return new RuntimeResult().Success(new BooleanValue(instance.IsFieldPublic(symbolStr)).SetContext(ctx).SetPos(PositionStart, PositionEnd));
+                return new RuntimeResult().Success(BooleanValue.Of(instance.IsFieldPublic(symbolStr)).SetContext(ctx).SetPos(PositionStart, PositionEnd));
             }
             else if (theType.Type == RuntimeValueType.StructType)
             {
@@ -190,7 +190,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                     return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, $"The symbol '{symbolStr}' is not defined in type", Context));
                 }
 
-                return new RuntimeResult().Success(new BooleanValue(instance.IsFieldPublic(symbolStr)).SetContext(ctx).SetPos(PositionStart, PositionEnd));
+                return new RuntimeResult().Success(BooleanValue.Of(instance.IsFieldPublic(symbolStr)).SetContext(ctx).SetPos(PositionStart, PositionEnd));
             }
             else
             {
@@ -206,22 +206,22 @@ namespace RaLanguage.Interpreter.Values.Functions
             if (theType.Type == RuntimeValueType.ClassInstance)
             {
                 var instance = (RaLanguage.Interpreter.Values.Primitives.ClassInstanceValue)theType;
-                return new RuntimeResult().Success(new BooleanValue(instance.HasField(symbolStr)).SetContext(ctx).SetPos(PositionStart, PositionEnd));
+                return new RuntimeResult().Success(BooleanValue.Of(instance.HasField(symbolStr)).SetContext(ctx).SetPos(PositionStart, PositionEnd));
             }
             else if (theType.Type == RuntimeValueType.ClassType)
             {
                 var instance = (RaLanguage.Interpreter.Values.Primitives.ClassTypeValue)theType;
-                return new RuntimeResult().Success(new BooleanValue(instance.HasField(symbolStr)).SetContext(ctx).SetPos(PositionStart, PositionEnd));
+                return new RuntimeResult().Success(BooleanValue.Of(instance.HasField(symbolStr)).SetContext(ctx).SetPos(PositionStart, PositionEnd));
             }
             else if (theType.Type == RuntimeValueType.StructInstance)
             {
                 var instance = (RaLanguage.Interpreter.Values.Structs.StructInstanceValue)theType;
-                return new RuntimeResult().Success(new BooleanValue(instance.HasField(symbolStr)).SetContext(ctx).SetPos(PositionStart, PositionEnd));
+                return new RuntimeResult().Success(BooleanValue.Of(instance.HasField(symbolStr)).SetContext(ctx).SetPos(PositionStart, PositionEnd));
             }
             else if (theType.Type == RuntimeValueType.StructType)
             {
                 var instance = (RaLanguage.Interpreter.Values.Structs.StructTypeValue)theType;
-                return new RuntimeResult().Success(new BooleanValue(instance.HasField(symbolStr)).SetContext(ctx).SetPos(PositionStart, PositionEnd));
+                return new RuntimeResult().Success(BooleanValue.Of(instance.HasField(symbolStr)).SetContext(ctx).SetPos(PositionStart, PositionEnd));
             }
             else
             {
@@ -243,7 +243,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                     return new RuntimeResult().Failure(new RuntimeError(PositionStart, PositionEnd, $"The symbol '{symbolStr}' is not defined in type", Context));
                 }
 
-                return new RuntimeResult().Success(new BooleanValue(instance.HasStaticField(symbolStr)).SetContext(ctx).SetPos(PositionStart, PositionEnd));
+                return new RuntimeResult().Success(BooleanValue.Of(instance.HasStaticField(symbolStr)).SetContext(ctx).SetPos(PositionStart, PositionEnd));
             }
             else
             {
@@ -268,11 +268,11 @@ namespace RaLanguage.Interpreter.Values.Functions
             var ann = c.SymbolTable.Get("__ann");
             var key = ResolveMetadataKey(subj);
             if (key == null)
-                return new RuntimeResult().Success(new BooleanValue(false).SetContext(ctx).SetPos(PositionStart, PositionEnd));
+                return new RuntimeResult().Success(BooleanValue.Of(false).SetContext(ctx).SetPos(PositionStart, PositionEnd));
 
             var nameStr = ann is StringValue sv ? sv.Value : ann.ToString() ?? "";
             var has = MetadataRegistry.Global.HasAnnotationEffective(key, nameStr, MetadataKeyResolver.ForContext(c));
-            return new RuntimeResult().Success(new BooleanValue(has).SetContext(ctx).SetPos(PositionStart, PositionEnd));
+            return new RuntimeResult().Success(BooleanValue.Of(has).SetContext(ctx).SetPos(PositionStart, PositionEnd));
         });
 
         private RuntimeResult ExecuteAnnotationArg(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
@@ -281,7 +281,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             var keyArg = c.SymbolTable.Get("__key");
             var targetKey = ResolveMetadataKey(subj);
             if (targetKey == null)
-                return new RuntimeResult().Success(new NullValue().SetContext(ctx).SetPos(PositionStart, PositionEnd));
+                return new RuntimeResult().Success(NullValue.Null.SetContext(ctx).SetPos(PositionStart, PositionEnd));
 
             var nameStr = ann is StringValue sv ? sv.Value : ann.ToString() ?? "";
             var keyStr = keyArg is StringValue kv ? kv.Value : keyArg.ToString() ?? "";
@@ -291,7 +291,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                 var v = found.Get(keyStr);
                 if (v != null) return new RuntimeResult().Success(v.Copy().SetContext(ctx).SetPos(PositionStart, PositionEnd));
             }
-            return new RuntimeResult().Success(new NullValue().SetContext(ctx).SetPos(PositionStart, PositionEnd));
+            return new RuntimeResult().Success(NullValue.Null.SetContext(ctx).SetPos(PositionStart, PositionEnd));
         });
 
         private RuntimeResult ExecuteAnnotationTargets(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
@@ -311,7 +311,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             var err = AnnotationValidator.Validate(inst, val, "value", c);
             if (err != null)
                 return new RuntimeResult().Success(new StringValue(err.Details).SetContext(ctx).SetPos(PositionStart, PositionEnd));
-            return new RuntimeResult().Success(new NullValue().SetContext(ctx).SetPos(PositionStart, PositionEnd));
+            return new RuntimeResult().Success(NullValue.Null.SetContext(ctx).SetPos(PositionStart, PositionEnd));
         });
 
         private RuntimeResult ExecuteValidateTarget(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {
@@ -322,7 +322,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             var err = AnnotationValidator.ValidateTarget(ks.Value, val, ks.Value, c);
             if (err != null)
                 return new RuntimeResult().Success(new StringValue(err.Details).SetContext(ctx).SetPos(PositionStart, PositionEnd));
-            return new RuntimeResult().Success(new NullValue().SetContext(ctx).SetPos(PositionStart, PositionEnd));
+            return new RuntimeResult().Success(NullValue.Null.SetContext(ctx).SetPos(PositionStart, PositionEnd));
         });
 
         private RuntimeResult ExecuteValidateDeferred(Context ctx, List<RuntimeValue> args, List<string> names, RuntimeResult res) => ExecuteCommon(ctx, args, names, res, c => {

@@ -61,7 +61,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 if (c.Separator == SwitchCaseSeparator.Arrow)
                 {
                     if (c.Body == null)
-                        return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                        return res.Success(NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
 
                     if (c.Body.NodeType == AstNodeType.List)
                     {
@@ -78,17 +78,17 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                             if (childRes.LoopShouldBreak)
                             {
                                 childRes.LoopShouldBreak = false;
-                                return res.Success(new NullValue().SetContext(context));
+                                return res.Success(NullValue.Null.SetContext(context));
                             }
 
                             if (childRes.LoopShouldContinue)
                                 return res.SuccessContinue();
 
                             if (childRes.ShouldYield)
-                                return res.SuccessYield(childRes.YieldValue ?? new NullValue().SetContext(context));
+                                return res.SuccessYield(childRes.YieldValue ?? NullValue.Null.SetContext(context));
                         }
 
-                        return res.Success(new NullValue().SetContext(context));
+                        return res.Success(NullValue.Null.SetContext(context));
                     }
                     else
                     {
@@ -99,7 +99,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                         if (exprRes.FuncReturnValue != null) return res.SuccessReturn(exprRes.FuncReturnValue);
                         if (exprRes.LoopShouldBreak) return res.SuccessBreak();
                         if (exprRes.LoopShouldContinue) return res.SuccessContinue();
-                        if (exprRes.ShouldYield) return res.SuccessYield(exprRes.YieldValue ?? new NullValue().SetContext(context));
+                        if (exprRes.ShouldYield) return res.SuccessYield(exprRes.YieldValue ?? NullValue.Null.SetContext(context));
 
                         return res.Success(exprVal);
                     }
@@ -127,14 +127,14 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                                     if (childRes.LoopShouldBreak)
                                     {
                                         childRes.LoopShouldBreak = false;
-                                        return res.Success(new NullValue().SetContext(context));
+                                        return res.Success(NullValue.Null.SetContext(context));
                                     }
 
                                     if (childRes.LoopShouldContinue)
                                         return res.SuccessContinue();
 
                                     if (childRes.ShouldYield)
-                                        return res.SuccessYield(childRes.YieldValue ?? new NullValue().SetContext(context));
+                                        return res.SuccessYield(childRes.YieldValue ?? NullValue.Null.SetContext(context));
                                 }
                             }
                             else if (caseToExec.Body != null)
@@ -146,7 +146,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                                 if (exprRes.FuncReturnValue != null) return res.SuccessReturn(exprRes.FuncReturnValue);
                                 if (exprRes.LoopShouldBreak) return res.SuccessBreak();
                                 if (exprRes.LoopShouldContinue) return res.SuccessContinue();
-                                if (exprRes.ShouldYield) return res.SuccessYield(exprRes.YieldValue ?? new NullValue().SetContext(context));
+                                if (exprRes.ShouldYield) return res.SuccessYield(exprRes.YieldValue ?? NullValue.Null.SetContext(context));
 
                                 return res.Success(exprVal);
                             }
@@ -168,24 +168,24 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                                     if (childRes.LoopShouldBreak)
                                     {
                                         childRes.LoopShouldBreak = false;
-                                        return res.Success(new NullValue().SetContext(context));
+                                        return res.Success(NullValue.Null.SetContext(context));
                                     }
 
                                     if (childRes.LoopShouldContinue)
                                         return res.SuccessContinue();
 
                                     if (childRes.ShouldYield)
-                                        return res.SuccessYield(childRes.YieldValue ?? new NullValue().SetContext(context));
+                                        return res.SuccessYield(childRes.YieldValue ?? NullValue.Null.SetContext(context));
                                 }
                             }
                         }
                     }
 
-                    return res.Success(new NullValue().SetContext(context));
+                    return res.Success(NullValue.Null.SetContext(context));
                 }
             }
 
-            return res.Success(new NullValue().SetContext(context));
+            return res.Success(NullValue.Null.SetContext(context));
         }
     }
 }

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
 using RaLanguage.Errors;
@@ -33,7 +33,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
         public static void Register()
         {
             BuiltInRegistry.Register("asm_supported", (ctx, args, p1, p2) =>
-                Ok(new BooleanValue(AsmExecutor.IsSupported), ctx, p1, p2));
+                Ok(BooleanValue.Of(AsmExecutor.IsSupported), ctx, p1, p2));
 
             BuiltInRegistry.Register("asm_arch", (ctx, args, p1, p2) =>
                 Ok(new StringValue(AsmExecutor.Architecture), ctx, p1, p2));
@@ -104,7 +104,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
                     var fn = AsmFunctionFactory.Create("<asm-invoke>", address, signature);
                     var res = fn.Execute(callArgs);
                     if (res.Error != null) return new RuntimeResult().Failure(res.Error);
-                    return Ok(res.Value ?? new NullValue(), ctx, p1, p2);
+                    return Ok(res.Value ?? NullValue.Null, ctx, p1, p2);
                 }
                 catch (Exception ex) { return Fail(ctx, p1, p2, $"asm_invoke: {ex.Message}"); }
             });
@@ -147,7 +147,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             BuiltInRegistry.Register("asm_clear_cache", (ctx, args, p1, p2) =>
             {
                 AsmRegionRegistry.Clear();
-                return Ok(new BooleanValue(true), ctx, p1, p2);
+                return Ok(BooleanValue.Of(true), ctx, p1, p2);
             });
 
             BuiltInRegistry.Register("asm_disasm", (ctx, args, p1, p2) =>
@@ -238,7 +238,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             {
                 if (!ExpectArgs("asm_pool_limit", args, 1, ctx, p1, p2, out var err)) return err;
                 AsmCodePool.MaxTotalBytes = AsLong(args[0]);
-                return Ok(new BooleanValue(true), ctx, p1, p2);
+                return Ok(BooleanValue.Of(true), ctx, p1, p2);
             });
 
             BuiltInRegistry.Register("asm_compile_sandboxed", (ctx, args, p1, p2) =>
@@ -300,7 +300,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             {
                 if (!ExpectArgs("asm_pin", args, 1, ctx, p1, p2, out var err)) return err;
                 AsmCodePool.Pin(AsString(args[0]));
-                return Ok(new BooleanValue(true), ctx, p1, p2);
+                return Ok(BooleanValue.Of(true), ctx, p1, p2);
             });
 
             BuiltInRegistry.Register("asm_rdtsc_calibrate", (ctx, args, p1, p2) =>

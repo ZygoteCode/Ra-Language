@@ -196,7 +196,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var r = e.GetComparisonEq(other).Item1;
                 return r != null && r.IsTrue();
             });
-            return (new BooleanValue(cmp).SetContext(Context), null);
+            return (BooleanValue.Of(cmp).SetContext(Context), null);
         }
 
         public sealed override (RuntimeValue?, Error?) BitwiseLeftShiftedBy(RuntimeValue other)
@@ -368,13 +368,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Tuple)
             {
                 var t = (TupleValue)other;
-                if (t.Elements.Count != Elements.Count) return (new BooleanValue(false).SetContext(Context), null);
+                if (t.Elements.Count != Elements.Count) return (BooleanValue.Of(false).SetContext(Context), null);
                 for (int i = 0; i < Elements.Count; i++)
                 {
                     var cmp = Elements[i].GetComparisonEq(t.Elements[i]).Item1;
-                    if (cmp == null || !cmp.IsTrue()) return (new BooleanValue(false).SetContext(Context), null);
+                    if (cmp == null || !cmp.IsTrue()) return (BooleanValue.Of(false).SetContext(Context), null);
                 }
-                return (new BooleanValue(true).SetContext(Context), null);
+                return (BooleanValue.Of(true).SetContext(Context), null);
             }
 
             return base.GetComparisonEq(other);
@@ -383,8 +383,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public sealed override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
         {
             var eq = GetComparisonEq(other).Item1;
-            if (eq == null) return (new BooleanValue(false).SetContext(Context), null);
-            return (new BooleanValue(!eq.IsTrue()).SetContext(Context), null);
+            if (eq == null) return (BooleanValue.Of(false).SetContext(Context), null);
+            return (BooleanValue.Of(!eq.IsTrue()).SetContext(Context), null);
         }
 
         public sealed override (RuntimeValue?, Error?) GetComparisonStrictEq(RuntimeValue other)
@@ -395,8 +395,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public sealed override (RuntimeValue?, Error?) GetComparisonStrictNe(RuntimeValue other)
         {
             var eq = GetComparisonStrictEq(other).Item1;
-            if (eq == null) return (new BooleanValue(false).SetContext(Context), null);
-            return (new BooleanValue(!eq.IsTrue()).SetContext(Context), null);
+            if (eq == null) return (BooleanValue.Of(false).SetContext(Context), null);
+            return (BooleanValue.Of(!eq.IsTrue()).SetContext(Context), null);
         }
 
         public sealed override (RuntimeValue?, Error?) GetComparisonLt(RuntimeValue other)
@@ -405,7 +405,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 var t = (TupleValue)other;
                 int cmp = LexicographicCompareTo(t);
-                return (new BooleanValue(cmp < 0).SetContext(Context), null);
+                return (BooleanValue.Of(cmp < 0).SetContext(Context), null);
             }
             return base.GetComparisonLt(other);
         }
@@ -416,7 +416,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 var t = (TupleValue)other;
                 int cmp = LexicographicCompareTo(t);
-                return (new BooleanValue(cmp > 0).SetContext(Context), null);
+                return (BooleanValue.Of(cmp > 0).SetContext(Context), null);
             }
             return base.GetComparisonGt(other);
         }
@@ -427,7 +427,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 var t = (TupleValue)other;
                 int cmp = LexicographicCompareTo(t);
-                return (new BooleanValue(cmp <= 0).SetContext(Context), null);
+                return (BooleanValue.Of(cmp <= 0).SetContext(Context), null);
             }
             return base.GetComparisonLte(other);
         }
@@ -438,7 +438,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 var t = (TupleValue)other;
                 int cmp = LexicographicCompareTo(t);
-                return (new BooleanValue(cmp >= 0).SetContext(Context), null);
+                return (BooleanValue.Of(cmp >= 0).SetContext(Context), null);
             }
             return base.GetComparisonGte(other);
         }
@@ -460,7 +460,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             }
             if (other.Type == RuntimeValueType.Boolean || other.Type == RuntimeValueType.Number)
             {
-                var outList = Elements.Select(e => e.AndedBy(other).Item1 ?? (RuntimeValue)new BooleanValue(false)).ToList();
+                var outList = Elements.Select(e => e.AndedBy(other).Item1 ?? (RuntimeValue)BooleanValue.Of(false)).ToList();
                 return (NewTupleFrom(outList), null);
             }
             return base.AndedBy(other);
@@ -483,7 +483,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             }
             if (other.Type == RuntimeValueType.Boolean || other.Type == RuntimeValueType.Number)
             {
-                var outList = Elements.Select(e => e.OredBy(other).Item1 ?? (RuntimeValue)new BooleanValue(false)).ToList();
+                var outList = Elements.Select(e => e.OredBy(other).Item1 ?? (RuntimeValue)BooleanValue.Of(false)).ToList();
                 return (NewTupleFrom(outList), null);
             }
             return base.OredBy(other);

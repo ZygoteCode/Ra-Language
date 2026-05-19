@@ -18,7 +18,7 @@ namespace RaLanguage.Interpreter.Visitors.Iterations
             if (childRes.LoopShouldContinue) return res.SuccessContinue();
             if (childRes.LoopShouldBreak) return res.SuccessBreak();
 
-            return res.SuccessYield(val ?? new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+            return res.SuccessYield(val ?? NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
     }
 }

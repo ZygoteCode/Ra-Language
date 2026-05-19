@@ -21,7 +21,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                 context.SymbolTable.Remove(varName);
             }
 
-            return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+            return res.Success(NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
     }
 }

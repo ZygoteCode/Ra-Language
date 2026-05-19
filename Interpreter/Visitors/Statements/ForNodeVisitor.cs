@@ -1,4 +1,4 @@
-﻿using RaLanguage.Interpreter.Architecture;
+using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Primitives;
@@ -11,52 +11,71 @@ namespace RaLanguage.Interpreter.Visitors.Statements
         protected sealed override RuntimeResult VisitNode(ForNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
-            var initializationContext = context.Copy();
-            var startValue = res.Register(interpreter.Visit(node.StartValueNode, initializationContext));
-            if (res.Error != null) return res;
-            context.ApplyChangesFrom(initializationContext);
-            if (res.ShouldReturn()) return res;
 
-            var endValue = res.Register(interpreter.Visit(node.EndValueNode, initializationContext));
+            // Single child scope holds the iteration variable plus any side effects from
+            // evaluating bounds. Replaces the original initContext + newContext chain.
+            var loopContext = context.Copy();
+            var loopSymbols = loopContext.SymbolTable!;
+
+            var startValue = res.Register(interpreter.Visit(node.StartValueNode, loopContext));
             if (res.Error != null) return res;
-            context.ApplyChangesFrom(initializationContext);
-            if (res.ShouldReturn()) return res;
+            if (res.ShouldReturn()) { context.ApplyChangesFrom(loopContext); return res; }
+
+            var endValue = res.Register(interpreter.Visit(node.EndValueNode, loopContext));
+            if (res.Error != null) return res;
+            if (res.ShouldReturn()) { context.ApplyChangesFrom(loopContext); return res; }
 
             RuntimeValue stepValue;
-
             if (node.StepValueNode != null)
             {
-                stepValue = res.Register(interpreter.Visit(node.StepValueNode, initializationContext));
+                stepValue = res.Register(interpreter.Visit(node.StepValueNode, loopContext));
                 if (res.Error != null) return res;
-                context.ApplyChangesFrom(initializationContext);
-                if (res.ShouldReturn()) return res;
+                if (res.ShouldReturn()) { context.ApplyChangesFrom(loopContext); return res; }
             }
             else
             {
-                stepValue = new NumberValue(1);
+                stepValue = NumberValue.One;
             }
 
             BigNumber i = ((NumberValue)startValue).Value;
             BigNumber end = ((NumberValue)endValue).Value;
             BigNumber step = ((NumberValue)stepValue).Value;
+            bool ascending = step >= BigNumber.Zero;
 
-            Func<bool> condition = (step >= 0) ? () => i < end : () => i > end;
-            var newContext = initializationContext.Copy();
+            string varName = node.VarNameTok.Value!.ToString()!;
 
-            while (condition())
+            // Body context lives once and is reused across every iteration. Locals declared
+            // inside the body get dropped via Clear() at the start of each iteration. Mutations
+            // to outer-scope variables still propagate because SymbolTable.Set walks parents.
+            var bodyContext = loopContext.Copy();
+            var bodySymbols = bodyContext.SymbolTable!;
+
+            // Seed the iteration variable in the loop scope, then update its entry directly to
+            // avoid the parent-chain walk inside SymbolTable.Set on every iteration.
+            loopSymbols.Set(varName, new NumberValue(i));
+            var iterEntry = loopSymbols.GetEntry(varName);
+
+            while (ascending ? i < end : i > end)
             {
-                newContext.SymbolTable.Set(node.VarNameTok.Value.ToString(), new NumberValue(i));
+                iterEntry!.Value = new NumberValue(i);
                 i += step;
-                Context actualContext = newContext.Copy();
-                if (res.Error != null) return res;
-                context.ApplyChangesFrom(actualContext);
 
-                if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak) return res;
+                bodySymbols.Clear();
+                bodyContext.ScopeSkipCopy = true;
+                res.Register(interpreter.Visit(node.BodyNode, bodyContext));
+                if (res.Error != null) return res;
+
                 if (res.LoopShouldContinue) continue;
                 if (res.LoopShouldBreak) break;
+                if (res.ShouldReturn())
+                {
+                    context.ApplyChangesFrom(bodyContext);
+                    return res;
+                }
             }
 
-            return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+            context.ApplyChangesFrom(bodyContext);
+            return res.Success(NullValue.Null);
         }
     }
 }

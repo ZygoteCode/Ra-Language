@@ -1,4 +1,4 @@
-using RaLanguage.Errors;
+﻿using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Runtime.Async;
@@ -269,7 +269,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                 return res.Success(retVal.SetContext(Context).SetPos(PositionStart, PositionEnd));
             }
 
-            var value = bodyRes.Value ?? new NullValue().SetContext(Context).SetPos(PositionStart, PositionEnd);
+            var value = bodyRes.Value ?? NullValue.Null.SetContext(Context).SetPos(PositionStart, PositionEnd);
             var retValue = (ShouldAutoReturn ? value : null) ?? value;
 
             if (instantiatedReturnType != null && !instantiatedReturnType.IsTypeParameter())

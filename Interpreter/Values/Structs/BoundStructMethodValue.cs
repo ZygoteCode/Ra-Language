@@ -92,8 +92,8 @@ namespace RaLanguage.Interpreter.Values.Structs
             }
 
             var retValue = MethodNode.ShouldAutoReturn
-                ? (bodyRes.Value ?? new NullValue().SetContext(Context).SetPos(PositionStart, PositionEnd))
-                : new NullValue().SetContext(Context).SetPos(PositionStart, PositionEnd);
+                ? (bodyRes.Value ?? NullValue.Null.SetContext(Context).SetPos(PositionStart, PositionEnd))
+                : NullValue.Null.SetContext(Context).SetPos(PositionStart, PositionEnd);
 
             if (MethodNode.ReturnType != null && !TypeSystem.IsAssignable(execCtx, MethodNode.ReturnType, retValue))
                 return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Return type mismatch in method '{Name}'", Context));

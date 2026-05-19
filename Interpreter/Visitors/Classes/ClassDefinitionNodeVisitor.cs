@@ -135,7 +135,7 @@ namespace RaLanguage.Interpreter.Visitors.Classes
 
             foreach (var field in node.Fields.Where(f => f.IsStatic))
             {
-                RuntimeValue value = new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                RuntimeValue value = NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
 
                 if (field.DefaultValueNode != null)
                 {

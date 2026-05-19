@@ -113,8 +113,8 @@ namespace RaLanguage.Interpreter.Values.Classes
             }
 
             var retValue = selected.ShouldAutoReturn
-                ? (bodyRes.Value ?? new NullValue().SetContext(Context).SetPos(PositionStart, PositionEnd))
-                : new NullValue().SetContext(Context).SetPos(PositionStart, PositionEnd);
+                ? (bodyRes.Value ?? NullValue.Null.SetContext(Context).SetPos(PositionStart, PositionEnd))
+                : NullValue.Null.SetContext(Context).SetPos(PositionStart, PositionEnd);
 
             if (selected.ReturnType != null && !TypeSystem.IsAssignable(bindResult.Value.Context, selected.ReturnType, retValue))
             {
@@ -337,7 +337,7 @@ namespace RaLanguage.Interpreter.Values.Classes
                 if (defRes.Error != null)
                     return (RuntimeError) defRes.Error;
 
-                finalAssigned[name] = defRes.Value ?? new NullValue().SetContext(execCtx).SetPos(defAst.PositionStart, defAst.PositionEnd);
+                finalAssigned[name] = defRes.Value ?? NullValue.Null.SetContext(execCtx).SetPos(defAst.PositionStart, defAst.PositionEnd);
             }
 
             for (int i = 0; i < formalCount; i++)
@@ -426,7 +426,7 @@ namespace RaLanguage.Interpreter.Values.Classes
             RuntimeResult resSuccess(Context ctx)
             {
                 var rr = new RuntimeResult();
-                rr.Success(new NullValue().SetContext(ctx).SetPos(PositionStart, PositionEnd));
+                rr.Success(NullValue.Null.SetContext(ctx).SetPos(PositionStart, PositionEnd));
                 return rr;
             }
         }

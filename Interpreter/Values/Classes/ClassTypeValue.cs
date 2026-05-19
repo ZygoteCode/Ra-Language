@@ -563,7 +563,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
             foreach (var field in type.Fields)
             {
-                RuntimeValue value = new NullValue().SetContext(context).SetPos(type.PositionStart, type.PositionEnd);
+                RuntimeValue value = NullValue.Null.SetContext(context).SetPos(type.PositionStart, type.PositionEnd);
 
                 if (field.DefaultValueNode != null)
                 {

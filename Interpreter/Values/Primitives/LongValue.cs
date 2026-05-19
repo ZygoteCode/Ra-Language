@@ -476,25 +476,25 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 var o = Promote(other);
-                return (new BooleanValue(Value == o.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value == o.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
             {
                 var n = (NumberValue)other;
-                return (new BooleanValue(BigNumber.Parse(Value.ToString()) == n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(BigNumber.Parse(Value.ToString()) == n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Boolean)
             {
                 var b = (BooleanValue)other;
-                return (new BooleanValue((b.Value && Value == 1) || (!b.Value && Value == 0)).SetContext(Context), null);
+                return (BooleanValue.Of((b.Value && Value == 1) || (!b.Value && Value == 0)).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.String)
             {
                 var s = (StringValue)other;
-                return (new BooleanValue(Value.ToString() == s.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value.ToString() == s.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonEq(other);
@@ -510,25 +510,25 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 var o = Promote(other);
-                return (new BooleanValue(Value != o.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value != o.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
             {
                 var n = (NumberValue)other;
-                return (new BooleanValue(BigNumber.Parse(Value.ToString()) != n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(BigNumber.Parse(Value.ToString()) != n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Boolean)
             {
                 var b = (BooleanValue)other;
-                return (new BooleanValue(!(b.Value && Value == 1) & !(!b.Value && Value == 0)).SetContext(Context), null);
+                return (BooleanValue.Of(!(b.Value && Value == 1) & !(!b.Value && Value == 0)).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.String)
             {
                 var s = (StringValue)other;
-                return (new BooleanValue(Value.ToString() != s.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value.ToString() != s.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonNe(other);
@@ -544,13 +544,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 var o = Promote(other);
-                return (new BooleanValue(Value < o.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value < o.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
             {
                 var n = (NumberValue)other;
-                return (new BooleanValue(BigNumber.Parse(Value.ToString()) < n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(BigNumber.Parse(Value.ToString()) < n.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonLt(other);
@@ -566,13 +566,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 var o = Promote(other);
-                return (new BooleanValue(Value > o.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value > o.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
             {
                 var n = (NumberValue)other;
-                return (new BooleanValue(BigNumber.Parse(Value.ToString()) > n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(BigNumber.Parse(Value.ToString()) > n.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonGt(other);
@@ -588,13 +588,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 var o = Promote(other);
-                return (new BooleanValue(Value <= o.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value <= o.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
             {
                 var n = (NumberValue)other;
-                return (new BooleanValue(BigNumber.Parse(Value.ToString()) <= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(BigNumber.Parse(Value.ToString()) <= n.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonLte(other);
@@ -610,13 +610,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
             {
                 var o = Promote(other);
-                return (new BooleanValue(Value >= o.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value >= o.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
             {
                 var n = (NumberValue)other;
-                return (new BooleanValue(BigNumber.Parse(Value.ToString()) >= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(BigNumber.Parse(Value.ToString()) >= n.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonGte(other);
@@ -678,7 +678,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
             if (string.Equals(tn, "bool", StringComparison.Ordinal))
             {
-                return (new BooleanValue(Value != 0).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                return (BooleanValue.Of(Value != 0).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             if (string.Equals(tn, "float", StringComparison.Ordinal))
@@ -736,7 +736,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public sealed override RuntimeValue Copy()
         {
-            return new LongValue(Value).SetPos(PositionStart, PositionEnd).SetContext(Context);
+            // Immutable primitive: sharing the same instance is safe and removes per-read allocations.
+            return this;
         }
 
         public sealed override bool IsTrue() => Value != 0;

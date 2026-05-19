@@ -32,7 +32,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                     context.ApplyChangesFrom(realCaseContext);
 
                     if (res.ShouldReturn()) return res;
-                    return res.Success(shouldReturnNull ? new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd) : exprValue);
+                    return res.Success(shouldReturnNull ? NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd) : exprValue);
                 }
                 else
                 {
@@ -48,10 +48,10 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 if (res.Error != null) return res;
                 context.ApplyChangesFrom(elseCaseContext);
                 if (res.ShouldReturn()) return res;
-                return res.Success(shouldReturnNull ? new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd) : exprValue);
+                return res.Success(shouldReturnNull ? NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd) : exprValue);
             }
 
-            return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+            return res.Success(NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
     }
 }

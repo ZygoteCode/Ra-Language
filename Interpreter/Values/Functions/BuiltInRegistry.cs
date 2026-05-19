@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
@@ -36,7 +36,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                 {
                     return new RuntimeResult().Failure(new RuntimeError(p1, p2, $"{name} expects 1 argument", ctx));
                 }
-                return new RuntimeResult().Success(new BooleanValue(predicate(args[0])).SetContext(ctx).SetPos(p1, p2));
+                return new RuntimeResult().Success(BooleanValue.Of(predicate(args[0])).SetContext(ctx).SetPos(p1, p2));
             });
         }
 

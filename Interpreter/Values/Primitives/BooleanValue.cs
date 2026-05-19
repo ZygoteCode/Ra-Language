@@ -1,12 +1,21 @@
-﻿using RaLanguage.Errors;
+using RaLanguage.Errors;
+using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Lexer;
+using RaLanguage.Parser.Nodes.Variables;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
-    public class BooleanValue : RuntimeValue
+    public sealed class BooleanValue : RuntimeValue
     {
         public bool Value { get; }
-        public static BooleanValue True => new BooleanValue(true);
-        public static BooleanValue False => new BooleanValue(false);
+
+        // Cached singletons. Reused for every transient boolean (comparison results,
+        // logical ops, negation, conditional results). BooleanValue is immutable, so
+        // sharing is safe; SetContext/SetPos/SetDeclarationType are no-ops below to
+        // prevent callers from mutating the shared instance.
+        public static readonly BooleanValue True = new BooleanValue(true);
+        public static readonly BooleanValue False = new BooleanValue(false);
+
         public sealed override RuntimeValueType Type => RuntimeValueType.Boolean;
         public sealed override bool IsCopy => true;
 
@@ -15,22 +24,31 @@ namespace RaLanguage.Interpreter.Values.Primitives
             Value = value;
         }
 
-        public sealed override RuntimeValue Copy()
+        public static BooleanValue Of(bool value) => value ? True : False;
+
+        public sealed override RuntimeValue SetContext(Context context) => this;
+        public sealed override RuntimeValue SetPos(Position positionStart, Position positionEnd) => this;
+        public sealed override RuntimeValue SetDeclarationType(VariableDeclarationType declarationType) => this;
+
+        public sealed override VariableDeclarationType VariableDeclarationType
         {
-            return new BooleanValue(Value).SetPos(PositionStart, PositionEnd).SetContext(Context);
+            get => VariableDeclarationType.VARIABLE;
+            set { /* singleton: declaration type lives on the SymbolEntry */ }
         }
+
+        public sealed override RuntimeValue Copy() => this;
 
         public sealed override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Boolean)
             {
                 BooleanValue b = (BooleanValue)other;
-                return (new BooleanValue(b.Value == Value).SetContext(Context), null);
+                return (Of(b.Value == Value), null);
             }
             else if (other.Type == RuntimeValueType.String)
             {
                 StringValue s = (StringValue)other;
-                return (new BooleanValue(s.Value == Value.ToString()).SetContext(Context), null);
+                return (Of(s.Value == Value.ToString()), null);
             }
 
             return base.GetComparisonEq(other);
@@ -41,12 +59,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Boolean)
             {
                 BooleanValue b = (BooleanValue)other;
-                return (new BooleanValue(b.Value != Value).SetContext(Context), null);
+                return (Of(b.Value != Value), null);
             }
             else if (other.Type == RuntimeValueType.String)
             {
                 StringValue s = (StringValue)other;
-                return (new BooleanValue(s.Value != Value.ToString()).SetContext(Context), null);
+                return (Of(s.Value != Value.ToString()), null);
             }
 
             return base.GetComparisonNe(other);
@@ -57,10 +75,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Boolean)
             {
                 BooleanValue b = (BooleanValue)other;
-                return (new BooleanValue(b.Value == Value).SetContext(Context), null);
+                return (Of(b.Value == Value), null);
             }
 
-            return (new BooleanValue(false).SetContext(Context), null);
+            return (False, null);
         }
 
         public sealed override (RuntimeValue?, Error?) GetComparisonStrictNe(RuntimeValue other)
@@ -68,18 +86,18 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Boolean)
             {
                 BooleanValue b = (BooleanValue)other;
-                return (new BooleanValue(b.Value != Value).SetContext(Context), null);
+                return (Of(b.Value != Value), null);
             }
 
-            return (new BooleanValue(true).SetContext(Context), null);
+            return (True, null);
         }
 
         public sealed override (RuntimeValue?, Error?) Notted()
         {
-            return (new BooleanValue(!Value).SetContext(Context), null);
+            return (Of(!Value), null);
         }
 
         public sealed override bool IsTrue() => Value;
-        public sealed override string ToString() => Value.ToString().ToLower();
+        public sealed override string ToString() => Value ? "true" : "false";
     }
 }

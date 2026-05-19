@@ -21,7 +21,7 @@ namespace RaLanguage.Interpreter.Visitors.Extensions
                 context.Extensions.Register(targetName, method);
             }
 
-            return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+            return res.Success(NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
     }
 }

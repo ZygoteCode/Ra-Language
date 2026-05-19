@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using RaLanguage.Errors;
@@ -31,7 +31,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
 
         public static RuntimeResult OkNull(Context ctx, Position p1, Position p2)
         {
-            return Ok(new NullValue(), ctx, p1, p2);
+            return Ok(NullValue.Null, ctx, p1, p2);
         }
 
         public static bool ExpectArgs(string name, List<RuntimeValue> args, int expected, Context ctx, Position p1, Position p2, out RuntimeResult err)
@@ -152,7 +152,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             return new DoubleValue(v);
         }
 
-        public static RuntimeValue MakeBool(bool b) => new BooleanValue(b);
+        public static RuntimeValue MakeBool(bool b) => BooleanValue.Of(b);
 
         public static List<RuntimeValue> Strings(IEnumerable<string> seq)
         {

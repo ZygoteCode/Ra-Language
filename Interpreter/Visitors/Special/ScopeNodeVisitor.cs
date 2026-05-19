@@ -10,28 +10,38 @@ namespace RaLanguage.Interpreter.Visitors.Special
         protected sealed override RuntimeResult VisitNode(ScopeNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
-            Context newContext = context.Copy();
 
-            foreach (var nodeToVisit in node.Nodes)
+            // Loop body hot path: when the caller has already produced a fresh child scope
+            // (e.g. ForNodeVisitor/WhileNodeVisitor), reuse it directly. Saves a Context +
+            // SymbolTable allocation on every iteration.
+            Context newContext;
+            bool reused = context.ScopeSkipCopy;
+            if (reused)
             {
-                var result = res.Register(interpreter.Visit(nodeToVisit, newContext));
-                
-                if (res.FuncReturnValue != null)
-                {
-                    return res;
-                }
-                
+                context.ScopeSkipCopy = false; // nested scopes inside body must still isolate
+                newContext = context;
+            }
+            else
+            {
+                newContext = context.Copy();
+            }
+
+            var nodes = node.Nodes;
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                res.Register(interpreter.Visit(nodes[i], newContext));
+
+                if (res.FuncReturnValue != null) return res;
                 if (res.ShouldReturn()) return res;
             }
 
-            context.ApplyChangesFrom(newContext);
-            
-            if (res.FuncReturnValue != null)
+            if (!reused)
             {
-                return res;
+                context.ApplyChangesFrom(newContext);
             }
-            
-            return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+
+            if (res.FuncReturnValue != null) return res;
+            return res.Success(NullValue.Null);
         }
     }
 }

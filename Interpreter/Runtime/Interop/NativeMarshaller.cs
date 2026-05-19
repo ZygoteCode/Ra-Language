@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -154,8 +154,8 @@ namespace RaLanguage.Interpreter.Runtime.Interop
         {
             switch (kind)
             {
-                case NativeTypeKind.Void: return new NullValue();
-                case NativeTypeKind.Bool: return new BooleanValue(intResult != 0);
+                case NativeTypeKind.Void: return NullValue.Null;
+                case NativeTypeKind.Bool: return BooleanValue.Of(intResult != 0);
                 case NativeTypeKind.Int8: return new IntegerValue((sbyte)intResult);
                 case NativeTypeKind.Int16: return new IntegerValue((short)intResult);
                 case NativeTypeKind.Int32: return new IntegerValue((int)intResult);

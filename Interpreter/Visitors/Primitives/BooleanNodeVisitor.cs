@@ -14,9 +14,9 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
             var res = new RuntimeResult();
 
             if (((Keyword)node.Token.Value) == Keyword.True)
-                return res.Success(new BooleanValue(true).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                return res.Success(BooleanValue.Of(true).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
             else if (((Keyword)node.Token.Value) == Keyword.False)
-                return res.Success(new BooleanValue(false).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                return res.Success(BooleanValue.Of(false).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
 
             return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Invalid boolean value", context));
         }

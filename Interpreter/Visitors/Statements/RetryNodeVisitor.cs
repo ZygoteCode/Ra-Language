@@ -157,10 +157,10 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
                 {
                     var elseRes = res.Register(interpreter.Visit(node.ElseNode, context));
                     if (res.Error != null) return res;
-                    return res.Success(elseRes ?? new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                    return res.Success(elseRes ?? NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
 
-                return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                return res.Success(NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
             }
 
             for (int attempt = 0; attempt < retries; attempt++)
@@ -209,7 +209,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
                 var elseRes = res.Register(interpreter.Visit(node.ElseNode, context));
                 if (res.ShouldReturn()) return res;
 
-                return res.Success(elseRes ?? new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                return res.Success(elseRes ?? NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
             }
 
             return res.Failure(lastError ?? new RuntimeError(node.PositionStart, node.PositionEnd, "Retry failed", context));

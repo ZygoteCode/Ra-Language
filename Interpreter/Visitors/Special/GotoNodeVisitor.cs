@@ -21,7 +21,7 @@ namespace RaLanguage.Interpreter.Visitors.Special
                 {
                     res.Register(interpreter.Visit(label.Item2, context));
                     if (res.ShouldReturn()) return res;
-                    return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                    return res.Success(NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
             }
 

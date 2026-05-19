@@ -885,6 +885,12 @@ namespace RaLanguage.Lexer
 
         private static readonly Dictionary<string, Keyword> s_keywords = CreateKeywordTable();
 
+        // Span-based alternate lookup avoids allocating a string per identifier just to
+        // ask "is this a keyword?". Falls back to the regular dictionary if the alternate
+        // lookup is not supported (it always is for StringComparer.Ordinal on .NET 9+).
+        private static readonly Dictionary<string, Keyword>.AlternateLookup<ReadOnlySpan<char>> s_keywordsSpan
+            = s_keywords.GetAlternateLookup<ReadOnlySpan<char>>();
+
         private static Dictionary<string, Keyword> CreateKeywordTable()
         {
             return new Dictionary<string, Keyword>(StringComparer.Ordinal)
@@ -1016,8 +1022,8 @@ namespace RaLanguage.Lexer
                 }
             }
 
-            string idStr = idSpan.ToString();
-            if (s_keywords.TryGetValue(idStr, out Keyword keyword))
+            // Keyword fast-path: zero-allocation lookup using the span alternate key.
+            if (s_keywordsSpan.TryGetValue(idSpan, out Keyword keyword))
             {
                 tokens.Add(new Token(TokenType.KEYWORD, keyword, posStart, GetPos()));
 
@@ -1028,7 +1034,8 @@ namespace RaLanguage.Lexer
             }
             else
             {
-                tokens.Add(new Token(TokenType.IDENTIFIER, idStr, posStart, GetPos()));
+                // Only materialise the identifier string when it is not a keyword.
+                tokens.Add(new Token(TokenType.IDENTIFIER, idSpan.ToString(), posStart, GetPos()));
             }
         }
 

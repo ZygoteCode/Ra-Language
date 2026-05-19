@@ -28,17 +28,9 @@ namespace RaLanguage.Interpreter.Visitors.Operations
                     if (node.Node.NodeType != AstNodeType.VariableAccess) return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Operator ++/-- can only be applied to variables", context));
                     
                     RuntimeValue actualValue = value;
-                    if (value.Type == RuntimeValueType.Reference)
+                    if (value is IReferenceValue refRead)
                     {
-                        try
-                        {
-                            var valueProp = value.GetType().GetProperty("Value");
-                            if (valueProp != null)
-                            {
-                                actualValue = valueProp.GetValue(value) as RuntimeValue ?? value;
-                            }
-                        }
-                        catch { }
+                        actualValue = refRead.Value;
                     }
                     
                     if (actualValue.Type != RuntimeValueType.Number && actualValue.Type != RuntimeValueType.Integer) 
@@ -55,24 +47,20 @@ namespace RaLanguage.Interpreter.Visitors.Operations
                     newValue = newValue!.SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
                     var varName = varAccessNode.VarNameTok.Value?.ToString() ?? throw new InvalidOperationException("Variable name missing");
                     
-                    if (value.Type == RuntimeValueType.Reference)
+                    if (value is IReferenceValue refWrite)
                     {
                         try
                         {
-                            var valueProp = value.GetType().GetProperty("Value");
-                            if (valueProp != null)
+                            refWrite.Value = newValue;
+
+                            if (node.IsLeft)
                             {
-                                valueProp.SetValue(value, newValue);
-                                
-                                if (node.IsLeft)
-                                {
-                                    return res.Success(newValue);
-                                }
-                                else
-                                {
-                                    var oldCopy = number.Copy().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
-                                    return res.Success(oldCopy);
-                                }
+                                return res.Success(newValue);
+                            }
+                            else
+                            {
+                                var oldCopy = number.Copy().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                                return res.Success(oldCopy);
                             }
                         }
                         catch (Exception ex)

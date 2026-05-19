@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -391,7 +391,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
                     (new StringValue("ownership"), new StringValue(nh.Ownership.ToString())),
                     (new StringValue("address"), new LongValue(nh.Handle.ToInt64())),
                     (new StringValue("size"), new LongValue(nh.ByteSize)),
-                    (new StringValue("disposed"), new BooleanValue(nh.IsDisposed)),
+                    (new StringValue("disposed"), BooleanValue.Of(nh.IsDisposed)),
                     (new StringValue("generation"), new IntegerValue(nh.Generation)),
                     (new StringValue("description"), new StringValue(nh.Description ?? "")),
                 };
@@ -551,7 +551,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
                         return Ok(new MapValue(new List<(RuntimeValue, RuntimeValue)>
                         {
                             (new StringValue("hr"), new IntegerValue(hr)),
-                            (new StringValue("ptr"), new NullValue())
+                            (new StringValue("ptr"), NullValue.Null)
                         }), ctx, p1, p2);
                     }
                     return Ok(new MapValue(new List<(RuntimeValue, RuntimeValue)>
@@ -587,7 +587,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
                         {
                             var r = bfv.Execute(callArgs);
                             if (r.Error != null) return ((RuntimeValue?)null, (Error?)r.Error);
-                            return ((RuntimeValue?)(r.Value ?? new NullValue()), (Error?)null);
+                            return ((RuntimeValue?)(r.Value ?? NullValue.Null), (Error?)null);
                         }
                         catch (Exception ex)
                         {
@@ -611,7 +611,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
                 {
                     var r = bodyFn.Execute(new List<RuntimeValue> { handle });
                     if (r.Error != null) return new RuntimeResult().Failure(r.Error);
-                    return Ok(r.Value ?? new NullValue(), ctx, p1, p2);
+                    return Ok(r.Value ?? NullValue.Null, ctx, p1, p2);
                 }
                 finally
                 {
@@ -650,16 +650,16 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             {
                 case "void()":
                     Marshal.GetDelegateForFunctionPointer<VoidNoArg>(sym)();
-                    return new NullValue();
+                    return NullValue.Null;
                 case "void(int)":
                     Marshal.GetDelegateForFunctionPointer<VoidIntArg>(sym)((int)AsLong(args[0]));
-                    return new NullValue();
+                    return NullValue.Null;
                 case "void(long)":
                     Marshal.GetDelegateForFunctionPointer<VoidLongArg>(sym)(AsLong(args[0]));
-                    return new NullValue();
+                    return NullValue.Null;
                 case "void(ptr)":
                     Marshal.GetDelegateForFunctionPointer<VoidPtrArg>(sym)(args[0] is NativeHandleValue nh1 ? nh1.Handle : (IntPtr)AsLong(args[0]));
-                    return new NullValue();
+                    return NullValue.Null;
                 case "int()":
                     return new IntegerValue(Marshal.GetDelegateForFunctionPointer<IntNoArg>(sym)());
                 case "int(int)":

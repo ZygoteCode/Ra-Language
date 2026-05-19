@@ -5,7 +5,7 @@ using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
-    public class ReferenceValue : RuntimeValue
+    public class ReferenceValue : RuntimeValue, IReferenceValue
     {
         public SymbolTable TargetSymbolTable { get; }
         public string VariableName { get; }
@@ -26,10 +26,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 if (entry == null)
                     throw new InvalidOperationException($"Referenced variable '{VariableName}' no longer exists");
                 
-                if (entry.Value.VariableDeclarationType == Parser.Nodes.Variables.VariableDeclarationType.CONST)
+                if (entry.DeclarationType == Parser.Nodes.Variables.VariableDeclarationType.CONST)
                     throw new InvalidOperationException($"Cannot modify const variable '{VariableName}'");
-                
-                if (entry.Value.VariableDeclarationType == Parser.Nodes.Variables.VariableDeclarationType.FINAL)
+
+                if (entry.DeclarationType == Parser.Nodes.Variables.VariableDeclarationType.FINAL)
                     throw new InvalidOperationException($"Cannot modify final variable '{VariableName}'");
                 
                 entry.Value = value;

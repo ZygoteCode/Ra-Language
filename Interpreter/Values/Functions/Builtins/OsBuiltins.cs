@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using RaLanguage.Errors;
@@ -105,7 +105,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             BuiltInRegistry.Register("chdir", (ctx, args, p1, p2) =>
             {
                 if (!ExpectArgs("chdir", args, 1, ctx, p1, p2, out var err)) return err;
-                try { Environment.CurrentDirectory = AsString(args[0]); return Ok(new BooleanValue(true), ctx, p1, p2); }
+                try { Environment.CurrentDirectory = AsString(args[0]); return Ok(BooleanValue.Of(true), ctx, p1, p2); }
                 catch (Exception ex) { return Fail(ctx, p1, p2, $"chdir: {ex.Message}"); }
             });
             BuiltInRegistry.Register("home_dir", (ctx, args, p1, p2) =>

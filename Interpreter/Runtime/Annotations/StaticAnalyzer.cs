@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
@@ -166,11 +166,11 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
                 {
                     var tok = bn.Token;
                     var kw = tok.Value;
-                    value = new BooleanValue(kw is RaLanguage.Lexer.Tokens.Keyword k && k == RaLanguage.Lexer.Tokens.Keyword.True);
+                    value = BooleanValue.Of(kw is RaLanguage.Lexer.Tokens.Keyword k && k == RaLanguage.Lexer.Tokens.Keyword.True);
                     return true;
                 }
                 case Parser.Nodes.Primitives.NullNode:
-                    value = new NullValue();
+                    value = NullValue.Null;
                     return true;
                 case Parser.Nodes.Primitives.StringNode sn:
                 {

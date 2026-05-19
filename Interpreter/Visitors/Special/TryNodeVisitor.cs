@@ -84,7 +84,7 @@ namespace RaLanguage.Interpreter.Visitors.Special
                     if (finallyRes4.LoopShouldBreak) return res.SuccessBreak();
                 }
 
-                return res.Success(new NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                return res.Success(NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
             }
         }
     }

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using RaLanguage.Errors;
@@ -126,7 +126,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public sealed override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
         {
             if (other is NativeHandleValue nh)
-                return (new BooleanValue(Handle == nh.Handle && Kind == nh.Kind).SetContext(Context), null);
+                return (BooleanValue.Of(Handle == nh.Handle && Kind == nh.Kind).SetContext(Context), null);
             return base.GetComparisonEq(other);
         }
 
@@ -134,7 +134,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
         {
             var eq = GetComparisonEq(other).Item1;
             if (eq is BooleanValue b)
-                return (new BooleanValue(!b.Value).SetContext(Context), null);
+                return (BooleanValue.Of(!b.Value).SetContext(Context), null);
             return base.GetComparisonNe(other);
         }
 

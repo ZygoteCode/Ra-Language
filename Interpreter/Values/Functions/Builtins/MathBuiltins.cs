@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
@@ -243,7 +243,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
 
         private static RuntimeResult RandomSeedFn(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
         {
-            return Ok(new NullValue(), ctx, p1, p2);
+            return Ok(NullValue.Null, ctx, p1, p2);
         }
 
         private static RuntimeResult BitCountFn(Context ctx, List<RuntimeValue> args, Position p1, Position p2)

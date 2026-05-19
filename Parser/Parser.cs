@@ -858,7 +858,7 @@ namespace RaLanguage.Parser
                 }
             }
 
-            var leftNode = res.Register(ParseBinaryOperation(ParseBitwiseOrExpression, new List<(TokenType, Keyword?)> { (TokenType.KEYWORD, Keyword.And), (TokenType.KEYWORD, Keyword.Or) }));
+            var leftNode = res.Register(ParseBinaryOperation(ParseBitwiseOrExpression, s_opsLogical));
 
             if (res.Error == null)
             {
@@ -948,12 +948,12 @@ namespace RaLanguage.Parser
 
         private ParserResult ParseBitwiseOrExpression()
         {
-            return ParseBinaryOperation(ParseBitwiseAndExpression, new List<(TokenType, Keyword?)> { (TokenType.BITWISE_OR, null) });
+            return ParseBinaryOperation(ParseBitwiseAndExpression, s_opsBitwiseOr);
         }
 
         private ParserResult ParseBitwiseAndExpression()
         {
-            return ParseBinaryOperation(ParseComparisonExpression, new List<(TokenType, Keyword?)> { (TokenType.BITWISE_AND, null) });
+            return ParseBinaryOperation(ParseComparisonExpression, s_opsBitwiseAnd);
         }
 
         private ParserResult ParseRangeExpression()
@@ -1025,16 +1025,7 @@ namespace RaLanguage.Parser
                 return res.Success(new UnaryOperationNode(opTok, node));
             }
 
-            var b_node = res.Register(ParseBinaryOperation(
-                ParseNullCoalescing,
-                new List<(TokenType, Keyword?)>
-                {
-                    (TokenType.EE, null), (TokenType.NE, null), (TokenType.LT, null),
-                    (TokenType.GT, null), (TokenType.LTE, null), (TokenType.GTE, null),
-                    (TokenType.STRICT_EE, null), (TokenType.STRICT_NE, null),
-                    (TokenType.KEYWORD, Keyword.In), (TokenType.KEYWORD, Keyword.NotIn)
-                }
-            ));
+            var b_node = res.Register(ParseBinaryOperation(ParseNullCoalescing, s_opsComparison));
 
             if (res.Error != null)
             {
@@ -1049,26 +1040,17 @@ namespace RaLanguage.Parser
 
         private ParserResult ParseShiftExpression()
         {
-            return ParseBinaryOperation(ParseRangeExpression, new List<(TokenType, Keyword?)>
-            {
-                (TokenType.BITWISE_LEFT_SHIFT, null),
-                (TokenType.BITWISE_RIGHT_SHIFT, null)
-            });
+            return ParseBinaryOperation(ParseRangeExpression, s_opsShift);
         }
 
         private ParserResult ParseArithmeticExpression()
         {
-            return ParseBinaryOperation(ParseTerm, new List<(TokenType, Keyword?)> { (TokenType.PLUS, null), (TokenType.MINUS, null) });
+            return ParseBinaryOperation(ParseTerm, s_opsArith);
         }
 
         private ParserResult ParseTerm()
         {
-            return ParseBinaryOperation(ParseFactor, new List<(TokenType, Keyword?)>
-            {
-                (TokenType.MUL, null),
-                (TokenType.DIV, null),
-                (TokenType.MODULO, null)
-            });
+            return ParseBinaryOperation(ParseFactor, s_opsTerm);
         }
 
         private ParserResult ParseFactor()
@@ -1099,7 +1081,7 @@ namespace RaLanguage.Parser
 
         private ParserResult ParsePower()
         {
-            return ParseBinaryOperation(ParseCall, new List<(TokenType, Keyword?)> { (TokenType.POW, null) }, ParseFactor);
+            return ParseBinaryOperation(ParseCall, s_opsPow, ParseFactor);
         }
 
         private ParserResult ParseCall()
@@ -5679,15 +5661,71 @@ namespace RaLanguage.Parser
             return res.Success(new VariableDeclarationNode(variableDeclarationType, declarations, isPublic, false));
         }
 
-        private ParserResult ParseBinaryOperation(Func<ParserResult> funcA, List<(TokenType, Keyword?)> ops, Func<ParserResult>? funcB = null)
+        // Pre-allocated operator precedence tables. The previous implementation allocated a
+        // List<(TokenType, Keyword?)> at every call to ParseBinaryOperation. With these static
+        // arrays parsing a single expression no longer pays for ~6 short-lived list
+        // allocations and the Any(lambda) closure inspections each can hide.
+        private static readonly (TokenType, Keyword?)[] s_opsLogical = new (TokenType, Keyword?)[]
+        {
+            (TokenType.KEYWORD, Keyword.And),
+            (TokenType.KEYWORD, Keyword.Or),
+        };
+        private static readonly (TokenType, Keyword?)[] s_opsBitwiseOr = new (TokenType, Keyword?)[]
+        {
+            (TokenType.BITWISE_OR, null),
+        };
+        private static readonly (TokenType, Keyword?)[] s_opsBitwiseAnd = new (TokenType, Keyword?)[]
+        {
+            (TokenType.BITWISE_AND, null),
+        };
+        private static readonly (TokenType, Keyword?)[] s_opsComparison = new (TokenType, Keyword?)[]
+        {
+            (TokenType.EE, null), (TokenType.NE, null), (TokenType.LT, null),
+            (TokenType.GT, null), (TokenType.LTE, null), (TokenType.GTE, null),
+            (TokenType.STRICT_EE, null), (TokenType.STRICT_NE, null),
+            (TokenType.KEYWORD, Keyword.In), (TokenType.KEYWORD, Keyword.NotIn),
+        };
+        private static readonly (TokenType, Keyword?)[] s_opsShift = new (TokenType, Keyword?)[]
+        {
+            (TokenType.BITWISE_LEFT_SHIFT, null),
+            (TokenType.BITWISE_RIGHT_SHIFT, null),
+        };
+        private static readonly (TokenType, Keyword?)[] s_opsArith = new (TokenType, Keyword?)[]
+        {
+            (TokenType.PLUS, null), (TokenType.MINUS, null),
+        };
+        private static readonly (TokenType, Keyword?)[] s_opsTerm = new (TokenType, Keyword?)[]
+        {
+            (TokenType.MUL, null), (TokenType.DIV, null), (TokenType.MODULO, null),
+        };
+        private static readonly (TokenType, Keyword?)[] s_opsPow = new (TokenType, Keyword?)[]
+        {
+            (TokenType.POW, null),
+        };
+
+        private ParserResult ParseBinaryOperation(Func<ParserResult> funcA, (TokenType, Keyword?)[] ops, Func<ParserResult>? funcB = null)
         {
             if (funcB == null) funcB = funcA;
             var res = new ParserResult();
             var left = res.Register(funcA());
             if (res.Error != null) return res;
 
-            while (ops.Any(op => op.Item1 == _currentToken.Type && (op.Item2 == null || op.Item2 == ((Keyword)_currentToken.Value))))
+            while (true)
             {
+                var curType = _currentToken.Type;
+                object? curVal = _currentToken.Value;
+                bool matched = false;
+                for (int i = 0; i < ops.Length; i++)
+                {
+                    var (type, kw) = ops[i];
+                    if (curType != type) continue;
+                    if (kw == null || (curVal is Keyword k && k == kw))
+                    {
+                        matched = true;
+                        break;
+                    }
+                }
+                if (!matched) break;
                 var opTok = _currentToken;
                 res.RegisterAdvancement();
                 Advance();

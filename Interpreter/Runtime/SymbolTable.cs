@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Interpreter.Values;
+using RaLanguage.Parser.Nodes.Variables;
 using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Runtime
@@ -34,60 +35,53 @@ namespace RaLanguage.Interpreter.Runtime
 
         public virtual SymbolEntry? GetEntry(string name)
         {
-            if (_symbols.TryGetValue(name, out var e))
+            // Iterative parent walk avoids virtual recursion on each scope hop. Hot path.
+            SymbolTable? st = this;
+            while (st != null)
             {
-                return e;
+                if (st._symbols.TryGetValue(name, out var e)) return e;
+                st = st.Parent;
             }
-
-            return Parent?.GetEntry(name);
+            return null;
         }
 
         public virtual void Set(string name, RuntimeValue value, bool isLet = false, TypeDescriptor? declaredType = null, bool isStaticallyTyped = false, bool isPublic = true)
         {
+            SetWithDeclarationType(name, value, isLet, declaredType, isStaticallyTyped, isPublic, null);
+        }
+
+        public void SetWithDeclarationType(string name, RuntimeValue value, bool isLet, TypeDescriptor? declaredType, bool isStaticallyTyped, bool isPublic, VariableDeclarationType? declarationType)
+        {
+            // Single walk; resolves owner scope and writes once. Avoids the previous pattern
+            // that re-indexed the dictionary five times per assignment.
             SymbolTable? st = this;
-            SymbolTable? owner = null;
             while (st != null)
             {
-                if (st._symbols.ContainsKey(name))
+                if (st._symbols.TryGetValue(name, out var existing))
                 {
-                    owner = st;
-                    break;
+                    existing.Value = value;
+                    existing.IsLet = isLet;
+                    existing.DeclaredType = declaredType;
+                    existing.IsStaticallyTyped = isStaticallyTyped;
+                    existing.IsPublic = isPublic;
+                    if (declarationType.HasValue) existing.DeclarationType = declarationType.Value;
+                    return;
                 }
                 st = st.Parent;
             }
 
-            if (owner != null)
-            {
-                owner._symbols[name].Value = value;
-                owner._symbols[name].IsLet = isLet;
-                owner._symbols[name].DeclaredType = declaredType;
-                owner._symbols[name].IsStaticallyTyped = isStaticallyTyped;
-                owner._symbols[name].IsPublic = isPublic;
-            }
-            else
-            {
-                _symbols[name] = new SymbolEntry(value, isLet, isPublic, declaredType, isStaticallyTyped);
-            }
+            var entry = new SymbolEntry(value, isLet, isPublic, declaredType, isStaticallyTyped,
+                declarationType ?? VariableDeclarationType.VARIABLE);
+            _symbols[name] = entry;
         }
 
         public virtual void Remove(string name)
         {
             SymbolTable? st = this;
-            SymbolTable? owner = null;
             while (st != null)
             {
-                if (st._symbols.ContainsKey(name))
-                {
-                    owner = st;
-                    break;
-                }
+                if (st._symbols.Remove(name)) return;
                 st = st.Parent;
-            }
-
-            if (owner != null)
-            {
-                var entry = owner._symbols[name];
-                owner._symbols.Remove(name);
             }
         }
 

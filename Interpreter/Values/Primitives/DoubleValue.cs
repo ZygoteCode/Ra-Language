@@ -272,25 +272,25 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 other.Type == RuntimeValueType.Decimal ||
                 other.Type == RuntimeValueType.Byte)
             {
-                return (new BooleanValue(Value == AsDouble(other)).SetContext(Context), null);
+                return (BooleanValue.Of(Value == AsDouble(other)).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
             {
                 var n = (NumberValue)other;
-                return (new BooleanValue(BigNumber.Parse(Value.ToString("R", CultureInfo.InvariantCulture)) == n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(BigNumber.Parse(Value.ToString("R", CultureInfo.InvariantCulture)) == n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Boolean)
             {
                 var b = (BooleanValue)other;
-                return (new BooleanValue((b.Value && Value == 1.0) || (!b.Value && Value == 0.0)).SetContext(Context), null);
+                return (BooleanValue.Of((b.Value && Value == 1.0) || (!b.Value && Value == 0.0)).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.String)
             {
                 var s = (StringValue)other;
-                return (new BooleanValue(Value.ToString("R", CultureInfo.InvariantCulture) == s.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value.ToString("R", CultureInfo.InvariantCulture) == s.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonEq(other);
@@ -311,25 +311,25 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 other.Type == RuntimeValueType.Decimal ||
                 other.Type == RuntimeValueType.Byte)
             {
-                return (new BooleanValue(Value != AsDouble(other)).SetContext(Context), null);
+                return (BooleanValue.Of(Value != AsDouble(other)).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
             {
                 var n = (NumberValue)other;
-                return (new BooleanValue(BigNumber.Parse(Value.ToString("R", CultureInfo.InvariantCulture)) != n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(BigNumber.Parse(Value.ToString("R", CultureInfo.InvariantCulture)) != n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Boolean)
             {
                 var b = (BooleanValue)other;
-                return (new BooleanValue(!(b.Value && Value == 1.0) & !(!b.Value && Value == 0.0)).SetContext(Context), null);
+                return (BooleanValue.Of(!(b.Value && Value == 1.0) & !(!b.Value && Value == 0.0)).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.String)
             {
                 var s = (StringValue)other;
-                return (new BooleanValue(Value.ToString("R", CultureInfo.InvariantCulture) != s.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value.ToString("R", CultureInfo.InvariantCulture) != s.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonNe(other);
@@ -350,13 +350,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 other.Type == RuntimeValueType.Decimal ||
                 other.Type == RuntimeValueType.Byte)
             {
-                return (new BooleanValue(Value < AsDouble(other)).SetContext(Context), null);
+                return (BooleanValue.Of(Value < AsDouble(other)).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
             {
                 var n = (NumberValue)other;
-                return (new BooleanValue(BigNumber.Parse(Value.ToString("R", CultureInfo.InvariantCulture)) < n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(BigNumber.Parse(Value.ToString("R", CultureInfo.InvariantCulture)) < n.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonLt(other);
@@ -377,13 +377,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 other.Type == RuntimeValueType.Decimal ||
                 other.Type == RuntimeValueType.Byte)
             {
-                return (new BooleanValue(Value > AsDouble(other)).SetContext(Context), null);
+                return (BooleanValue.Of(Value > AsDouble(other)).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
             {
                 var n = (NumberValue)other;
-                return (new BooleanValue(BigNumber.Parse(Value.ToString("R", CultureInfo.InvariantCulture)) > n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(BigNumber.Parse(Value.ToString("R", CultureInfo.InvariantCulture)) > n.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonGt(other);
@@ -404,13 +404,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 other.Type == RuntimeValueType.Decimal ||
                 other.Type == RuntimeValueType.Byte)
             {
-                return (new BooleanValue(Value <= AsDouble(other)).SetContext(Context), null);
+                return (BooleanValue.Of(Value <= AsDouble(other)).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
             {
                 var n = (NumberValue)other;
-                return (new BooleanValue(BigNumber.Parse(Value.ToString("R", CultureInfo.InvariantCulture)) <= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(BigNumber.Parse(Value.ToString("R", CultureInfo.InvariantCulture)) <= n.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonLte(other);
@@ -431,13 +431,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 other.Type == RuntimeValueType.Decimal ||
                 other.Type == RuntimeValueType.Byte)
             {
-                return (new BooleanValue(Value >= AsDouble(other)).SetContext(Context), null);
+                return (BooleanValue.Of(Value >= AsDouble(other)).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
             {
                 var n = (NumberValue)other;
-                return (new BooleanValue(BigNumber.Parse(Value.ToString("R", CultureInfo.InvariantCulture)) >= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(BigNumber.Parse(Value.ToString("R", CultureInfo.InvariantCulture)) >= n.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonGte(other);
@@ -578,7 +578,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
             if (string.Equals(tn, "bool", StringComparison.Ordinal))
             {
-                return (new BooleanValue(Value != 0.0).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                return (BooleanValue.Of(Value != 0.0).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             if (string.Equals(tn, "uint", StringComparison.Ordinal))
@@ -630,7 +630,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public sealed override RuntimeValue Copy()
         {
-            return new DoubleValue(Value).SetPos(PositionStart, PositionEnd).SetContext(Context);
+            // Immutable primitive: sharing the same instance is safe and removes per-read allocations.
+            return this;
         }
 
         public sealed override bool IsTrue() => Value != 0.0;

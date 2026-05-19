@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Interpreter.Values;
+using RaLanguage.Parser.Nodes.Variables;
 using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Runtime
@@ -11,13 +12,15 @@ namespace RaLanguage.Interpreter.Runtime
         public bool IsPublic { get; set; }
         public bool IsStaticallyTyped { get; set; }
         public TypeDescriptor? DeclaredType { get; set; }
+        public VariableDeclarationType DeclarationType { get; set; } = VariableDeclarationType.VARIABLE;
 
         public SymbolEntry(
             RuntimeValue value,
             bool isLet = false,
             bool isPublic = true,
             TypeDescriptor? declaredType = null,
-            bool isStaticallyTyped = false)
+            bool isStaticallyTyped = false,
+            VariableDeclarationType declarationType = VariableDeclarationType.VARIABLE)
         {
             Value = value;
             IsLet = isLet;
@@ -25,6 +28,7 @@ namespace RaLanguage.Interpreter.Runtime
             IsPublic = isPublic;
             DeclaredType = declaredType;
             IsStaticallyTyped = isStaticallyTyped;
+            DeclarationType = declarationType;
         }
 
         public SymbolEntry(RuntimeValue value, bool isLet, TypeDescriptor? declaredType, bool isStaticallyTyped)
@@ -41,6 +45,7 @@ namespace RaLanguage.Interpreter.Runtime
             IsMoved = false;
             DeclaredType = null;
             IsStaticallyTyped = false;
+            DeclarationType = VariableDeclarationType.VARIABLE;
         }
     }
 }

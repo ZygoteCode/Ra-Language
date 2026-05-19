@@ -540,80 +540,80 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Number)
             {
                 NumberValue n = (NumberValue)other;
-                return (new BooleanValue(Value == n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value == n.Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Boolean)
             {
                 BooleanValue b = (BooleanValue)other;
-                return (new BooleanValue((b.Value && Value == 1) || (!b.Value && Value == 0)).SetContext(Context), null);
+                return (BooleanValue.Of((b.Value && Value == 1) || (!b.Value && Value == 0)).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Integer)
             {
                 NumberValue n = Promote((IntegerValue)other);
-                return (new BooleanValue(Value == n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value == n.Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Long)
             {
                 NumberValue n = Promote((LongValue)other);
-                return (new BooleanValue(Value == n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value == n.Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.String)
             {
                 StringValue s = (StringValue)other;
-                return (new BooleanValue(Value.ToString() == s.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value.ToString() == s.Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Float)
             {
                 var f = (FloatValue)other;
                 var lhs = BigNumber.Parse(Value.ToString());
                 var rhs = BigNumber.Parse(f.Value.ToString("R", CultureInfo.InvariantCulture));
-                return (new BooleanValue(lhs == rhs).SetContext(Context), null);
+                return (BooleanValue.Of(lhs == rhs).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Double)
             {
                 var d = (DoubleValue)other;
                 var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
-                return (new BooleanValue(Value == rhs).SetContext(Context), null);
+                return (BooleanValue.Of(Value == rhs).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.UnsignedInteger)
             {
                 NumberValue n = Promote((UnsignedIntegerValue)other);
-                return (new BooleanValue(Value == n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value == n.Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.UnsignedLong)
             {
                 NumberValue n = Promote((UnsignedLongValue)other);
-                return (new BooleanValue(Value == n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value == n.Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Short)
             {
                 NumberValue n = Promote((ShortValue)other);
-                return (new BooleanValue(Value == n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value == n.Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.UnsignedShort)
             {
                 NumberValue n = Promote((UnsignedShortValue)other);
-                return (new BooleanValue(Value == n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value == n.Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Int128)
             {
                 NumberValue n = Promote((Int128Value)other);
-                return (new BooleanValue(Value == n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value == n.Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.UnsignedInt128)
             {
                 NumberValue n = Promote((UnsignedInt128Value)other);
-                return (new BooleanValue(Value == n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value == n.Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Decimal)
             {
                 NumberValue n = Promote((DecimalValue)other);
-                return (new BooleanValue(Value == n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value == n.Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Byte)
             {
                 NumberValue n = Promote((ByteValue)other);
-                return (new BooleanValue(Value == n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value == n.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonEq(other);
@@ -624,80 +624,80 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Number)
             {
                 NumberValue n = (NumberValue)other;
-                return (new BooleanValue(Value != n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value != n.Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Boolean)
             {
                 BooleanValue b = (BooleanValue)other;
-                return (new BooleanValue(!(b.Value && Value == 1) & !(!b.Value && Value == 0)).SetContext(Context), null);
+                return (BooleanValue.Of(!(b.Value && Value == 1) & !(!b.Value && Value == 0)).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Integer)
             {
                 NumberValue n = Promote((IntegerValue)other);
-                return (new BooleanValue(Value != n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value != n.Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Long)
             {
                 NumberValue n = Promote((LongValue)other);
-                return (new BooleanValue(Value == n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value == n.Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.String)
             {
                 StringValue s = (StringValue)other;
-                return (new BooleanValue(Value.ToString() != s.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value.ToString() != s.Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Float)
             {
                 var f = (FloatValue)other;
                 var lhs = BigNumber.Parse(Value.ToString());
                 var rhs = BigNumber.Parse(f.Value.ToString("R", CultureInfo.InvariantCulture));
-                return (new BooleanValue(lhs != rhs).SetContext(Context), null);
+                return (BooleanValue.Of(lhs != rhs).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Double)
             {
                 var d = (DoubleValue)other;
                 var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
-                return (new BooleanValue(Value != rhs).SetContext(Context), null);
+                return (BooleanValue.Of(Value != rhs).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.UnsignedInteger)
             {
                 NumberValue n = Promote((UnsignedIntegerValue)other);
-                return (new BooleanValue(Value != n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value != n.Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.UnsignedLong)
             {
                 NumberValue n = Promote((UnsignedLongValue)other);
-                return (new BooleanValue(Value != n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value != n.Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Short)
             {
                 NumberValue n = Promote((ShortValue)other);
-                return (new BooleanValue(Value != n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value != n.Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.UnsignedShort)
             {
                 NumberValue n = Promote((UnsignedShortValue)other);
-                return (new BooleanValue(Value != n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value != n.Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Int128)
             {
                 NumberValue n = Promote((Int128Value)other);
-                return (new BooleanValue(Value != n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value != n.Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.UnsignedInt128)
             {
                 NumberValue n = Promote((UnsignedInt128Value)other);
-                return (new BooleanValue(Value != n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value != n.Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Decimal)
             {
                 NumberValue n = Promote((DecimalValue)other);
-                return (new BooleanValue(Value != n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value != n.Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Byte)
             {
                 NumberValue n = Promote((ByteValue)other);
-                return (new BooleanValue(Value != n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value != n.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonNe(other);
@@ -708,19 +708,19 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Number)
             {
                 NumberValue n = (NumberValue)other;
-                return (new BooleanValue(Value < n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value < n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Integer)
             {
                 NumberValue n = Promote((IntegerValue)other);
-                return (new BooleanValue(Value < n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value < n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Long)
             {
                 NumberValue n = Promote((LongValue)other);
-                return (new BooleanValue(Value < n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value < n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Float)
@@ -728,62 +728,62 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var f = (FloatValue)other;
                 var lhs = BigNumber.Parse(Value.ToString());
                 var rhs = BigNumber.Parse(f.Value.ToString("R", CultureInfo.InvariantCulture));
-                return (new BooleanValue(lhs < rhs).SetContext(Context), null);
+                return (BooleanValue.Of(lhs < rhs).SetContext(Context), null);
             }
             
             if (other.Type == RuntimeValueType.Double)
             {
                 var d = (DoubleValue)other;
                 var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
-                return (new BooleanValue(Value < rhs).SetContext(Context), null);
+                return (BooleanValue.Of(Value < rhs).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.UnsignedInteger)
             {
                 NumberValue n = Promote((UnsignedIntegerValue)other);
-                return (new BooleanValue(Value < n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value < n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.UnsignedLong)
             {
                 NumberValue n = Promote((UnsignedShortValue)other);
-                return (new BooleanValue(Value < n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value < n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Short)
             {
                 NumberValue n = Promote((ShortValue)other);
-                return (new BooleanValue(Value < n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value < n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.UnsignedShort)
             {
                 NumberValue n = Promote((UnsignedShortValue)other);
-                return (new BooleanValue(Value < n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value < n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Int128)
             {
                 NumberValue n = Promote((Int128Value)other);
-                return (new BooleanValue(Value < n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value < n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.UnsignedInt128)
             {
                 NumberValue n = Promote((UnsignedInt128Value)other);
-                return (new BooleanValue(Value < n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value < n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Decimal)
             {
                 NumberValue n = Promote((DecimalValue)other);
-                return (new BooleanValue(Value < n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value < n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Byte)
             {
                 NumberValue n = Promote((ByteValue)other);
-                return (new BooleanValue(Value < n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value < n.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonLt(other);
@@ -794,19 +794,19 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Number)
             {
                 NumberValue n = (NumberValue)other;
-                return (new BooleanValue(Value > n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value > n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Integer)
             {
                 NumberValue n = Promote((IntegerValue)other);
-                return (new BooleanValue(Value > n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value > n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Long)
             {
                 NumberValue n = Promote((LongValue)other);
-                return (new BooleanValue(Value < n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value < n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Float)
@@ -814,62 +814,62 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var f = (FloatValue)other;
                 var lhs = BigNumber.Parse(Value.ToString());
                 var rhs = BigNumber.Parse(f.Value.ToString("R", CultureInfo.InvariantCulture));
-                return (new BooleanValue(lhs > rhs).SetContext(Context), null);
+                return (BooleanValue.Of(lhs > rhs).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Double)
             {
                 var d = (DoubleValue)other;
                 var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
-                return (new BooleanValue(Value > rhs).SetContext(Context), null);
+                return (BooleanValue.Of(Value > rhs).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.UnsignedInteger)
             {
                 NumberValue n = Promote((UnsignedIntegerValue)other);
-                return (new BooleanValue(Value > n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value > n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.UnsignedLong)
             {
                 NumberValue n = Promote((UnsignedLongValue)other);
-                return (new BooleanValue(Value > n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value > n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Short)
             {
                 NumberValue n = Promote((ShortValue)other);
-                return (new BooleanValue(Value > n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value > n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.UnsignedShort)
             {
                 NumberValue n = Promote((UnsignedShortValue)other);
-                return (new BooleanValue(Value > n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value > n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Int128)
             {
                 NumberValue n = Promote((Int128Value)other);
-                return (new BooleanValue(Value > n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value > n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.UnsignedInt128)
             {
                 NumberValue n = Promote((UnsignedInt128Value)other);
-                return (new BooleanValue(Value > n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value > n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Decimal)
             {
                 NumberValue n = Promote((DecimalValue)other);
-                return (new BooleanValue(Value > n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value > n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Byte)
             {
                 NumberValue n = Promote((ByteValue)other);
-                return (new BooleanValue(Value > n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value > n.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonGt(other);
@@ -880,19 +880,19 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Number)
             {
                 NumberValue n = (NumberValue)other;
-                return (new BooleanValue(Value <= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value <= n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Integer)
             {
                 NumberValue n = Promote((IntegerValue)other);
-                return (new BooleanValue(Value <= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value <= n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Long)
             {
                 NumberValue n = Promote((LongValue)other);
-                return (new BooleanValue(Value <= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value <= n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Float)
@@ -900,62 +900,62 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var f = (FloatValue)other;
                 var lhs = BigNumber.Parse(Value.ToString());
                 var rhs = BigNumber.Parse(f.Value.ToString("R", CultureInfo.InvariantCulture));
-                return (new BooleanValue(lhs <= rhs).SetContext(Context), null);
+                return (BooleanValue.Of(lhs <= rhs).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Double)
             {
                 var d = (DoubleValue)other;
                 var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
-                return (new BooleanValue(Value <= rhs).SetContext(Context), null);
+                return (BooleanValue.Of(Value <= rhs).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.UnsignedInteger)
             {
                 NumberValue n = Promote((UnsignedIntegerValue)other);
-                return (new BooleanValue(Value <= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value <= n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.UnsignedLong)
             {
                 NumberValue n = Promote((UnsignedLongValue)other);
-                return (new BooleanValue(Value <= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value <= n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Short)
             {
                 NumberValue n = Promote((ShortValue)other);
-                return (new BooleanValue(Value <= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value <= n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.UnsignedShort)
             {
                 NumberValue n = Promote((UnsignedShortValue)other);
-                return (new BooleanValue(Value <= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value <= n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Int128)
             {
                 NumberValue n = Promote((Int128Value)other);
-                return (new BooleanValue(Value <= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value <= n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.UnsignedInt128)
             {
                 NumberValue n = Promote((UnsignedInt128Value)other);
-                return (new BooleanValue(Value <= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value <= n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Decimal)
             {
                 NumberValue n = Promote((DecimalValue)other);
-                return (new BooleanValue(Value <= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value <= n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Byte)
             {
                 NumberValue n = Promote((ByteValue)other);
-                return (new BooleanValue(Value <= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value <= n.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonLte(other);
@@ -966,19 +966,19 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Number)
             {
                 NumberValue n = (NumberValue)other;
-                return (new BooleanValue(Value >= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value >= n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Integer)
             {
                 NumberValue n = Promote((IntegerValue)other);
-                return (new BooleanValue(Value >= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value >= n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Long)
             {
                 NumberValue n = Promote((LongValue)other);
-                return (new BooleanValue(Value >= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value >= n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Float)
@@ -986,62 +986,62 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var f = (FloatValue)other;
                 var lhs = BigNumber.Parse(Value.ToString());
                 var rhs = BigNumber.Parse(f.Value.ToString("R", CultureInfo.InvariantCulture));
-                return (new BooleanValue(lhs >= rhs).SetContext(Context), null);
+                return (BooleanValue.Of(lhs >= rhs).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Double)
             {
                 var d = (DoubleValue)other;
                 var rhs = BigNumber.Parse(d.Value.ToString("R", CultureInfo.InvariantCulture));
-                return (new BooleanValue(Value >= rhs).SetContext(Context), null);
+                return (BooleanValue.Of(Value >= rhs).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.UnsignedInteger)
             {
                 NumberValue n = Promote((UnsignedIntegerValue)other);
-                return (new BooleanValue(Value >= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value >= n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.UnsignedLong)
             {
                 NumberValue n = Promote((UnsignedLongValue)other);
-                return (new BooleanValue(Value >= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value >= n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Short)
             {
                 NumberValue n = Promote((ShortValue)other);
-                return (new BooleanValue(Value >= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value >= n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.UnsignedShort)
             {
                 NumberValue n = Promote((UnsignedShortValue)other);
-                return (new BooleanValue(Value >= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value >= n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Int128)
             {
                 NumberValue n = Promote((Int128Value)other);
-                return (new BooleanValue(Value >= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value >= n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.UnsignedInt128)
             {
                 NumberValue n = Promote((UnsignedInt128Value)other);
-                return (new BooleanValue(Value >= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value >= n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Decimal)
             {
                 NumberValue n = Promote((DecimalValue)other);
-                return (new BooleanValue(Value >= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value >= n.Value).SetContext(Context), null);
             }
 
             if (other.Type == RuntimeValueType.Byte)
             {
                 NumberValue n = Promote((ByteValue)other);
-                return (new BooleanValue(Value >= n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value >= n.Value).SetContext(Context), null);
             }
 
             return base.GetComparisonGte(other);
@@ -1209,10 +1209,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Number)
             {
                 NumberValue n = (NumberValue)other;
-                return (new BooleanValue(n.Value == Value).SetContext(Context), null);
+                return (BooleanValue.Of(n.Value == Value).SetContext(Context), null);
             }
 
-            return (new BooleanValue(false).SetContext(Context), null);
+            return (BooleanValue.Of(false).SetContext(Context), null);
         }
 
         public sealed override (RuntimeValue?, Error?) GetComparisonStrictNe(RuntimeValue other)
@@ -1220,10 +1220,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Number)
             {
                 NumberValue n = (NumberValue)other;
-                return (new BooleanValue(n.Value != Value).SetContext(Context), null);
+                return (BooleanValue.Of(n.Value != Value).SetContext(Context), null);
             }
 
-            return (new BooleanValue(true).SetContext(Context), null);
+            return (BooleanValue.Of(true).SetContext(Context), null);
         }
 
         public sealed override (RuntimeValue?, Error?) Factorial()
@@ -1240,7 +1240,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public sealed override RuntimeValue Copy()
         {
-            return new NumberValue(Value).SetPos(PositionStart, PositionEnd).SetContext(Context);
+            // Immutable primitive: sharing the same instance is safe and removes per-read allocations.
+            return this;
         }
 
         public sealed override (RuntimeValue?, Error?) CastTo(TypeDescriptor targetType)
@@ -1295,7 +1296,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
             if (string.Equals(tn, "bool", StringComparison.Ordinal))
             {
-                return (new BooleanValue(!Value.IsZero()).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                return (BooleanValue.Of(!Value.IsZero()).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             if (string.Equals(tn, "number", StringComparison.Ordinal))

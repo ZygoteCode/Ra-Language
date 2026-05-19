@@ -195,8 +195,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
             }
 
             var retValue = MethodNode.ShouldAutoReturn
-                ? (bodyRes.Value ?? new NullValue().SetContext(Context).SetPos(PositionStart, PositionEnd))
-                : new NullValue().SetContext(Context).SetPos(PositionStart, PositionEnd);
+                ? (bodyRes.Value ?? NullValue.Null.SetContext(Context).SetPos(PositionStart, PositionEnd))
+                : NullValue.Null.SetContext(Context).SetPos(PositionStart, PositionEnd);
 
             if (instantiatedReturnType != null && !instantiatedReturnType.IsTypeParameter() &&
                 !TypeSystem.IsAssignable(bindRes.execCtx!, instantiatedReturnType, retValue))

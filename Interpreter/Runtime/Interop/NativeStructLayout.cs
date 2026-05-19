@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -150,7 +150,7 @@ namespace RaLanguage.Interpreter.Runtime.Interop
             foreach (var sf in StructType.Fields)
             {
                 if (sf.IsStatic) continue;
-                instance.SetField(sf.NameTok.Value?.ToString() ?? "", new NullValue(), sf.IsPublic, sf.DeclarationType);
+                instance.SetField(sf.NameTok.Value?.ToString() ?? "", NullValue.Null, sf.IsPublic, sf.DeclarationType);
             }
             ReadInto(instance, buf);
             return instance;
@@ -233,7 +233,7 @@ namespace RaLanguage.Interpreter.Runtime.Interop
                 byte* p = (byte*)buf + f.Offset;
                 return f.Kind switch
                 {
-                    NativeTypeKind.Bool => new BooleanValue(*(int*)p != 0),
+                    NativeTypeKind.Bool => BooleanValue.Of(*(int*)p != 0),
                     NativeTypeKind.Int8 => new IntegerValue(*(sbyte*)p),
                     NativeTypeKind.UInt8 => new IntegerValue(*p),
                     NativeTypeKind.Int16 => new IntegerValue(*(short*)p),
