@@ -1,4 +1,4 @@
-﻿using RaLanguage.Interpreter.Architecture;
+using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Parser.Nodes.Statements;
@@ -11,26 +11,29 @@ namespace RaLanguage.Interpreter.Visitors.Statements
         {
             var res = new RuntimeResult();
             bool firstTime = true;
-            Context newContext = context.Copy();
+            var loopContext = context.Copy();
+
+            // Single reusable body scope cleared per iteration to drop locals.
+            var bodyContext = loopContext.Copy();
+            var bodySymbols = bodyContext.SymbolTable!;
 
             while (true)
             {
-                var condition = res.Register(interpreter.Visit(node.ConditionNode, newContext));
+                var condition = res.Register(interpreter.Visit(node.ConditionNode, loopContext));
                 if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
 
                 if (!firstTime && !condition.IsTrue()) break;
                 else firstTime = false;
 
-                Context iterationContext = newContext.Copy();
-                var value = res.Register(interpreter.Visit(node.BodyNode, iterationContext));
+                bodySymbols.Clear();
+                bodyContext.ScopeSkipCopy = true;
+                res.Register(interpreter.Visit(node.BodyNode, bodyContext));
                 if (res.Error != null) return res;
-                newContext.ApplyChangesFrom(iterationContext);
-                context.ApplyChangesFrom(newContext);
 
-                if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak) return res;
                 if (res.LoopShouldContinue) continue;
                 if (res.LoopShouldBreak) break;
+                if (res.ShouldReturn()) return res;
             }
 
             return res.Success(NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));

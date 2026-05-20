@@ -146,7 +146,20 @@ namespace RaLanguage.Interpreter.Visitors.Variables
 
             result = newValue2;
             result.VariableDeclarationType = declType2;
-            context.SymbolTable.SetWithDeclarationType(varName, result!, entry2.IsLet, entry2.DeclaredType, entry2.IsStaticallyTyped, entry2.IsPublic, declType2);
+
+            // Walk-up assignment that mutates only the Value of the resolved entry,
+            // preserving IsLet / IsPublic / DeclaredType / DeclarationType / IsStaticallyTyped.
+            // Errors if the binding has vanished between resolution and write (cannot happen
+            // in single-threaded execution, but defensive).
+            if (!context.SymbolTable.TryAssign(varName, result!))
+            {
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                    $"'{varName}' is not defined",
+                    context,
+                    code: DiagnosticCode.RuntimeUndefinedSymbol,
+                    primaryLabel: "no such variable in scope",
+                    help: $"declare '{varName}' with 'var', 'let', 'const' or 'final' before assigning to it"));
+            }
             return res.Success(result!.SetPos(node.PositionStart, node.PositionEnd));
         }
     }
