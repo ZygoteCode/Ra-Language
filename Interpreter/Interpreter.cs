@@ -22,6 +22,7 @@ using RaLanguage.Interpreter.Visitors.Imports;
 using RaLanguage.Interpreter.Visitors.Async;
 using RaLanguage.Interpreter.Visitors.Namespaces;
 using RaLanguage.Interpreter.Visitors.Asm;
+using RaLanguage.Interpreter.Visitors.Csharp;
 using RaLanguage.Lexer;
 using RaLanguage.Parser.Nodes;
 
@@ -107,6 +108,7 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.NamespaceDeclaration] = new NamespaceDeclarationNodeVisitor();
             _visitors[(int)AstNodeType.UsingNamespace] = new UsingNamespaceNodeVisitor();
             _visitors[(int)AstNodeType.AsmBlock] = new AsmBlockNodeVisitor();
+            _visitors[(int)AstNodeType.CsharpBlock] = new CsharpBlockNodeVisitor();
             _visitors[(int)AstNodeType.Borrow] = new BorrowNodeVisitor();
             _visitors[(int)AstNodeType.Dereference] = new DereferenceNodeVisitor();
             _visitors[(int)AstNodeType.DereferenceAssignment] = new DereferenceAssignmentNodeVisitor();

@@ -15,6 +15,7 @@ namespace RaLanguage.Lexer
         private int _ln;
         private int _col;
         private bool _asmHeaderPending;
+        private bool _csharpHeaderPending;
         private readonly DiagnosticBag _diagnostics = new DiagnosticBag();
 
         private static readonly bool[] s_isDigit = CreateDigitTable();
@@ -213,6 +214,14 @@ namespace RaLanguage.Lexer
                             tokens.Add(new Token(TokenType.LBRACKET, null, lbracePos, GetPos()));
                             _asmHeaderPending = false;
                             ProcessAsmBlock(span, tokens);
+                        }
+                        else if (_csharpHeaderPending)
+                        {
+                            var lbracePos = GetPos();
+                            Advance(c);
+                            tokens.Add(new Token(TokenType.LBRACKET, null, lbracePos, GetPos()));
+                            _csharpHeaderPending = false;
+                            ProcessCsharpBlock(span, tokens);
                         }
                         else
                         {
@@ -1001,7 +1010,8 @@ namespace RaLanguage.Lexer
                 { "namespace", Keyword.Namespace },
                 { "using", Keyword.Using },
                 { "asm", Keyword.Asm },
-                { "mut", Keyword.Mut }
+                { "mut", Keyword.Mut },
+                { "csharp", Keyword.Csharp }
             };
         }
 
@@ -1069,6 +1079,10 @@ namespace RaLanguage.Lexer
                 if (keyword == Keyword.Asm)
                 {
                     _asmHeaderPending = true;
+                }
+                else if (keyword == Keyword.Csharp)
+                {
+                    _csharpHeaderPending = true;
                 }
             }
             else
@@ -1198,6 +1212,377 @@ namespace RaLanguage.Lexer
                 phase: DiagnosticPhase.Lexing,
                 primaryLabel: "asm block opened here is never closed",
                 help: "add a matching '}' to close the asm { ... } block");
+        }
+
+        private enum CsLexState
+        {
+            Code,
+            LineComment,
+            BlockComment,
+            SingleQuote,
+            DoubleQuote,
+            Verbatim,
+            InterpDoubleQuote,
+            InterpVerbatim
+        }
+
+        private void ProcessCsharpBlock(ReadOnlySpan<char> span, List<Token> tokens)
+        {
+            var segStartPos = GetPos();
+            var sb = new StringBuilder();
+            var blockStartPos = segStartPos;
+
+            CsLexState mode = CsLexState.Code;
+            int braceDepth = 0;
+            var stack = new Stack<(CsLexState mode, int braceDepth)>();
+
+            while (_idx < span.Length)
+            {
+                char c = span[_idx];
+
+                // Ra interpolation %{...} works in every mode except inside C# comments —
+                // putting it in C# strings is explicitly supported so users can splice values
+                // into string templates. The substituted text is emitted inline, so the user is
+                // responsible for matching quote/brace state when using `:raw`.
+                bool isInterpolableContext = mode != CsLexState.LineComment && mode != CsLexState.BlockComment;
+                if (isInterpolableContext && c == '%' && _idx + 1 < span.Length && span[_idx + 1] == '%')
+                {
+                    sb.Append('%');
+                    AdvanceMultiple(2, span);
+                    continue;
+                }
+                if (isInterpolableContext && c == '%' && _idx + 1 < span.Length && span[_idx + 1] == '{')
+                {
+                    tokens.Add(new Token(TokenType.CSHARP_TEXT, sb.ToString(), segStartPos, GetPos()));
+                    sb.Clear();
+
+                    var interpStartPos = GetPos();
+                    AdvanceMultiple(2, span);
+                    tokens.Add(new Token(TokenType.INTERP_START, null, interpStartPos, GetPos()));
+
+                    int innerStartIdx = _idx;
+                    int innerBrace = 1;
+                    while (_idx < span.Length && innerBrace > 0)
+                    {
+                        if (span[_idx] == '{') innerBrace++;
+                        else if (span[_idx] == '}') innerBrace--;
+                        if (innerBrace == 0) break;
+                        Advance(span[_idx]);
+                    }
+
+                    if (_idx >= span.Length)
+                    {
+                        _diagnostics.AddError(
+                            title: "unterminated %{...} interpolation in csharp block",
+                            code: DiagnosticCode.LexerUnterminatedCsharpInterp,
+                            positionStart: interpStartPos,
+                            positionEnd: GetPos(),
+                            phase: DiagnosticPhase.Lexing,
+                            primaryLabel: "interpolation never closed",
+                            help: "close the csharp interpolation with '}'");
+                        return;
+                    }
+
+                    string innerText = _text.Substring(innerStartIdx, _idx - innerStartIdx);
+                    string exprText = innerText;
+                    string? typeHint = null;
+                    int colonAt = FindTopLevelColon(innerText);
+                    if (colonAt > 0)
+                    {
+                        exprText = innerText.Substring(0, colonAt).TrimEnd();
+                        typeHint = innerText.Substring(colonAt + 1).Trim();
+                    }
+
+                    var innerLexer = new Lexer(_fn, exprText);
+                    var (innerTokens, innerDiagnostics) = innerLexer.MakeTokens();
+                    _diagnostics.AddRange(innerDiagnostics);
+                    foreach (var t in innerTokens)
+                    {
+                        if (t.Type != TokenType.EOF) tokens.Add(t);
+                    }
+
+                    var interpEndPos = GetPos();
+                    Advance(span[_idx]);
+                    tokens.Add(new Token(TokenType.INTERP_END, typeHint, interpEndPos, GetPos()));
+
+                    segStartPos = GetPos();
+                    continue;
+                }
+
+                switch (mode)
+                {
+                    case CsLexState.Code:
+                    {
+                        if (c == '/' && _idx + 1 < span.Length && span[_idx + 1] == '/')
+                        {
+                            sb.Append("//");
+                            AdvanceMultiple(2, span);
+                            mode = CsLexState.LineComment;
+                            continue;
+                        }
+                        if (c == '/' && _idx + 1 < span.Length && span[_idx + 1] == '*')
+                        {
+                            sb.Append("/*");
+                            AdvanceMultiple(2, span);
+                            mode = CsLexState.BlockComment;
+                            continue;
+                        }
+                        if (c == '@' && _idx + 1 < span.Length && span[_idx + 1] == '"')
+                        {
+                            sb.Append("@\"");
+                            AdvanceMultiple(2, span);
+                            mode = CsLexState.Verbatim;
+                            continue;
+                        }
+                        if (c == '$' && _idx + 2 < span.Length && span[_idx + 1] == '@' && span[_idx + 2] == '"')
+                        {
+                            sb.Append("$@\"");
+                            AdvanceMultiple(3, span);
+                            mode = CsLexState.InterpVerbatim;
+                            continue;
+                        }
+                        if (c == '@' && _idx + 2 < span.Length && span[_idx + 1] == '$' && span[_idx + 2] == '"')
+                        {
+                            sb.Append("@$\"");
+                            AdvanceMultiple(3, span);
+                            mode = CsLexState.InterpVerbatim;
+                            continue;
+                        }
+                        if (c == '$' && _idx + 1 < span.Length && span[_idx + 1] == '"')
+                        {
+                            sb.Append("$\"");
+                            AdvanceMultiple(2, span);
+                            mode = CsLexState.InterpDoubleQuote;
+                            continue;
+                        }
+                        if (c == '"')
+                        {
+                            sb.Append('"');
+                            Advance(c);
+                            mode = CsLexState.DoubleQuote;
+                            continue;
+                        }
+                        if (c == '\'')
+                        {
+                            sb.Append('\'');
+                            Advance(c);
+                            mode = CsLexState.SingleQuote;
+                            continue;
+                        }
+                        if (c == '{')
+                        {
+                            braceDepth++;
+                            sb.Append('{');
+                            Advance(c);
+                            continue;
+                        }
+                        if (c == '}')
+                        {
+                            if (braceDepth == 0)
+                            {
+                                if (stack.Count == 0)
+                                {
+                                    tokens.Add(new Token(TokenType.CSHARP_TEXT, sb.ToString(), segStartPos, GetPos()));
+                                    var rbracePos = GetPos();
+                                    Advance(c);
+                                    tokens.Add(new Token(TokenType.RBRACKET, null, rbracePos, GetPos()));
+                                    return;
+                                }
+
+                                var saved = stack.Pop();
+                                mode = saved.mode;
+                                braceDepth = saved.braceDepth;
+                                sb.Append('}');
+                                Advance(c);
+                                continue;
+                            }
+
+                            braceDepth--;
+                            sb.Append('}');
+                            Advance(c);
+                            continue;
+                        }
+                        sb.Append(c);
+                        Advance(c);
+                        continue;
+                    }
+                    case CsLexState.LineComment:
+                    {
+                        if (c == '\n')
+                        {
+                            sb.Append(c);
+                            Advance(c);
+                            mode = CsLexState.Code;
+                            continue;
+                        }
+                        sb.Append(c);
+                        Advance(c);
+                        continue;
+                    }
+                    case CsLexState.BlockComment:
+                    {
+                        if (c == '*' && _idx + 1 < span.Length && span[_idx + 1] == '/')
+                        {
+                            sb.Append("*/");
+                            AdvanceMultiple(2, span);
+                            mode = CsLexState.Code;
+                            continue;
+                        }
+                        sb.Append(c);
+                        Advance(c);
+                        continue;
+                    }
+                    case CsLexState.SingleQuote:
+                    {
+                        if (c == '\\' && _idx + 1 < span.Length)
+                        {
+                            sb.Append(c);
+                            sb.Append(span[_idx + 1]);
+                            AdvanceMultiple(2, span);
+                            continue;
+                        }
+                        if (c == '\'')
+                        {
+                            sb.Append('\'');
+                            Advance(c);
+                            mode = CsLexState.Code;
+                            continue;
+                        }
+                        sb.Append(c);
+                        Advance(c);
+                        continue;
+                    }
+                    case CsLexState.DoubleQuote:
+                    {
+                        if (c == '\\' && _idx + 1 < span.Length)
+                        {
+                            sb.Append(c);
+                            sb.Append(span[_idx + 1]);
+                            AdvanceMultiple(2, span);
+                            continue;
+                        }
+                        if (c == '"')
+                        {
+                            sb.Append('"');
+                            Advance(c);
+                            mode = CsLexState.Code;
+                            continue;
+                        }
+                        sb.Append(c);
+                        Advance(c);
+                        continue;
+                    }
+                    case CsLexState.Verbatim:
+                    {
+                        if (c == '"' && _idx + 1 < span.Length && span[_idx + 1] == '"')
+                        {
+                            sb.Append("\"\"");
+                            AdvanceMultiple(2, span);
+                            continue;
+                        }
+                        if (c == '"')
+                        {
+                            sb.Append('"');
+                            Advance(c);
+                            mode = CsLexState.Code;
+                            continue;
+                        }
+                        sb.Append(c);
+                        Advance(c);
+                        continue;
+                    }
+                    case CsLexState.InterpDoubleQuote:
+                    {
+                        if (c == '\\' && _idx + 1 < span.Length)
+                        {
+                            sb.Append(c);
+                            sb.Append(span[_idx + 1]);
+                            AdvanceMultiple(2, span);
+                            continue;
+                        }
+                        if (c == '{' && _idx + 1 < span.Length && span[_idx + 1] == '{')
+                        {
+                            sb.Append("{{");
+                            AdvanceMultiple(2, span);
+                            continue;
+                        }
+                        if (c == '}' && _idx + 1 < span.Length && span[_idx + 1] == '}')
+                        {
+                            sb.Append("}}");
+                            AdvanceMultiple(2, span);
+                            continue;
+                        }
+                        if (c == '{')
+                        {
+                            stack.Push((CsLexState.InterpDoubleQuote, braceDepth));
+                            mode = CsLexState.Code;
+                            braceDepth = 0;
+                            sb.Append('{');
+                            Advance(c);
+                            continue;
+                        }
+                        if (c == '"')
+                        {
+                            sb.Append('"');
+                            Advance(c);
+                            mode = CsLexState.Code;
+                            continue;
+                        }
+                        sb.Append(c);
+                        Advance(c);
+                        continue;
+                    }
+                    case CsLexState.InterpVerbatim:
+                    {
+                        if (c == '{' && _idx + 1 < span.Length && span[_idx + 1] == '{')
+                        {
+                            sb.Append("{{");
+                            AdvanceMultiple(2, span);
+                            continue;
+                        }
+                        if (c == '}' && _idx + 1 < span.Length && span[_idx + 1] == '}')
+                        {
+                            sb.Append("}}");
+                            AdvanceMultiple(2, span);
+                            continue;
+                        }
+                        if (c == '"' && _idx + 1 < span.Length && span[_idx + 1] == '"')
+                        {
+                            sb.Append("\"\"");
+                            AdvanceMultiple(2, span);
+                            continue;
+                        }
+                        if (c == '{')
+                        {
+                            stack.Push((CsLexState.InterpVerbatim, braceDepth));
+                            mode = CsLexState.Code;
+                            braceDepth = 0;
+                            sb.Append('{');
+                            Advance(c);
+                            continue;
+                        }
+                        if (c == '"')
+                        {
+                            sb.Append('"');
+                            Advance(c);
+                            mode = CsLexState.Code;
+                            continue;
+                        }
+                        sb.Append(c);
+                        Advance(c);
+                        continue;
+                    }
+                }
+            }
+
+            _diagnostics.AddError(
+                title: "unterminated csharp block",
+                code: DiagnosticCode.LexerUnterminatedCsharpBlock,
+                positionStart: blockStartPos,
+                positionEnd: GetPos(),
+                phase: DiagnosticPhase.Lexing,
+                primaryLabel: "csharp block opened here is never closed",
+                help: "add a matching '}' to close the csharp { ... } block");
         }
 
         #endregion

@@ -80,6 +80,7 @@
         REF,
         AT_SIGN,
         ASM_TEXT,
-        LIFETIME
+        LIFETIME,
+        CSHARP_TEXT
     }
 }

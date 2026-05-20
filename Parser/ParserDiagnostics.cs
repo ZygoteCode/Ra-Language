@@ -424,5 +424,28 @@ namespace RaLanguage.Parser
                 $"expected '}}' to close the asm interpolation '%{{ ... }}' but found {Parser.DescribeToken(current)}",
                 DiagnosticCode.ParserExpectedToken,
                 primaryLabel: "asm interpolation never closed");
+
+        internal static InvalidSyntaxError ExpectedCsharpInterpClose(Token current) =>
+            new InvalidSyntaxError(
+                current.PositionStart, current.PositionEnd,
+                $"expected '}}' to close the csharp interpolation '%{{ ... }}' but found {Parser.DescribeToken(current)}",
+                DiagnosticCode.ParserExpectedToken,
+                primaryLabel: "csharp interpolation never closed");
+
+        internal static InvalidSyntaxError ExpectedCsharpReferencePath(Token current) =>
+            new InvalidSyntaxError(
+                current.PositionStart, current.PositionEnd,
+                $"expected a string literal with an assembly path after 'ref' but found {Parser.DescribeToken(current)}",
+                DiagnosticCode.ParserExpectedToken,
+                help: "csharp 'ref' references take literal string paths, e.g. ref \"System.Text.Json.dll\"",
+                primaryLabel: "string literal expected here");
+
+        internal static InvalidSyntaxError ExpectedCsharpUsingNamespace(Token current) =>
+            new InvalidSyntaxError(
+                current.PositionStart, current.PositionEnd,
+                $"expected a namespace identifier after 'using' but found {Parser.DescribeToken(current)}",
+                DiagnosticCode.ParserExpectedIdentifier,
+                help: "csharp 'using' takes dotted namespace identifiers, e.g. using System.Text",
+                primaryLabel: "namespace expected here");
     }
 }

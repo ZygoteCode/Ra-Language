@@ -1637,6 +1637,10 @@ namespace RaLanguage.Parser
                     var asmBlk = res.Register(ParseAsmBlock());
                     if (res.Error != null) return res;
                     return res.Success(asmBlk);
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Csharp:
+                    var csharpBlk = res.Register(ParseCsharpBlock());
+                    if (res.Error != null) return res;
+                    return res.Success(csharpBlk);
                 case TokenType.AT_SIGN:
                 {
                     var (annNode, annErr) = ParseSingleAnnotationApplication(res);
@@ -6269,6 +6273,156 @@ namespace RaLanguage.Parser
 
             var node = new RaLanguage.Parser.Nodes.Asm.AsmBlockNode(parts, positionStart, positionEnd);
             node.ReturnTypes = returnTypes;
+            return res.Success(node);
+        }
+
+        private ParserResult ParseCsharpBlock()
+        {
+            var res = new ParserResult();
+            var positionStart = _currentToken.PositionStart;
+
+            if (!_currentToken.Matches(Keyword.Csharp))
+                return res.Failure(ParserDiagnostics.ExpectedKeyword(_currentToken, "csharp", context: "to start an inline C# block"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            string? returnType = null;
+            var usings = new List<string>();
+            var references = new List<string>();
+            bool hasReturnType = false;
+
+            while (true)
+            {
+                while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+
+                if (_currentToken.Type == TokenType.ARROW_RIGHT && !hasReturnType)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                    while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+
+                    if (_currentToken.Type != TokenType.IDENTIFIER && _currentToken.Type != TokenType.KEYWORD)
+                        return res.Failure(ParserDiagnostics.ExpectedReturnType(_currentToken));
+
+                    returnType = _currentToken.Value?.ToString() ?? "";
+                    hasReturnType = true;
+                    res.RegisterAdvancement();
+                    Advance();
+                    continue;
+                }
+
+                if (_currentToken.Type == TokenType.KEYWORD && (Keyword)_currentToken.Value! == Keyword.Using)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                    while (true)
+                    {
+                        while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+                        if (_currentToken.Type != TokenType.IDENTIFIER)
+                            return res.Failure(ParserDiagnostics.ExpectedCsharpUsingNamespace(_currentToken));
+
+                        var sb = new System.Text.StringBuilder();
+                        sb.Append(_currentToken.Value?.ToString() ?? "");
+                        res.RegisterAdvancement();
+                        Advance();
+                        while (_currentToken.Type == TokenType.DOT)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                            if (_currentToken.Type != TokenType.IDENTIFIER)
+                                return res.Failure(ParserDiagnostics.ExpectedCsharpUsingNamespace(_currentToken));
+                            sb.Append('.');
+                            sb.Append(_currentToken.Value?.ToString() ?? "");
+                            res.RegisterAdvancement();
+                            Advance();
+                        }
+                        usings.Add(sb.ToString());
+
+                        while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+                        if (_currentToken.Type != TokenType.COMMA) break;
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                    continue;
+                }
+
+                if (_currentToken.Type == TokenType.KEYWORD && (Keyword)_currentToken.Value! == Keyword.Ref)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                    while (true)
+                    {
+                        while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+                        if (_currentToken.Type != TokenType.STRING_TEXT)
+                            return res.Failure(ParserDiagnostics.ExpectedCsharpReferencePath(_currentToken));
+
+                        references.Add(_currentToken.Value?.ToString() ?? "");
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+                        if (_currentToken.Type != TokenType.COMMA) break;
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                    continue;
+                }
+
+                break;
+            }
+
+            while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+
+            if (_currentToken.Type != TokenType.LBRACKET)
+                return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '{', context: "the csharp block"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            var parts = new List<AstNode>();
+
+            while (_currentToken.Type == TokenType.CSHARP_TEXT || _currentToken.Type == TokenType.INTERP_START)
+            {
+                if (_currentToken.Type == TokenType.CSHARP_TEXT)
+                {
+                    var textTok = _currentToken;
+                    parts.Add(new RaLanguage.Parser.Nodes.Csharp.CsharpTextPartNode(textTok.Value?.ToString() ?? "", textTok.PositionStart, textTok.PositionEnd));
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+                else
+                {
+                    var interpStartPos = _currentToken.PositionStart;
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    var expr = res.Register(ParseExpression());
+                    if (res.Error != null) return res;
+
+                    if (_currentToken.Type != TokenType.INTERP_END)
+                        return res.Failure(ParserDiagnostics.ExpectedCsharpInterpClose(_currentToken));
+
+                    string? typeHint = _currentToken.Value as string;
+                    var interpEndPos = _currentToken.PositionEnd;
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    parts.Add(new RaLanguage.Parser.Nodes.Csharp.CsharpInterpPartNode(expr, typeHint, interpStartPos, interpEndPos));
+                }
+            }
+
+            if (_currentToken.Type != TokenType.RBRACKET)
+                return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{', context: "the csharp block"));
+
+            var positionEnd = _currentToken.PositionEnd;
+            res.RegisterAdvancement();
+            Advance();
+
+            var node = new RaLanguage.Parser.Nodes.Csharp.CsharpBlockNode(parts, positionStart, positionEnd);
+            node.ReturnType = returnType;
+            node.Usings = usings;
+            node.References = references;
             return res.Success(node);
         }
     }

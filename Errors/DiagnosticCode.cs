@@ -37,6 +37,8 @@ namespace RaLanguage.Errors
         public static readonly DiagnosticCode LexerMissingExponentDigits = new("RA0107", "missing-exponent-digits");
         public static readonly DiagnosticCode LexerUnexpectedDollarSign  = new("RA0108", "unexpected-dollar-sign");
         public static readonly DiagnosticCode LexerExpectedCharacter     = new("RA0109", "expected-character");
+        public static readonly DiagnosticCode LexerUnterminatedCsharpBlock  = new("RA0110", "unterminated-csharp-block");
+        public static readonly DiagnosticCode LexerUnterminatedCsharpInterp = new("RA0111", "unterminated-csharp-interpolation");
 
         // ---- Parser (RA02xx) ----
         public static readonly DiagnosticCode ParserUnexpectedToken    = new("RA0201", "unexpected-token");

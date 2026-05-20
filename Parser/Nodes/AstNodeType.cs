@@ -81,6 +81,9 @@
         AsmInterpPart,
         Borrow,
         Dereference,
-        DereferenceAssignment
+        DereferenceAssignment,
+        CsharpBlock,
+        CsharpTextPart,
+        CsharpInterpPart
     }
 }

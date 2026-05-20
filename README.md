@@ -26,7 +26,7 @@ I'll take a look at that as soon as possible! These are the things that I want t
   - [x] Improved OOP system overall.
   - [x] Implement built-in functions for reflections and complex language operations (ex. native sys calls).
   - [x] Execute Assembly code in Ra Language with Reloaded.Assembler / FASM.NET.
-  - [ ] Execute C# code in Ra Language.
+  - [x] Execute C# code in Ra Language via Roslyn scripting — full subsystem with `csharp { ... }` inline blocks, `using` directive list, `ref "Assembly.dll"` external references, typed `-> T` return coercion, Ra value interpolation `%{expr[:hint]}`, automatic CLR ↔ Ra marshalling for primitives / `IEnumerable` / `IDictionary`, compiled-script caching, and structured compile/runtime diagnostics surfaced as Ra runtime errors.
 
 Lots of more new ideas coming soon!<br/>
 

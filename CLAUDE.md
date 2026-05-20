@@ -79,6 +79,20 @@ Centre of gravity is [Interpreter/Runtime/Annotations/](Interpreter/Runtime/Anno
 - **`MetadataRegistry`** + `MetadataKeyResolver` + `MetadataTarget` — keys like `fn:build_engine`, `class:Box`, `field:Account.balance`. This is the surface that `annotations_of`, `has_annotation`, `annotation_arg`, `annotation_targets` query.
 - **`TestRunner`** — backs the `run_tests` built-in and processes `@test`/`@before`/`@after`/`@parameterized`/`@expected_throws`/`@skip`.
 
+### Inline C# subsystem
+
+`csharp { ... }` blocks let Ra programs splice C# source that is compiled and executed via Roslyn scripting. Surface lives across three pieces, each mirroring the existing asm subsystem layout:
+
+- **Syntax / parsing** — Keyword `Csharp` ([Lexer/Tokens/Keyword.cs](Lexer/Tokens/Keyword.cs)), token type `CSHARP_TEXT`, and a state-machine raw-text collector `ProcessCsharpBlock` in [Lexer/Lexer.cs](Lexer/Lexer.cs) that tracks C# string/char/comment/interpolation context so braces in C# source do not prematurely close the Ra block. `Parser.ParseCsharpBlock` in [Parser/Parser.cs](Parser/Parser.cs) accepts optional header clauses in any order: `-> ReturnType`, `using <ns>(, <ns>)*`, `ref "Path"(, "Path")*`. AST nodes live in [Parser/Nodes/Csharp/CsharpBlockNode.cs](Parser/Nodes/Csharp/CsharpBlockNode.cs).
+- **Runtime** — [Interpreter/Runtime/Csharp/](Interpreter/Runtime/Csharp) holds `CsharpExecutor` (compiles + executes via `Microsoft.CodeAnalysis.CSharp.Scripting`, caches `Script<object>` instances keyed by `CsharpExecutionOptions`), `CsharpInteropMarshaller` (Ra ↔ CLR value bridge for both interpolation literal rendering and return-value marshalling, with type hints `raw`/`str`/`char`/`int`/`uint`/`long`/`ulong`/`float`/`double`/`decimal`/`bool`), `CsharpExecutionOptions` (cache key + script options), `CsharpScriptHost` (globals carrier reserved for future use), and the `CsharpCompileException`/`CsharpRuntimeException`/`CsharpUnsupportedException` typed-exception hierarchy.
+- **Visitor** — `CsharpBlockNodeVisitor` in [Interpreter/Visitors/Csharp/](Interpreter/Visitors/Csharp/) assembles the final C# source by interleaving `CsharpTextPartNode` text with `CsharpInterpPartNode` literal substitutions, dispatches to `CsharpExecutor.Execute`, and converts the result back to a `RuntimeValue`. Registered in `Interpreter.RegisterVisitors` at `AstNodeType.CsharpBlock`.
+
+Default imports (`System`, `System.Collections.Generic`, `System.Linq`, `System.IO`, `System.Text`, `System.Threading.Tasks`, `System.Numerics`, …) are unioned with the user-provided `using` list. Default references include the core runtime assemblies; user `ref "name"` entries resolve in this order: absolute path → CWD path → `AppContext.BaseDirectory` path → `Assembly.Load(name)`.
+
+NativeAOT caveat — Roslyn scripting depends on `System.Reflection.Emit`, which is genuinely unavailable in `dotnet publish -c Release -r win-x64` AOT builds. The executor detects `PlatformNotSupportedException` / Reflection.Emit failures and surfaces a clear `CsharpUnsupportedException` advising the user to run the interpreter as a JIT build. `IsSupported` is therefore always `true` at the gate (no upfront block); the gate is the actual compile attempt. `RuntimeFeature.IsDynamicCodeSupported` is NOT used as a runtime guard because `PublishAot=true` flips it to `false` even for JIT runs.
+
+Regression coverage: [tests_csharp.ra](tests_csharp.ra) — 25+ scenarios covering literal substitution, typed interpolation, `using`, `ref`, lambdas/generics, local functions, dictionaries → maps, lists → lists, compile-error catching, runtime-throw catching, and script-cache reuse.
+
 ### Imports / modules
 
 [Interpreter/Modules/ModuleManager.cs](Interpreter/Modules/ModuleManager.cs) is a `ConcurrentDictionary<string, LoadedModule>` cache keyed by absolute path. `LoadedModule` owns its own `SymbolTable`, `ExtensionRegistry`, and `ExportTable`. `ImportNodeVisitor.InitializeModuleManager(basePath)` is called once from `Program.InitializeSymbolTable()` with `Directory.GetCurrentDirectory()` — imports resolve relative to the CWD, not to the interpreter executable.
