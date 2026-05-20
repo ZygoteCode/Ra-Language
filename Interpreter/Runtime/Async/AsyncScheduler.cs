@@ -35,6 +35,20 @@ namespace RaLanguage.Interpreter.Runtime.Async
             return task;
         }
 
+        // Cold path: schedules a task that completes after `delayMs` via a Timer,
+        // WITHOUT consuming a thread pool worker for the wait. Required for true
+        // parallel fan-out — the previous `Task.Delay().GetAwaiter().GetResult()`
+        // inside a fiber pinned a thread per pending sleep, exhausting the pool
+        // under fan-out of more than (min thread count) sleeps.
+        public static RaTaskCore ScheduleTimer(string name, AsyncContext? parentAsync, int delayMs)
+        {
+            var childScope = new CancellationScope(parentAsync?.CancellationScope);
+            var task = new RaTaskCore(childScope, parentAsync?.CurrentTask, name);
+            task.TrySetRunning();
+            task.ArmCompletionTimer(delayMs);
+            return task;
+        }
+
         public static bool IsCancellationError(Error err)
         {
             if (err is RuntimeError re)

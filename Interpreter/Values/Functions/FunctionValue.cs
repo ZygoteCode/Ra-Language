@@ -81,7 +81,12 @@ namespace RaLanguage.Interpreter.Values.Functions
             var capturedNamed = namedArgs;
             var capturedTypeArgs = explicitTypeArgs;
             var callerCtx = Context;
-            var parentAsync = callerCtx?.AsyncCtx;
+            // The spawn visitor pushes a thread-local override before calling us so
+            // that the child fiber inherits the spawn's parent scope rather than the
+            // shared (and possibly stale) fn.Context.AsyncCtx. Outside of spawn this
+            // is null and behavior is unchanged.
+            var overrideAsync = RaLanguage.Interpreter.Runtime.Async.AsyncContextOverride.Current;
+            var parentAsync = overrideAsync ?? callerCtx?.AsyncCtx;
 
             if (IsAsyncStream)
             {

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Values;
 
 namespace RaLanguage.Interpreter.Runtime.Async
@@ -13,6 +14,10 @@ namespace RaLanguage.Interpreter.Runtime.Async
         private readonly Queue<TaskState> _waitingReaders = new Queue<TaskState>();
         private readonly Queue<(TaskState st, RuntimeValue? v)> _waitingWriters = new Queue<(TaskState, RuntimeValue?)>();
         private bool _closed;
+        // Peek-waiters used by select(): each registered TaskCompletionSource is set
+        // (without consuming) the moment the channel becomes readable. Replaces the
+        // previous 2ms polling loop, which both wasted CPU and added latency.
+        private readonly List<TaskCompletionSource<bool>> _peekWaiters = new List<TaskCompletionSource<bool>>();
 
         public int Capacity => _capacity;
         public bool IsClosed { get { lock (_lock) return _closed; } }
@@ -39,6 +44,7 @@ namespace RaLanguage.Interpreter.Runtime.Async
 
         public bool TrySendImmediate(RuntimeValue? value)
         {
+            List<TaskCompletionSource<bool>>? peeks = null;
             lock (_lock)
             {
                 if (_closed) return false;
@@ -53,15 +59,20 @@ namespace RaLanguage.Interpreter.Runtime.Async
                 if (_buffer.Count < _capacity)
                 {
                     _buffer.Enqueue(value);
-                    return true;
+                    peeks = DrainPeekWaitersLocked();
+                    goto signalPeeks;
                 }
                 return false;
             }
+        signalPeeks:
+            SignalPeeks(peeks);
+            return true;
         }
 
         public bool Send(RuntimeValue? value, CancellationToken token)
         {
             TaskState? st = null;
+            List<TaskCompletionSource<bool>>? peeks = null;
             lock (_lock)
             {
                 if (_closed) return false;
@@ -76,6 +87,8 @@ namespace RaLanguage.Interpreter.Runtime.Async
                 if (_buffer.Count < _capacity)
                 {
                     _buffer.Enqueue(value);
+                    peeks = DrainPeekWaitersLocked();
+                    SignalPeeks(peeks);
                     return true;
                 }
                 st = new TaskState { Value = value };
@@ -152,28 +165,55 @@ namespace RaLanguage.Interpreter.Runtime.Async
             w.Event.Set();
         }
 
-        // Resolves when the channel has a value to receive or is closed.
-        // Does NOT consume the value. Used by select() so multiple sources can
-        // be polled concurrently without draining any of them prematurely.
-        // Implemented as a sub-2ms poll loop because the channel waiter queues
-        // are tightly coupled to consume-on-wake semantics; a peek-style waiter
-        // would require restructuring them. Acceptable for select's low fan-in,
-        // low frequency use; revisit if profiling shows it as a hotspot.
-        public async System.Threading.Tasks.Task WhenReadable(CancellationToken token)
+        // Resolves when the channel has a value to receive or is closed. Does NOT
+        // consume the value, so multiple select() arms can race on the same channel
+        // without one of them stealing the item. Event-driven: senders and Close()
+        // signal the registered peek-waiters directly, so latency is bounded by the
+        // scheduler, not by a poll interval.
+        public Task WhenReadable(CancellationToken token)
         {
-            while (true)
+            TaskCompletionSource<bool> tcs;
+            lock (_lock)
             {
-                lock (_lock)
-                {
-                    if (_buffer.Count > 0 || _closed) return;
-                }
-                try { await System.Threading.Tasks.Task.Delay(2, token).ConfigureAwait(false); }
-                catch (OperationCanceledException) { return; }
+                if (_buffer.Count > 0 || _closed) return Task.CompletedTask;
+                tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                _peekWaiters.Add(tcs);
+            }
+
+            if (!token.CanBeCanceled) return tcs.Task;
+
+            var reg = token.Register(static state =>
+            {
+                var t = (TaskCompletionSource<bool>)state!;
+                t.TrySetResult(false);
+            }, tcs);
+            tcs.Task.ContinueWith(static (_, state) =>
+            {
+                ((CancellationTokenRegistration)state!).Dispose();
+            }, reg, TaskScheduler.Default);
+            return tcs.Task;
+        }
+
+        private List<TaskCompletionSource<bool>>? DrainPeekWaitersLocked()
+        {
+            if (_peekWaiters.Count == 0) return null;
+            var copy = new List<TaskCompletionSource<bool>>(_peekWaiters);
+            _peekWaiters.Clear();
+            return copy;
+        }
+
+        private static void SignalPeeks(List<TaskCompletionSource<bool>>? peeks)
+        {
+            if (peeks == null) return;
+            for (int i = 0; i < peeks.Count; i++)
+            {
+                peeks[i].TrySetResult(true);
             }
         }
 
         public void Close()
         {
+            List<TaskCompletionSource<bool>>? peeks = null;
             lock (_lock)
             {
                 if (_closed) return;
@@ -190,7 +230,9 @@ namespace RaLanguage.Interpreter.Runtime.Async
                     w.Cancelled = true;
                     w.Event.Set();
                 }
+                peeks = DrainPeekWaitersLocked();
             }
+            SignalPeeks(peeks);
         }
     }
 }

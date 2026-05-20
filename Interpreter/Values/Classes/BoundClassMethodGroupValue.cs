@@ -89,7 +89,9 @@ namespace RaLanguage.Interpreter.Values.Classes
                 return res.Failure(bindError);
             }
 
-            var bodyRes = interpreter.Visit(selected.BodyNode!, bindResult!.Value!.Context);
+            // NullValue.SetContext is a sealed no-op (NullValue is a true singleton),
+            // so execCtx would always be null. Pass execCtx directly.
+            var bodyRes = interpreter.Visit(selected.BodyNode!, execCtx);
             if (bodyRes.Error != null)
             {
                 return res.Failure(bodyRes.Error);
@@ -97,7 +99,7 @@ namespace RaLanguage.Interpreter.Values.Classes
 
             if (bodyRes.FuncReturnValue != null)
             {
-                if (selected.ReturnType != null && !TypeSystem.IsAssignable(bindResult.Value.Context, selected.ReturnType, bodyRes.FuncReturnValue))
+                if (selected.ReturnType != null && !TypeSystem.IsAssignable(execCtx, selected.ReturnType, bodyRes.FuncReturnValue))
                 {
                     return res.Failure(new RuntimeError(
                         PositionStart,
@@ -106,7 +108,7 @@ namespace RaLanguage.Interpreter.Values.Classes
                         Context));
                 }
 
-                var retErr = ValidateReturn(selected, bodyRes.FuncReturnValue, bindResult.Value.Context);
+                var retErr = ValidateReturn(selected, bodyRes.FuncReturnValue, execCtx);
                 if (retErr != null) return res.Failure(retErr);
 
                 return res.Success(bodyRes.FuncReturnValue);
@@ -116,7 +118,7 @@ namespace RaLanguage.Interpreter.Values.Classes
                 ? (bodyRes.Value ?? NullValue.Null.SetContext(Context).SetPos(PositionStart, PositionEnd))
                 : NullValue.Null.SetContext(Context).SetPos(PositionStart, PositionEnd);
 
-            if (selected.ReturnType != null && !TypeSystem.IsAssignable(bindResult.Value.Context, selected.ReturnType, retValue))
+            if (selected.ReturnType != null && !TypeSystem.IsAssignable(execCtx, selected.ReturnType, retValue))
             {
                 return res.Failure(new RuntimeError(
                     PositionStart,
@@ -125,7 +127,7 @@ namespace RaLanguage.Interpreter.Values.Classes
                     Context));
             }
 
-            var retErr2 = ValidateReturn(selected, retValue, bindResult.Value.Context);
+            var retErr2 = ValidateReturn(selected, retValue, execCtx);
             if (retErr2 != null) return res.Failure(retErr2);
 
             return res.Success(retValue);

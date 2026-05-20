@@ -45,14 +45,18 @@ namespace RaLanguage.Interpreter.Visitors.Async
                 }
 
                 var parentAsync = context.AsyncCtx;
+                // The previous implementation mutated fn.Context.AsyncCtx so that the
+                // dispatch-time parent lookup picked up the spawn's async scope. That
+                // mutation is racy when the same function is spawned from multiple
+                // fibers concurrently (the Context object is shared across the COPY
+                // of the FunctionValue produced by ExtractVariableValueByName). Use
+                // a thread-local override instead — read by ExecuteAsyncDispatch.
                 var task = AsyncScheduler.Schedule($"spawn:{fn.Name}", parentAsync, childAsyncCtx =>
                 {
                     childAsyncCtx.InsideAsyncFunction = true;
-                    var savedCtx = fn.Context;
-                    var savedAsync = savedCtx?.AsyncCtx;
+                    var prior = RaLanguage.Interpreter.Runtime.Async.AsyncContextOverride.Push(childAsyncCtx);
                     try
                     {
-                        if (savedCtx != null) savedCtx.AsyncCtx = childAsyncCtx;
                         var execRes = fn.ExecuteWithNamedArgs(positionalArgs, namedArgs, null);
                         if (execRes.Error != null) return (null, execRes.Error);
                         var produced = execRes.FuncReturnValue ?? execRes.Value;
@@ -67,7 +71,7 @@ namespace RaLanguage.Interpreter.Visitors.Async
                     }
                     finally
                     {
-                        if (savedCtx != null) savedCtx.AsyncCtx = savedAsync;
+                        RaLanguage.Interpreter.Runtime.Async.AsyncContextOverride.Pop(prior);
                     }
                 });
                 return res.Success(new TaskValue(task).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
