@@ -19,18 +19,18 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 
             var startValue = res.Register(interpreter.Visit(node.StartValueNode, loopContext));
             if (res.Error != null) return res;
-            if (res.ShouldReturn()) { context.ApplyChangesFrom(loopContext); return res; }
+            if (res.ShouldReturn()) return res;
 
             var endValue = res.Register(interpreter.Visit(node.EndValueNode, loopContext));
             if (res.Error != null) return res;
-            if (res.ShouldReturn()) { context.ApplyChangesFrom(loopContext); return res; }
+            if (res.ShouldReturn()) return res;
 
             RuntimeValue stepValue;
             if (node.StepValueNode != null)
             {
                 stepValue = res.Register(interpreter.Visit(node.StepValueNode, loopContext));
                 if (res.Error != null) return res;
-                if (res.ShouldReturn()) { context.ApplyChangesFrom(loopContext); return res; }
+                if (res.ShouldReturn()) return res;
             }
             else
             {
@@ -67,14 +67,13 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 
                 if (res.LoopShouldContinue) continue;
                 if (res.LoopShouldBreak) break;
-                if (res.ShouldReturn())
-                {
-                    context.ApplyChangesFrom(bodyContext);
-                    return res;
-                }
+                if (res.ShouldReturn()) return res;
             }
 
-            context.ApplyChangesFrom(bodyContext);
+            // No write-back. Mutations to outer-scope variables took effect in place
+            // via the shared SymbolEntry; locals declared inside the body died when
+            // bodySymbols.Clear() ran between iterations and again when bodyContext
+            // becomes unreachable on return.
             return res.Success(NullValue.Null);
         }
     }

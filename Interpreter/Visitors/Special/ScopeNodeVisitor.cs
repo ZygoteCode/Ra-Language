@@ -35,10 +35,10 @@ namespace RaLanguage.Interpreter.Visitors.Special
                 if (res.ShouldReturn()) return res;
             }
 
-            if (!reused)
-            {
-                context.ApplyChangesFrom(newContext);
-            }
+            // No write-back to `context`. The child scope's locals die with newContext.
+            // Mutations to outer-scope variables already took effect in place because
+            // SymbolTable.SetWithDeclarationType / TryAssign walk the parent chain and
+            // mutate the shared SymbolEntry on the owning scope.
 
             if (res.FuncReturnValue != null) return res;
             return res.Success(NullValue.Null);

@@ -120,33 +120,24 @@ namespace RaLanguage.Interpreter.Runtime
             }
         }
 
-        public void ApplyChangesFrom(SymbolTable? symbolTable)
+        // Assignment-only walk-up: find the nearest binding of `name` in this scope
+        // or any ancestor and replace its Value. Returns false if no binding exists.
+        // Unlike Set/SetWithDeclarationType, this never auto-declares and never
+        // touches metadata flags (IsLet, IsPublic, DeclarationType, ...). Use this
+        // for `x = ...` assignment; use SetLocal/Set for declaration.
+        public bool TryAssign(string name, RuntimeValue value)
         {
-            if (symbolTable == null)
+            SymbolTable? st = this;
+            while (st != null)
             {
-                return;
-            }
-
-            // Only propagate LOCAL changes of the child scope. The previous
-            // implementation recursed into symbolTable.Parent, which is the same
-            // unchanged outer scope chain that the receiver sits in. Re-reading
-            // values from those parent tables and Set'ing them via walk-up
-            // overwrites entries that the receiver had legitimately rebound
-            // (e.g. a recursive call's parameter `k=child` was being trampled by
-            // re-applying the caller's `k=parent` on scope exit). This produced
-            // wrong results for any recursive function whose parameter name also
-            // existed in an enclosing scope.
-            foreach (var key in symbolTable.GetLocalKeys())
-            {
-                if (GetEntry(key) != null)
+                if (st._symbols.TryGetValue(name, out var existing))
                 {
-                    var entry = symbolTable.GetEntry(key);
-                    if (entry != null)
-                    {
-                        Set(key, entry.Value, entry.IsLet, entry.DeclaredType, entry.IsStaticallyTyped, entry.IsPublic);
-                    }
+                    existing.Value = value;
+                    return true;
                 }
+                st = st.Parent;
             }
+            return false;
         }
 
         public IEnumerable<string> GetLocalKeys()

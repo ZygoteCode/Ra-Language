@@ -27,13 +27,14 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 bodyContext.ScopeSkipCopy = true;
                 res.Register(interpreter.Visit(node.BodyNode, bodyContext));
                 if (res.Error != null) return res;
-                context.ApplyChangesFrom(bodyContext);
 
                 if (res.LoopShouldContinue) continue;
                 if (res.LoopShouldBreak) break;
                 if (res.ShouldReturn()) return res;
             }
 
+            // No write-back to `context`. Outer mutations propagated via shared
+            // SymbolEntry refs; iteration-local declarations died on Clear()/exit.
             return res.Success(NullValue.Null);
         }
     }

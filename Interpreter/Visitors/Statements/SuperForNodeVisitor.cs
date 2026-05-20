@@ -1,4 +1,4 @@
-﻿using RaLanguage.Interpreter.Architecture;
+using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Parser.Nodes.Statements;
@@ -10,13 +10,22 @@ namespace RaLanguage.Interpreter.Visitors.Statements
         protected sealed override RuntimeResult VisitNode(SuperForNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
-            var newContext = context.Copy();
+            var loopContext = context.Copy();
 
+            // Initialisation runs in the loop's own scope so iter/state vars (`var i = 0`)
+            // stay LOCAL to the for-statement and do not pollute the surrounding scope.
             foreach (var initializationNode in node.InitializationNodes)
             {
-                res.Register(interpreter.Visit(initializationNode, context));
+                res.Register(interpreter.Visit(initializationNode, loopContext));
                 if (res.Error != null) return res;
+                if (res.ShouldReturn()) return res;
             }
+
+            // Single reusable body scope; cleared per iteration to drop iteration-local
+            // declarations. Step expressions run in loopContext so they update the
+            // iter vars declared by the init pass above.
+            var bodyContext = loopContext.Copy();
+            var bodySymbols = bodyContext.SymbolTable!;
 
             while (true)
             {
@@ -24,7 +33,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 
                 foreach (var conditionNode in node.ConditionNodes)
                 {
-                    var condition = res.Register(interpreter.Visit(conditionNode, newContext));
+                    var condition = res.Register(interpreter.Visit(conditionNode, loopContext));
                     if (res.Error != null) return res;
                     if (res.ShouldReturn()) return res;
 
@@ -35,27 +44,22 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                     }
                 }
 
-                if (!canContinue)
-                {
-                    break;
-                }
+                if (!canContinue) break;
 
-                Context actualContext = newContext.Copy();
-                var value = res.Register(interpreter.Visit(node.BodyNode, actualContext));
+                bodySymbols.Clear();
+                bodyContext.ScopeSkipCopy = true;
+                res.Register(interpreter.Visit(node.BodyNode, bodyContext));
                 if (res.Error != null) return res;
+
+                if (res.LoopShouldBreak) break;
+                if (res.ShouldReturn() && !res.LoopShouldContinue) return res;
 
                 foreach (var stepNode in node.StepNodes)
                 {
-                    var condition = res.Register(interpreter.Visit(stepNode, newContext));
+                    var stepRes = res.Register(interpreter.Visit(stepNode, loopContext));
                     if (res.Error != null) return res;
                     if (res.ShouldReturn()) return res;
                 }
-
-                context.ApplyChangesFrom(actualContext);
-
-                if (res.ShouldReturn() && !res.LoopShouldContinue && !res.LoopShouldBreak) return res;
-                if (res.LoopShouldContinue) continue;
-                if (res.LoopShouldBreak) break;
             }
 
             return res.Success(NullValue.Null.SetPos(node.PositionStart, node.PositionEnd).SetContext(context));

@@ -170,7 +170,9 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
 
                 if (bodyRes.Error == null)
                 {
-                    context.ApplyChangesFrom(attemptContext);
+                    // No write-back: mutations to outer-scope variables already
+                    // propagated via shared SymbolEntry refs during the attempt;
+                    // attempt-local declarations die with attemptContext.
 
                     if (bodyRes.FuncReturnValue != null)
                         return res.SuccessReturn(bodyRes.FuncReturnValue);

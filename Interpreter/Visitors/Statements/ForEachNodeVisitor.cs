@@ -14,13 +14,9 @@ namespace RaLanguage.Interpreter.Visitors.Statements
             var res = new RuntimeResult();
             string varName = node.VarNameToken.Value?.ToString();
 
-            if (context.SymbolTable.Get(varName) != null)
-            {
-                return res.Failure(new RuntimeError(
-                    node.PositionStart, node.PositionEnd,
-                    $"Variable '{varName}' is already defined", context
-                ));
-            }
+            // NOTE: an existing outer `varName` is NOT a conflict. The iter variable lives
+            // in the loop's own child scope and lexically shadows any outer binding. The
+            // outer binding remains intact and reappears once the loop exits.
 
             var loopContext = context.Copy();
             var loopSymbols = loopContext.SymbolTable!;
@@ -35,10 +31,11 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 ));
             }
 
-            // Seed the iteration variable so subsequent updates hit the entry directly without
-            // walking the parent scope chain.
-            loopSymbols.Set(varName, NullValue.Null);
-            var iterEntry = loopSymbols.GetEntry(varName);
+            // Seed the iteration variable LOCALLY in the loop scope so subsequent updates
+            // hit this entry directly without walking the parent scope chain and without
+            // accidentally rebinding an outer same-named variable.
+            loopSymbols.SetLocal(varName, NullValue.Null);
+            var iterEntry = loopSymbols.GetLocalEntry(varName);
 
             // Body scope reused across iterations; cleared between iterations to drop locals.
             var bodyContext = loopContext.Copy();
@@ -50,7 +47,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 for (int idx = 0; idx < elements.Count; idx++)
                 {
                     iterEntry!.Value = elements[idx];
-                    if (ExecuteBody(node, bodyContext, bodySymbols, interpreter, res, context)) return res;
+                    if (ExecuteBody(node, bodyContext, bodySymbols, interpreter, res)) return res;
                     if (res.LoopShouldBreak) break;
                 }
             }
@@ -59,7 +56,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 foreach (var element in ((SetValue)collection).Elements)
                 {
                     iterEntry!.Value = element;
-                    if (ExecuteBody(node, bodyContext, bodySymbols, interpreter, res, context)) return res;
+                    if (ExecuteBody(node, bodyContext, bodySymbols, interpreter, res)) return res;
                     if (res.LoopShouldBreak) break;
                 }
             }
@@ -69,7 +66,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 for (int idx = 0; idx < elements.Count; idx++)
                 {
                     iterEntry!.Value = elements[idx];
-                    if (ExecuteBody(node, bodyContext, bodySymbols, interpreter, res, context)) return res;
+                    if (ExecuteBody(node, bodyContext, bodySymbols, interpreter, res)) return res;
                     if (res.LoopShouldBreak) break;
                 }
             }
@@ -80,22 +77,23 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 {
                     var pair = pairs[idx];
                     iterEntry!.Value = new TupleValue(new System.Collections.Generic.List<RuntimeValue> { pair.Key, pair.Value });
-                    if (ExecuteBody(node, bodyContext, bodySymbols, interpreter, res, context)) return res;
+                    if (ExecuteBody(node, bodyContext, bodySymbols, interpreter, res)) return res;
                     if (res.LoopShouldBreak) break;
                 }
             }
 
-            context.ApplyChangesFrom(bodyContext);
+            // No write-back. Outer mutations already propagated via shared SymbolEntry refs;
+            // loop locals (the iter var and body locals) die when loopContext / bodyContext
+            // become unreachable.
             return res.Success(NullValue.Null);
         }
 
-        private static bool ExecuteBody(ForEachNode node, Context bodyContext, RaLanguage.Interpreter.Runtime.SymbolTable bodySymbols, IInterpreter interpreter, RuntimeResult res, Context outer)
+        private static bool ExecuteBody(ForEachNode node, Context bodyContext, RaLanguage.Interpreter.Runtime.SymbolTable bodySymbols, IInterpreter interpreter, RuntimeResult res)
         {
             bodySymbols.Clear();
             bodyContext.ScopeSkipCopy = true;
             res.Register(interpreter.Visit(node.BodyNode, bodyContext));
             if (res.Error != null) return true;
-            outer.ApplyChangesFrom(bodyContext);
 
             if (res.LoopShouldContinue) return false;
             if (res.LoopShouldBreak) return false;

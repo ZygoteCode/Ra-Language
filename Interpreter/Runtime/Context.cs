@@ -52,11 +52,5 @@ namespace RaLanguage.Interpreter.Runtime
             newCtx.CurrentClassMethodOwner = CurrentClassMethodOwner;
             return newCtx;
         }
-
-        public void ApplyChangesFrom(Context context)
-        {
-            if (context.SymbolTable == null) return;
-            SymbolTable?.ApplyChangesFrom(context.SymbolTable);
-        }
     }
 }
