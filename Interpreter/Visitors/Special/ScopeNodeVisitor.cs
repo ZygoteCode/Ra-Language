@@ -31,14 +31,25 @@ namespace RaLanguage.Interpreter.Visitors.Special
             {
                 res.Register(interpreter.Visit(nodes[i], newContext));
 
-                if (res.FuncReturnValue != null) return res;
-                if (res.ShouldReturn()) return res;
+                if (res.FuncReturnValue != null)
+                {
+                    if (!reused) newContext.SymbolTable?.ReleaseLocalBorrows();
+                    return res;
+                }
+                if (res.ShouldReturn())
+                {
+                    if (!reused) newContext.SymbolTable?.ReleaseLocalBorrows();
+                    return res;
+                }
             }
 
             // No write-back to `context`. The child scope's locals die with newContext.
             // Mutations to outer-scope variables already took effect in place because
             // SymbolTable.SetWithDeclarationType / TryAssign walk the parent chain and
-            // mutate the shared SymbolEntry on the owning scope.
+            // mutate the shared SymbolEntry on the owning scope. Borrows held by the
+            // dying locals are decremented before the table is abandoned so the source
+            // entries' borrow counters do not leak across scope boundaries.
+            if (!reused) newContext.SymbolTable?.ReleaseLocalBorrows();
 
             if (res.FuncReturnValue != null) return res;
             return res.Success(NullValue.Null);

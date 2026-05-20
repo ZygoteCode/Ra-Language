@@ -58,6 +58,9 @@ namespace RaLanguage.Errors
         public static readonly DiagnosticCode RuntimeTypeMismatch    = new("RA0404", "type-mismatch");
         public static readonly DiagnosticCode RuntimeNativeException = new("RA0405", "native-exception");
         public static readonly DiagnosticCode RuntimeAccessViolation = new("RA0406", "access-violation");
+        public static readonly DiagnosticCode RuntimeBorrowViolation = new("RA0407", "borrow-violation");
+        public static readonly DiagnosticCode RuntimeLifetimeViolation = new("RA0408", "lifetime-violation");
+        public static readonly DiagnosticCode RuntimeImmutableBinding = new("RA0409", "immutable-binding");
 
         // ---- Modules / imports (RA05xx) ----
         public static readonly DiagnosticCode ModuleNotFound       = new("RA0501", "module-not-found");

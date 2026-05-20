@@ -121,10 +121,48 @@ namespace RaLanguage.Lexer
                         break;
 
                     case '"':
-                    case '\'':
                     case '`':
                         ProcessString(span, c, false, tokens);
                         break;
+
+                    case '\'':
+                    {
+                        // Disambiguate string literal vs lifetime annotation.
+                        // 'ident NOT followed by another `'` → LIFETIME 'ident (e.g. 'a, 'static, '_).
+                        // Anything that closes with `'` (including `'a'`, `'abc'`, `''`) → STRING.
+                        int peek = _idx + 1;
+                        bool isLifetime = false;
+                        int identEnd = peek;
+                        if (peek < span.Length)
+                        {
+                            char first = span[peek];
+                            if (first < 128 && s_isLetterOrDigit[first] && !s_isDigit[first])
+                            {
+                                int j = peek;
+                                while (j < span.Length && span[j] < 128 && s_isLetterOrDigit[span[j]]) j++;
+                                // If immediately followed by another apostrophe, it's a 'char-like' string.
+                                if (j >= span.Length || span[j] != '\'')
+                                {
+                                    isLifetime = true;
+                                    identEnd = j;
+                                }
+                            }
+                        }
+
+                        if (isLifetime)
+                        {
+                            var lifetimePosStart = GetPos();
+                            Advance(span[_idx]); // consume opening apostrophe
+                            string ident = span.Slice(peek, identEnd - peek).ToString();
+                            while (_idx < identEnd) Advance(span[_idx]);
+                            tokens.Add(new Token(TokenType.LIFETIME, ident, lifetimePosStart, GetPos()));
+                        }
+                        else
+                        {
+                            ProcessString(span, c, false, tokens);
+                        }
+                        break;
+                    }
 
                     case '$':
                         if (_idx + 1 < span.Length && (span[_idx + 1] == '"' || span[_idx + 1] == '\'' || span[_idx + 1] == '`'))
@@ -962,7 +1000,8 @@ namespace RaLanguage.Lexer
                 { "emit", Keyword.Emit },
                 { "namespace", Keyword.Namespace },
                 { "using", Keyword.Using },
-                { "asm", Keyword.Asm }
+                { "asm", Keyword.Asm },
+                { "mut", Keyword.Mut }
             };
         }
 

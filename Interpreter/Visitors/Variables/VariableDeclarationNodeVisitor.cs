@@ -1,4 +1,5 @@
-﻿using RaLanguage.Errors.Types;
+﻿using RaLanguage.Errors;
+using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
@@ -33,7 +34,11 @@ namespace RaLanguage.Interpreter.Visitors.Variables
 
                 if (declaration.Item2 != null)
                 {
-                    context.AreCallsBlocked = node.DeclarationType == VariableDeclarationType.CONST;
+                    // `const` and `let const` are compile-time-stable, so the initialiser
+                    // must not have side effects via function calls. The existing
+                    // AreCallsBlocked flag is reused for `let const` for symmetry.
+                    context.AreCallsBlocked = node.DeclarationType == VariableDeclarationType.CONST
+                                           || node.DeclarationType == VariableDeclarationType.LET_CONST;
                     value = res.Register(interpreter.Visit(declaration.Item2, context))!;
                     context.AreCallsBlocked = false;
                     if (res.Error != null) return res;
@@ -42,6 +47,15 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                 else if (node.DeclarationType == VariableDeclarationType.CONST)
                 {
                     return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Const variables must be initialized with a value", context));
+                }
+                else if (node.DeclarationType == VariableDeclarationType.LET_CONST)
+                {
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                        $"'let const {varName}' must be initialised at declaration",
+                        context,
+                        code: DiagnosticCode.RuntimeImmutableBinding,
+                        primaryLabel: "missing initialiser",
+                        help: "'let const' bindings are compile-time-stable and require an initial value"));
                 }
 
                 if (declaredType != null)
@@ -64,13 +78,21 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                     }
                 }
 
-                bool isLetFlag = node.DeclarationType == VariableDeclarationType.LET;
+                // The borrow / move machinery keys off IsLet, which now covers any of
+                // the let-family declarations. The DeclarationType then narrows to the
+                // exact flavour (LET / LET_MUT / LET_CONST) so the assignment / borrow
+                // visitors can apply the right policy.
+                bool isLetFlag = node.DeclarationType == VariableDeclarationType.LET
+                              || node.DeclarationType == VariableDeclarationType.LET_MUT
+                              || node.DeclarationType == VariableDeclarationType.LET_CONST;
                 bool isStaticallyTyped = declaredType != null;
                 var declTypeFlag = node.DeclarationType switch
                 {
                     VariableDeclarationType.CONST => VariableDeclarationType.CONST,
                     VariableDeclarationType.FINAL => VariableDeclarationType.FINAL,
                     VariableDeclarationType.LET => VariableDeclarationType.LET,
+                    VariableDeclarationType.LET_MUT => VariableDeclarationType.LET_MUT,
+                    VariableDeclarationType.LET_CONST => VariableDeclarationType.LET_CONST,
                     _ => VariableDeclarationType.VARIABLE,
                 };
 

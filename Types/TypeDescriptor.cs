@@ -37,7 +37,13 @@ namespace RaLanguage.Types
         public bool IsRefType { get; }
         public TypeDescriptor? RefElementType { get; }
 
-        public TypeDescriptor(string name, List<TypeDescriptor>? genericArgs = null, bool isRefType = false, TypeDescriptor? refElementType = null)
+        // Borrow-system extensions. Populated when ParseType reads `&T` / `&mut T` /
+        // `&'a T`. Pure metadata: TypeSystem.IsAssignable still treats them as ref
+        // types; the borrow checker is what enforces mutability and lifetime.
+        public bool IsMutableRef { get; }
+        public string? Lifetime { get; }
+
+        public TypeDescriptor(string name, List<TypeDescriptor>? genericArgs = null, bool isRefType = false, TypeDescriptor? refElementType = null, bool isMutableRef = false, string? lifetime = null)
         {
             Name = name;
             GenericArgs = genericArgs ?? new List<TypeDescriptor>();
@@ -45,6 +51,8 @@ namespace RaLanguage.Types
             TypeParameterName = null;
             IsRefType = isRefType;
             RefElementType = refElementType;
+            IsMutableRef = isMutableRef;
+            Lifetime = lifetime;
         }
 
         private TypeDescriptor(string typeParamName, bool isTypeParam)
@@ -55,13 +63,23 @@ namespace RaLanguage.Types
             GenericArgs = new List<TypeDescriptor>();
             IsRefType = false;
             RefElementType = null;
+            IsMutableRef = false;
+            Lifetime = null;
         }
 
         public static TypeDescriptor TypeParameter(string name) => new TypeDescriptor(name, true);
 
-        public static TypeDescriptor RefType(TypeDescriptor elementType)
+        public static TypeDescriptor RefType(TypeDescriptor elementType, bool isMutable = false, string? lifetime = null)
         {
-            return new TypeDescriptor($"ref {elementType.Name}", elementType.GenericArgs, isRefType: true, refElementType: elementType);
+            string prefix = isMutable ? "&mut " : "&";
+            string lifetimeBit = lifetime != null ? $"'{lifetime} " : string.Empty;
+            return new TypeDescriptor(
+                $"{prefix}{lifetimeBit}{elementType.Name}",
+                elementType.GenericArgs,
+                isRefType: true,
+                refElementType: elementType,
+                isMutableRef: isMutable,
+                lifetime: lifetime);
         }
 
         public static TypeDescriptor Tuple(List<TypeDescriptor> elements)
@@ -114,7 +132,7 @@ namespace RaLanguage.Types
             if (IsRefType && RefElementType != null)
             {
                 var substitutedElement = RefElementType.Substitute(bindings);
-                return RefType(substitutedElement);
+                return RefType(substitutedElement, IsMutableRef, Lifetime);
             }
             if (GenericArgs.Count == 0) return this;
             var substituted = GenericArgs.Select(a => a.Substitute(bindings)).ToList();

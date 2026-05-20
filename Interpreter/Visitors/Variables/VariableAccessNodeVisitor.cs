@@ -35,6 +35,19 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                     primaryLabel: "used here after move",
                     help: "non-copy 'let' bindings transfer ownership on use; rebind the value or take a copy"));
 
+            // While a mutable borrow is alive the underlying binding is exclusively
+            // owned by that borrow — direct reads of the binding would expose the same
+            // storage through two paths simultaneously, which is exactly what `&mut`
+            // forbids. Reads through the borrow itself (`*r`) are allowed by the
+            // dereference visitor.
+            if (entry.HasMutableBorrow)
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                    $"cannot read '{name}': it is exclusively borrowed by a '&mut'",
+                    context,
+                    code: DiagnosticCode.RuntimeBorrowViolation,
+                    primaryLabel: "binding is exclusively borrowed",
+                    help: "access the value through the existing '&mut' borrow with '*ref', or wait until the borrow's scope ends"));
+
             var value = entry.Value;
 
             if (value.Type == RuntimeValueType.StructInstance ||

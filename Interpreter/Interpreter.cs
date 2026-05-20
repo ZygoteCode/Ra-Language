@@ -107,6 +107,9 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.NamespaceDeclaration] = new NamespaceDeclarationNodeVisitor();
             _visitors[(int)AstNodeType.UsingNamespace] = new UsingNamespaceNodeVisitor();
             _visitors[(int)AstNodeType.AsmBlock] = new AsmBlockNodeVisitor();
+            _visitors[(int)AstNodeType.Borrow] = new BorrowNodeVisitor();
+            _visitors[(int)AstNodeType.Dereference] = new DereferenceNodeVisitor();
+            _visitors[(int)AstNodeType.DereferenceAssignment] = new DereferenceAssignmentNodeVisitor();
         }
 
         public RuntimeResult Visit(AstNode node, Context context)
@@ -136,8 +139,24 @@ namespace RaLanguage.Interpreter
                     primaryLabel: "used here after move",
                     help: "non-copy 'let' bindings transfer ownership on use; rebind the value or take a copy"));
 
+            // `let const` bindings are compile-time-stable constants: they may not be
+            // moved out, only read (effectively borrowed by value via Copy). This keeps
+            // them aligned with `const` while still benefiting from the borrow checker.
+            if (entry.IsConstBinding)
+                return (entry.Value.Copy().SetContext(context).SetPos(posStart, posEnd), null);
+
             if (entry.IsLet && !entry.Value.IsCopy)
             {
+                if (entry.IsBorrowed)
+                    return (null, new RuntimeError(posStart, posEnd,
+                        $"cannot move out of '{name}': it is currently borrowed",
+                        context,
+                        code: DiagnosticCode.RuntimeBorrowViolation,
+                        primaryLabel: entry.HasMutableBorrow
+                            ? "binding is exclusively borrowed (&mut)"
+                            : $"binding has {entry.SharedBorrowCount} shared borrow(s) alive",
+                        help: "the value cannot be moved while borrows are alive; let the borrows drop first or clone the value"));
+
                 entry.IsMoved = true;
                 return (entry.Value.SetContext(context).SetPos(posStart, posEnd), null);
             }
