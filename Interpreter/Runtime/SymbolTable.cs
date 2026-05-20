@@ -70,7 +70,11 @@ namespace RaLanguage.Interpreter.Runtime
                 existing.DeclaredType = declaredType;
                 existing.IsStaticallyTyped = isStaticallyTyped;
                 existing.IsPublic = isPublic;
-                if (declarationType.HasValue) existing.DeclarationType = declarationType.Value;
+                if (declarationType.HasValue)
+                {
+                    existing.DeclarationType = declarationType.Value;
+                    existing.ApplyDeclarationTypeDefaults();
+                }
                 return;
             }
             _symbols[name] = new SymbolEntry(value, isLet, isPublic, declaredType, isStaticallyTyped,
@@ -99,7 +103,11 @@ namespace RaLanguage.Interpreter.Runtime
                     existing.DeclaredType = declaredType;
                     existing.IsStaticallyTyped = isStaticallyTyped;
                     existing.IsPublic = isPublic;
-                    if (declarationType.HasValue) existing.DeclarationType = declarationType.Value;
+                    if (declarationType.HasValue)
+                    {
+                        existing.DeclarationType = declarationType.Value;
+                        existing.ApplyDeclarationTypeDefaults();
+                    }
                     return;
                 }
                 st = st.Parent;
@@ -147,12 +155,29 @@ namespace RaLanguage.Interpreter.Runtime
 
         public void Clear()
         {
+            ReleaseLocalBorrows();
             _symbols.Clear();
         }
 
         public void DetachParent()
         {
             Parent = null;
+        }
+
+        // Walk only THIS scope's entries and release any BorrowValue they hold so the
+        // source SymbolEntry's borrow counter is correctly decremented. Called by
+        // ScopeNodeVisitor on scope exit, by loop visitors before Clear(), and by
+        // function epilogue on return. Idempotent per-borrow.
+        public void ReleaseLocalBorrows()
+        {
+            foreach (var kv in _symbols)
+            {
+                var entry = kv.Value;
+                if (entry.Value is RaLanguage.Interpreter.Values.Primitives.BorrowValue bv && !bv.Released)
+                {
+                    bv.Release();
+                }
+            }
         }
     }
 }

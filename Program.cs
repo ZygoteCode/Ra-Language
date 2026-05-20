@@ -143,6 +143,14 @@ namespace RaLanguage
                 foreach (var d in staticDiagnostics) Console.WriteLine(d);
             }
 
+            var borrowDiagnostics = Interpreter.Runtime.Borrowing.BorrowChecker.Analyze(parseResult.Node);
+            if (borrowDiagnostics.Count > 0)
+            {
+                Console.WriteLine($"[BorrowChecker] {borrowDiagnostics.Count} issue(s) found:");
+                foreach (var d in borrowDiagnostics)
+                    Console.WriteLine(d.ToString().Replace("[StaticAnalyzer]", "[BorrowChecker]"));
+            }
+
             var interpreter = new Interpreter.Interpreter();
             var context = new Context(fn);
             context.SymbolTable = GlobalSymbolTable;

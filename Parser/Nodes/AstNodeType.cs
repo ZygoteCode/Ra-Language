@@ -78,6 +78,9 @@
         UsingNamespace,
         AsmBlock,
         AsmTextPart,
-        AsmInterpPart
+        AsmInterpPart,
+        Borrow,
+        Dereference,
+        DereferenceAssignment
     }
 }

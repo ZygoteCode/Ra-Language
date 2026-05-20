@@ -71,5 +71,6 @@
         Namespace,
         Using,
         Asm,
+        Mut,
     }
 }

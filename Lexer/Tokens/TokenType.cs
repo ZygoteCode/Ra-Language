@@ -79,6 +79,7 @@
         EOF,
         REF,
         AT_SIGN,
-        ASM_TEXT
+        ASM_TEXT,
+        LIFETIME
     }
 }

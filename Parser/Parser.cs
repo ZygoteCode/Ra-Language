@@ -528,6 +528,37 @@ namespace RaLanguage.Parser
 
         private TypeDescriptor? ParseType(ParserResult res)
         {
+            // Reference type syntax: `&T`, `&mut T`, `&'a T`, `&'a mut T`.
+            // Mirrors the borrow-expression grammar in ParseFactor. The result is a
+            // TypeDescriptor created via RefType so the existing IsAssignable path
+            // continues to enforce ref-vs-non-ref checks; the new IsMutableRef +
+            // Lifetime fields are consumed by the borrow checker.
+            if (_currentToken.Type == TokenType.BITWISE_AND)
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                string? lifetime = null;
+                if (_currentToken.Type == TokenType.LIFETIME)
+                {
+                    lifetime = _currentToken.Value?.ToString();
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                bool isMut = false;
+                if (_currentToken.Matches(Keyword.Mut))
+                {
+                    isMut = true;
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                var inner = ParseType(res);
+                if (inner == null) return null;
+                return TypeDescriptor.RefType(inner, isMut, lifetime);
+            }
+
             if (_currentToken.Type == TokenType.LPAREN)
             {
                 res.RegisterAdvancement();
@@ -634,12 +665,27 @@ namespace RaLanguage.Parser
                 Advance();
             }
 
-            if (_currentToken.Type != TokenType.IDENTIFIER)
+            // First param: either a type parameter (identifier) or a lifetime ('a).
+            // Lifetime params are recognised by the parser so signatures like
+            //   fn longest<'a, T>(x: &'a T, y: &'a T) -> &'a T
+            // are valid syntax. They are not stored in genericTypeParams (which
+            // governs type-name substitution) — the borrow checker reads BorrowNode
+            // / RefType lifetimes directly to validate their scopes.
+            if (_currentToken.Type == TokenType.LIFETIME)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+            else if (_currentToken.Type == TokenType.IDENTIFIER)
+            {
+                genericTypeParams.Add(_currentToken.Value?.ToString() ?? "");
+                res.RegisterAdvancement();
+                Advance();
+            }
+            else
+            {
                 return res.Failure(ParserDiagnostics.ExpectedGenericParamName(_currentToken));
-
-            genericTypeParams.Add(_currentToken.Value?.ToString() ?? "");
-            res.RegisterAdvancement();
-            Advance();
+            }
 
             while (_currentToken.Type == TokenType.NEWLINE)
             {
@@ -658,16 +704,24 @@ namespace RaLanguage.Parser
                     Advance();
                 }
 
-                if (_currentToken.Type != TokenType.IDENTIFIER)
-                    return res.Failure(ParserDiagnostics.ExpectedGenericParamName(_currentToken));
+                if (_currentToken.Type == TokenType.LIFETIME)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+                else
+                {
+                    if (_currentToken.Type != TokenType.IDENTIFIER)
+                        return res.Failure(ParserDiagnostics.ExpectedGenericParamName(_currentToken));
 
-                var name = _currentToken.Value?.ToString() ?? "";
-                if (genericTypeParams.Contains(name))
-                    return res.Failure(ParserDiagnostics.DuplicateGenericParam(name, _currentToken.PositionStart, _currentToken.PositionEnd));
+                    var name = _currentToken.Value?.ToString() ?? "";
+                    if (genericTypeParams.Contains(name))
+                        return res.Failure(ParserDiagnostics.DuplicateGenericParam(name, _currentToken.PositionStart, _currentToken.PositionEnd));
 
-                genericTypeParams.Add(name);
-                res.RegisterAdvancement();
-                Advance();
+                    genericTypeParams.Add(name);
+                    res.RegisterAdvancement();
+                    Advance();
+                }
 
                 while (_currentToken.Type == TokenType.NEWLINE)
                 {
@@ -935,11 +989,18 @@ namespace RaLanguage.Parser
                     MemberAccessNode memberAccess = (MemberAccessNode)leftNode;
                     return res.Success(new MemberAssignmentNode(memberAccess, assignmentToken, rightNode));
                 }
+                else if (leftNode.NodeType == AstNodeType.Dereference)
+                {
+                    DereferenceNode derefNode = (DereferenceNode)leftNode;
+                    return res.Success(new DereferenceAssignmentNode(
+                        derefNode.Target, assignmentToken, rightNode,
+                        leftNode.PositionStart, rightNode.PositionEnd));
+                }
                 else
                 {
                     return res.Failure(ParserDiagnostics.InvalidAssignmentTarget(
                         leftNode.PositionStart, leftNode.PositionEnd,
-                        "only variables, indexed access (a[i]) and member access (a.b) may appear on the left of an assignment"));
+                        "only variables, indexed access (a[i]), member access (a.b), and dereferences (*ref) may appear on the left of an assignment"));
                 }
             }
 
@@ -1074,6 +1135,48 @@ namespace RaLanguage.Parser
                 var factor = res.Register(ParseFactor());
                 if (res.Error != null) return res;
                 return res.Success(new UnaryOperationNode(tok, factor, isLeft: true));
+            }
+
+            // Unary borrow: `&place` (shared) or `&mut place` (exclusive). Optional
+            // lifetime annotation slots between: `&'a place` / `&'a mut place`.
+            // The `&` is BITWISE_AND in tokenstream; at factor-start position it can
+            // never be a binary operand, so reinterpretation is unambiguous.
+            if (tok.Type == TokenType.BITWISE_AND)
+            {
+                var posStart = tok.PositionStart;
+                res.RegisterAdvancement();
+                Advance();
+
+                string? lifetime = null;
+                if (_currentToken.Type == TokenType.LIFETIME)
+                {
+                    lifetime = _currentToken.Value?.ToString();
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                bool isMut = false;
+                if (_currentToken.Matches(Keyword.Mut))
+                {
+                    isMut = true;
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                var target = res.Register(ParseFactor());
+                if (res.Error != null) return res;
+                return res.Success(new BorrowNode(target, isMut, posStart, target.PositionEnd, lifetime));
+            }
+
+            // Unary dereference: `*expr`. Same factor-start disambiguation as `&`.
+            if (tok.Type == TokenType.MUL)
+            {
+                var posStart = tok.PositionStart;
+                res.RegisterAdvancement();
+                Advance();
+                var target = res.Register(ParseFactor());
+                if (res.Error != null) return res;
+                return res.Success(new DereferenceNode(target, posStart, target.PositionEnd));
             }
 
             return ParsePower();
@@ -5454,6 +5557,25 @@ namespace RaLanguage.Parser
 
             res.RegisterAdvancement();
             Advance();
+
+            // `let` opens an extended-modifier grammar: `let mut x` and `let const x`.
+            // These are siblings of `let`, not separate keywords, so they only attach
+            // to LET (var/const/final keep their classic semantics untouched).
+            if (variableDeclarationType == VariableDeclarationType.LET)
+            {
+                if (_currentToken.Matches(Keyword.Mut))
+                {
+                    variableDeclarationType = VariableDeclarationType.LET_MUT;
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+                else if (_currentToken.Matches(Keyword.Const))
+                {
+                    variableDeclarationType = VariableDeclarationType.LET_CONST;
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+            }
 
             List<(Token, AstNode?, TypeDescriptor?)> declarations = new List<(Token, AstNode?, TypeDescriptor?)>();
 

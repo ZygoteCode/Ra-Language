@@ -25,13 +25,26 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 var entry = TargetSymbolTable.GetEntry(VariableName);
                 if (entry == null)
                     throw new InvalidOperationException($"Referenced variable '{VariableName}' no longer exists");
-                
-                if (entry.DeclarationType == Parser.Nodes.Variables.VariableDeclarationType.CONST)
+
+                // The IsConstBinding flag is the canonical "absolutely immutable" check
+                // now (const, let const). Explicit DeclarationType checks below cover
+                // the rest of the immutability story so that the legacy interface and
+                // the borrow interface enforce the same guarantees.
+                if (entry.IsConstBinding || entry.DeclarationType == Parser.Nodes.Variables.VariableDeclarationType.CONST)
                     throw new InvalidOperationException($"Cannot modify const variable '{VariableName}'");
+
+                if (entry.DeclarationType == Parser.Nodes.Variables.VariableDeclarationType.LET_CONST)
+                    throw new InvalidOperationException($"Cannot modify 'let const' variable '{VariableName}'");
 
                 if (entry.DeclarationType == Parser.Nodes.Variables.VariableDeclarationType.FINAL)
                     throw new InvalidOperationException($"Cannot modify final variable '{VariableName}'");
-                
+
+                if (entry.DeclarationType == Parser.Nodes.Variables.VariableDeclarationType.LET)
+                    throw new InvalidOperationException($"Cannot modify immutable 'let' variable '{VariableName}'");
+
+                if (entry.IsBorrowed)
+                    throw new InvalidOperationException($"Cannot modify '{VariableName}' through an alias while borrows are alive");
+
                 entry.Value = value;
             }
         }

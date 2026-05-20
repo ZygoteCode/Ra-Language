@@ -41,16 +41,45 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
                     $"cannot assign to '{varName}': it is declared 'const'",
                     context,
-                    code: DiagnosticCode.RuntimeGeneric,
+                    code: DiagnosticCode.RuntimeImmutableBinding,
                     primaryLabel: "this binding is immutable",
-                    help: "use 'var' if you need a mutable binding"));
+                    help: "use 'var' or 'let mut' if you need a mutable binding"));
+            else if (entry.DeclarationType == VariableDeclarationType.LET_CONST)
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                    $"cannot assign to '{varName}': it is declared 'let const'",
+                    context,
+                    code: DiagnosticCode.RuntimeImmutableBinding,
+                    primaryLabel: "this binding is a compile-time-stable constant",
+                    help: "use 'let mut' if you need a mutable binding"));
+            else if (entry.DeclarationType == VariableDeclarationType.LET)
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                    $"cannot assign to '{varName}': it is an immutable 'let' binding",
+                    context,
+                    code: DiagnosticCode.RuntimeImmutableBinding,
+                    primaryLabel: "this binding cannot be reassigned",
+                    help: "declare it as 'let mut' if you need to mutate it, or shadow with a new 'let' in a nested scope"));
             else if (entry.DeclarationType == VariableDeclarationType.FINAL && currentValue.Type != RuntimeValueType.Null)
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
                     $"cannot reassign '{varName}': 'final' bindings may only be initialized once",
                     context,
-                    code: DiagnosticCode.RuntimeGeneric,
+                    code: DiagnosticCode.RuntimeImmutableBinding,
                     primaryLabel: "this binding is already initialized",
                     help: "use 'var' for a fully mutable binding, or initialize the 'final' binding at declaration"));
+
+            // Borrow safety: assigning to a binding that is currently borrowed would
+            // change the value out from under existing &/&mut aliases. Block unless we
+            // are rebinding a borrow-holding entry to a new borrow (rebind path —
+            // released and reissued below).
+            bool rebindingBorrow = currentValue is RaLanguage.Interpreter.Values.Primitives.BorrowValue;
+            if (entry.IsBorrowed && !rebindingBorrow)
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                    $"cannot assign to '{varName}': it is currently borrowed",
+                    context,
+                    code: DiagnosticCode.RuntimeBorrowViolation,
+                    primaryLabel: entry.HasMutableBorrow
+                        ? "binding is exclusively borrowed (&mut)"
+                        : $"binding has {entry.SharedBorrowCount} shared borrow(s) alive",
+                    help: "wait for the borrow's scope to end, or write through the borrow with '*ref ='"));
 
             var operation = node.AssignmentToken;
 
@@ -71,8 +100,14 @@ namespace RaLanguage.Interpreter.Visitors.Variables
 
             (RuntimeValue? result, Error? error) = (null, null);
 
+            // Borrow rebind: `let mut r = &x; r = &y;` replaces the borrow itself.
+            // Skip the read-through path (which would otherwise produce "5 + &y").
+            bool isBorrowRebind = currentValue is BorrowValue
+                                  && operation.Type == TokenType.EQ
+                                  && value is BorrowValue;
+
             RuntimeValue operationTarget = currentValue;
-            if (currentValue is IReferenceValue refRead)
+            if (!isBorrowRebind && currentValue is IReferenceValue refRead)
             {
                 operationTarget = refRead.Value;
             }
@@ -99,8 +134,14 @@ namespace RaLanguage.Interpreter.Visitors.Variables
             }
 
             if (error != null) return res.Failure(error);
-            
-            if (currentValue is IReferenceValue refWrite)
+
+            // Borrow rebind: release the old borrow then fall through to the regular
+            // TryAssign path so the SymbolEntry now holds the new BorrowValue.
+            if (isBorrowRebind)
+            {
+                ((BorrowValue)currentValue).Release();
+            }
+            else if (currentValue is IReferenceValue refWrite)
             {
                 try
                 {
