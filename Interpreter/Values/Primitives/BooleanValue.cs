@@ -38,7 +38,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public sealed override RuntimeValue Copy() => this;
 
-        public sealed override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
+        public sealed override ValueResult GetComparisonEq(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Boolean)
             {
@@ -54,7 +54,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.GetComparisonEq(other);
         }
 
-        public sealed override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
+        public sealed override ValueResult GetComparisonNe(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Boolean)
             {
@@ -70,7 +70,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.GetComparisonNe(other);
         }
 
-        public sealed override (RuntimeValue?, Error?) GetComparisonStrictEq(RuntimeValue other)
+        public sealed override ValueResult GetComparisonStrictEq(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Boolean)
             {
@@ -81,7 +81,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return (False, null);
         }
 
-        public sealed override (RuntimeValue?, Error?) GetComparisonStrictNe(RuntimeValue other)
+        public sealed override ValueResult GetComparisonStrictNe(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Boolean)
             {
@@ -92,7 +92,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return (True, null);
         }
 
-        public sealed override (RuntimeValue?, Error?) Notted()
+        public sealed override ValueResult Notted()
         {
             return (Of(!Value), null);
         }

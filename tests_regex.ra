@@ -1,0 +1,162 @@
+// Ra Language — regex subsystem regression suite.
+//
+// Each case prints "[<id>] OK" on success or "[<id>] FAIL: <details>".
+// Coverage:
+//   R1   regex literal compiles + is_match positive
+//   R2   regex literal is_match negative
+//   R3   dynamic compile via regex(pat) builtin
+//   R4   flags suffix (case-insensitive)
+//   R5   flags via builtin (multi-line)
+//   R6   re_match returns null on no match
+//   R7   re_match returns match value with index + length
+//   R8   capture group access by index
+//   R9   named group access
+//   R10  group out-of-range -> null
+//   R11  re_find_all collects every match
+//   R12  re_replace with literal replacement
+//   R13  re_replace with backreference ($1)
+//   R14  re_replace with named backreference (${name})
+//   R15  re_split basic
+//   R16  re_split with limit
+//   R17  re_escape produces safe pattern
+//   R18  invalid pattern -> runtime error
+//   R19  unknown flag -> runtime error
+//   R20  cache reuses compiled instance
+//   R21  empty-pattern edge case
+//   R22  match truthiness in conditional
+//   R23  re_groups produces full slot list (slot 0 is full match)
+//   R24  case-sensitive vs case-insensitive consistency
+
+print("=== Ra Regex Subsystem Tests ===");
+
+// -- R1 / R2 -----------------------------------------------------------------
+let r1_pat = re"\d+";
+if re_is_match(r1_pat, "abc 123 xyz") { print("[R1] OK"); } else { print("[R1] FAIL"); }
+if re_is_match(r1_pat, "abcdef") { print("[R2] FAIL"); } else { print("[R2] OK"); }
+
+// -- R3: dynamic builtin -----------------------------------------------------
+let r3_pat = regex("[a-z]+");
+if re_is_match(r3_pat, "Word") { print("[R3] OK"); } else { print("[R3] FAIL"); }
+
+// -- R4: case-insensitive flag suffix ---------------------------------------
+let r4_pat = re"hello"i;
+if re_is_match(r4_pat, "HELLO world") { print("[R4] OK"); } else { print("[R4] FAIL"); }
+
+// -- R5: multiline flag via builtin -----------------------------------------
+let r5_pat = regex("^line", "m");
+let r5_input = "first\nline two\nline three";
+let r5 = re_find_all(r5_pat, r5_input);
+if re_match_text(r5[0]) == "line" { print("[R5] OK"); } else { print("[R5] FAIL"); }
+
+// -- R6 / R7 -----------------------------------------------------------------
+let r6 = re_match(re"\d+", "no digits here");
+if r6 == null { print("[R6] OK"); } else { print("[R6] FAIL"); }
+
+let r7 = re_match(re"\d+", "abc 42 xyz");
+if r7 != null and re_match_text(r7) == "42" and re_match_start(r7) == 4 and re_match_length(r7) == 2 {
+    print("[R7] OK");
+} else {
+    print("[R7] FAIL");
+}
+
+// -- R8: indexed group -------------------------------------------------------
+let r8 = re_match(re"(\w+)=(\d+)", "answer=42");
+if r8 != null and re_group(r8, 1) == "answer" and re_group(r8, 2) == "42" {
+    print("[R8] OK");
+} else {
+    print("[R8] FAIL");
+}
+
+// -- R9: named group ---------------------------------------------------------
+let r9 = re_match(re"(?<key>\w+)=(?<val>\d+)", "answer=42");
+if r9 != null and re_named_group(r9, "key") == "answer" and re_named_group(r9, "val") == "42" {
+    print("[R9] OK");
+} else {
+    print("[R9] FAIL");
+}
+
+// -- R10: group out of range -------------------------------------------------
+if re_group(r9, 99) == null and re_named_group(r9, "nope") == null { print("[R10] OK"); } else { print("[R10] FAIL"); }
+
+// -- R11: find_all -----------------------------------------------------------
+let r11 = re_find_all(re"\d+", "a1 b22 c333");
+if len(r11) == 3 and re_match_text(r11[0]) == "1" and re_match_text(r11[2]) == "333" {
+    print("[R11] OK");
+} else {
+    print("[R11] FAIL count=" + (len(r11) as string));
+}
+
+// -- R12: literal replace ----------------------------------------------------
+let r12 = re_replace(re"\d+", "id-42-id-7", "#");
+if r12 == "id-#-id-#" { print("[R12] OK"); } else { print("[R12] FAIL " + r12); }
+
+// -- R13: backreference replace ----------------------------------------------
+let r13 = re_replace(re"(\w+)=(\d+)", "x=1 y=2", "$2:$1");
+if r13 == "1:x 2:y" { print("[R13] OK"); } else { print("[R13] FAIL " + r13); }
+
+// -- R14: named backreference replace ---------------------------------------
+let r14 = re_replace(re"(?<k>\w+)=(?<v>\d+)", "answer=42", "${v} (${k})");
+if r14 == "42 (answer)" { print("[R14] OK"); } else { print("[R14] FAIL " + r14); }
+
+// -- R15: split --------------------------------------------------------------
+let r15 = re_split(re"\s+", "one two three  four");
+if len(r15) == 4 and r15[0] == "one" and r15[3] == "four" { print("[R15] OK"); } else { print("[R15] FAIL"); }
+
+// -- R16: split with limit ---------------------------------------------------
+let r16 = re_split(re",", "a,b,c,d,e", 3);
+if len(r16) == 3 and r16[2] == "c,d,e" { print("[R16] OK"); } else { print("[R16] FAIL"); }
+
+// -- R17: escape -------------------------------------------------------------
+let r17_raw = re_escape("3.14 + (2)");
+let r17_pat = regex(r17_raw);
+if re_is_match(r17_pat, "result = 3.14 + (2) here") { print("[R17] OK"); } else { print("[R17] FAIL " + r17_raw); }
+
+// -- R18: invalid pattern ----------------------------------------------------
+try {
+    let _bad = regex("(unclosed");
+    print("[R18] FAIL: accepted invalid pattern");
+} catch (e) {
+    print("[R18] OK");
+}
+
+// -- R19: invalid flag -------------------------------------------------------
+try {
+    let _bad = regex("a", "z");
+    print("[R19] FAIL: accepted invalid flag");
+} catch (e) {
+    print("[R19] OK");
+}
+
+// -- R20: cache reuse --------------------------------------------------------
+re_cache_clear();
+let r20a = regex("foo-\\d+");
+let before = re_cache_size();
+let r20b = regex("foo-\\d+");
+let after = re_cache_size();
+if before == 1 and after == 1 { print("[R20] OK"); } else { print("[R20] FAIL before=" + (before as string) + " after=" + (after as string)); }
+
+// -- R21: empty pattern -----------------------------------------------------
+let r21 = re_split(re"", "abc");
+// .NET regex on empty pattern splits between each char and at the ends.
+if len(r21) >= 4 { print("[R21] OK"); } else { print("[R21] FAIL count=" + (len(r21) as string)); }
+
+// -- R22: match value is truthy when successful -----------------------------
+let r22a = re_match(re"\d+", "x9");
+let r22b = re_match(re"\d+", "abc");
+if r22a and r22b == null { print("[R22] OK"); } else { print("[R22] FAIL"); }
+
+// -- R23: re_groups includes slot 0 -----------------------------------------
+let r23 = re_match(re"(\w+)@(\w+)", "alice@example");
+let groups = re_groups(r23);
+if len(groups) == 3 and groups[0] == "alice@example" and groups[1] == "alice" and groups[2] == "example" {
+    print("[R23] OK");
+} else {
+    print("[R23] FAIL count=" + (len(groups) as string));
+}
+
+// -- R24: case-sensitive default vs i-flag ----------------------------------
+let r24a = re_is_match(re"FOO", "foo");
+let r24b = re_is_match(re"FOO"i, "foo");
+if not r24a and r24b { print("[R24] OK"); } else { print("[R24] FAIL a=" + (r24a as string) + " b=" + (r24b as string)); }
+
+print("=== Done ===");

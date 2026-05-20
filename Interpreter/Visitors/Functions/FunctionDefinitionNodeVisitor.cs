@@ -37,6 +37,15 @@ namespace RaLanguage.Interpreter.Visitors.Functions
             funcValue.IsAsync = node.IsAsync;
             funcValue.IsAsyncStream = node.IsAsyncStream;
 
+            // Freeze the lexical binding context at definition time. Without
+            // this, each variable-access lookup of the function would
+            // SetContext(callSite) on the copy returned by ExtractVariable,
+            // and GenerateNewContext would then parent the call's exec scope
+            // under the call site instead of the lexical scope — leaking
+            // bindings (e.g. match-arm pattern variables) into recursive
+            // calls.
+            funcValue.FreezeBindingContext(context);
+
             if (node.VarNameTok != null)
             {
                 context.SymbolTable.Set(funcName, funcValue, isPublic: node.IsPublic);

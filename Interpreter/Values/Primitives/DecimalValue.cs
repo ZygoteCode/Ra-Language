@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Types;
@@ -204,7 +204,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             }
         }
 
-        public sealed override (RuntimeValue?, Error?) AddedTo(RuntimeValue other)
+        public sealed override ValueResult AddedTo(RuntimeValue other)
         {
             if (!TryGetDecimal(other, out var rhs))
                 return base.AddedTo(other);
@@ -222,7 +222,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             }
         }
 
-        public sealed override (RuntimeValue?, Error?) SubbedBy(RuntimeValue other)
+        public sealed override ValueResult SubbedBy(RuntimeValue other)
         {
             if (!TryGetDecimal(other, out var rhs))
                 return base.SubbedBy(other);
@@ -240,7 +240,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             }
         }
 
-        public sealed override (RuntimeValue?, Error?) MultedBy(RuntimeValue other)
+        public sealed override ValueResult MultedBy(RuntimeValue other)
         {
             if (!TryGetDecimal(other, out var rhs))
                 return base.MultedBy(other);
@@ -258,7 +258,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             }
         }
 
-        public sealed override (RuntimeValue?, Error?) DivedBy(RuntimeValue other)
+        public sealed override ValueResult DivedBy(RuntimeValue other)
         {
             if (!TryGetDecimal(other, out var rhs))
                 return base.DivedBy(other);
@@ -279,7 +279,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             }
         }
 
-        public sealed override (RuntimeValue?, Error?) ModuledBy(RuntimeValue other)
+        public sealed override ValueResult ModuledBy(RuntimeValue other)
         {
             if (!TryGetDecimal(other, out var rhs))
                 return base.ModuledBy(other);
@@ -300,7 +300,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             }
         }
 
-        public sealed override (RuntimeValue?, Error?) PowedBy(RuntimeValue other)
+        public sealed override ValueResult PowedBy(RuntimeValue other)
         {
             if (!TryGetDecimal(other, out var rhs))
                 return base.PowedBy(other);
@@ -308,7 +308,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return (PowerDecimal(Value, rhs, this), null);
         }
 
-        public sealed override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
+        public sealed override ValueResult GetComparisonEq(RuntimeValue other)
         {
             if (!TryGetDecimal(other, out var rhs))
             {
@@ -324,7 +324,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return (BooleanValue.Of(Value == rhs).SetContext(Context), null);
         }
 
-        public sealed override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
+        public sealed override ValueResult GetComparisonNe(RuntimeValue other)
         {
             var eq = GetComparisonEq(other).Item1;
             if (eq is BooleanValue b)
@@ -333,7 +333,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.GetComparisonNe(other);
         }
 
-        public sealed override (RuntimeValue?, Error?) GetComparisonLt(RuntimeValue other)
+        public sealed override ValueResult GetComparisonLt(RuntimeValue other)
         {
             if (!TryGetDecimal(other, out var rhs))
             {
@@ -349,7 +349,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return (BooleanValue.Of(Value < rhs).SetContext(Context), null);
         }
 
-        public sealed override (RuntimeValue?, Error?) GetComparisonGt(RuntimeValue other)
+        public sealed override ValueResult GetComparisonGt(RuntimeValue other)
         {
             if (!TryGetDecimal(other, out var rhs))
             {
@@ -365,7 +365,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return (BooleanValue.Of(Value > rhs).SetContext(Context), null);
         }
 
-        public sealed override (RuntimeValue?, Error?) GetComparisonLte(RuntimeValue other)
+        public sealed override ValueResult GetComparisonLte(RuntimeValue other)
         {
             var gt = GetComparisonGt(other).Item1;
             if (gt is BooleanValue b)
@@ -374,7 +374,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.GetComparisonLte(other);
         }
 
-        public sealed override (RuntimeValue?, Error?) GetComparisonGte(RuntimeValue other)
+        public sealed override ValueResult GetComparisonGte(RuntimeValue other)
         {
             var lt = GetComparisonLt(other).Item1;
             if (lt is BooleanValue b)
@@ -383,12 +383,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.GetComparisonGte(other);
         }
 
-        public sealed override (RuntimeValue?, Error?) Notted()
+        public sealed override ValueResult Notted()
         {
             return (new DecimalValue(Value == 0m ? 1m : 0m).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
         }
 
-        public sealed override (RuntimeValue?, Error?) Factorial()
+        public sealed override ValueResult Factorial()
         {
             if (Value < 0m)
                 return (null, new RuntimeError(PositionStart, PositionEnd, "Factorial is not defined for negative decimals", Context));
@@ -415,7 +415,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             }
         }
 
-        public sealed override (RuntimeValue?, Error?) CastTo(TypeDescriptor targetType)
+        public sealed override ValueResult CastTo(TypeDescriptor targetType)
         {
             var tn = targetType?.Name?.ToString() ?? "";
 

@@ -37,6 +37,8 @@ namespace RaLanguage.Errors
         public static readonly DiagnosticCode LexerMissingExponentDigits = new("RA0107", "missing-exponent-digits");
         public static readonly DiagnosticCode LexerUnexpectedDollarSign  = new("RA0108", "unexpected-dollar-sign");
         public static readonly DiagnosticCode LexerExpectedCharacter     = new("RA0109", "expected-character");
+        public static readonly DiagnosticCode LexerUnterminatedRegex     = new("RA0110", "unterminated-regex-literal");
+        public static readonly DiagnosticCode LexerInvalidRegexFlag      = new("RA0111", "invalid-regex-flag");
 
         // ---- Parser (RA02xx) ----
         public static readonly DiagnosticCode ParserUnexpectedToken    = new("RA0201", "unexpected-token");
@@ -61,6 +63,8 @@ namespace RaLanguage.Errors
         public static readonly DiagnosticCode RuntimeBorrowViolation = new("RA0407", "borrow-violation");
         public static readonly DiagnosticCode RuntimeLifetimeViolation = new("RA0408", "lifetime-violation");
         public static readonly DiagnosticCode RuntimeImmutableBinding = new("RA0409", "immutable-binding");
+        public static readonly DiagnosticCode RuntimeRegexCompile     = new("RA0410", "regex-compile-error");
+        public static readonly DiagnosticCode RuntimeRegexMatch       = new("RA0411", "regex-match-error");
 
         // ---- Modules / imports (RA05xx) ----
         public static readonly DiagnosticCode ModuleNotFound       = new("RA0501", "module-not-found");

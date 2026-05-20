@@ -93,31 +93,31 @@ namespace RaLanguage.Interpreter.Values.Primitives
             }
         }
 
-        public override (RuntimeValue?, Error?) AddedTo(RuntimeValue other) => SafeValue()?.AddedTo(other) ?? Err();
-        public override (RuntimeValue?, Error?) SubbedBy(RuntimeValue other) => SafeValue()?.SubbedBy(other) ?? Err();
-        public override (RuntimeValue?, Error?) MultedBy(RuntimeValue other) => SafeValue()?.MultedBy(other) ?? Err();
-        public override (RuntimeValue?, Error?) DivedBy(RuntimeValue other) => SafeValue()?.DivedBy(other) ?? Err();
-        public override (RuntimeValue?, Error?) PowedBy(RuntimeValue other) => SafeValue()?.PowedBy(other) ?? Err();
-        public override (RuntimeValue?, Error?) ModuledBy(RuntimeValue other) => SafeValue()?.ModuledBy(other) ?? Err();
-        public override (RuntimeValue?, Error?) BitwiseLeftShiftedBy(RuntimeValue other) => SafeValue()?.BitwiseLeftShiftedBy(other) ?? Err();
-        public override (RuntimeValue?, Error?) BitwiseRightShiftedBy(RuntimeValue other) => SafeValue()?.BitwiseRightShiftedBy(other) ?? Err();
-        public override (RuntimeValue?, Error?) BitwiseAndedBy(RuntimeValue other) => SafeValue()?.BitwiseAndedBy(other) ?? Err();
-        public override (RuntimeValue?, Error?) BitwiseOredBy(RuntimeValue other) => SafeValue()?.BitwiseOredBy(other) ?? Err();
-        public override (RuntimeValue?, Error?) ListAccess(RuntimeValue other) => SafeValue()?.ListAccess(other) ?? Err();
-        public override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other) => SafeValue()?.GetComparisonEq(other) ?? Err();
-        public override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other) => SafeValue()?.GetComparisonNe(other) ?? Err();
-        public override (RuntimeValue?, Error?) GetComparisonStrictEq(RuntimeValue other) => SafeValue()?.GetComparisonStrictEq(other) ?? Err();
-        public override (RuntimeValue?, Error?) GetComparisonStrictNe(RuntimeValue other) => SafeValue()?.GetComparisonStrictNe(other) ?? Err();
-        public override (RuntimeValue?, Error?) GetComparisonLt(RuntimeValue other) => SafeValue()?.GetComparisonLt(other) ?? Err();
-        public override (RuntimeValue?, Error?) GetComparisonGt(RuntimeValue other) => SafeValue()?.GetComparisonGt(other) ?? Err();
-        public override (RuntimeValue?, Error?) GetComparisonLte(RuntimeValue other) => SafeValue()?.GetComparisonLte(other) ?? Err();
-        public override (RuntimeValue?, Error?) GetComparisonGte(RuntimeValue other) => SafeValue()?.GetComparisonGte(other) ?? Err();
-        public override (RuntimeValue?, Error?) Notted() => SafeValue()?.Notted() ?? Err();
-        public override (RuntimeValue?, Error?) BitwiseNotted() => SafeValue()?.BitwiseNotted() ?? Err();
-        public override (RuntimeValue?, Error?) Factorial() => SafeValue()?.Factorial() ?? Err();
-        public override (RuntimeValue?, Error?) AndedBy(RuntimeValue other) => SafeValue()?.AndedBy(other) ?? Err();
-        public override (RuntimeValue?, Error?) OredBy(RuntimeValue other) => SafeValue()?.OredBy(other) ?? Err();
-        public override (RuntimeValue?, Error?) InCollection(RuntimeValue other) => SafeValue()?.InCollection(other) ?? Err();
+        public override ValueResult AddedTo(RuntimeValue other) => SafeValue()?.AddedTo(other) ?? Err();
+        public override ValueResult SubbedBy(RuntimeValue other) => SafeValue()?.SubbedBy(other) ?? Err();
+        public override ValueResult MultedBy(RuntimeValue other) => SafeValue()?.MultedBy(other) ?? Err();
+        public override ValueResult DivedBy(RuntimeValue other) => SafeValue()?.DivedBy(other) ?? Err();
+        public override ValueResult PowedBy(RuntimeValue other) => SafeValue()?.PowedBy(other) ?? Err();
+        public override ValueResult ModuledBy(RuntimeValue other) => SafeValue()?.ModuledBy(other) ?? Err();
+        public override ValueResult BitwiseLeftShiftedBy(RuntimeValue other) => SafeValue()?.BitwiseLeftShiftedBy(other) ?? Err();
+        public override ValueResult BitwiseRightShiftedBy(RuntimeValue other) => SafeValue()?.BitwiseRightShiftedBy(other) ?? Err();
+        public override ValueResult BitwiseAndedBy(RuntimeValue other) => SafeValue()?.BitwiseAndedBy(other) ?? Err();
+        public override ValueResult BitwiseOredBy(RuntimeValue other) => SafeValue()?.BitwiseOredBy(other) ?? Err();
+        public override ValueResult ListAccess(RuntimeValue other) => SafeValue()?.ListAccess(other) ?? Err();
+        public override ValueResult GetComparisonEq(RuntimeValue other) => SafeValue()?.GetComparisonEq(other) ?? Err();
+        public override ValueResult GetComparisonNe(RuntimeValue other) => SafeValue()?.GetComparisonNe(other) ?? Err();
+        public override ValueResult GetComparisonStrictEq(RuntimeValue other) => SafeValue()?.GetComparisonStrictEq(other) ?? Err();
+        public override ValueResult GetComparisonStrictNe(RuntimeValue other) => SafeValue()?.GetComparisonStrictNe(other) ?? Err();
+        public override ValueResult GetComparisonLt(RuntimeValue other) => SafeValue()?.GetComparisonLt(other) ?? Err();
+        public override ValueResult GetComparisonGt(RuntimeValue other) => SafeValue()?.GetComparisonGt(other) ?? Err();
+        public override ValueResult GetComparisonLte(RuntimeValue other) => SafeValue()?.GetComparisonLte(other) ?? Err();
+        public override ValueResult GetComparisonGte(RuntimeValue other) => SafeValue()?.GetComparisonGte(other) ?? Err();
+        public override ValueResult Notted() => SafeValue()?.Notted() ?? Err();
+        public override ValueResult BitwiseNotted() => SafeValue()?.BitwiseNotted() ?? Err();
+        public override ValueResult Factorial() => SafeValue()?.Factorial() ?? Err();
+        public override ValueResult AndedBy(RuntimeValue other) => SafeValue()?.AndedBy(other) ?? Err();
+        public override ValueResult OredBy(RuntimeValue other) => SafeValue()?.OredBy(other) ?? Err();
+        public override ValueResult InCollection(RuntimeValue other) => SafeValue()?.InCollection(other) ?? Err();
         public override bool IsTrue()
         {
             var v = SafeValue();
@@ -130,7 +130,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return SourceEntry.Value;
         }
 
-        private (RuntimeValue?, Error?) Err()
+        private ValueResult Err()
         {
             string reason = Released ? "released borrow" : "borrow of moved value";
             return (null, new RuntimeError(PositionStart, PositionEnd,

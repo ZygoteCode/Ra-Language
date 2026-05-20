@@ -40,32 +40,33 @@ namespace RaLanguage.Types
 
             if (declaredType?.Name == null) return value;
 
-            string targetType = declaredType.Name.ToString().ToLowerInvariant();
-            
-            if (targetType == "string")
+            var kind = declaredType.PrimitiveKind;
+            if (kind == PrimitiveTypeKind.None) return value;
+
+            if (kind == PrimitiveTypeKind.String)
             {
                 var strValue = StringConversionUtility.ConvertToString(value);
                 return new StringValue(strValue).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
             }
-            
+
             if (!TryGetRawValue(value, out object? rawValue))
                 return value;
 
-            RuntimeValue? newValue = targetType switch
+            RuntimeValue? newValue = kind switch
             {
-                "int" => new IntegerValue(Convert.ToInt32(rawValue)),
-                "number" => new NumberValue(BigNumber.Parse(rawValue.ToString())),
-                "long" => new LongValue(Convert.ToInt64(rawValue)),
-                "float" => new FloatValue(Convert.ToSingle(rawValue)),
-                "double"=> new DoubleValue(Convert.ToDouble(rawValue)),
-                "uint" => new UnsignedIntegerValue(Convert.ToUInt32(rawValue)),
-                "ulong" => new UnsignedLongValue(Convert.ToUInt64(rawValue)),
-                "short" => new ShortValue(Convert.ToInt16(rawValue)),
-                "ushort" => new UnsignedShortValue(Convert.ToUInt16(rawValue)),
-                "int128"=> new Int128Value((Int128)rawValue),
-                "uint128" => new UnsignedInt128Value((UInt128)rawValue),
-                "decimal" => new DecimalValue(Convert.ToDecimal(rawValue)),
-                "byte" => new ByteValue(Convert.ToByte(rawValue)),
+                PrimitiveTypeKind.Int => new IntegerValue(Convert.ToInt32(rawValue)),
+                PrimitiveTypeKind.Number => new NumberValue(BigNumber.Parse(rawValue.ToString())),
+                PrimitiveTypeKind.Long => new LongValue(Convert.ToInt64(rawValue)),
+                PrimitiveTypeKind.Float => new FloatValue(Convert.ToSingle(rawValue)),
+                PrimitiveTypeKind.Double => new DoubleValue(Convert.ToDouble(rawValue)),
+                PrimitiveTypeKind.UInt => new UnsignedIntegerValue(Convert.ToUInt32(rawValue)),
+                PrimitiveTypeKind.ULong => new UnsignedLongValue(Convert.ToUInt64(rawValue)),
+                PrimitiveTypeKind.Short => new ShortValue(Convert.ToInt16(rawValue)),
+                PrimitiveTypeKind.UShort => new UnsignedShortValue(Convert.ToUInt16(rawValue)),
+                PrimitiveTypeKind.Int128 => new Int128Value((Int128)rawValue),
+                PrimitiveTypeKind.UInt128 => new UnsignedInt128Value((UInt128)rawValue),
+                PrimitiveTypeKind.Decimal => new DecimalValue(Convert.ToDecimal(rawValue)),
+                PrimitiveTypeKind.Byte => new ByteValue(Convert.ToByte(rawValue)),
                 _ => null
             };
 

@@ -1,4 +1,4 @@
-﻿using RaLanguage.Errors;
+using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
@@ -30,12 +30,17 @@ namespace RaLanguage.Interpreter
     public class Interpreter : IInterpreter
     {
         public List<(string, AstNode)> Labels { get; } = new List<(string, AstNode)>();
-        private readonly INodeVisitor[] _visitors;
+
+        // Closed-instance delegates pointing directly at each visitor's Visit method.
+        // Replaces the previous INodeVisitor[] + interface dispatch: delegate invocation
+        // is a single indirect call the JIT/AOT can inline and devirtualize, while
+        // interface dispatch always pays the IVT lookup per node.
+        private readonly Func<AstNode, Context, IInterpreter, RuntimeResult>[] _visitors;
 
         public Interpreter()
         {
             var typesCount = Enum.GetValues<AstNodeType>().Length;
-            _visitors = new INodeVisitor[typesCount];
+            _visitors = new Func<AstNode, Context, IInterpreter, RuntimeResult>[typesCount];
             RegisterVisitors();
         }
 
@@ -43,73 +48,78 @@ namespace RaLanguage.Interpreter
         {
             var typesCount = Enum.GetValues<AstNodeType>().Length;
 
-            _visitors[(int)AstNodeType.Number] = new NumberNodeVisitor();
-            _visitors[(int)AstNodeType.String] = new StringNodeVisitor();
-            _visitors[(int)AstNodeType.List] = new ListNodeVisitor();
-            _visitors[(int)AstNodeType.VariableAccess] = new VariableAccessNodeVisitor();
-            _visitors[(int)AstNodeType.VariableDeclaration] = new VariableDeclarationNodeVisitor();
-            _visitors[(int)AstNodeType.VariableAssignment] = new VariableAssignmentNodeVisitor();
-            _visitors[(int)AstNodeType.VariableDelete] = new VariableDeleteNodeVisitor();
-            _visitors[(int)AstNodeType.BinaryOperation] = new BinaryOperationNodeVisitor();
-            _visitors[(int)AstNodeType.UnaryOperation] = new UnaryOperationNodeVisitor();
-            _visitors[(int)AstNodeType.If] = new IfNodeVisitor();
-            _visitors[(int)AstNodeType.For] = new ForNodeVisitor();
-            _visitors[(int)AstNodeType.While] = new WhileNodeVisitor();
-            _visitors[(int)AstNodeType.FunctionDefinition] = new FunctionDefinitionNodeVisitor();
-            _visitors[(int)AstNodeType.FunctionCall] = new FunctionCallNodeVisitor();
-            _visitors[(int)AstNodeType.Return] = new ReturnNodeVisitor();
-            _visitors[(int)AstNodeType.Continue] = new ContinueNodeVisitor();
-            _visitors[(int)AstNodeType.Break] = new BreakNodeVisitor();
-            _visitors[(int)AstNodeType.Pass] = new PassNodeVisitor();
-            _visitors[(int)AstNodeType.DoWhile] = new DoWhileNodeVisitor();
-            _visitors[(int)AstNodeType.Typeof] = new TypeofNodeVisitor();
-            _visitors[(int)AstNodeType.Nameof] = new NameofNodeVisitor();
-            _visitors[(int)AstNodeType.Null] = new NullNodeVisitor();
-            _visitors[(int)AstNodeType.Boolean] = new BooleanNodeVisitor();
-            _visitors[(int)AstNodeType.ListAccess] = new ListAccessNodeVisitor();
-            _visitors[(int)AstNodeType.Set] = new SetNodeVisitor();
-            _visitors[(int)AstNodeType.ListAssignment] = new ListAssignmentNodeVisitor();
-            _visitors[(int)AstNodeType.ForEach] = new ForEachNodeVisitor();
-            _visitors[(int)AstNodeType.Range] = new RangeNodeVisitor();
-            _visitors[(int)AstNodeType.NullCoalescing] = new NullCoalescingNodeVisitor();
-            _visitors[(int)AstNodeType.Ternary] = new TernaryNodeVisitor();
-            _visitors[(int)AstNodeType.Map] = new MapNodeVisitor();
-            _visitors[(int)AstNodeType.Yield] = new YieldNodeVisitor();
-            _visitors[(int)AstNodeType.Switch] = new SwitchNodeVisitor();
-            _visitors[(int)AstNodeType.Tuple] = new TupleNodeVisitor();
-            _visitors[(int)AstNodeType.Cast] = new CastNodeVisitor();
-            _visitors[(int)AstNodeType.Try] = new TryNodeVisitor();
-            _visitors[(int)AstNodeType.SuperFor] = new SuperForNodeVisitor();
-            _visitors[(int)AstNodeType.Label] = new LabelNodeVisitor();
-            _visitors[(int)AstNodeType.Goto] = new GotoNodeVisitor();
-            _visitors[(int)AstNodeType.Retry] = new RetryNodeVisitor();
-            _visitors[(int)AstNodeType.EnumAccess] = new EnumAccessNodeVisitor();
-            _visitors[(int)AstNodeType.EnumDefinition] = new EnumDefinitionNodeVisitor();
-            _visitors[(int)AstNodeType.StructDefinition] = new StructDefinitionNodeVisitor();
-            _visitors[(int)AstNodeType.Self] = new SelfNodeVisitor();
-            _visitors[(int)AstNodeType.MemberAccess] = new MemberAccessNodeVisitor();
-            _visitors[(int)AstNodeType.MemberAssignment] = new MemberAssignmentNodeVisitor();
-            _visitors[(int)AstNodeType.Scope] = new ScopeNodeVisitor();
-            _visitors[(int)AstNodeType.ClassDefinition] = new ClassDefinitionNodeVisitor();
-            _visitors[(int)AstNodeType.Super] = new SuperNodeVisitor();
-            _visitors[(int)AstNodeType.InterfaceDefinition] = new InterfaceDefinitionNodeVisitor();
-            _visitors[(int)AstNodeType.TraitDefinition] = new TraitDefinitionNodeVisitor();
-            _visitors[(int)AstNodeType.ExtensionDefinition] = new ExtensionDefinitionNodeVisitor();
-            _visitors[(int)AstNodeType.ImportAll] = new ImportNodeVisitor();
-            _visitors[(int)AstNodeType.ImportSelective] = new ImportNodeVisitor();
-            _visitors[(int)AstNodeType.ImportAlias] = new ImportNodeVisitor();
-            _visitors[(int)AstNodeType.AnnotationDefinition] = new AnnotationDefinitionNodeVisitor();
-            _visitors[(int)AstNodeType.AnnotationApplication] = new AnnotationApplicationNodeVisitor();
-            _visitors[(int)AstNodeType.Await] = new AwaitNodeVisitor();
-            _visitors[(int)AstNodeType.Spawn] = new SpawnNodeVisitor();
-            _visitors[(int)AstNodeType.Emit] = new EmitNodeVisitor();
-            _visitors[(int)AstNodeType.ForAwait] = new ForAwaitNodeVisitor();
-            _visitors[(int)AstNodeType.NamespaceDeclaration] = new NamespaceDeclarationNodeVisitor();
-            _visitors[(int)AstNodeType.UsingNamespace] = new UsingNamespaceNodeVisitor();
-            _visitors[(int)AstNodeType.AsmBlock] = new AsmBlockNodeVisitor();
-            _visitors[(int)AstNodeType.Borrow] = new BorrowNodeVisitor();
-            _visitors[(int)AstNodeType.Dereference] = new DereferenceNodeVisitor();
-            _visitors[(int)AstNodeType.DereferenceAssignment] = new DereferenceAssignmentNodeVisitor();
+            _visitors[(int)AstNodeType.Number] = new NumberNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.String] = new StringNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.List] = new ListNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.VariableAccess] = new VariableAccessNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.VariableDeclaration] = new VariableDeclarationNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.VariableAssignment] = new VariableAssignmentNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.VariableDelete] = new VariableDeleteNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.BinaryOperation] = new BinaryOperationNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.UnaryOperation] = new UnaryOperationNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.If] = new IfNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.For] = new ForNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.While] = new WhileNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.FunctionDefinition] = new FunctionDefinitionNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.FunctionCall] = new FunctionCallNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Return] = new ReturnNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Continue] = new ContinueNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Break] = new BreakNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Pass] = new PassNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.DoWhile] = new DoWhileNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Typeof] = new TypeofNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Nameof] = new NameofNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Null] = new NullNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Boolean] = new BooleanNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.ListAccess] = new ListAccessNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Set] = new SetNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.ListAssignment] = new ListAssignmentNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.ForEach] = new ForEachNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Range] = new RangeNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.NullCoalescing] = new NullCoalescingNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Ternary] = new TernaryNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Map] = new MapNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Yield] = new YieldNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Switch] = new SwitchNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Tuple] = new TupleNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Cast] = new CastNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Try] = new TryNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.SuperFor] = new SuperForNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Label] = new LabelNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Goto] = new GotoNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Retry] = new RetryNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.EnumAccess] = new EnumAccessNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.EnumDefinition] = new EnumDefinitionNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.StructDefinition] = new StructDefinitionNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Self] = new SelfNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.MemberAccess] = new MemberAccessNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.MemberAssignment] = new MemberAssignmentNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Scope] = new ScopeNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.ClassDefinition] = new ClassDefinitionNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Super] = new SuperNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.InterfaceDefinition] = new InterfaceDefinitionNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.TraitDefinition] = new TraitDefinitionNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.ExtensionDefinition] = new ExtensionDefinitionNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.ImportAll] = new ImportNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.ImportSelective] = new ImportNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.ImportAlias] = new ImportNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.AnnotationDefinition] = new AnnotationDefinitionNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.AnnotationApplication] = new AnnotationApplicationNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Await] = new AwaitNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Spawn] = new SpawnNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Emit] = new EmitNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.ForAwait] = new ForAwaitNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.NamespaceDeclaration] = new NamespaceDeclarationNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.UsingNamespace] = new UsingNamespaceNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.AsmBlock] = new AsmBlockNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Borrow] = new BorrowNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Dereference] = new DereferenceNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.DereferenceAssignment] = new DereferenceAssignmentNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Pipeline] = new PipelineNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.FormattedInterpolation] = new FormattedInterpolationNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.RegexLiteral] = new RegexLiteralNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Match] = new RaLanguage.Interpreter.Visitors.Patterns.MatchNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.TryUnwrap] = new RaLanguage.Interpreter.Visitors.Patterns.TryUnwrapNodeVisitor().Visit;
         }
 
         public RuntimeResult Visit(AstNode node, Context context)
@@ -117,7 +127,7 @@ namespace RaLanguage.Interpreter
             var index = (int)node.NodeType;
             if (index < 0 || index >= _visitors.Length || _visitors[index] == null)
                 throw new Exception($"No visitor module registered for the node: {node.NodeType}");
-            return _visitors[index].Visit(node, context, this);
+            return _visitors[index](node, context, this);
         }
 
         public (RuntimeValue? value, Error? error) ExtractVariableValueByName(string name, Position posStart, Position posEnd, Context context)

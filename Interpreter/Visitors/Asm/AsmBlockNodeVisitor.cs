@@ -83,7 +83,7 @@ namespace RaLanguage.Interpreter.Visitors.Asm
                 if (node.ReturnTypes.Count <= 1)
                 {
                     var fn = AsmFunctionFactory.Create("<asm-inline>", addr, signature);
-                    RuntimeResult execRes = null!;
+                    RuntimeResult execRes = default;
                     AsmSehGuard.RunVoid(() => execRes = fn.Execute(new List<RuntimeValue>()));
                     if (execRes.Error != null) return res.Failure(execRes.Error);
                     var value = execRes.Value ?? new LongValue(0);

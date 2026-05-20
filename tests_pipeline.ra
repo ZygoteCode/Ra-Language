@@ -1,0 +1,99 @@
+// Ra Language — pipeline operator `|>` regression suite.
+//
+// Each case prints "[<id>] OK" on success or "[<id>] FAIL: <details>".
+// The cases cover:
+//   P1  basic single-stage pipeline (value |> func)
+//   P2  chaining (a |> b |> c == c(b(a)))
+//   P3  RHS with extra positional args (value |> f(a, b))
+//   P4  multiline pipeline
+//   P5  precedence vs. arithmetic (x + 1 |> f == f(x + 1))
+//   P6  left associativity
+//   P7  LHS evaluated exactly once (no side-effect duplication)
+//   P8  lambda on the RHS
+//   P9  parenthesised expression as LHS
+//   P10 method-style RHS (callable returned from expression)
+//   P11 runtime error when RHS is not callable
+//   P12 mixed positional + extra args
+//   P13 nested pipeline inside an argument
+
+print("=== Ra Pipeline Operator Tests ===");
+
+// helpers reused throughout the suite
+fn double(x: int): int { ret x * 2; }
+fn inc(x: int): int { ret x + 1; }
+fn add(a: int, b: int): int { ret a + b; }
+fn clamp(v: int, lo: int, hi: int): int {
+    if v < lo { ret lo; }
+    if v > hi { ret hi; }
+    ret v;
+}
+fn to_s(x: int): string { ret x as string; }
+
+// -- P1: basic single-stage pipeline -----------------------------------------
+let p1 = 5 |> double;
+if p1 == 10 { print("[P1] OK"); } else { print("[P1] FAIL p1=" + (p1 as string)); }
+
+// -- P2: chaining a |> b |> c ------------------------------------------------
+let p2 = 5 |> double |> inc;
+if p2 == 11 { print("[P2] OK"); } else { print("[P2] FAIL p2=" + (p2 as string)); }
+
+// -- P3: RHS with extra positional args --------------------------------------
+let p3 = 5 |> add(3);
+if p3 == 8 { print("[P3] OK"); } else { print("[P3] FAIL p3=" + (p3 as string)); }
+
+// -- P4: multiline pipeline --------------------------------------------------
+let p4 = 5
+    |> double
+    |> inc
+    |> double;
+if p4 == 22 { print("[P4] OK"); } else { print("[P4] FAIL p4=" + (p4 as string)); }
+
+// -- P5: arithmetic binds tighter than pipeline ------------------------------
+let p5 = 2 + 3 |> double;
+if p5 == 10 { print("[P5] OK"); } else { print("[P5] FAIL p5=" + (p5 as string)); }
+
+// -- P6: left associativity --------------------------------------------------
+// Verified indirectly: ((5 |> add(2)) |> add(3)) == 10
+let p6 = 5 |> add(2) |> add(3);
+if p6 == 10 { print("[P6] OK"); } else { print("[P6] FAIL p6=" + (p6 as string)); }
+
+// -- P7: LHS evaluated exactly once ------------------------------------------
+var p7_calls = 0;
+fn p7_source(): int { p7_calls = p7_calls + 1; ret 7; }
+let p7 = p7_source() |> double;
+if p7 == 14 and p7_calls == 1 { print("[P7] OK"); } else { print("[P7] FAIL value=" + (p7 as string) + " calls=" + (p7_calls as string)); }
+
+// -- P8: lambda on the RHS ---------------------------------------------------
+let p8 = 4 |> fn(x: int) => x * x;
+if p8 == 16 { print("[P8] OK"); } else { print("[P8] FAIL p8=" + (p8 as string)); }
+
+// -- P9: parenthesised LHS ---------------------------------------------------
+let p9 = (3 + 4) |> double;
+if p9 == 14 { print("[P9] OK"); } else { print("[P9] FAIL p9=" + (p9 as string)); }
+
+// -- P10: callable bound to a variable ---------------------------------------
+let cb = double;
+let p10 = 10 |> cb;
+if p10 == 20 { print("[P10] OK"); } else { print("[P10] FAIL p10=" + (p10 as string)); }
+
+// -- P11: non-callable RHS produces a runtime error --------------------------
+try {
+    let _bad = 5 |> 123;
+    print("[P11] FAIL: pipeline accepted a non-callable RHS");
+} catch (e) {
+    print("[P11] OK");
+}
+
+// -- P12: mixed positional args carrying through -----------------------------
+let p12 = 50 |> clamp(0, 100);
+if p12 == 50 { print("[P12] OK"); } else { print("[P12] FAIL p12=" + (p12 as string)); }
+let p12b = -5 |> clamp(0, 100);
+if p12b == 0 { print("[P12b] OK"); } else { print("[P12b] FAIL p12b=" + (p12b as string)); }
+let p12c = 200 |> clamp(0, 100);
+if p12c == 100 { print("[P12c] OK"); } else { print("[P12c] FAIL p12c=" + (p12c as string)); }
+
+// -- P13: pipeline nested in an argument list --------------------------------
+let p13 = add(10, 5 |> double);
+if p13 == 20 { print("[P13] OK"); } else { print("[P13] FAIL p13=" + (p13 as string)); }
+
+print("=== Done ===");

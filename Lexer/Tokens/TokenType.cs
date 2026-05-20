@@ -80,6 +80,23 @@
         REF,
         AT_SIGN,
         ASM_TEXT,
-        LIFETIME
+        LIFETIME,
+
+        // Pipeline forward operator `|>`. Lowest-precedence binary in the
+        // expression grammar (sits below cast/ternary, above assignment).
+        PIPE_FORWARD,
+
+        // Format specifier carried back from inside a `${expr:spec}` block.
+        // Emitted by the lexer right before the matching INTERP_END so the
+        // parser can attach the spec to the interpolated expression without a
+        // second textual scan.
+        FORMAT_SPEC,
+
+        // Regular-expression literal. Value is a `RegexLiteralPayload` carrying
+        // the raw pattern text and the trailing flag characters (e.g. `i`, `m`,
+        // `s`, `x`, `n`). The lexer captures the whole `re"..."flags` form as a
+        // single token so the parser can build the dedicated AST node without
+        // peeking over the flag suffix.
+        REGEX_LITERAL
     }
 }

@@ -29,7 +29,7 @@ namespace RaLanguage.Interpreter.Values.Async
             return new TaskValue(Core).SetContext(Context).SetPos(PositionStart, PositionEnd);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
+        public override ValueResult GetComparisonEq(RuntimeValue other)
         {
             if (other is TaskValue tv) return (new RaLanguage.Interpreter.Values.Primitives.BooleanValue(ReferenceEquals(Core, tv.Core)), null);
             return base.GetComparisonEq(other);

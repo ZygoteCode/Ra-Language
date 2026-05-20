@@ -107,6 +107,18 @@ namespace RaLanguage.Interpreter.Runtime.Borrowing
                     Walk(deref.Target, frame, diags);
                     break;
 
+                case IfNode ifn:
+                    HandleIf(ifn, frame, diags);
+                    break;
+
+                case WhileNode wn:
+                    HandleWhile(wn, frame, diags);
+                    break;
+
+                case DoWhileNode dwn:
+                    HandleDoWhile(dwn, frame, diags);
+                    break;
+
                 case FunctionDefinitionNode fn:
                 {
                     var fnFrame = new ScopeFrame { Parent = frame, IsFunctionRoot = true };
@@ -333,6 +345,110 @@ namespace RaLanguage.Interpreter.Runtime.Borrowing
             VariableDeclarationType.VARIABLE => "var",
             _ => k.ToString(),
         };
+
+        // Flow-merge over `if` / `else`: snapshot the move state of every reachable
+        // binding, walk each branch from the same starting point, then union the
+        // resulting move sets back into the outer frame. A binding is treated as
+        // "maybe-moved" after the `if` when any branch moves it — pessimistic,
+        // matches the runtime check, and catches the common foot-gun where the
+        // value was moved on only one of the two paths.
+        private static void HandleIf(IfNode ifn, ScopeFrame frame, List<StaticAnalyzerDiagnostic> diags)
+        {
+            var snapshot = SnapshotMoves(frame);
+            var union = new HashSet<BindingState>();
+
+            foreach (var c in ifn.Cases)
+            {
+                RestoreMoves(snapshot);
+                Walk(c.Item1, frame, diags);
+                Walk(c.Item2, frame, diags);
+                CollectMovedSince(snapshot, union);
+            }
+
+            bool hasElse = ifn.ElseCase != null;
+            if (hasElse)
+            {
+                RestoreMoves(snapshot);
+                Walk(ifn.ElseCase!.Value.Item1, frame, diags);
+                CollectMovedSince(snapshot, union);
+            }
+
+            RestoreMoves(snapshot);
+
+            // Without an explicit `else`, the "no branch taken" path keeps the
+            // pre-if state. Either way the union is what survives.
+            foreach (var bs in union) bs.Moved = true;
+        }
+
+        // `while cond: body` runs the body 0..N times. Moves performed inside
+        // the body become maybe-moved after the loop. The second body walk runs
+        // with those moves already applied so a value moved in iteration N is
+        // flagged when iteration N+1 uses it.
+        private static void HandleWhile(WhileNode wn, ScopeFrame frame, List<StaticAnalyzerDiagnostic> diags)
+        {
+            Walk(wn.ConditionNode, frame, diags);
+
+            var snapshot = SnapshotMoves(frame);
+            Walk(wn.BodyNode, frame, diags);
+
+            var moved = new HashSet<BindingState>();
+            CollectMovedSince(snapshot, moved);
+
+            RestoreMoves(snapshot);
+            foreach (var bs in moved) bs.Moved = true;
+
+            if (moved.Count > 0)
+            {
+                Walk(wn.BodyNode, frame, diags);
+                RestoreMoves(snapshot);
+                foreach (var bs in moved) bs.Moved = true;
+            }
+        }
+
+        // `do body while cond` is the same merge as `while`, except the body
+        // is guaranteed to run at least once.
+        private static void HandleDoWhile(DoWhileNode dwn, ScopeFrame frame, List<StaticAnalyzerDiagnostic> diags)
+        {
+            var snapshot = SnapshotMoves(frame);
+            Walk(dwn.BodyNode, frame, diags);
+
+            var moved = new HashSet<BindingState>();
+            CollectMovedSince(snapshot, moved);
+
+            if (moved.Count > 0)
+            {
+                Walk(dwn.BodyNode, frame, diags);
+            }
+
+            Walk(dwn.ConditionNode, frame, diags);
+            // Body ran at least once: moves stick unconditionally.
+        }
+
+        private static Dictionary<BindingState, bool> SnapshotMoves(ScopeFrame frame)
+        {
+            var snap = new Dictionary<BindingState, bool>();
+            ScopeFrame? f = frame;
+            while (f != null)
+            {
+                foreach (var kv in f.Bindings)
+                {
+                    if (!snap.ContainsKey(kv.Value)) snap[kv.Value] = kv.Value.Moved;
+                }
+                f = f.Parent;
+            }
+            return snap;
+        }
+
+        private static void RestoreMoves(Dictionary<BindingState, bool> snapshot)
+        {
+            foreach (var kv in snapshot) kv.Key.Moved = kv.Value;
+        }
+
+        private static void CollectMovedSince(Dictionary<BindingState, bool> snapshot, HashSet<BindingState> union)
+        {
+            foreach (var kv in snapshot)
+                if (!kv.Value && kv.Key.Moved) union.Add(kv.Key);
+        }
 
         // Best-effort recursive child walker for AST nodes we do not specially
         // case-match. Covers control-flow, declarations, and reference-like

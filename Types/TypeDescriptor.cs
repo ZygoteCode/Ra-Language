@@ -28,6 +28,28 @@ namespace RaLanguage.Types
         Unknown
     }
 
+    // Resolved at construction time so type checking does not pay for a
+    // ToLowerInvariant() + switch-on-string per declaration site.
+    public enum PrimitiveTypeKind : byte
+    {
+        None = 0,
+        String,
+        Int,
+        Number,
+        Long,
+        Float,
+        Double,
+        UInt,
+        ULong,
+        Short,
+        UShort,
+        Int128,
+        UInt128,
+        Decimal,
+        Byte,
+        Bool
+    }
+
     public class TypeDescriptor : IEquatable<TypeDescriptor>
     {
         public string Name { get; }
@@ -36,6 +58,7 @@ namespace RaLanguage.Types
         public string TypeParameterName { get; }
         public bool IsRefType { get; }
         public TypeDescriptor? RefElementType { get; }
+        public PrimitiveTypeKind PrimitiveKind { get; }
 
         // Borrow-system extensions. Populated when ParseType reads `&T` / `&mut T` /
         // `&'a T`. Pure metadata: TypeSystem.IsAssignable still treats them as ref
@@ -53,6 +76,7 @@ namespace RaLanguage.Types
             RefElementType = refElementType;
             IsMutableRef = isMutableRef;
             Lifetime = lifetime;
+            PrimitiveKind = ResolvePrimitive(name);
         }
 
         private TypeDescriptor(string typeParamName, bool isTypeParam)
@@ -65,6 +89,57 @@ namespace RaLanguage.Types
             RefElementType = null;
             IsMutableRef = false;
             Lifetime = null;
+            PrimitiveKind = PrimitiveTypeKind.None;
+        }
+
+        private static PrimitiveTypeKind ResolvePrimitive(string? name)
+        {
+            if (name == null) return PrimitiveTypeKind.None;
+            // Case-insensitive resolution without allocating a lowered string.
+            // ASCII fast path: every primitive keyword is ASCII letters/digits.
+            switch (name.Length)
+            {
+                case 3:
+                    if (EqualsIgnoreAsciiCase(name, "int")) return PrimitiveTypeKind.Int;
+                    break;
+                case 4:
+                    if (EqualsIgnoreAsciiCase(name, "long")) return PrimitiveTypeKind.Long;
+                    if (EqualsIgnoreAsciiCase(name, "uint")) return PrimitiveTypeKind.UInt;
+                    if (EqualsIgnoreAsciiCase(name, "byte")) return PrimitiveTypeKind.Byte;
+                    if (EqualsIgnoreAsciiCase(name, "bool")) return PrimitiveTypeKind.Bool;
+                    break;
+                case 5:
+                    if (EqualsIgnoreAsciiCase(name, "float")) return PrimitiveTypeKind.Float;
+                    if (EqualsIgnoreAsciiCase(name, "ulong")) return PrimitiveTypeKind.ULong;
+                    if (EqualsIgnoreAsciiCase(name, "short")) return PrimitiveTypeKind.Short;
+                    break;
+                case 6:
+                    if (EqualsIgnoreAsciiCase(name, "string")) return PrimitiveTypeKind.String;
+                    if (EqualsIgnoreAsciiCase(name, "number")) return PrimitiveTypeKind.Number;
+                    if (EqualsIgnoreAsciiCase(name, "double")) return PrimitiveTypeKind.Double;
+                    if (EqualsIgnoreAsciiCase(name, "ushort")) return PrimitiveTypeKind.UShort;
+                    if (EqualsIgnoreAsciiCase(name, "int128")) return PrimitiveTypeKind.Int128;
+                    break;
+                case 7:
+                    if (EqualsIgnoreAsciiCase(name, "uint128")) return PrimitiveTypeKind.UInt128;
+                    if (EqualsIgnoreAsciiCase(name, "decimal")) return PrimitiveTypeKind.Decimal;
+                    break;
+            }
+            return PrimitiveTypeKind.None;
+        }
+
+        private static bool EqualsIgnoreAsciiCase(string a, string b)
+        {
+            if (a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++)
+            {
+                char ca = a[i], cb = b[i];
+                if (ca == cb) continue;
+                if (ca >= 'A' && ca <= 'Z') ca = (char)(ca + 32);
+                if (cb >= 'A' && cb <= 'Z') cb = (char)(cb + 32);
+                if (ca != cb) return false;
+            }
+            return true;
         }
 
         public static TypeDescriptor TypeParameter(string name) => new TypeDescriptor(name, true);

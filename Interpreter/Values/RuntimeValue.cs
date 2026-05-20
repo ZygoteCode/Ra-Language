@@ -1,4 +1,4 @@
-﻿using RaLanguage.Errors;
+using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Operators;
@@ -38,25 +38,25 @@ namespace RaLanguage.Interpreter.Values
             return this;
         }
 
-        public virtual (RuntimeValue?, Error?) AddedTo(RuntimeValue other) => (null, IllegalOperation(other));
-        public virtual (RuntimeValue?, Error?) SubbedBy(RuntimeValue other) => (null, IllegalOperation(other));
-        public virtual (RuntimeValue?, Error?) MultedBy(RuntimeValue other) => (null, IllegalOperation(other));
-        public virtual (RuntimeValue?, Error?) DivedBy(RuntimeValue other) => (null, IllegalOperation(other));
-        public virtual (RuntimeValue?, Error?) PowedBy(RuntimeValue other) => (null, IllegalOperation(other));
-        public virtual (RuntimeValue?, Error?) ModuledBy(RuntimeValue other) => (null, IllegalOperation(other));
-        public virtual (RuntimeValue?, Error?) BitwiseLeftShiftedBy(RuntimeValue other) => (null, IllegalOperation(other));
-        public virtual (RuntimeValue?, Error?) BitwiseRightShiftedBy(RuntimeValue other) => (null, IllegalOperation(other));
-        public virtual (RuntimeValue?, Error?) BitwiseAndedBy(RuntimeValue other) => (null, IllegalOperation(other));
-        public virtual (RuntimeValue?, Error?) BitwiseOredBy(RuntimeValue other) => (null, IllegalOperation(other));
-        public virtual (RuntimeValue?, Error?) ListAccess(RuntimeValue other) => (null, IllegalOperation(other));
+        public virtual ValueResult AddedTo(RuntimeValue other) => (null, IllegalOperation(other));
+        public virtual ValueResult SubbedBy(RuntimeValue other) => (null, IllegalOperation(other));
+        public virtual ValueResult MultedBy(RuntimeValue other) => (null, IllegalOperation(other));
+        public virtual ValueResult DivedBy(RuntimeValue other) => (null, IllegalOperation(other));
+        public virtual ValueResult PowedBy(RuntimeValue other) => (null, IllegalOperation(other));
+        public virtual ValueResult ModuledBy(RuntimeValue other) => (null, IllegalOperation(other));
+        public virtual ValueResult BitwiseLeftShiftedBy(RuntimeValue other) => (null, IllegalOperation(other));
+        public virtual ValueResult BitwiseRightShiftedBy(RuntimeValue other) => (null, IllegalOperation(other));
+        public virtual ValueResult BitwiseAndedBy(RuntimeValue other) => (null, IllegalOperation(other));
+        public virtual ValueResult BitwiseOredBy(RuntimeValue other) => (null, IllegalOperation(other));
+        public virtual ValueResult ListAccess(RuntimeValue other) => (null, IllegalOperation(other));
 
-        public virtual (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
+        public virtual ValueResult GetComparisonEq(RuntimeValue other)
         {
             if (Type == RuntimeValueType.Null && other.Type == RuntimeValueType.Null) return (new NumberValue(BigNumber.One).SetPos(PositionStart, PositionEnd).SetContext(Context), null);
             return (null, IllegalOperation(other));
         }
 
-        public virtual (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
+        public virtual ValueResult GetComparisonNe(RuntimeValue other)
         {
             if (Type == RuntimeValueType.Null || other.Type == RuntimeValueType.Null)
             {
@@ -67,28 +67,28 @@ namespace RaLanguage.Interpreter.Values
             return (null, IllegalOperation(other));
         }
 
-        public virtual (RuntimeValue?, Error?) GetComparisonStrictEq(RuntimeValue other) => (null, IllegalOperation(other));
-        public virtual (RuntimeValue?, Error?) GetComparisonStrictNe(RuntimeValue other) => (null, IllegalOperation(other));
-        public virtual (RuntimeValue?, Error?) GetComparisonLt(RuntimeValue other) => (null, IllegalOperation(other));
-        public virtual (RuntimeValue?, Error?) GetComparisonGt(RuntimeValue other) => (null, IllegalOperation(other));
-        public virtual (RuntimeValue?, Error?) GetComparisonLte(RuntimeValue other) => (null, IllegalOperation(other));
-        public virtual (RuntimeValue?, Error?) GetComparisonGte(RuntimeValue other) => (null, IllegalOperation(other));
-        public virtual (RuntimeValue?, Error?) Notted() => (null, IllegalOperation(this));
-        public virtual (RuntimeValue?, Error?) BitwiseNotted() => (null, IllegalOperation(this));
-        public virtual (RuntimeValue?, Error?) Factorial() => (null, IllegalOperation(this));
-        public virtual (RuntimeValue?, Error?) ListSet(RuntimeValue index, RuntimeValue value) => (null, IllegalOperation(this));
+        public virtual ValueResult GetComparisonStrictEq(RuntimeValue other) => (null, IllegalOperation(other));
+        public virtual ValueResult GetComparisonStrictNe(RuntimeValue other) => (null, IllegalOperation(other));
+        public virtual ValueResult GetComparisonLt(RuntimeValue other) => (null, IllegalOperation(other));
+        public virtual ValueResult GetComparisonGt(RuntimeValue other) => (null, IllegalOperation(other));
+        public virtual ValueResult GetComparisonLte(RuntimeValue other) => (null, IllegalOperation(other));
+        public virtual ValueResult GetComparisonGte(RuntimeValue other) => (null, IllegalOperation(other));
+        public virtual ValueResult Notted() => (null, IllegalOperation(this));
+        public virtual ValueResult BitwiseNotted() => (null, IllegalOperation(this));
+        public virtual ValueResult Factorial() => (null, IllegalOperation(this));
+        public virtual ValueResult ListSet(RuntimeValue index, RuntimeValue value) => (null, IllegalOperation(this));
 
-        public virtual (RuntimeValue?, Error?) AndedBy(RuntimeValue other)
+        public virtual ValueResult AndedBy(RuntimeValue other)
         {
             return (BooleanValue.Of(IsTrue() && other.IsTrue()), null);
         }
 
-        public virtual (RuntimeValue?, Error?) OredBy(RuntimeValue other)
+        public virtual ValueResult OredBy(RuntimeValue other)
         {
             return (BooleanValue.Of(IsTrue() || other.IsTrue()), null);
         }
 
-        public virtual (RuntimeValue?, Error?) InCollection(RuntimeValue other)
+        public virtual ValueResult InCollection(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.List)
             {
@@ -178,7 +178,7 @@ namespace RaLanguage.Interpreter.Values
             return base.Equals(obj);
         }
 
-        public virtual (RuntimeValue?, Error?) CastTo(TypeDescriptor targetType)
+        public virtual ValueResult CastTo(TypeDescriptor targetType)
         {
             var tn = targetType?.Name?.ToString() ?? "";
 
@@ -1263,7 +1263,7 @@ namespace RaLanguage.Interpreter.Values
             return (null, new RuntimeError(PositionStart, PositionEnd, $"Cannot cast type '{Type}' to '{targetType}'", Context));
         }
 
-        protected (RuntimeValue?, Error?) TryOperatorDispatch(TokenType operatorType, RuntimeValue other, Func<RuntimeValue, RuntimeValue, (RuntimeValue?, Error?)> fallback)
+        protected ValueResult TryOperatorDispatch(TokenType operatorType, RuntimeValue other, Func<RuntimeValue, RuntimeValue, ValueResult> fallback)
         {
             if (this is RaLanguage.Interpreter.Values.Primitives.ClassInstanceValue classInstance)
             {

@@ -912,32 +912,13 @@ namespace RaLanguage.Parser
                 }
             }
 
-            var leftNode = res.Register(ParseBinaryOperation(ParseBitwiseOrExpression, s_opsLogical));
-
-            if (res.Error == null)
-            {
-                while (_currentToken.Matches(Keyword.As))
-                {
-                    res.RegisterAdvancement();
-                    Advance();
-
-                    var parsedType = ParseType(res);
-                    if (parsedType == null)
-                    {
-                        return res.Failure(ParserDiagnostics.ExpectedTypeName(_currentToken, after: "'as'"));
-                    }
-
-                    var castNode = new CastNode(leftNode, parsedType);
-                    castNode.PositionStart = leftNode.PositionStart;
-                    castNode.PositionEnd = _currentToken.PositionEnd;
-                    leftNode = castNode;
-                }
-            }
+            var leftNode = res.Register(ParsePipelineExpression());
 
             if (res.Error != null)
             {
-                // ParseBinaryOperation / ParseBitwiseOrExpression already emitted a
-                // specific diagnostic for the offending token; bubble it up untouched.
+                // ParsePipelineExpression / inner parsers already produced a
+                // precise diagnostic for the offending token; bubble it up
+                // untouched.
                 return res;
             }
 
@@ -1002,6 +983,106 @@ namespace RaLanguage.Parser
                         leftNode.PositionStart, leftNode.PositionEnd,
                         "only variables, indexed access (a[i]), member access (a.b), and dereferences (*ref) may appear on the left of an assignment"));
                 }
+            }
+
+            return res.Success(leftNode);
+        }
+
+        // Pipeline layer sits between the cast layer (which is itself the
+        // tightest non-assignment band) and assignment / ternary. Left
+        // associative so `a |> b |> c` parses as `c(b(a))`.
+        //
+        // The right-hand expression is parsed at the same precedence band as
+        // the left so a call expression on the RHS (`value |> pow(2)`) binds
+        // naturally without requiring parentheses.
+        private ParserResult ParsePipelineExpression()
+        {
+            var res = new ParserResult();
+            var left = res.Register(ParseCastExpression());
+            if (res.Error != null) return res;
+
+            while (true)
+            {
+                // Allow newline(s) between pipeline stages so multiline chains
+                //   value
+                //     |> first
+                //     |> second
+                // parse as a single expression. Only commit to consuming the
+                // newlines once we have confirmed `|>` is the next significant
+                // token — otherwise we leave the stream untouched so the outer
+                // statement parser can see the newline as a terminator.
+                int rewindTo = _tokenIndex;
+                int rewindAdvanceCount = 0;
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    rewindAdvanceCount++;
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type != TokenType.PIPE_FORWARD)
+                {
+                    if (rewindAdvanceCount > 0)
+                    {
+                        _tokenIndex = rewindTo;
+                        UpdateCurrentToken();
+                        // RegisterAdvancement only adjusts diagnostics' "last
+                        // advance count" - it has no side-effect on the stream.
+                        // Rewinding _tokenIndex is enough to retract.
+                    }
+                    break;
+                }
+
+                var pipeTok = _currentToken;
+                res.RegisterAdvancement();
+                Advance();
+
+                // Also tolerate newlines directly after `|>`.
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type == TokenType.EOF
+                    || _currentToken.Type == TokenType.PIPE_FORWARD)
+                {
+                    return res.Failure(ParserDiagnostics.PipelineMissingRhs(pipeTok));
+                }
+
+                var right = res.Register(ParseCastExpression());
+                if (res.Error != null) return res;
+
+                left = new PipelineNode(left, right, pipeTok);
+            }
+
+            return res.Success(left);
+        }
+
+        // Parses the historical cast-loop body (`expr (as Type)*`) at a
+        // precedence band higher than pipeline and assignment. Extracted from
+        // ParseExpression so the pipeline layer can sit above it cleanly.
+        private ParserResult ParseCastExpression()
+        {
+            var res = new ParserResult();
+            var leftNode = res.Register(ParseBinaryOperation(ParseBitwiseOrExpression, s_opsLogical));
+            if (res.Error != null) return res;
+
+            while (_currentToken.Matches(Keyword.As))
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                var parsedType = ParseType(res);
+                if (parsedType == null)
+                {
+                    return res.Failure(ParserDiagnostics.ExpectedTypeName(_currentToken, after: "'as'"));
+                }
+
+                var castNode = new CastNode(leftNode, parsedType);
+                castNode.PositionStart = leftNode.PositionStart;
+                castNode.PositionEnd = _currentToken.PositionEnd;
+                leftNode = castNode;
             }
 
             return res.Success(leftNode);
@@ -1403,7 +1484,83 @@ namespace RaLanguage.Parser
                 }
             }
 
+            // Postfix `?` try-unwrap. Disambiguated against the ternary `?:`
+            // by peeking the next token: if it cannot start an expression, the
+            // `?` is the unwrap operator. Otherwise we leave it for the
+            // ternary parser higher in the chain. Allowed terminators include
+            // NEWLINE, EOF, COMMA, RPAREN/RSQUARE/RBRACKET, ARROW(_RIGHT),
+            // PIPE_FORWARD, DOT (for `.chain` after unwrap), QUESTION_MARK
+            // (allows `expr??` chaining), and `as` (cast after unwrap).
+            while (_currentToken.Type == TokenType.QUESTION_MARK && IsTryUnwrapNext())
+            {
+                var qTok = _currentToken;
+                res.RegisterAdvancement();
+                Advance();
+                resultNode = new RaLanguage.Parser.Nodes.Patterns.TryUnwrapNode(resultNode, resultNode.PositionStart, qTok.PositionEnd);
+            }
+
             return res.Success(resultNode);
+        }
+
+        private bool IsTryUnwrapNext()
+        {
+            int idx = _tokenIndex + 1;
+            if (idx >= _tokens.Count) return true;
+            var t = _tokens[idx];
+            switch (t.Type)
+            {
+                case TokenType.NEWLINE:
+                case TokenType.EOF:
+                case TokenType.COMMA:
+                case TokenType.RPAREN:
+                case TokenType.RSQUARE:
+                case TokenType.RBRACKET:
+                case TokenType.ARROW:
+                case TokenType.ARROW_RIGHT:
+                case TokenType.PIPE_FORWARD:
+                case TokenType.DOT:
+                case TokenType.QUESTION_MARK:
+                case TokenType.NULL_COALESCE:
+                case TokenType.SPREAD:
+                case TokenType.DOUBLE_DOT:
+                case TokenType.DOUBLE_DOT_EQ:
+                case TokenType.PLUS:
+                case TokenType.MINUS:
+                case TokenType.MUL:
+                case TokenType.DIV:
+                case TokenType.MODULO:
+                case TokenType.POW:
+                case TokenType.EE:
+                case TokenType.NE:
+                case TokenType.LT:
+                case TokenType.GT:
+                case TokenType.LTE:
+                case TokenType.GTE:
+                case TokenType.STRICT_EE:
+                case TokenType.STRICT_NE:
+                case TokenType.BITWISE_AND:
+                case TokenType.BITWISE_OR:
+                case TokenType.BITWISE_LEFT_SHIFT:
+                case TokenType.BITWISE_RIGHT_SHIFT:
+                    return true;
+                case TokenType.KEYWORD:
+                    // Allow specific postfix-friendly keywords (operators / scope-end).
+                    if (t.Value is Lexer.Tokens.Keyword kw)
+                    {
+                        switch (kw)
+                        {
+                            case Lexer.Tokens.Keyword.As:
+                            case Lexer.Tokens.Keyword.And:
+                            case Lexer.Tokens.Keyword.Or:
+                            case Lexer.Tokens.Keyword.In:
+                            case Lexer.Tokens.Keyword.Is:
+                                return true;
+                        }
+                    }
+                    return false;
+                default:
+                    return false;
+            }
         }
 
         private ParserResult ParseAtom()
@@ -1418,6 +1575,13 @@ namespace RaLanguage.Parser
                     res.RegisterAdvancement();
                     Advance();
                     return res.Success(new NumberNode(tok));
+                case TokenType.REGEX_LITERAL:
+                {
+                    var payload = (Lexer.Tokens.RegexLiteralPayload)tok.Value!;
+                    res.RegisterAdvancement();
+                    Advance();
+                    return res.Success(new RegexLiteralNode(payload.Pattern, payload.Flags, tok.PositionStart, tok.PositionEnd));
+                }
                 case TokenType.STRING_TEXT:
                     var parts = new List<AstNode>();
                     var posStart = tok.PositionStart;
@@ -1435,11 +1599,30 @@ namespace RaLanguage.Parser
                         }
                         else if (_currentToken.Type == TokenType.INTERP_START)
                         {
+                            var interpStart = _currentToken.PositionStart;
                             res.RegisterAdvancement();
                             Advance();
 
                             var expr2 = res.Register(ParseExpression());
                             if (res.Error != null) return res;
+
+                            // Optional `:spec` form. The lexer pre-validates the
+                            // spec text and emits FORMAT_SPEC right before
+                            // INTERP_END when present, so we just attach it.
+                            AstNode segmentNode = expr2;
+                            if (_currentToken.Type == TokenType.FORMAT_SPEC)
+                            {
+                                var specTok = _currentToken;
+                                string rawSpec = specTok.Value?.ToString() ?? string.Empty;
+                                var parsedSpec = Types.Formatting.FormatSpec.Parse(rawSpec);
+                                if (parsedSpec.IsDefault && rawSpec.Length > 0)
+                                {
+                                    return res.Failure(ParserDiagnostics.InvalidFormatSpec(specTok, rawSpec));
+                                }
+                                segmentNode = new FormattedInterpolationNode(expr2, parsedSpec, rawSpec, interpStart, specTok.PositionEnd);
+                                res.RegisterAdvancement();
+                                Advance();
+                            }
 
                             if (_currentToken.Type != TokenType.INTERP_END)
                             {
@@ -1449,8 +1632,8 @@ namespace RaLanguage.Parser
                             res.RegisterAdvancement();
                             Advance();
 
-                            parts.Add(expr2);
-                            posEnd = expr2.PositionEnd;
+                            parts.Add(segmentNode);
+                            posEnd = segmentNode.PositionEnd;
                         }
                     }
 
@@ -1581,6 +1764,10 @@ namespace RaLanguage.Parser
                     var switchExpr = res.Register(ParseSwitchExpression());
                     if (res.Error != null) return res;
                     return res.Success(switchExpr);
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Match:
+                    var matchExpr = res.Register(ParseMatchExpression());
+                    if (res.Error != null) return res;
+                    return res.Success(matchExpr);
                 case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Try:
                     var tryExpr = res.Register(ParseTryExpression());
                     if (res.Error != null) return res;
@@ -3268,7 +3455,7 @@ namespace RaLanguage.Parser
                 Advance();
             }
 
-            var members = new List<(Token MemberTok, AstNode? ValueNode)>();
+            var variants = new List<EnumVariantSpec>();
 
             if (_currentToken.Type != TokenType.RBRACKET)
             {
@@ -3281,11 +3468,72 @@ namespace RaLanguage.Parser
                     }
 
                     if (_currentToken.Type != TokenType.IDENTIFIER)
-                        return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken, after: "previous enum member or '{'", help: "enum members are comma-separated identifiers (e.g. 'enum E { A, B, C }')"));
+                        return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken, after: "previous enum member or '{'", help: "enum variants are comma-separated identifiers, optionally with a payload (e.g. 'enum Token { Eof, Number(int) }')"));
 
                     Token memberTok = _currentToken;
                     res.RegisterAdvancement();
                     Advance();
+
+                    // Optional payload `(Type1, Type2, ...)` for ADT variants.
+                    // Generic parameters of the enum are in scope here.
+                    List<TypeDescriptor>? payloadTypes = null;
+                    if (_currentToken.Type == TokenType.LPAREN)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        payloadTypes = new List<TypeDescriptor>();
+
+                        while (_currentToken.Type == TokenType.NEWLINE)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                        }
+
+                        if (_currentToken.Type != TokenType.RPAREN)
+                        {
+                            while (true)
+                            {
+                                var ty = ParseType(res);
+                                if (ty == null)
+                                {
+                                    return res.Failure(ParserDiagnostics.ExpectedTypeName(_currentToken, after: $"'{memberTok.Value}(' in enum variant payload"));
+                                }
+                                payloadTypes.Add(ty);
+
+                                while (_currentToken.Type == TokenType.NEWLINE)
+                                {
+                                    res.RegisterAdvancement();
+                                    Advance();
+                                }
+
+                                if (_currentToken.Type == TokenType.COMMA)
+                                {
+                                    res.RegisterAdvancement();
+                                    Advance();
+                                    while (_currentToken.Type == TokenType.NEWLINE)
+                                    {
+                                        res.RegisterAdvancement();
+                                        Advance();
+                                    }
+                                    continue;
+                                }
+
+                                break;
+                            }
+                        }
+
+                        if (_currentToken.Type != TokenType.RPAREN)
+                            return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, ')', '('));
+
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        if (payloadTypes.Count == 0)
+                            return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                                $"at least one type inside '{memberTok.Value}(...)'",
+                                contextHint: "use a bare identifier (e.g. 'Eof') for zero-arity variants"));
+                    }
 
                     while (_currentToken.Type == TokenType.NEWLINE)
                     {
@@ -3296,6 +3544,11 @@ namespace RaLanguage.Parser
                     AstNode? valueNode = null;
                     if (_currentToken.Type == TokenType.EQ)
                     {
+                        if (payloadTypes != null)
+                            return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                                "a comma or '}'",
+                                contextHint: "a payload-carrying variant cannot have an explicit integer value"));
+
                         res.RegisterAdvancement();
                         Advance();
 
@@ -3309,7 +3562,7 @@ namespace RaLanguage.Parser
                         if (res.Error != null) return res;
                     }
 
-                    members.Add((memberTok, valueNode));
+                    variants.Add(new EnumVariantSpec(memberTok, valueNode, payloadTypes));
 
                     while (_currentToken.Type == TokenType.NEWLINE)
                     {
@@ -3350,7 +3603,7 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            return res.Success(new EnumDefinitionNode(nameTok, members, genericTypeParams, whereConstraints));
+            return res.Success(new EnumDefinitionNode(nameTok, variants, genericTypeParams, whereConstraints));
             }
             finally
             {
@@ -3938,6 +4191,459 @@ namespace RaLanguage.Parser
             }
 
             return res.Success(new IfCasesWrapperNode(new List<(AstNode, AstNode, bool)>(), elseCase));
+        }
+
+        // ============================================================
+        // match expression
+        //
+        //   match expr {
+        //       case Pattern (if guard)? -> body
+        //       case OtherPattern -> body
+        //   }
+        //
+        // Patterns live in Parser/Nodes/Patterns/. The visitor evaluates the
+        // scrutinee once, walks each arm in source order, and runs the body
+        // of the first arm whose pattern + guard succeeds. Exhaustiveness is
+        // analysed statically before execution (see StaticAnalyzer).
+        // ============================================================
+        private ParserResult ParseMatchExpression()
+        {
+            var res = new ParserResult();
+            var posStart = _currentToken.PositionStart;
+            res.RegisterAdvancement();
+            Advance();
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            var scrutinee = res.Register(ParseExpression());
+            if (res.Error != null) return res;
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            if (_currentToken.Type != TokenType.LBRACKET)
+                return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '{'));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            var arms = new List<RaLanguage.Parser.Nodes.Patterns.MatchArmNode>();
+
+            while (true)
+            {
+                while (_currentToken.Type == TokenType.NEWLINE || _currentToken.Type == TokenType.COMMA)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type == TokenType.RBRACKET) break;
+
+                if (!_currentToken.Matches(Lexer.Tokens.Keyword.Case))
+                {
+                    return res.Failure(ParserDiagnostics.ExpectedKeyword(_currentToken, "case",
+                        context: "inside a match block; each arm starts with 'case <pattern> -> <body>'"));
+                }
+
+                var armStart = _currentToken.PositionStart;
+                res.RegisterAdvancement();
+                Advance();
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                var pattern = ParsePattern(res);
+                if (res.Error != null) return res;
+
+                AstNode? guard = null;
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Matches(Lexer.Tokens.Keyword.If))
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    guard = res.Register(ParseExpression());
+                    if (res.Error != null) return res;
+                }
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type != TokenType.ARROW && _currentToken.Type != TokenType.ARROW_RIGHT)
+                {
+                    return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                        "'->' or '=>' to introduce the arm body",
+                        contextHint: "match arms have the shape 'case <pattern> -> <expression>'"));
+                }
+
+                res.RegisterAdvancement();
+                Advance();
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                AstNode body;
+                if (_currentToken.Type == TokenType.LBRACKET)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    var stmts = res.Register(ParseStatements());
+                    if (res.Error != null) return res;
+
+                    if (_currentToken.Type != TokenType.RBRACKET)
+                        return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{'));
+
+                    res.RegisterAdvancement();
+                    Advance();
+                    body = stmts!;
+                }
+                else
+                {
+                    body = res.Register(ParseExpression())!;
+                    if (res.Error != null) return res;
+                }
+
+                arms.Add(new RaLanguage.Parser.Nodes.Patterns.MatchArmNode(pattern!, guard, body, armStart, _currentToken.PositionStart));
+            }
+
+            if (_currentToken.Type != TokenType.RBRACKET)
+                return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{'));
+
+            var posEnd = _currentToken.PositionEnd;
+            res.RegisterAdvancement();
+            Advance();
+
+            return res.Success(new RaLanguage.Parser.Nodes.Patterns.MatchNode(scrutinee!, arms, posStart, posEnd));
+        }
+
+        // Single pattern. Distinguishes:
+        //   _                          → wildcard
+        //   123 / "x" / true / null    → literal
+        //   ident                      → variable binding (or shorthand variant
+        //                                 when name resolves to a constructor;
+        //                                 the engine decides at runtime)
+        //   ident(p1, p2)              → variant pattern with payload subs
+        //   ident.member(p1)?          → qualified variant pattern
+        //   ident { field, field: p }  → struct pattern
+        //   (p1, p2, ...)              → tuple pattern (2+ elements) / paren
+        //   [p1, p2, ..rest]           → list pattern with optional rest
+        //   ..ident?                   → rest pattern (only inside lists)
+        private RaLanguage.Parser.Nodes.Patterns.PatternNode? ParsePattern(ParserResult res)
+        {
+            var tok = _currentToken;
+
+            switch (tok.Type)
+            {
+                case TokenType.IDENTIFIER:
+                {
+                    string name = tok.Value?.ToString() ?? "";
+
+                    if (name == "_")
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                        return new RaLanguage.Parser.Nodes.Patterns.WildcardPatternNode(tok.PositionStart, tok.PositionEnd);
+                    }
+
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    string? enumName = null;
+                    string variantName = name;
+
+                    if (_currentToken.Type == TokenType.DOT)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                        if (_currentToken.Type != TokenType.IDENTIFIER)
+                        {
+                            res.Failure(ParserDiagnostics.ExpectedMemberName(_currentToken));
+                            return null;
+                        }
+                        enumName = name;
+                        variantName = _currentToken.Value?.ToString() ?? "";
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    if (_currentToken.Type == TokenType.LPAREN)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        var subs = new List<RaLanguage.Parser.Nodes.Patterns.PatternNode>();
+                        if (_currentToken.Type != TokenType.RPAREN)
+                        {
+                            while (true)
+                            {
+                                while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+                                var sub = ParsePattern(res);
+                                if (res.Error != null) return null;
+                                subs.Add(sub!);
+                                while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+                                if (_currentToken.Type == TokenType.COMMA)
+                                {
+                                    res.RegisterAdvancement();
+                                    Advance();
+                                    continue;
+                                }
+                                break;
+                            }
+                        }
+
+                        if (_currentToken.Type != TokenType.RPAREN)
+                        {
+                            res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, ')', '('));
+                            return null;
+                        }
+
+                        var end = _currentToken.PositionEnd;
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        return new RaLanguage.Parser.Nodes.Patterns.VariantPatternNode(enumName, variantName, subs, tok.PositionStart, end);
+                    }
+
+                    if (_currentToken.Type == TokenType.LBRACKET && enumName == null)
+                    {
+                        // Struct destructuring: `User { name, age: a }`.
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        var fields = new List<(string, RaLanguage.Parser.Nodes.Patterns.PatternNode?)>();
+                        while (true)
+                        {
+                            while (_currentToken.Type == TokenType.NEWLINE || _currentToken.Type == TokenType.COMMA)
+                            { res.RegisterAdvancement(); Advance(); }
+                            if (_currentToken.Type == TokenType.RBRACKET) break;
+                            if (_currentToken.Type != TokenType.IDENTIFIER)
+                            {
+                                res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken, after: "'{' in struct pattern"));
+                                return null;
+                            }
+                            string fieldName = _currentToken.Value?.ToString() ?? "";
+                            res.RegisterAdvancement();
+                            Advance();
+
+                            RaLanguage.Parser.Nodes.Patterns.PatternNode? fieldPattern = null;
+                            if (_currentToken.Type == TokenType.COLON)
+                            {
+                                res.RegisterAdvancement();
+                                Advance();
+                                while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+                                fieldPattern = ParsePattern(res);
+                                if (res.Error != null) return null;
+                            }
+                            fields.Add((fieldName, fieldPattern));
+                        }
+
+                        if (_currentToken.Type != TokenType.RBRACKET)
+                        {
+                            res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{'));
+                            return null;
+                        }
+                        var endPos = _currentToken.PositionEnd;
+                        res.RegisterAdvancement();
+                        Advance();
+                        return new RaLanguage.Parser.Nodes.Patterns.StructPatternNode(variantName, fields, tok.PositionStart, endPos);
+                    }
+
+                    if (enumName != null)
+                    {
+                        // Qualified zero-arity variant pattern: `Result.Ok`
+                        // without payload syntax. Treat as variant with empty
+                        // sub-patterns list.
+                        return new RaLanguage.Parser.Nodes.Patterns.VariantPatternNode(enumName, variantName, null, tok.PositionStart, tok.PositionEnd);
+                    }
+
+                    // Bare identifier = binding (or zero-arity variant; the
+                    // match engine resolves the ambiguity by looking up the
+                    // name as an EnumVariantConstructor in scope).
+                    return new RaLanguage.Parser.Nodes.Patterns.VariablePatternNode(name, tok.PositionStart, tok.PositionEnd);
+                }
+
+                case TokenType.INT:
+                case TokenType.FLOAT:
+                {
+                    var node = new RaLanguage.Parser.Nodes.Primitives.NumberNode(tok);
+                    res.RegisterAdvancement();
+                    Advance();
+                    return new RaLanguage.Parser.Nodes.Patterns.LiteralPatternNode(node, tok.PositionStart, tok.PositionEnd);
+                }
+                case TokenType.STRING_TEXT:
+                {
+                    // Re-use the existing string atom parser; literal strings
+                    // become StringNode (no interpolation allowed inside a
+                    // pattern; the visitor enforces purity).
+                    var prev = _tokenIndex;
+                    var atom = res.Register(ParseAtom());
+                    if (res.Error != null) return null;
+                    return new RaLanguage.Parser.Nodes.Patterns.LiteralPatternNode(atom!, tok.PositionStart, _currentToken.PositionStart);
+                }
+                case TokenType.KEYWORD when ((Lexer.Tokens.Keyword)tok.Value) == Lexer.Tokens.Keyword.True
+                                       || ((Lexer.Tokens.Keyword)tok.Value) == Lexer.Tokens.Keyword.False:
+                {
+                    var bnode = new RaLanguage.Parser.Nodes.Primitives.BooleanNode(tok);
+                    res.RegisterAdvancement();
+                    Advance();
+                    return new RaLanguage.Parser.Nodes.Patterns.LiteralPatternNode(bnode, tok.PositionStart, tok.PositionEnd);
+                }
+                case TokenType.KEYWORD when ((Lexer.Tokens.Keyword)tok.Value) == Lexer.Tokens.Keyword.Null:
+                {
+                    var nnode = new RaLanguage.Parser.Nodes.Primitives.NullNode(tok);
+                    res.RegisterAdvancement();
+                    Advance();
+                    return new RaLanguage.Parser.Nodes.Patterns.LiteralPatternNode(nnode, tok.PositionStart, tok.PositionEnd);
+                }
+                case TokenType.MINUS:
+                {
+                    // negative numeric literal in pattern position
+                    res.RegisterAdvancement();
+                    Advance();
+                    if (_currentToken.Type != TokenType.INT && _currentToken.Type != TokenType.FLOAT)
+                    {
+                        res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken, "a numeric literal after '-' in a pattern"));
+                        return null;
+                    }
+                    var numTok = _currentToken;
+                    var num = new RaLanguage.Parser.Nodes.Primitives.NumberNode(numTok);
+                    var unary = new RaLanguage.Parser.Nodes.Operations.UnaryOperationNode(tok, num, isLeft: true);
+                    res.RegisterAdvancement();
+                    Advance();
+                    return new RaLanguage.Parser.Nodes.Patterns.LiteralPatternNode(unary, tok.PositionStart, numTok.PositionEnd);
+                }
+                case TokenType.LPAREN:
+                {
+                    var lparenStart = tok.PositionStart;
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    var elements = new List<RaLanguage.Parser.Nodes.Patterns.PatternNode>();
+                    while (true)
+                    {
+                        while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+                        if (_currentToken.Type == TokenType.RPAREN) break;
+                        var sub = ParsePattern(res);
+                        if (res.Error != null) return null;
+                        elements.Add(sub!);
+                        while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+                        if (_currentToken.Type == TokenType.COMMA)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                            continue;
+                        }
+                        break;
+                    }
+
+                    if (_currentToken.Type != TokenType.RPAREN)
+                    {
+                        res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, ')', '('));
+                        return null;
+                    }
+                    var endP = _currentToken.PositionEnd;
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    if (elements.Count == 1) return elements[0]; // parenthesised single pattern
+                    return new RaLanguage.Parser.Nodes.Patterns.TuplePatternNode(elements, lparenStart, endP);
+                }
+                case TokenType.LSQUARE:
+                {
+                    var lsqStart = tok.PositionStart;
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    var elements = new List<RaLanguage.Parser.Nodes.Patterns.PatternNode>();
+                    RaLanguage.Parser.Nodes.Patterns.RestPatternNode? rest = null;
+                    int restIndex = -1;
+
+                    while (true)
+                    {
+                        while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+                        if (_currentToken.Type == TokenType.RSQUARE) break;
+
+                        if (_currentToken.Type == TokenType.SPREAD || _currentToken.Type == TokenType.DOUBLE_DOT)
+                        {
+                            var rtok = _currentToken;
+                            res.RegisterAdvancement();
+                            Advance();
+                            string? bindName = null;
+                            if (_currentToken.Type == TokenType.IDENTIFIER)
+                            {
+                                bindName = _currentToken.Value?.ToString();
+                                res.RegisterAdvancement();
+                                Advance();
+                            }
+                            if (rest != null)
+                            {
+                                res.Failure(ParserDiagnostics.UnexpectedToken(rtok, "a single '..rest' inside a list pattern"));
+                                return null;
+                            }
+                            rest = new RaLanguage.Parser.Nodes.Patterns.RestPatternNode(bindName, rtok.PositionStart, _currentToken.PositionStart);
+                            restIndex = elements.Count;
+                        }
+                        else
+                        {
+                            var sub = ParsePattern(res);
+                            if (res.Error != null) return null;
+                            elements.Add(sub!);
+                        }
+
+                        while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+                        if (_currentToken.Type == TokenType.COMMA)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                            continue;
+                        }
+                        break;
+                    }
+
+                    if (_currentToken.Type != TokenType.RSQUARE)
+                    {
+                        res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, ']', '['));
+                        return null;
+                    }
+                    var endL = _currentToken.PositionEnd;
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    return new RaLanguage.Parser.Nodes.Patterns.ListPatternNode(elements, rest, restIndex, lsqStart, endL);
+                }
+                default:
+                    res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                        "a pattern: literal, identifier, '_', '(', '[', or 'Variant(...)'"));
+                    return null;
+            }
         }
 
         private ParserResult ParseSwitchExpression()
