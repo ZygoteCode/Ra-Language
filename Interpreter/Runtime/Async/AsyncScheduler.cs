@@ -18,7 +18,7 @@ namespace RaLanguage.Interpreter.Runtime.Async
         //                     get distinct cancellation scopes)
         // The previous design also allocated a Task.Run lambda + display class which
         // are now both eliminated.
-        public static RaTaskCore Schedule(string name, AsyncContext? parentAsync, Func<AsyncContext, (RuntimeValue?, Error?)> body)
+        public static RaTaskCore Schedule(string name, AsyncContext? parentAsync, Func<AsyncContext, ValueResult> body)
         {
             var childScope = new CancellationScope(parentAsync?.CancellationScope);
             var task = new RaTaskCore(childScope, parentAsync?.CurrentTask, name);

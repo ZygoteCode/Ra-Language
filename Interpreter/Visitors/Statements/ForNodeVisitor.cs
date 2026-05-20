@@ -52,12 +52,12 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 
             // Seed the iteration variable in the loop scope, then update its entry directly to
             // avoid the parent-chain walk inside SymbolTable.Set on every iteration.
-            loopSymbols.Set(varName, new NumberValue(i));
+            loopSymbols.Set(varName, NumberValue.OfBigNumber(i));
             var iterEntry = loopSymbols.GetEntry(varName);
 
             while (ascending ? i < end : i > end)
             {
-                iterEntry!.Value = new NumberValue(i);
+                iterEntry!.Value = NumberValue.OfBigNumber(i);
                 i += step;
 
                 bodySymbols.Clear();

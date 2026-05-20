@@ -410,7 +410,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             if (!ExpectArgs("enum_members", args, 1, ctx, p1, p2, out var err)) return err;
             var list = new List<RuntimeValue>();
             if (args[0] is EnumTypeValue et)
-                foreach (var k in et.Members.Keys) list.Add(new StringValue(k));
+                foreach (var k in et.VariantsByName.Keys) list.Add(new StringValue(k));
             return Ok(new ListValue(list), ctx, p1, p2);
         }
 
@@ -419,8 +419,8 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             if (!ExpectArgs("enum_value_of", args, 2, ctx, p1, p2, out var err)) return err;
             if (args[0] is not EnumTypeValue et) return OkNull(ctx, p1, p2);
             var name = AsString(args[1]);
-            if (!et.Members.TryGetValue(name, out var val)) return OkNull(ctx, p1, p2);
-            return Ok(new Int128Value(val), ctx, p1, p2);
+            if (!et.VariantsByName.TryGetValue(name, out var info)) return OkNull(ctx, p1, p2);
+            return Ok(new Int128Value(info.UnderlyingValue), ctx, p1, p2);
         }
 
         private static RuntimeResult EnumNameOf(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
@@ -435,10 +435,10 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             if (!ExpectArgs("enum_by_value", args, 2, ctx, p1, p2, out var err)) return err;
             if (args[0] is not EnumTypeValue et) return OkNull(ctx, p1, p2);
             var target = (System.Int128)AsLong(args[1]);
-            foreach (var kv in et.Members)
+            foreach (var info in et.Variants)
             {
-                if (kv.Value == target)
-                    return Ok(et.GetMember(kv.Key), ctx, p1, p2);
+                if (!info.HasPayload && info.UnderlyingValue == target)
+                    return Ok(et.GetMember(info.Name), ctx, p1, p2);
             }
             return OkNull(ctx, p1, p2);
         }

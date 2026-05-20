@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using RaLanguage.Errors;
@@ -123,14 +123,14 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public sealed override bool IsTrue() => Handle != IntPtr.Zero && !IsDisposed;
 
-        public sealed override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
+        public sealed override ValueResult GetComparisonEq(RuntimeValue other)
         {
             if (other is NativeHandleValue nh)
                 return (BooleanValue.Of(Handle == nh.Handle && Kind == nh.Kind).SetContext(Context), null);
             return base.GetComparisonEq(other);
         }
 
-        public sealed override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
+        public sealed override ValueResult GetComparisonNe(RuntimeValue other)
         {
             var eq = GetComparisonEq(other).Item1;
             if (eq is BooleanValue b)

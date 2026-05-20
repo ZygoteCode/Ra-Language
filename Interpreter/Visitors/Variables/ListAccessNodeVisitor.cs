@@ -1,4 +1,4 @@
-﻿using RaLanguage.Errors;
+using RaLanguage.Errors;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
@@ -17,7 +17,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
             var index = res.Register(interpreter.Visit(node.Index, context));
             if (res.ShouldReturn()) return res;
 
-            (RuntimeValue?, Error?) result = target.ListAccess(index);
+            ValueResult result = target.ListAccess(index);
             if (result.Item2 != null) return res.Failure(result.Item2);
             return res.Success(result.Item1!.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }

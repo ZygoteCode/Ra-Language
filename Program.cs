@@ -1,4 +1,4 @@
-﻿using RaLanguage.Errors;
+using RaLanguage.Errors;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Runtime.Namespaces;
@@ -81,6 +81,7 @@ namespace RaLanguage
                     BuiltinSymbolTable.Set(registryBuiltin, new BuiltInFunctionValue(registryBuiltin));
                 }
             }
+            RegisterBuiltinAdts(BuiltinSymbolTable);
             MetadataRegistry.Global.Clear();
             NamespaceRegistry.Global.Clear();
 
@@ -90,6 +91,39 @@ namespace RaLanguage
             string stdRoot = ResolveStdRoot(projectRoot);
             ImportNodeVisitor.InitializeModuleManager(projectRoot, stdRoot, () => BuiltinSymbolTable);
             ImportNodeVisitor.ResetCache();
+        }
+
+        // Pre-installs the built-in algebraic data types every Ra program
+        // can rely on: `Result<T, E>` and `Option<T>`. They live in the
+        // builtin symbol table so user code does not have to import them
+        // and so the `?` operator's reliance on the `Result` shape is
+        // guaranteed.
+        private static void RegisterBuiltinAdts(SymbolTable builtins)
+        {
+            // Result<T, E> { Ok(T), Err(E) }
+            var resultVariants = new List<RaLanguage.Interpreter.Values.Primitives.EnumVariantInfo>
+            {
+                new("Ok", 0, 0,
+                    new List<RaLanguage.Types.TypeDescriptor> { RaLanguage.Types.TypeDescriptor.TypeParameter("T") }),
+                new("Err", 1, 1,
+                    new List<RaLanguage.Types.TypeDescriptor> { RaLanguage.Types.TypeDescriptor.TypeParameter("E") }),
+            };
+            var resultEnum = new RaLanguage.Interpreter.Values.Primitives.EnumTypeValue(
+                "Result", resultVariants,
+                new List<string> { "T", "E" });
+            builtins.Set("Result", resultEnum);
+
+            // Option<T> { Some(T), None }
+            var optionVariants = new List<RaLanguage.Interpreter.Values.Primitives.EnumVariantInfo>
+            {
+                new("Some", 0, 0,
+                    new List<RaLanguage.Types.TypeDescriptor> { RaLanguage.Types.TypeDescriptor.TypeParameter("T") }),
+                new("None", 1, 1, null),
+            };
+            var optionEnum = new RaLanguage.Interpreter.Values.Primitives.EnumTypeValue(
+                "Option", optionVariants,
+                new List<string> { "T" });
+            builtins.Set("Option", optionEnum);
         }
 
         private static string ResolveStdRoot(string projectRoot)
@@ -109,7 +143,7 @@ namespace RaLanguage
             return exeStd;
         }
 
-        public static (RuntimeValue?, Error?) Run(string fn, string text)
+        public static ValueResult Run(string fn, string text)
         {
             var lexer = new Lexer.Lexer(fn, text);
             var (tokens, lexerDiagnostics) = lexer.MakeTokens();
@@ -205,8 +239,6 @@ namespace RaLanguage
             catch { }
 
             var currentProcess = Process.GetCurrentProcess();
-            currentProcess.PriorityClass = ProcessPriorityClass.RealTime;
-            currentProcess.PriorityBoostEnabled = true;
 
             if (args.Length > 0)
             {

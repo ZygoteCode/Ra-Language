@@ -424,5 +424,21 @@ namespace RaLanguage.Parser
                 $"expected '}}' to close the asm interpolation '%{{ ... }}' but found {Parser.DescribeToken(current)}",
                 DiagnosticCode.ParserExpectedToken,
                 primaryLabel: "asm interpolation never closed");
+
+        internal static InvalidSyntaxError PipelineMissingRhs(Token pipeToken) =>
+            new InvalidSyntaxError(
+                pipeToken.PositionStart, pipeToken.PositionEnd,
+                "the '|>' pipeline operator is missing its right-hand side",
+                DiagnosticCode.ParserInvalidSyntax,
+                help: "supply a callable on the right of '|>', e.g. `value |> trim` or `items |> map(x => x * 2)`",
+                primaryLabel: "expected a callable expression after '|>'");
+
+        internal static InvalidSyntaxError InvalidFormatSpec(Token specToken, string raw) =>
+            new InvalidSyntaxError(
+                specToken.PositionStart, specToken.PositionEnd,
+                $"invalid format specifier ':{raw}' in interpolation",
+                DiagnosticCode.ParserInvalidSyntax,
+                help: "format specifiers use `:[#][.precision][type]` where type is one of f/F/x/X/b/B/d/o/O/e/E/g/G/%",
+                primaryLabel: "specifier rejected here");
     }
 }

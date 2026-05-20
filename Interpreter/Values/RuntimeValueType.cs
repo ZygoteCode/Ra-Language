@@ -42,6 +42,8 @@
         Channel,
         Stream,
         Namespace,
-        NativeHandle
+        NativeHandle,
+        Regex,
+        RegexMatch
     }
 }

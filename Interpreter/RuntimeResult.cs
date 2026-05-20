@@ -4,7 +4,12 @@ using System;
 
 namespace RaLanguage.Interpreter
 {
-    public class RuntimeResult
+    // Stack-allocated visitor return value. Was a class — every AST node visit
+    // paid a heap allocation. As a struct it lives on the stack across the call
+    // chain. Mutating methods rely on the implicit `ref this` of struct instance
+    // methods so existing `res.Success(...)` / `res.Register(...)` call sites
+    // mutate the local in place; the returned value is the mutated struct.
+    public struct RuntimeResult
     {
         public RuntimeValue? Value { get; private set; }
         public Error? Error { get; private set; }

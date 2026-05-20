@@ -33,7 +33,7 @@ namespace RaLanguage.Interpreter.Visitors.Members
                         context,
                         code: DiagnosticCode.RuntimeUndefinedSymbol,
                         primaryLabel: $"'{memberName}' is not a variant",
-                        help: $"available variants: {string.Join(", ", enumType.Members.Keys)}"));
+                        help: $"available variants: {string.Join(", ", enumType.VariantsByName.Keys)}"));
 
                 return res.Success(enumType.GetMember(memberName));
             }

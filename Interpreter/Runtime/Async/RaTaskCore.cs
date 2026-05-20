@@ -39,7 +39,7 @@ namespace RaLanguage.Interpreter.Runtime.Async
         public bool IsCancelled => Status == RaTaskStatus.Cancelled;
         public bool IsFaulted => Status == RaTaskStatus.Faulted;
 
-        private Func<AsyncContext, (RuntimeValue?, Error?)>? _body;
+        private Func<AsyncContext, ValueResult>? _body;
         private AsyncContext? _bodyCtx;
 
         public RaLanguage.Types.TypeDescriptor? ElementType;
@@ -114,7 +114,7 @@ namespace RaLanguage.Interpreter.Runtime.Async
             }
         }
 
-        internal void AttachBody(Func<AsyncContext, (RuntimeValue?, Error?)> body, AsyncContext ctx)
+        internal void AttachBody(Func<AsyncContext, ValueResult> body, AsyncContext ctx)
         {
             _body = body;
             _bodyCtx = ctx;

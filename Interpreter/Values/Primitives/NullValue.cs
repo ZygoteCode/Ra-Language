@@ -28,7 +28,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public sealed override RuntimeValue Copy() => this;
 
-        public sealed override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
+        public sealed override ValueResult GetComparisonEq(RuntimeValue other)
         {
             if (other.Type == RuntimeValueType.Null)
             {
@@ -43,7 +43,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return (BooleanValue.True, null);
         }
 
-        public sealed override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
+        public sealed override ValueResult GetComparisonNe(RuntimeValue other)
         {
             if (other.Type != RuntimeValueType.Null)
             {
@@ -58,12 +58,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return (BooleanValue.False, null);
         }
 
-        public sealed override (RuntimeValue?, Error?) GetComparisonStrictEq(RuntimeValue other)
+        public sealed override ValueResult GetComparisonStrictEq(RuntimeValue other)
         {
             return (BooleanValue.Of(other.Type == RuntimeValueType.Null), null);
         }
 
-        public sealed override (RuntimeValue?, Error?) GetComparisonStrictNe(RuntimeValue other)
+        public sealed override ValueResult GetComparisonStrictNe(RuntimeValue other)
         {
             return (BooleanValue.Of(other.Type != RuntimeValueType.Null), null);
         }

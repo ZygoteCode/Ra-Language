@@ -25,7 +25,7 @@ namespace RaLanguage.Interpreter.Values.Async
             return new AsyncStreamValue(Core).SetContext(Context).SetPos(PositionStart, PositionEnd);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
+        public override ValueResult GetComparisonEq(RuntimeValue other)
         {
             if (other is AsyncStreamValue sv) return (new RaLanguage.Interpreter.Values.Primitives.BooleanValue(ReferenceEquals(Core, sv.Core)), null);
             return base.GetComparisonEq(other);

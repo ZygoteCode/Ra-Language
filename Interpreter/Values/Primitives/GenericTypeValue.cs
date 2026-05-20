@@ -1,4 +1,4 @@
-﻿using RaLanguage.Errors;
+using RaLanguage.Errors;
 using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Primitives
@@ -22,7 +22,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
 
-        public override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
+        public override ValueResult GetComparisonEq(RuntimeValue other)
         {
             if (other is GenericTypeValue g)
             {
@@ -32,7 +32,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return (BooleanValue.Of(false).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonNe(RuntimeValue other)
+        public override ValueResult GetComparisonNe(RuntimeValue other)
         {
             var (eq, err) = GetComparisonEq(other);
             if (err != null) return (null, err);

@@ -81,6 +81,11 @@
         AsmInterpPart,
         Borrow,
         Dereference,
-        DereferenceAssignment
+        DereferenceAssignment,
+        Pipeline,
+        FormattedInterpolation,
+        RegexLiteral,
+        Match,
+        TryUnwrap
     }
 }

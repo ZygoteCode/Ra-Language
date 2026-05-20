@@ -82,6 +82,149 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
                         CheckAnnotationsAgainstLiteral(field.Annotations!, literalVal!, $"struct field '{str.NameTok.Value}.{field.NameTok.Value}'", ctx, diags);
                     }
                     break;
+
+                case RaLanguage.Parser.Nodes.Patterns.MatchNode mn:
+                    CheckMatchExhaustiveness(mn, ctx, diags);
+                    Visit(mn.Scrutinee, ctx, diags);
+                    foreach (var arm in mn.Arms)
+                    {
+                        if (arm.Guard != null) Visit(arm.Guard, ctx, diags);
+                        Visit(arm.Body, ctx, diags);
+                    }
+                    break;
+            }
+        }
+
+        // ----------------------------------------------------------------
+        // Exhaustiveness checker.
+        //
+        // Conservative type inference: we determine the scrutinee enum from
+        // the arm patterns themselves (an explicit `EnumName.Variant` or a
+        // bare `Variant` whose name resolves to an EnumVariantConstructor in
+        // the global symbol table). When this resolves to a concrete enum,
+        // we verify every variant is reachable and flag unreachable arms.
+        // ----------------------------------------------------------------
+        private static void CheckMatchExhaustiveness(
+            RaLanguage.Parser.Nodes.Patterns.MatchNode node,
+            Context ctx,
+            List<StaticAnalyzerDiagnostic> diags)
+        {
+            if (node.Arms.Count == 0)
+            {
+                diags.Add(new StaticAnalyzerDiagnostic(
+                    "match expression has no arms",
+                    node.PositionStart, node.PositionEnd));
+                return;
+            }
+
+            // Determine candidate enum type from arms.
+            EnumTypeValue? enumType = null;
+            foreach (var arm in node.Arms)
+            {
+                if (TryInferEnumType(arm.Pattern, ctx, out var et))
+                {
+                    enumType = et;
+                    break;
+                }
+            }
+
+            // Wildcard / bare-binding fallback short-circuits exhaustiveness.
+            bool sawFallback = false;
+            var covered = new HashSet<string>(System.StringComparer.Ordinal);
+            int armIndex = 0;
+            foreach (var arm in node.Arms)
+            {
+                if (sawFallback)
+                {
+                    diags.Add(new StaticAnalyzerDiagnostic(
+                        $"unreachable match arm (arm #{armIndex + 1}): an earlier arm already covers every remaining case",
+                        arm.PositionStart, arm.PositionEnd));
+                }
+
+                bool isFallback = IsFallback(arm.Pattern, enumType);
+                if (arm.Guard != null) isFallback = false; // guards make any pattern conditional
+
+                if (isFallback)
+                {
+                    sawFallback = true;
+                }
+                else if (enumType != null && arm.Pattern is RaLanguage.Parser.Nodes.Patterns.VariantPatternNode vp)
+                {
+                    if (!enumType.VariantsByName.ContainsKey(vp.VariantName))
+                    {
+                        diags.Add(new StaticAnalyzerDiagnostic(
+                            $"variant '{vp.VariantName}' is not part of enum '{enumType.EnumName}'",
+                            arm.Pattern.PositionStart, arm.Pattern.PositionEnd));
+                    }
+                    else if (!covered.Add(vp.VariantName) && arm.Guard == null)
+                    {
+                        diags.Add(new StaticAnalyzerDiagnostic(
+                            $"duplicate match arm for '{enumType.EnumName}.{vp.VariantName}'",
+                            arm.Pattern.PositionStart, arm.Pattern.PositionEnd));
+                    }
+                }
+
+                armIndex++;
+            }
+
+            if (enumType != null && !sawFallback)
+            {
+                var missing = new List<string>();
+                foreach (var v in enumType.Variants)
+                {
+                    if (!covered.Contains(v.Name)) missing.Add(v.Name);
+                }
+                if (missing.Count > 0)
+                {
+                    diags.Add(new StaticAnalyzerDiagnostic(
+                        $"non-exhaustive match on '{enumType.EnumName}': missing variant(s) {string.Join(", ", missing.Select(m => "'" + m + "'"))}",
+                        node.PositionStart, node.PositionEnd));
+                }
+            }
+        }
+
+        private static bool TryInferEnumType(RaLanguage.Parser.Nodes.Patterns.PatternNode pattern, Context ctx, out EnumTypeValue enumType)
+        {
+            enumType = null!;
+            switch (pattern)
+            {
+                case RaLanguage.Parser.Nodes.Patterns.VariantPatternNode vp:
+                {
+                    if (vp.EnumName != null)
+                    {
+                        var sym = ctx.SymbolTable.Get(vp.EnumName);
+                        if (sym is EnumTypeValue et) { enumType = et; return true; }
+                        return false;
+                    }
+
+                    // Unqualified: look up variant name as a globally-visible
+                    // constructor. We currently only get the enum type if a
+                    // user pre-imported the variant into a binding; built-in
+                    // Result/Option are registered in the builtin scope, so
+                    // their bare names won't resolve to a constructor here —
+                    // require qualification for those.
+                    return false;
+                }
+                default:
+                    return false;
+            }
+        }
+
+        private static bool IsFallback(RaLanguage.Parser.Nodes.Patterns.PatternNode p, EnumTypeValue? enumType)
+        {
+            switch (p)
+            {
+                case RaLanguage.Parser.Nodes.Patterns.WildcardPatternNode _:
+                    return true;
+                case RaLanguage.Parser.Nodes.Patterns.VariablePatternNode vp:
+                    // A bare binding is only a fallback when it does NOT
+                    // collide with one of the enum's zero-arity variants
+                    // (otherwise the engine treats it as a variant test).
+                    if (enumType != null && enumType.VariantsByName.TryGetValue(vp.Name, out var info) && !info.HasPayload)
+                        return false;
+                    return true;
+                default:
+                    return false;
             }
         }
 

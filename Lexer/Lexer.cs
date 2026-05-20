@@ -230,6 +230,16 @@ namespace RaLanguage.Lexer
                         {
                             ProcessNumber(span, tokens);
                         }
+                        else if (c == 'r' && _idx + 2 < span.Length && span[_idx + 1] == 'e' && span[_idx + 2] == '"')
+                        {
+                            // Regex literal: `re"pattern"flags`. Treated as a
+                            // first-class lexeme so the parser can build a
+                            // dedicated AST node without backtracking. The
+                            // `r` / `e` characters must not be preceded by an
+                            // identifier (we never reach `default` mid-ident
+                            // because ProcessIdentifier consumes greedily).
+                            ProcessRegexLiteral(span, tokens);
+                        }
                         else if (c < 128 && s_isLetterOrDigit[c])
                         {
                             ProcessIdentifier(span, tokens);
@@ -551,6 +561,15 @@ namespace RaLanguage.Lexer
                         return;
                     }
                     tokens.Add(new Token(TokenType.KEYWORD, Keyword.Or, posStart, GetPos()));
+                    return;
+                }
+                if (span[_idx] == '>')
+                {
+                    // `|>` pipeline forward operator. Disambiguates against `||`
+                    // (handled above) and `|=` (handled below) because we have
+                    // already consumed the single `|`.
+                    Advance(span[_idx]);
+                    tokens.Add(new Token(TokenType.PIPE_FORWARD, null, posStart, GetPos()));
                     return;
                 }
                 if (span[_idx] == '=') { Advance(span[_idx]); tokens.Add(new Token(TokenType.BITWISE_OR_EQ, null, posStart, GetPos())); return; }
@@ -880,7 +899,22 @@ namespace RaLanguage.Lexer
                     }
 
                     string innerText = _text.Substring(innerStartIdx, _idx - 1 - innerStartIdx);
-                    var innerLexer = new Lexer(_fn, innerText);
+
+                    // Split off an optional `:spec` suffix before sub-lexing the
+                    // expression. The format spec uses a tightly constrained
+                    // grammar (see TrySplitFormatSpec) so we can disambiguate it
+                    // against ternaries and named arguments without ever
+                    // consulting the parser.
+                    string exprText = innerText;
+                    string? formatSpec = null;
+                    int specSplit = TrySplitFormatSpec(innerText);
+                    if (specSplit >= 0)
+                    {
+                        exprText = innerText.Substring(0, specSplit);
+                        formatSpec = innerText.Substring(specSplit + 1);
+                    }
+
+                    var innerLexer = new Lexer(_fn, exprText);
                     var (innerTokens, innerDiagnostics) = innerLexer.MakeTokens();
                     _diagnostics.AddRange(innerDiagnostics);
 
@@ -890,6 +924,12 @@ namespace RaLanguage.Lexer
                     }
 
                     var interpEndPos = GetPos();
+
+                    if (formatSpec != null)
+                    {
+                        tokens.Add(new Token(TokenType.FORMAT_SPEC, formatSpec, interpStartPos, interpEndPos));
+                    }
+
                     tokens.Add(new Token(TokenType.INTERP_END, null, interpEndPos, interpEndPos));
 
                     segStartIdx = _idx;
@@ -919,6 +959,215 @@ namespace RaLanguage.Lexer
 
             tokens.Add(new Token(TokenType.STRING_TEXT, finalTextSeg, segStartPos, GetPos()));
             Advance(span[_idx]);
+        }
+
+        // Regex literal `re"pattern"flags`. Backslashes are preserved verbatim
+        // inside the pattern (regex engines own their own escape grammar), so
+        // only the closing quote needs an escape — written as `\"` inside the
+        // pattern body. The flag suffix collects ASCII letters until the first
+        // non-letter character; validity is checked by the parser / runtime.
+        private void ProcessRegexLiteral(ReadOnlySpan<char> span, List<Token> tokens)
+        {
+            var posStart = GetPos();
+            // consume 're"' prefix
+            AdvanceMultiple(3, span);
+
+            int patternStart = _idx;
+            StringBuilder? sb = null;
+            int segStart = _idx;
+
+            while (_idx < span.Length)
+            {
+                char c = span[_idx];
+                if (c == '\\' && _idx + 1 < span.Length && span[_idx + 1] == '"')
+                {
+                    sb ??= new StringBuilder(span.Length - patternStart);
+                    sb.Append(span.Slice(segStart, _idx - segStart));
+                    sb.Append('"');
+                    AdvanceMultiple(2, span);
+                    segStart = _idx;
+                    continue;
+                }
+                if (c == '"') break;
+                if (c == '\n')
+                {
+                    _diagnostics.AddError(
+                        title: "unterminated regex literal",
+                        code: DiagnosticCode.LexerUnterminatedRegex,
+                        positionStart: posStart,
+                        positionEnd: GetPos(),
+                        phase: DiagnosticPhase.Lexing,
+                        primaryLabel: "newline before closing '\"'",
+                        help: "regex literals must close on the same line; escape the quote as \\\" inside the pattern");
+                    return;
+                }
+                Advance(c);
+            }
+
+            if (_idx >= span.Length || span[_idx] != '"')
+            {
+                _diagnostics.AddError(
+                    title: "unterminated regex literal",
+                    code: DiagnosticCode.LexerUnterminatedRegex,
+                    positionStart: posStart,
+                    positionEnd: GetPos(),
+                    phase: DiagnosticPhase.Lexing,
+                    primaryLabel: "opening re\" has no matching '\"'",
+                    help: "add the matching '\"' on this line");
+                return;
+            }
+
+            string pattern = sb != null
+                ? sb.Append(span.Slice(segStart, _idx - segStart)).ToString()
+                : span.Slice(segStart, _idx - segStart).ToString();
+
+            // consume closing '"'
+            Advance(span[_idx]);
+
+            // Trailing flag characters: ASCII letters that the regex engine
+            // recognises. Anything else terminates the literal.
+            int flagStart = _idx;
+            while (_idx < span.Length)
+            {
+                char fc = span[_idx];
+                if (!IsRegexFlagChar(fc)) break;
+                Advance(fc);
+            }
+
+            string flags = span.Slice(flagStart, _idx - flagStart).ToString();
+
+            var payload = new Tokens.RegexLiteralPayload(pattern, flags);
+            tokens.Add(new Token(TokenType.REGEX_LITERAL, payload, posStart, GetPos()));
+        }
+
+        private static bool IsRegexFlagChar(char c)
+        {
+            switch (c)
+            {
+                case 'i': case 'I':
+                case 'm': case 'M':
+                case 's': case 'S':
+                case 'x': case 'X':
+                case 'n': case 'N':
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        // Looks for a `:format-spec` suffix inside the body of a `${...}` block.
+        // Returns the index of the separating ':' in `body` (so the caller can
+        // split into expression text and spec text), or -1 if no valid spec is
+        // present.
+        //
+        // The spec colon must sit at bracket depth zero AND be followed by a
+        // string that matches the format-spec grammar exactly; this rules out
+        // ternary colons (`a ? b : c`), named-argument colons (`f(x: 1)`), and
+        // dictionary literal colons, because the trailing text in those cases
+        // never matches the format-spec form. Scanning runs right-to-left so a
+        // ternary inside the body is invisible to the split.
+        private static int TrySplitFormatSpec(string body)
+        {
+            if (string.IsNullOrEmpty(body)) return -1;
+
+            int depthParen = 0;
+            int depthSquare = 0;
+            int depthBrace = 0;
+
+            for (int i = body.Length - 1; i >= 0; i--)
+            {
+                char c = body[i];
+                switch (c)
+                {
+                    case ')': depthParen++; continue;
+                    case '(': depthParen--; continue;
+                    case ']': depthSquare++; continue;
+                    case '[': depthSquare--; continue;
+                    case '}': depthBrace++; continue;
+                    case '{': depthBrace--; continue;
+                }
+
+                if (depthParen != 0 || depthSquare != 0 || depthBrace != 0)
+                    continue;
+
+                if (c != ':') continue;
+
+                // `::` is the `as`-style path separator (e.g. namespace::name)
+                // - never a format spec.
+                if (i + 1 < body.Length && body[i + 1] == ':') continue;
+                if (i > 0 && body[i - 1] == ':') continue;
+
+                if (IsValidFormatSpec(body, i + 1, body.Length))
+                    return i;
+
+                // First top-level `:` that does not lead a valid spec — stop;
+                // anything further left would be inside an outer expression
+                // that the parser already owns.
+                return -1;
+            }
+
+            return -1;
+        }
+
+        // Grammar (single pass):
+        //   spec   := flag? precision? type?
+        //   flag   := '#'
+        //   precision := '.' digit+
+        //   type   := f|F|x|X|b|B|d|D|o|O|e|E|g|G|%
+        // At least one of {flag, precision, type} must be present.
+        private static bool IsValidFormatSpec(string s, int start, int end)
+        {
+            int i = start;
+            bool any = false;
+
+            if (i < end && s[i] == '#')
+            {
+                any = true;
+                i++;
+            }
+
+            if (i < end && s[i] == '.')
+            {
+                i++;
+                int digitStart = i;
+                while (i < end && s[i] >= '0' && s[i] <= '9') i++;
+                if (i == digitStart) return false;
+                any = true;
+            }
+
+            if (i < end)
+            {
+                char t = s[i];
+                if (IsFormatTypeChar(t))
+                {
+                    any = true;
+                    i++;
+                }
+                else
+                {
+                    return false;
+                }
+            }
+
+            return any && i == end;
+        }
+
+        private static bool IsFormatTypeChar(char c)
+        {
+            switch (c)
+            {
+                case 'f': case 'F':
+                case 'x': case 'X':
+                case 'b': case 'B':
+                case 'd': case 'D':
+                case 'o': case 'O':
+                case 'e': case 'E':
+                case 'g': case 'G':
+                case '%':
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         private static readonly Dictionary<string, Keyword> s_keywords = CreateKeywordTable();
@@ -962,6 +1211,7 @@ namespace RaLanguage.Lexer
                 { "in", Keyword.In },
                 { "switch", Keyword.Switch },
                 { "case", Keyword.Case },
+                { "match", Keyword.Match },
                 { "default", Keyword.Default },
                 { "yield", Keyword.Yield },
                 { "goto", Keyword.Goto },

@@ -27,7 +27,7 @@ namespace RaLanguage.Interpreter.Values.Async
             return new ChannelValue(Channel).SetContext(Context).SetPos(PositionStart, PositionEnd);
         }
 
-        public override (RuntimeValue?, Error?) GetComparisonEq(RuntimeValue other)
+        public override ValueResult GetComparisonEq(RuntimeValue other)
         {
             if (other is ChannelValue cv) return (new RaLanguage.Interpreter.Values.Primitives.BooleanValue(ReferenceEquals(Channel, cv.Channel)), null);
             return base.GetComparisonEq(other);
