@@ -54,7 +54,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             {
                 var argValue = args[i];
                 argValue.SetContext(execCtx);
-                execCtx.SymbolTable.Set(argNames[i], argValue);
+                execCtx.SymbolTable.SetLocal(argNames[i], argValue);
             }
         }
 
@@ -142,7 +142,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             {
                 var v = kv.Value;
                 v.SetContext(execCtx);
-                execCtx.SymbolTable.Set(kv.Key, v);
+                execCtx.SymbolTable.SetLocal(kv.Key, v);
             }
 
             if (paramDefaults != null)
@@ -162,7 +162,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                         var val = innerRes.Value;
                         if (val == null) val = new RaLanguage.Interpreter.Values.Primitives.NullValue().SetContext(execCtx).SetPos(defAst.PositionStart, defAst.PositionEnd);
                         val.SetContext(execCtx);
-                        execCtx.SymbolTable.Set(name, val);
+                        execCtx.SymbolTable.SetLocal(name, val);
                         finalAssigned[name] = val;
                     }
                 }
@@ -215,7 +215,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                 }
 
                 var varname = varArgNameTok?.Value?.ToString() ?? "params";
-                execCtx.SymbolTable.Set(varname, listVal);
+                execCtx.SymbolTable.SetLocal(varname, listVal);
             }
 
             var owner = ParameterOwnerForMetadata;
@@ -231,7 +231,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                     {
                         finalAssigned[key] = newVal;
                         newVal.SetContext(execCtx);
-                        execCtx.SymbolTable.Set(key, newVal);
+                        execCtx.SymbolTable.SetLocal(key, newVal);
                     }
                 }
                 if (hasVarArgs)
@@ -245,7 +245,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                         if (verr != null) return (null, verr);
                         if (!ReferenceEquals(newVal, listVal))
                         {
-                            execCtx.SymbolTable.Set(varname, newVal);
+                            execCtx.SymbolTable.SetLocal(varname, newVal);
                         }
                     }
                 }
@@ -325,7 +325,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             {
                 var argValue = args[i];
                 argValue.SetContext(execCtx);
-                execCtx.SymbolTable.Set(argNames[i], argValue);
+                execCtx.SymbolTable.SetLocal(argNames[i], argValue);
             }
 
             if (hasVarArgs)
@@ -343,7 +343,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                     .SetPos(PositionStart, PositionEnd);
 
                 var varName = varArgNameTok?.Value?.ToString() ?? "params";
-                execCtx.SymbolTable.Set(varName, listVal);
+                execCtx.SymbolTable.SetLocal(varName, listVal);
             }
 
             return res.Success(null);

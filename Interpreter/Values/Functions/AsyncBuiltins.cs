@@ -113,22 +113,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             if (args.Count != 1) return res.Failure(new RuntimeError(p1, p2, "sleep(ms) requires 1 argument", ctx));
             int ms = ExtractInt(args[0]);
             var parentAsync = ctx?.AsyncCtx;
-            var task = AsyncScheduler.Schedule("sleep", parentAsync, childCtx =>
-            {
-                try
-                {
-                    if (ms > 0)
-                    {
-                        var wait = Task.Delay(ms, childCtx.Token);
-                        wait.GetAwaiter().GetResult();
-                    }
-                    return ((RuntimeValue?)NullValue.Null.SetPos(p1, p2), (Error?)null);
-                }
-                catch (OperationCanceledException)
-                {
-                    return (null, AsyncScheduler.MakeCancellationError(p1, p2, ctx, "Sleep cancelled"));
-                }
-            });
+            var task = AsyncScheduler.ScheduleTimer("sleep", parentAsync, ms);
             return res.Success(new TaskValue(task).SetContext(ctx).SetPos(p1, p2));
         }
 

@@ -25,7 +25,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                 if (string.IsNullOrEmpty(varName))
                     return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Invalid identifier", context));
 
-                if (context.SymbolTable.Get(varName) != null)
+                if (context.SymbolTable.GetLocalEntry(varName) != null)
                     return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is already defined", context));
 
                 RuntimeValue value = NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
@@ -86,7 +86,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                 value = newValue;
                 value.VariableDeclarationType = declTypeFlag;
 
-                context.SymbolTable.SetWithDeclarationType(varName, value, isLetFlag, declaredType, isStaticallyTyped, node.IsPublic, declTypeFlag);
+                context.SymbolTable.SetLocalWithDeclarationType(varName, value, isLetFlag, declaredType, isStaticallyTyped, node.IsPublic, declTypeFlag);
 
                 if (node.HasAnnotations)
                 {
@@ -99,7 +99,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                     if (!ReferenceEquals(coerced, value))
                     {
                         value = coerced;
-                        context.SymbolTable.SetWithDeclarationType(varName, value, isLetFlag, declaredType, isStaticallyTyped, node.IsPublic, declTypeFlag);
+                        context.SymbolTable.SetLocalWithDeclarationType(varName, value, isLetFlag, declaredType, isStaticallyTyped, node.IsPublic, declTypeFlag);
                     }
                 }
 

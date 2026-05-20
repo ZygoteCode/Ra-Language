@@ -178,6 +178,24 @@ namespace RaLanguage
         {
             Console.Title = "Ra Language | Made by https://github.com/ZygoteCode/";
 
+            // The fiber runtime currently uses sync-over-async wait inside `await`
+            // (each pending await pins a thread-pool worker). With the default min
+            // thread count (~CPU count) and 1-2 threads/sec injection rate, fan-out
+            // of more than (min-count) blocking fibers serializes. Pre-warm the pool
+            // so high-fan-out `gather(...)` patterns run truly in parallel. We do
+            // not lower the max; large values just expand the elastic ceiling.
+            int cpu = Environment.ProcessorCount;
+            int minWorkers = Math.Max(128, cpu * 16);
+            int minIo = Math.Max(128, cpu * 16);
+            try
+            {
+                System.Threading.ThreadPool.GetMinThreads(out var curW, out var curIo);
+                if (minWorkers < curW) minWorkers = curW;
+                if (minIo < curIo) minIo = curIo;
+                System.Threading.ThreadPool.SetMinThreads(minWorkers, minIo);
+            }
+            catch { }
+
             var currentProcess = Process.GetCurrentProcess();
             currentProcess.PriorityClass = ProcessPriorityClass.RealTime;
             currentProcess.PriorityBoostEnabled = true;

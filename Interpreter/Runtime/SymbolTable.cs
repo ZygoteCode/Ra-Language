@@ -50,6 +50,41 @@ namespace RaLanguage.Interpreter.Runtime
             SetWithDeclarationType(name, value, isLet, declaredType, isStaticallyTyped, isPublic, null);
         }
 
+        // Force-write into THIS scope without walking up. Required for parameter
+        // binding and `var`/`let` declarations: a recursive call's `n=child` would
+        // otherwise stomp the caller's `n=parent` because the standard Set walks up
+        // looking for an existing entry. The previous behaviour broke any function
+        // that recurses with a parameter name that also exists in an enclosing scope
+        // (e.g. async fn fib(n)).
+        public void SetLocal(string name, RuntimeValue value, bool isLet = false, TypeDescriptor? declaredType = null, bool isStaticallyTyped = false, bool isPublic = true)
+        {
+            SetLocalWithDeclarationType(name, value, isLet, declaredType, isStaticallyTyped, isPublic, null);
+        }
+
+        public void SetLocalWithDeclarationType(string name, RuntimeValue value, bool isLet, TypeDescriptor? declaredType, bool isStaticallyTyped, bool isPublic, VariableDeclarationType? declarationType)
+        {
+            if (_symbols.TryGetValue(name, out var existing))
+            {
+                existing.Value = value;
+                existing.IsLet = isLet;
+                existing.DeclaredType = declaredType;
+                existing.IsStaticallyTyped = isStaticallyTyped;
+                existing.IsPublic = isPublic;
+                if (declarationType.HasValue) existing.DeclarationType = declarationType.Value;
+                return;
+            }
+            _symbols[name] = new SymbolEntry(value, isLet, isPublic, declaredType, isStaticallyTyped,
+                declarationType ?? VariableDeclarationType.VARIABLE);
+        }
+
+        // Like GetEntry but does NOT walk up. Used by `var` declaration to decide
+        // whether a shadow is allowed in the current scope (legal) versus a true
+        // redeclaration of a local (illegal).
+        public SymbolEntry? GetLocalEntry(string name)
+        {
+            return _symbols.TryGetValue(name, out var e) ? e : null;
+        }
+
         public void SetWithDeclarationType(string name, RuntimeValue value, bool isLet, TypeDescriptor? declaredType, bool isStaticallyTyped, bool isPublic, VariableDeclarationType? declarationType)
         {
             // Single walk; resolves owner scope and writes once. Avoids the previous pattern
@@ -92,6 +127,15 @@ namespace RaLanguage.Interpreter.Runtime
                 return;
             }
 
+            // Only propagate LOCAL changes of the child scope. The previous
+            // implementation recursed into symbolTable.Parent, which is the same
+            // unchanged outer scope chain that the receiver sits in. Re-reading
+            // values from those parent tables and Set'ing them via walk-up
+            // overwrites entries that the receiver had legitimately rebound
+            // (e.g. a recursive call's parameter `k=child` was being trampled by
+            // re-applying the caller's `k=parent` on scope exit). This produced
+            // wrong results for any recursive function whose parameter name also
+            // existed in an enclosing scope.
             foreach (var key in symbolTable.GetLocalKeys())
             {
                 if (GetEntry(key) != null)
@@ -103,8 +147,6 @@ namespace RaLanguage.Interpreter.Runtime
                     }
                 }
             }
-
-            ApplyChangesFrom(symbolTable.Parent);
         }
 
         public IEnumerable<string> GetLocalKeys()

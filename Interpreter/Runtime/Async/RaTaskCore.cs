@@ -159,6 +159,60 @@ namespace RaLanguage.Interpreter.Runtime.Async
             }
         }
 
+        // Completes this task after `delayMs` without occupying a thread pool worker.
+        // Backed by System.Threading.Timer, which dispatches on a thread-pool callback
+        // for ~zero-cost duration. Cancellation cancels the timer immediately.
+        internal void ArmCompletionTimer(int delayMs)
+        {
+            if (delayMs <= 0)
+            {
+                Complete(RaLanguage.Interpreter.Values.Primitives.NullValue.Null);
+                return;
+            }
+
+            Timer? timer = null;
+            CancellationTokenRegistration ctReg = default;
+
+            timer = new Timer(static state =>
+            {
+                var self = (RaTaskCore)state!;
+                if (!self.IsCompleted) self.Complete(RaLanguage.Interpreter.Values.Primitives.NullValue.Null);
+                var t = Interlocked.Exchange(ref self._completionTimer, null);
+                t?.Dispose();
+                var reg = self._completionCtReg;
+                self._completionCtReg = default;
+                try { reg.Dispose(); } catch { }
+            }, this, System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+
+            _completionTimer = timer;
+
+            if (CancellationScope.IsCancelled)
+            {
+                CancelObserved();
+                timer.Dispose();
+                _completionTimer = null;
+                return;
+            }
+
+            var token = CancellationScope.Token;
+            if (token.CanBeCanceled)
+            {
+                ctReg = token.Register(static state =>
+                {
+                    var self = (RaTaskCore)state!;
+                    if (!self.IsCompleted) self.CancelObserved();
+                    var t = Interlocked.Exchange(ref self._completionTimer, null);
+                    t?.Dispose();
+                }, this);
+                _completionCtReg = ctReg;
+            }
+
+            timer.Change(delayMs, System.Threading.Timeout.Infinite);
+        }
+
+        private Timer? _completionTimer;
+        private CancellationTokenRegistration _completionCtReg;
+
         public static RaTaskCore FromCompletedValue(RuntimeValue? value)
         {
             var t = new RaTaskCore(new CancellationScope(), null, "<completed>");
