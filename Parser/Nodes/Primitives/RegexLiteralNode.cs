@@ -1,4 +1,4 @@
-using RaLanguage.Interpreter.Values;
+﻿using RaLanguage.Interpreter.Values;
 using RaLanguage.Lexer;
 
 namespace RaLanguage.Parser.Nodes.Primitives
@@ -7,7 +7,7 @@ namespace RaLanguage.Parser.Nodes.Primitives
     // pattern text plus the flag suffix so the runtime visitor can either
     // compile-once-and-cache or report a precise diagnostic against the
     // original source span.
-    public class RegexLiteralNode : AstNode
+    public sealed class RegexLiteralNode : AstNode
     {
         public string Pattern { get; }
         public string Flags { get; }

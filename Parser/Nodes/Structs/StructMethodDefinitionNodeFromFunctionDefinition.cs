@@ -2,7 +2,7 @@
 
 namespace RaLanguage.Parser.Nodes.Structs
 {
-    public class StructMethodDefinitionNodeFromFunctionDefinition : StructMethodDefinitionNode
+    public sealed class StructMethodDefinitionNodeFromFunctionDefinition : StructMethodDefinitionNode
     {
         public StructMethodDefinitionNodeFromFunctionDefinition(FunctionDefinitionNode fn)
             : base(

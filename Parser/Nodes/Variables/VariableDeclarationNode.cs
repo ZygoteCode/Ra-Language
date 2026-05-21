@@ -3,7 +3,7 @@ using RaLanguage.Types;
 
 namespace RaLanguage.Parser.Nodes.Variables
 {
-    public class VariableDeclarationNode : AstNode
+    public sealed class VariableDeclarationNode : AstNode
     {
         public VariableDeclarationType DeclarationType { get; }
         public List<(Token, AstNode?, TypeDescriptor?)> Declarations { get; }

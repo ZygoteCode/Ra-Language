@@ -8,7 +8,7 @@ namespace RaLanguage.Parser.Nodes.Statements
         Arrow
     }
 
-    public class SwitchCaseNode : AstNode
+    public sealed class SwitchCaseNode : AstNode
     {
         public List<AstNode> Labels { get; }
         public bool IsDefault { get; }

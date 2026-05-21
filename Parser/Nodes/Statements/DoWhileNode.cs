@@ -1,6 +1,6 @@
 ﻿namespace RaLanguage.Parser.Nodes.Statements
 {
-    public class DoWhileNode : AstNode
+    public sealed class DoWhileNode : AstNode
     {
         public AstNode ConditionNode, BodyNode;
         public bool ShouldReturnNull;

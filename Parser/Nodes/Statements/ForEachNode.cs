@@ -2,7 +2,7 @@
 
 namespace RaLanguage.Parser.Nodes.Statements
 {
-    public class ForEachNode : AstNode
+    public sealed class ForEachNode : AstNode
     {
         public Token VarNameToken { get; }
         public AstNode CollectionNode { get; }

@@ -2,7 +2,7 @@
 
 namespace RaLanguage.Parser.Nodes.Operations
 {
-    public class SpreadNode : AstNode
+    public sealed class SpreadNode : AstNode
     {
         public Token SpreadToken { get; }
         public AstNode Expression { get; }

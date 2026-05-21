@@ -3,7 +3,7 @@ using RaLanguage.Parser.Nodes.Functions;
 
 namespace RaLanguage.Parser.Nodes.Classes
 {
-    public class ExtensionDefinitionNode : AstNode
+    public sealed class ExtensionDefinitionNode : AstNode
     {
         public TypeDescriptor TargetType { get; }
         public bool IsPublic { get; }

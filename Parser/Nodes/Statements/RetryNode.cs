@@ -1,6 +1,6 @@
 ﻿namespace RaLanguage.Parser.Nodes.Statements
 {
-    public class RetryNode : AstNode
+    public sealed class RetryNode : AstNode
     {
         public AstNode CountNode { get; }
         public AstNode BodyNode { get; }

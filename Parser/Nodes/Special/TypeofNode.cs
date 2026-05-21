@@ -1,6 +1,6 @@
 ﻿namespace RaLanguage.Parser.Nodes.Special
 {
-    public class TypeofNode : AstNode
+    public sealed class TypeofNode : AstNode
     {
         public AstNode Node { get; }
 

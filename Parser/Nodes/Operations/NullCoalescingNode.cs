@@ -2,7 +2,7 @@
 
 namespace RaLanguage.Parser.Nodes.Operations
 {
-    public class NullCoalescingNode : AstNode
+    public sealed class NullCoalescingNode : AstNode
     {
         public AstNode Left { get; }
         public AstNode Right { get; }

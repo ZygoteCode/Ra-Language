@@ -124,9 +124,14 @@ namespace RaLanguage.Interpreter.Values.Primitives
                     return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Where-constraint violated in method '{Name}': {constraintErr}", Context));
             }
 
-            var argNames = MethodNode.ArgNameToks.Select(t => t.Value?.ToString() ?? "").ToList();
+            var argNames = MethodNode.ArgNames;
 
-            var instantiatedArgTypes = MethodNode.ArgTypes.Select(t => t == null ? null : t.SubstituteBindings(bindings)).ToList();
+            var instantiatedArgTypes = new List<TypeDescriptor?>(MethodNode.ArgTypes.Count);
+            for (int i = 0; i < MethodNode.ArgTypes.Count; i++)
+            {
+                var t = MethodNode.ArgTypes[i];
+                instantiatedArgTypes.Add(t?.SubstituteBindings(bindings));
+            }
             var instantiatedVarArgType = MethodNode.VarArgType == null ? null : MethodNode.VarArgType.SubstituteBindings(bindings);
             var instantiatedReturnType = MethodNode.ReturnType == null ? null : MethodNode.ReturnType.SubstituteBindings(bindings);
 

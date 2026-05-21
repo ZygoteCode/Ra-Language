@@ -3,7 +3,7 @@ using RaLanguage.Lexer;
 
 namespace RaLanguage.Parser.Nodes.Primitives
 {
-    public class StringNode : AstNode
+    public sealed class StringNode : AstNode
     {
         public List<AstNode> Parts { get; }
 

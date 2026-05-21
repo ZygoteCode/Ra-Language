@@ -3,7 +3,7 @@ using RaLanguage.Types;
 
 namespace RaLanguage.Parser.Nodes.Traits
 {
-    public class CallableSignatureNode : AstNode
+    public sealed class CallableSignatureNode : AstNode
     {
         public List<Token> ArgNameToks { get; }
         public List<TypeDescriptor?> ArgTypes { get; }

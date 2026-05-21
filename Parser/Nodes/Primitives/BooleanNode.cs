@@ -2,7 +2,7 @@
 
 namespace RaLanguage.Parser.Nodes.Primitives
 {
-    public class BooleanNode : AstNode
+    public sealed class BooleanNode : AstNode
     {
         public Token Token { get; }
         public BooleanNode(Token token) : base(AstNodeType.Boolean)

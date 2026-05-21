@@ -2,7 +2,7 @@
 
 namespace RaLanguage.Parser.Nodes.Special
 {
-    public class LabelNode : AstNode
+    public sealed class LabelNode : AstNode
     {
         public Token Token { get; }
         public AstNode Statements { get; }

@@ -1,4 +1,4 @@
-using RaLanguage.Lexer;
+﻿using RaLanguage.Lexer;
 using RaLanguage.Lexer.Tokens;
 
 namespace RaLanguage.Parser.Nodes.Operations
@@ -7,7 +7,7 @@ namespace RaLanguage.Parser.Nodes.Operations
     // RefTarget evaluates to an IReferenceValue at runtime; the visitor then
     // assigns through it, observing borrow mutability (BorrowValue blocks writes
     // through a shared `&` borrow, etc.).
-    public class DereferenceAssignmentNode : AstNode
+    public sealed class DereferenceAssignmentNode : AstNode
     {
         public AstNode RefTarget { get; }
         public Token AssignmentToken { get; }

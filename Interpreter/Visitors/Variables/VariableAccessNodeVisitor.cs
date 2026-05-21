@@ -13,12 +13,43 @@ namespace RaLanguage.Interpreter.Visitors.Variables
         {
             var res = new RuntimeResult();
 
-            var name = node.VarNameTok.Value?.ToString();
+            var name = node.Name;
 
             if (string.IsNullOrEmpty(name))
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Invalid variable name", context));
 
-            var entry = context.SymbolTable.GetEntry(name);
+            // Inline cache: pointer-compare on Table and int-compare on Generation
+            // collapse this access to ~4 instructions when the cache hits. Generation
+            // is bumped only on add/remove, so a tight loop reassigning the same
+            // local (`x = x + 1`) keeps the cache valid through every iteration.
+            var ct = context.SymbolTable;
+            SymbolEntry? entry;
+            var cache = node.LookupCache;
+            if (cache != null && ReferenceEquals(cache.Table, ct) && cache.Generation == ct.LocalGeneration)
+            {
+                entry = cache.Entry;
+            }
+            else
+            {
+                // Local-scope hit is cacheable; parent-walk hit is not (see
+                // SymbolLookupCache comment).
+                entry = ct.GetLocalEntry(name);
+                if (entry != null)
+                {
+                    node.LookupCache = new SymbolLookupCache(ct, ct.LocalGeneration, entry);
+                }
+                else
+                {
+                    var p = ct.Parent;
+                    while (p != null)
+                    {
+                        var e = p.GetLocalEntry(name);
+                        if (e != null) { entry = e; break; }
+                        p = p.Parent;
+                    }
+                }
+            }
+
             if (entry == null)
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
                     $"'{name}' is not defined",

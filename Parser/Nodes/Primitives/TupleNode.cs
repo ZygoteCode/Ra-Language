@@ -2,7 +2,7 @@
 
 namespace RaLanguage.Parser.Nodes.Primitives
 {
-    public class TupleNode : AstNode
+    public sealed class TupleNode : AstNode
     {
         public List<AstNode> ElementNodes { get; }
 

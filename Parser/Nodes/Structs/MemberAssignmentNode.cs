@@ -2,7 +2,7 @@
 
 namespace RaLanguage.Parser.Nodes.Structs
 {
-    public class MemberAssignmentNode : AstNode
+    public sealed class MemberAssignmentNode : AstNode
     {
         public MemberAccessNode TargetNode { get; }
         public Token AssignmentToken { get; }

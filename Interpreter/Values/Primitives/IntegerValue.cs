@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Types;
@@ -12,9 +13,35 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public sealed override RuntimeValueType Type => RuntimeValueType.Integer;
         public sealed override bool IsCopy => true;
 
+        // Small-integer cache. Loop counters, indices, comparison results, factorial
+        // partials, etc. dominate by orders of magnitude. Allocating a fresh
+        // IntegerValue per int+int collapses GC pressure; sharing immutable instances
+        // across the [-128, 1024] range — Python's CPython does the same — eliminates
+        // the alloc entirely on the hot path. Copy() already returns `this`, so
+        // pointer sharing is semantically already in play.
+        private const int CACHE_LOW = -128;
+        private const int CACHE_HIGH = 1024;
+        private const int CACHE_SIZE = CACHE_HIGH - CACHE_LOW + 1;
+        private static readonly IntegerValue[] s_cache = BuildCache();
+
+        private static IntegerValue[] BuildCache()
+        {
+            var arr = new IntegerValue[CACHE_SIZE];
+            for (int i = 0; i < CACHE_SIZE; i++) arr[i] = new IntegerValue(CACHE_LOW + i);
+            return arr;
+        }
+
         public IntegerValue(int value)
         {
             Value = value;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static IntegerValue Of(int value)
+        {
+            if ((uint)(value - CACHE_LOW) <= (uint)(CACHE_HIGH - CACHE_LOW))
+                return s_cache[value - CACHE_LOW];
+            return new IntegerValue(value);
         }
 
         public static IntegerValue FromBigInteger(System.Numerics.BigInteger value)

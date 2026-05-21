@@ -2,7 +2,7 @@
 
 namespace RaLanguage.Parser.Nodes.Enums
 {
-    public class EnumAccessNode : AstNode
+    public sealed class EnumAccessNode : AstNode
     {
         public AstNode EnumNode { get; }
         public Token MemberTok { get; }

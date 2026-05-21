@@ -4,7 +4,7 @@ using RaLanguage.Types;
 
 namespace RaLanguage.Parser.Nodes.Structs
 {
-    public class StructFieldDefinitionNode : AstNode
+    public sealed class StructFieldDefinitionNode : AstNode
     {
         public bool IsPublic { get; }
         public bool IsStatic { get; }

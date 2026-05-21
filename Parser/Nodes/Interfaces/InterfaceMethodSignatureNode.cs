@@ -3,7 +3,7 @@ using RaLanguage.Types;
 
 namespace RaLanguage.Parser.Nodes.Interfaces
 {
-    public class InterfaceMethodSignatureNode : AstNode
+    public sealed class InterfaceMethodSignatureNode : AstNode
     {
         public Token NameTok { get; }
         public List<Token> ArgNameToks { get; }

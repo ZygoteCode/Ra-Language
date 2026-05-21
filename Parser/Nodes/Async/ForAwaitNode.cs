@@ -1,8 +1,8 @@
-using RaLanguage.Lexer.Tokens;
+﻿using RaLanguage.Lexer.Tokens;
 
 namespace RaLanguage.Parser.Nodes.Async
 {
-    public class ForAwaitNode : AstNode
+    public sealed class ForAwaitNode : AstNode
     {
         public Token VarNameToken { get; }
         public AstNode StreamNode { get; }

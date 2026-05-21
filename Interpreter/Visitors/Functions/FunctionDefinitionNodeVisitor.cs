@@ -15,7 +15,7 @@ namespace RaLanguage.Interpreter.Visitors.Functions
             var res = new RuntimeResult();
 
             string funcName = node.VarNameTok != null ? node.VarNameTok.Value.ToString() : null;
-            var argNames = node.ArgNameToks.Select(t => t.Value.ToString()).ToList();
+            var argNames = node.ArgNames;
             var funcValue = (FunctionValue)new FunctionValue(
                 funcName,
                 node.BodyNode,

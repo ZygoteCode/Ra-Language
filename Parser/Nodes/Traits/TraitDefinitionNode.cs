@@ -1,4 +1,4 @@
-using RaLanguage.Lexer.Tokens;
+﻿using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Structs;
 using System;
@@ -7,7 +7,7 @@ using System.Text;
 
 namespace RaLanguage.Parser.Nodes.Traits
 {
-    public class TraitDefinitionNode : AstNode
+    public sealed class TraitDefinitionNode : AstNode
     {
         public Token NameTok { get; }
         public bool IsPublic { get; }

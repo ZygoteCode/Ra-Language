@@ -1,8 +1,10 @@
-﻿using RaLanguage.Errors;
+using System.Runtime.CompilerServices;
+using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
+using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes.Operations;
 
@@ -19,9 +21,28 @@ namespace RaLanguage.Interpreter.Visitors.Operations
             var right = res.Register(interpreter.Visit(node.RightNode, context));
             if (res.ShouldReturn()) return res;
 
+            var op = node.OpTok.Type;
+
+            // Inline JIT-style fast path: same-typed primitive arithmetic / comparison.
+            // Skips two virtual calls (Type getter is sealed so the JIT already
+            // devirtualizes those, but AddedTo/SubbedBy/... are virtual on RuntimeValue
+            // and dominate the hot loop). Falls through to the canonical operator
+            // dispatch on any unsupported (op, types) combination, so semantics stay
+            // identical — overflow checks, divide-by-zero, NaN/Inf trapping all match.
+            if (left!.Type == right!.Type)
+            {
+                var fast = TryFastBinary(left, right, op, node, context);
+                if (fast.HasValue)
+                {
+                    var (fr, fe) = fast.Value;
+                    if (fe != null) return res.Failure(fe);
+                    if (fr != null) return res.Success(fr.SetPos(node.PositionStart, node.PositionEnd));
+                }
+            }
+
             (RuntimeValue? result, Error? error) = (null, null);
 
-            switch (node.OpTok.Type)
+            switch (op)
             {
                 case TokenType.PLUS: (result, error) = left.AddedTo(right); break;
                 case TokenType.MINUS: (result, error) = left.SubbedBy(right); break;
@@ -52,7 +73,7 @@ namespace RaLanguage.Interpreter.Visitors.Operations
             }
 
             if (error != null) return res.Failure(error);
-            
+
             if (result == null)
             {
                 return res.Failure(new RuntimeError(
@@ -61,8 +82,195 @@ namespace RaLanguage.Interpreter.Visitors.Operations
                     $"Binary operator '{node.OpTok.Value}' returned null result",
                     context));
             }
-            
+
             return res.Success(result.SetPos(node.PositionStart, node.PositionEnd));
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static (RuntimeValue? result, Error? error)? TryFastBinary(
+            RuntimeValue left, RuntimeValue right, TokenType op, BinaryOperationNode node, Context context)
+        {
+            var t = left.Type;
+
+            if (t == RuntimeValueType.Integer)
+            {
+                int l = ((IntegerValue)left).Value;
+                int r = ((IntegerValue)right).Value;
+                switch (op)
+                {
+                    case TokenType.PLUS:
+                        try { checked { return (IntegerValue.Of(l + r), null); } }
+                        catch { return (null, new RuntimeError(node.PositionStart, node.PositionEnd, "Integer overflow", context)); }
+                    case TokenType.MINUS:
+                        try { checked { return (IntegerValue.Of(l - r), null); } }
+                        catch { return (null, new RuntimeError(node.PositionStart, node.PositionEnd, "Integer overflow", context)); }
+                    case TokenType.MUL:
+                        try { checked { return (IntegerValue.Of(l * r), null); } }
+                        catch { return (null, new RuntimeError(node.PositionStart, node.PositionEnd, "Integer overflow", context)); }
+                    case TokenType.DIV:
+                        if (r == 0) return (null, new RuntimeError(right.PositionStart, right.PositionEnd, "Division by zero", context));
+                        return (IntegerValue.Of(l / r), null);
+                    case TokenType.MODULO:
+                        if (r == 0) return (null, new RuntimeError(right.PositionStart, right.PositionEnd, "Modulo by zero", context));
+                        return (IntegerValue.Of(l % r), null);
+                    case TokenType.EE: return (BooleanValue.Of(l == r), null);
+                    case TokenType.NE: return (BooleanValue.Of(l != r), null);
+                    case TokenType.LT: return (BooleanValue.Of(l < r), null);
+                    case TokenType.GT: return (BooleanValue.Of(l > r), null);
+                    case TokenType.LTE: return (BooleanValue.Of(l <= r), null);
+                    case TokenType.GTE: return (BooleanValue.Of(l >= r), null);
+                    case TokenType.BITWISE_AND: return (IntegerValue.Of(l & r), null);
+                    case TokenType.BITWISE_OR: return (IntegerValue.Of(l | r), null);
+                    case TokenType.BITWISE_LEFT_SHIFT: return (IntegerValue.Of(l << r), null);
+                    case TokenType.BITWISE_RIGHT_SHIFT: return (IntegerValue.Of(l >> r), null);
+                }
+                return null;
+            }
+
+            if (t == RuntimeValueType.Double)
+            {
+                double l = ((DoubleValue)left).Value;
+                double r = ((DoubleValue)right).Value;
+                switch (op)
+                {
+                    case TokenType.PLUS:
+                    {
+                        double v = l + r;
+                        if (double.IsNaN(v) || double.IsInfinity(v))
+                            return (null, new RuntimeError(node.PositionStart, node.PositionEnd, "Double overflow", context));
+                        return (new DoubleValue(v), null);
+                    }
+                    case TokenType.MINUS:
+                    {
+                        double v = l - r;
+                        if (double.IsNaN(v) || double.IsInfinity(v))
+                            return (null, new RuntimeError(node.PositionStart, node.PositionEnd, "Double overflow", context));
+                        return (new DoubleValue(v), null);
+                    }
+                    case TokenType.MUL:
+                    {
+                        double v = l * r;
+                        if (double.IsNaN(v) || double.IsInfinity(v))
+                            return (null, new RuntimeError(node.PositionStart, node.PositionEnd, "Double overflow", context));
+                        return (new DoubleValue(v), null);
+                    }
+                    case TokenType.DIV:
+                    {
+                        if (r == 0.0) return (null, new RuntimeError(right.PositionStart, right.PositionEnd, "Division by zero", context));
+                        double v = l / r;
+                        if (double.IsNaN(v) || double.IsInfinity(v))
+                            return (null, new RuntimeError(node.PositionStart, node.PositionEnd, "Double overflow", context));
+                        return (new DoubleValue(v), null);
+                    }
+                    case TokenType.MODULO:
+                    {
+                        if (r == 0.0) return (null, new RuntimeError(right.PositionStart, right.PositionEnd, "Modulo by zero", context));
+                        double v = l % r;
+                        if (double.IsNaN(v) || double.IsInfinity(v))
+                            return (null, new RuntimeError(node.PositionStart, node.PositionEnd, "Double overflow", context));
+                        return (new DoubleValue(v), null);
+                    }
+                    case TokenType.EE: return (BooleanValue.Of(l == r), null);
+                    case TokenType.NE: return (BooleanValue.Of(l != r), null);
+                    case TokenType.LT: return (BooleanValue.Of(l < r), null);
+                    case TokenType.GT: return (BooleanValue.Of(l > r), null);
+                    case TokenType.LTE: return (BooleanValue.Of(l <= r), null);
+                    case TokenType.GTE: return (BooleanValue.Of(l >= r), null);
+                }
+                return null;
+            }
+
+            if (t == RuntimeValueType.Long)
+            {
+                long l = ((LongValue)left).Value;
+                long r = ((LongValue)right).Value;
+                switch (op)
+                {
+                    case TokenType.PLUS:
+                        try { checked { return (new LongValue(l + r), null); } }
+                        catch { return (null, new RuntimeError(node.PositionStart, node.PositionEnd, "Long overflow", context)); }
+                    case TokenType.MINUS:
+                        try { checked { return (new LongValue(l - r), null); } }
+                        catch { return (null, new RuntimeError(node.PositionStart, node.PositionEnd, "Long overflow", context)); }
+                    case TokenType.MUL:
+                        try { checked { return (new LongValue(l * r), null); } }
+                        catch { return (null, new RuntimeError(node.PositionStart, node.PositionEnd, "Long overflow", context)); }
+                    case TokenType.DIV:
+                        if (r == 0) return (null, new RuntimeError(right.PositionStart, right.PositionEnd, "Division by zero", context));
+                        return (new LongValue(l / r), null);
+                    case TokenType.MODULO:
+                        if (r == 0) return (null, new RuntimeError(right.PositionStart, right.PositionEnd, "Modulo by zero", context));
+                        return (new LongValue(l % r), null);
+                    case TokenType.EE: return (BooleanValue.Of(l == r), null);
+                    case TokenType.NE: return (BooleanValue.Of(l != r), null);
+                    case TokenType.LT: return (BooleanValue.Of(l < r), null);
+                    case TokenType.GT: return (BooleanValue.Of(l > r), null);
+                    case TokenType.LTE: return (BooleanValue.Of(l <= r), null);
+                    case TokenType.GTE: return (BooleanValue.Of(l >= r), null);
+                }
+                return null;
+            }
+
+            if (t == RuntimeValueType.Float)
+            {
+                float l = ((FloatValue)left).Value;
+                float r = ((FloatValue)right).Value;
+                switch (op)
+                {
+                    case TokenType.PLUS:
+                    {
+                        float v = l + r;
+                        if (float.IsNaN(v) || float.IsInfinity(v))
+                            return (null, new RuntimeError(node.PositionStart, node.PositionEnd, "Float overflow", context));
+                        return (new FloatValue(v), null);
+                    }
+                    case TokenType.MINUS:
+                    {
+                        float v = l - r;
+                        if (float.IsNaN(v) || float.IsInfinity(v))
+                            return (null, new RuntimeError(node.PositionStart, node.PositionEnd, "Float overflow", context));
+                        return (new FloatValue(v), null);
+                    }
+                    case TokenType.MUL:
+                    {
+                        float v = l * r;
+                        if (float.IsNaN(v) || float.IsInfinity(v))
+                            return (null, new RuntimeError(node.PositionStart, node.PositionEnd, "Float overflow", context));
+                        return (new FloatValue(v), null);
+                    }
+                    case TokenType.DIV:
+                    {
+                        if (r == 0.0f) return (null, new RuntimeError(right.PositionStart, right.PositionEnd, "Division by zero", context));
+                        float v = l / r;
+                        if (float.IsNaN(v) || float.IsInfinity(v))
+                            return (null, new RuntimeError(node.PositionStart, node.PositionEnd, "Float overflow", context));
+                        return (new FloatValue(v), null);
+                    }
+                    case TokenType.EE: return (BooleanValue.Of(l == r), null);
+                    case TokenType.NE: return (BooleanValue.Of(l != r), null);
+                    case TokenType.LT: return (BooleanValue.Of(l < r), null);
+                    case TokenType.GT: return (BooleanValue.Of(l > r), null);
+                    case TokenType.LTE: return (BooleanValue.Of(l <= r), null);
+                    case TokenType.GTE: return (BooleanValue.Of(l >= r), null);
+                }
+                return null;
+            }
+
+            if (t == RuntimeValueType.Boolean)
+            {
+                bool l = ((BooleanValue)left).Value;
+                bool r = ((BooleanValue)right).Value;
+                switch (op)
+                {
+                    case TokenType.EE: return (BooleanValue.Of(l == r), null);
+                    case TokenType.NE: return (BooleanValue.Of(l != r), null);
+                    case TokenType.STRICT_EE: return (BooleanValue.Of(l == r), null);
+                    case TokenType.STRICT_NE: return (BooleanValue.Of(l != r), null);
+                }
+                return null;
+            }
+
+            return null;
         }
     }
 }

@@ -2,7 +2,7 @@
 
 namespace RaLanguage.Parser.Nodes.Functions
 {
-    public class ArgumentNode : AstNode
+    public sealed class ArgumentNode : AstNode
     {
         public Token? NameTok { get; }
         public AstNode Expr { get; }

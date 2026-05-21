@@ -2,7 +2,7 @@
 
 namespace RaLanguage.Parser.Nodes.Operations
 {
-    public class BinaryOperationNode : AstNode
+    public sealed class BinaryOperationNode : AstNode
     {
         public AstNode LeftNode { get; }
         public Token OpTok { get; }

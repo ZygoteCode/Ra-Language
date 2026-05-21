@@ -5,7 +5,7 @@ using System.Text;
 
 namespace RaLanguage.Parser.Nodes.Structs
 {
-    public class SelfNode : AstNode
+    public sealed class SelfNode : AstNode
     {
         public SelfNode(Position positionStart, Position positionEnd) : base(AstNodeType.Self)
         {

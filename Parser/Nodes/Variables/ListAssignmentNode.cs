@@ -2,7 +2,7 @@
 
 namespace RaLanguage.Parser.Nodes.Variables
 {
-    public class ListAssignmentNode : AstNode
+    public sealed class ListAssignmentNode : AstNode
     {
         public AstNode Target { get; }
         public Token AssignmentToken { get; }

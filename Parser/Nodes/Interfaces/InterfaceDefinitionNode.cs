@@ -1,10 +1,10 @@
-using RaLanguage.Lexer.Tokens;
+﻿using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Structs;
 
 namespace RaLanguage.Parser.Nodes.Interfaces
 {
-    public class InterfaceDefinitionNode : AstNode
+    public sealed class InterfaceDefinitionNode : AstNode
     {
         public Token NameTok { get; }
         public bool IsPublic { get; }

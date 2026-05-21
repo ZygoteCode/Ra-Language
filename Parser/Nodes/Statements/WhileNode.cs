@@ -1,6 +1,6 @@
 ﻿namespace RaLanguage.Parser.Nodes.Statements
 {
-    public class WhileNode : AstNode
+    public sealed class WhileNode : AstNode
     {
         public AstNode ConditionNode { get; }
         public AstNode BodyNode { get; }
