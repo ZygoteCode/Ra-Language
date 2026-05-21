@@ -1,4 +1,5 @@
-﻿using RaLanguage.Lexer.Tokens;
+﻿using RaLanguage.Interpreter.Pipeline;
+using RaLanguage.Lexer.Tokens;
 using RaLanguage.Types;
 
 namespace RaLanguage.Parser.Nodes.Variables
@@ -9,6 +10,10 @@ namespace RaLanguage.Parser.Nodes.Variables
         public List<(Token, AstNode?, TypeDescriptor?)> Declarations { get; }
         public bool IsPublic { get; }
         public bool IsStatic { get; }
+
+        // Resolver output. Parallel to Declarations; element i is the slot
+        // allocated to Declarations[i].Item1 (the name token). Allocated lazily.
+        public BindingId[]? Bindings;
 
         public VariableDeclarationNode(
             VariableDeclarationType declarationType,
