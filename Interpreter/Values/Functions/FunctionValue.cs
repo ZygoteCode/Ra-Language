@@ -222,7 +222,15 @@ namespace RaLanguage.Interpreter.Values.Functions
             TypeDescriptor? instantiatedReturnType = null;
             try
             {
-                instantiatedArgTypes = ArgTypes?.Select(t => t == null ? null : t.SubstituteBindings(bindings)).ToList();
+                if (ArgTypes != null)
+                {
+                    instantiatedArgTypes = new List<TypeDescriptor?>(ArgTypes.Count);
+                    for (int i = 0; i < ArgTypes.Count; i++)
+                    {
+                        var t = ArgTypes[i];
+                        instantiatedArgTypes.Add(t?.SubstituteBindings(bindings));
+                    }
+                }
                 instantiatedVarArgType = VarArgType == null ? null : VarArgType.SubstituteBindings(bindings);
                 instantiatedReturnType = ReturnType == null ? null : ReturnType.SubstituteBindings(bindings);
             }

@@ -2,7 +2,7 @@
 
 namespace RaLanguage.Parser.Nodes.Operations
 {
-    public class CastNode : AstNode
+    public sealed class CastNode : AstNode
     {
         public AstNode Expression { get; }
         public TypeDescriptor TargetType { get; }

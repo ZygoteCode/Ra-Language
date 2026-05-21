@@ -1,10 +1,10 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes.Special;
 
 namespace RaLanguage.Parser.Nodes.Enums
 {
-    public class EnumDefinitionNode : AstNode
+    public sealed class EnumDefinitionNode : AstNode
     {
         public Token NameTok { get; }
         public List<EnumVariantSpec> Variants { get; }

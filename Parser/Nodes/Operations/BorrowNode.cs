@@ -1,4 +1,4 @@
-using RaLanguage.Lexer;
+﻿using RaLanguage.Lexer;
 
 namespace RaLanguage.Parser.Nodes.Operations
 {
@@ -6,7 +6,7 @@ namespace RaLanguage.Parser.Nodes.Operations
     // Target must resolve to a place expression — a variable, a field, an indexed
     // element, etc. The visitor is responsible for verifying this and producing a
     // BorrowValue (a RuntimeValue that retains a back-pointer to the borrowed entry).
-    public class BorrowNode : AstNode
+    public sealed class BorrowNode : AstNode
     {
         public AstNode Target { get; }
         public bool IsMutable { get; }

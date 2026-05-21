@@ -1,11 +1,11 @@
-using RaLanguage.Lexer.Tokens;
+﻿using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes.Functions;
 using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Types;
 
 namespace RaLanguage.Parser.Nodes.Classes
 {
-    public class OperatorDefinitionNode : AstNode
+    public sealed class OperatorDefinitionNode : AstNode
     {
         public bool IsPublic { get; }
         public bool IsOverride { get; }

@@ -12,7 +12,7 @@ namespace RaLanguage.Interpreter.Runtime.Classes
             List<RuntimeValue> positionalArgs,
             Dictionary<string, RuntimeValue> namedArgs)
         {
-            var argNames = fn.ArgNameToks.Select(t => t.Value?.ToString() ?? "").ToList();
+            var argNames = fn.ArgNames;
             var assigned = new HashSet<string>(StringComparer.Ordinal);
             int formalCount = argNames.Count;
 

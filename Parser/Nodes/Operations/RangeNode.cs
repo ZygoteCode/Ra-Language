@@ -2,7 +2,7 @@
 
 namespace RaLanguage.Parser.Nodes.Operations
 {
-    public class RangeNode : AstNode
+    public sealed class RangeNode : AstNode
     {
         public AstNode Start { get; }
         public AstNode End { get; }

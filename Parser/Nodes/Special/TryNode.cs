@@ -2,7 +2,7 @@
 
 namespace RaLanguage.Parser.Nodes.Special
 {
-    public class TryNode : AstNode
+    public sealed class TryNode : AstNode
     {
         public AstNode TryBody { get; }
         public Token? CatchVarTok { get; }

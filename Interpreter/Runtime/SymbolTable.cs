@@ -1,4 +1,5 @@
-﻿using RaLanguage.Interpreter.Values;
+﻿using System.Runtime.CompilerServices;
+using RaLanguage.Interpreter.Values;
 using RaLanguage.Parser.Nodes.Variables;
 using RaLanguage.Types;
 
@@ -8,6 +9,23 @@ namespace RaLanguage.Interpreter.Runtime
     {
         private Dictionary<string, SymbolEntry> _symbols = new();
         public SymbolTable? Parent { get; private set; }
+
+        // Bumps whenever the local key set changes (add or remove). Pure value
+        // mutations on an existing SymbolEntry (Value, IsLet, ...) do NOT bump,
+        // because the SymbolEntry pointer remains valid — and that's exactly what
+        // the AST inline cache wants to detect: "is my cached pointer still bound
+        // to this name in this table?" If the generation matches, the answer is
+        // yes; the pointer is reusable without a dict lookup.
+        //
+        // Per-table only. Parent-chain shadowing is not tracked here; the cache
+        // policy (see VariableAccessNodeVisitor) only memoises hits found in the
+        // local dict, which sidesteps the cross-scope invalidation problem.
+        private int _localGeneration;
+        public int LocalGeneration
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => _localGeneration;
+        }
 
         public SymbolTable(SymbolTable? parent = null)
         {
@@ -79,6 +97,7 @@ namespace RaLanguage.Interpreter.Runtime
             }
             _symbols[name] = new SymbolEntry(value, isLet, isPublic, declaredType, isStaticallyTyped,
                 declarationType ?? VariableDeclarationType.VARIABLE);
+            _localGeneration++;
         }
 
         // Like GetEntry but does NOT walk up. Used by `var` declaration to decide
@@ -116,6 +135,7 @@ namespace RaLanguage.Interpreter.Runtime
             var entry = new SymbolEntry(value, isLet, isPublic, declaredType, isStaticallyTyped,
                 declarationType ?? VariableDeclarationType.VARIABLE);
             _symbols[name] = entry;
+            _localGeneration++;
         }
 
         public virtual void Remove(string name)
@@ -123,7 +143,11 @@ namespace RaLanguage.Interpreter.Runtime
             SymbolTable? st = this;
             while (st != null)
             {
-                if (st._symbols.Remove(name)) return;
+                if (st._symbols.Remove(name))
+                {
+                    st._localGeneration++;
+                    return;
+                }
                 st = st.Parent;
             }
         }
@@ -156,7 +180,11 @@ namespace RaLanguage.Interpreter.Runtime
         public void Clear()
         {
             ReleaseLocalBorrows();
-            _symbols.Clear();
+            if (_symbols.Count > 0)
+            {
+                _symbols.Clear();
+                _localGeneration++;
+            }
         }
 
         public void DetachParent()

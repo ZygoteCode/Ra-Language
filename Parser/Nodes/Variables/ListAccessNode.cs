@@ -2,7 +2,7 @@
 
 namespace RaLanguage.Parser.Nodes.Variables
 {
-    public class ListAccessNode : AstNode
+    public sealed class ListAccessNode : AstNode
     {
         public AstNode Target { get; }
         public AstNode Index { get; }

@@ -1,6 +1,6 @@
 ﻿namespace RaLanguage.Parser.Nodes.Statements
 {
-    public class SuperForNode : AstNode
+    public sealed class SuperForNode : AstNode
     {
         public List<AstNode> InitializationNodes { get; }
         public List<AstNode> ConditionNodes { get; }

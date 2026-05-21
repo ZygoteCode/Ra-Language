@@ -1,8 +1,8 @@
-using RaLanguage.Lexer;
+﻿using RaLanguage.Lexer;
 
 namespace RaLanguage.Parser.Nodes.Async
 {
-    public class EmitNode : AstNode
+    public sealed class EmitNode : AstNode
     {
         public AstNode Expression { get; }
 

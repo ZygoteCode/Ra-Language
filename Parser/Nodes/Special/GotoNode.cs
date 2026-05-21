@@ -3,7 +3,7 @@ using RaLanguage.Lexer.Tokens;
 
 namespace RaLanguage.Parser.Nodes.Special
 {
-    public class GotoNode : AstNode
+    public sealed class GotoNode : AstNode
     {
         public Token VarName { get; }
 

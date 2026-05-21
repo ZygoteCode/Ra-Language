@@ -373,10 +373,12 @@ namespace RaLanguage.Interpreter.Values.Functions
             catch { }
             if (td.IsTypeParameter() && bindings.TryGetValue(td.Name, out var bound)) return bound;
             if (td.GenericArgs == null || td.GenericArgs.Count == 0) return td;
-            var newArgs = td.GenericArgs.Select(a => a.SubstituteBindings(bindings)).ToList();
+            var src = td.GenericArgs;
+            var newArgs = new List<TypeDescriptor>(src.Count);
+            for (int i = 0; i < src.Count; i++)
+                newArgs.Add(src[i].SubstituteBindings(bindings)!);
 
-            if (newArgs == null) return null;
-            return new TypeDescriptor(td.Name, newArgs!);
+            return new TypeDescriptor(td.Name, newArgs);
         }
     }
 }

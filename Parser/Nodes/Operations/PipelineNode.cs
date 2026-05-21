@@ -1,4 +1,4 @@
-using RaLanguage.Lexer;
+﻿using RaLanguage.Lexer;
 
 namespace RaLanguage.Parser.Nodes.Operations
 {
@@ -8,7 +8,7 @@ namespace RaLanguage.Parser.Nodes.Operations
     // reporting can point at the operator and so future extensions (placeholder
     // `_`, async pipelines, partial application) can fold into this node
     // without disturbing call sites.
-    public class PipelineNode : AstNode
+    public sealed class PipelineNode : AstNode
     {
         public AstNode LeftNode { get; }
         public AstNode RightNode { get; }

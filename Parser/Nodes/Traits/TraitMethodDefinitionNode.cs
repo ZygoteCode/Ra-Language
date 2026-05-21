@@ -4,7 +4,7 @@ using RaLanguage.Types;
 
 namespace RaLanguage.Parser.Nodes.Traits
 {
-    public class TraitMethodDefinitionNode : AstNode, ICallableMethodDefinition
+    public sealed class TraitMethodDefinitionNode : AstNode, ICallableMethodDefinition
     {
         public Token? NameTok { get; }
         public List<Token> ArgNameToks { get; }

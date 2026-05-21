@@ -16,7 +16,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
         protected sealed override RuntimeResult VisitNode(VariableAssignmentNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
-            var varName = node.VarNameTok.Value?.ToString();
+            var varName = node.Name;
 
             if (string.IsNullOrEmpty(varName))
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
@@ -26,7 +26,31 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                     primaryLabel: "the left-hand side has no resolvable name",
                     help: "assignments target variables ('x = ...'), members ('obj.f = ...') or indexes ('a[i] = ...')"));
 
-            var entry = context.SymbolTable.GetEntry(varName);
+            var ct = context.SymbolTable;
+            SymbolEntry? entry;
+            var cache = node.LookupCache;
+            if (cache != null && ReferenceEquals(cache.Table, ct) && cache.Generation == ct.LocalGeneration)
+            {
+                entry = cache.Entry;
+            }
+            else
+            {
+                entry = ct.GetLocalEntry(varName);
+                if (entry != null)
+                {
+                    node.LookupCache = new SymbolLookupCache(ct, ct.LocalGeneration, entry);
+                }
+                else
+                {
+                    var p = ct.Parent;
+                    while (p != null)
+                    {
+                        var e = p.GetLocalEntry(varName);
+                        if (e != null) { entry = e; break; }
+                        p = p.Parent;
+                    }
+                }
+            }
             var currentValue = entry?.Value;
 
             if (currentValue == null || entry == null)

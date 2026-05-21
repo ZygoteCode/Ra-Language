@@ -1,6 +1,6 @@
 ﻿namespace RaLanguage.Parser.Nodes.Statements
 {
-    public class IfCasesWrapperNode : AstNode
+    public sealed class IfCasesWrapperNode : AstNode
     {
         public List<(AstNode Condition, AstNode Body, bool ShouldReturnNull)> Cases { get; }
         public (AstNode Body, bool ShouldReturnNull)? ElseCase { get; }

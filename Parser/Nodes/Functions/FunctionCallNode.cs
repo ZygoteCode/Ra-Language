@@ -2,7 +2,7 @@
 
 namespace RaLanguage.Parser.Nodes.Functions
 {
-    public class FunctionCallNode : AstNode
+    public sealed class FunctionCallNode : AstNode
     {
         public AstNode NodeToCall { get; }
         public List<ArgumentNode> ArgNodes { get; }

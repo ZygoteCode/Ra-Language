@@ -1,14 +1,35 @@
-using RaLanguage.Lexer.Tokens;
+﻿using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes.Annotations;
 using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Types;
 
 namespace RaLanguage.Parser.Nodes.Functions
 {
-    public class FunctionDefinitionNode : AstNode, ICallableMethodDefinition
+    public sealed class FunctionDefinitionNode : AstNode, ICallableMethodDefinition
     {
         public Token? VarNameTok { get; }
         public List<Token> ArgNameToks { get; }
+
+        // Cached projection of ArgNameToks → string. Was rebuilt on every call
+        // via `ArgNameToks.Select(t => t.Value?.ToString() ?? "").ToList()` from
+        // FunctionValue, BoundClassMethodValue, BoundClassMethodGroupValue,
+        // CallableBinder. With this single immutable cache, the projection is
+        // paid once at parse time and every dispatch path uses the same list.
+        private List<string>? _argNamesCache;
+        public List<string> ArgNames
+        {
+            get
+            {
+                var cache = _argNamesCache;
+                if (cache != null) return cache;
+                cache = new List<string>(ArgNameToks.Count);
+                for (int i = 0; i < ArgNameToks.Count; i++)
+                    cache.Add(ArgNameToks[i].Value?.ToString() ?? "");
+                _argNamesCache = cache;
+                return cache;
+            }
+        }
+
         public List<TypeDescriptor?> ArgTypes { get; }
         public List<bool> IsRefParams { get; }
         public List<AstNode?> ParamDefaults { get; }

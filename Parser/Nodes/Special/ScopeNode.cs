@@ -2,7 +2,7 @@
 
 namespace RaLanguage.Parser.Nodes.Special
 {
-    public class ScopeNode : AstNode
+    public sealed class ScopeNode : AstNode
     {
         public List<AstNode> Nodes { get; }
 

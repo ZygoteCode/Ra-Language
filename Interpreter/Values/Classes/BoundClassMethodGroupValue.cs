@@ -160,7 +160,7 @@ namespace RaLanguage.Interpreter.Values.Classes
             Dictionary<string, RuntimeValue> namedArgs,
             Context context)
         {
-            var argNames = method.ArgNameToks.Select(t => t.Value?.ToString() ?? "").ToList();
+            var argNames = method.ArgNames;
             int formalCount = argNames.Count;
 
             if (!method.HasVarArgs && positionalArgs.Count > formalCount)
@@ -242,7 +242,7 @@ namespace RaLanguage.Interpreter.Values.Classes
             bindResult = new RuntimeResult();
             var interpreter = new Interpreter();
 
-            var argNames = method.ArgNameToks.Select(t => t.Value?.ToString() ?? "").ToList();
+            var argNames = method.ArgNames;
             var finalAssigned = new Dictionary<string, RuntimeValue>(StringComparer.Ordinal);
             var extras = new List<RuntimeValue>();
 

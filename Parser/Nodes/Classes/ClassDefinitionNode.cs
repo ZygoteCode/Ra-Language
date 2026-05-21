@@ -1,4 +1,4 @@
-using RaLanguage.Lexer.Tokens;
+﻿using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes.Functions;
 using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Structs;
@@ -6,7 +6,7 @@ using RaLanguage.Types;
 
 namespace RaLanguage.Parser.Nodes.Classes
 {
-    public class ClassDefinitionNode : AstNode
+    public sealed class ClassDefinitionNode : AstNode
     {
         public Token NameTok { get; }
         public bool IsPublic { get; }

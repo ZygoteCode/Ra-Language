@@ -2,7 +2,7 @@
 
 namespace RaLanguage.Parser.Nodes.Iterations
 {
-    public class YieldNode : AstNode
+    public sealed class YieldNode : AstNode
     {
         public AstNode Expression { get; }
 

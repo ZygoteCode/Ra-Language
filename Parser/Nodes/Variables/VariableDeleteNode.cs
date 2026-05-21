@@ -2,7 +2,7 @@
 
 namespace RaLanguage.Parser.Nodes.Variables
 {
-    public class VariableDeleteNode : AstNode
+    public sealed class VariableDeleteNode : AstNode
     {
         public List<Token> Tokens { get; }
         

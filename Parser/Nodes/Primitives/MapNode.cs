@@ -2,7 +2,7 @@
 
 namespace RaLanguage.Parser.Nodes.Primitives
 {
-    public class MapNode : AstNode
+    public sealed class MapNode : AstNode
     {
         public List<(AstNode Key, AstNode Value)> Pairs { get; }
 

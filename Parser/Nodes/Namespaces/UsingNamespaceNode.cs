@@ -1,9 +1,9 @@
-using RaLanguage.Lexer;
+﻿using RaLanguage.Lexer;
 using RaLanguage.Lexer.Tokens;
 
 namespace RaLanguage.Parser.Nodes.Namespaces
 {
-    public class UsingNamespaceNode : AstNode
+    public sealed class UsingNamespaceNode : AstNode
     {
         public IReadOnlyList<Token> Segments { get; }
         public Token? AliasTok { get; }

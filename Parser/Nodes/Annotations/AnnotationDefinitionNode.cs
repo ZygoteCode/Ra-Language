@@ -1,9 +1,9 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using RaLanguage.Lexer.Tokens;
 
 namespace RaLanguage.Parser.Nodes.Annotations
 {
-    public class AnnotationDefinitionNode : AstNode
+    public sealed class AnnotationDefinitionNode : AstNode
     {
         public Token NameTok { get; }
         public string Name => NameTok.Value?.ToString() ?? string.Empty;

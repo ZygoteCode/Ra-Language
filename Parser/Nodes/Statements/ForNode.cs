@@ -2,7 +2,7 @@
 
 namespace RaLanguage.Parser.Nodes.Statements
 {
-    public class ForNode : AstNode
+    public sealed class ForNode : AstNode
     {
         public Token VarNameTok { get; }
         public AstNode StartValueNode { get; }

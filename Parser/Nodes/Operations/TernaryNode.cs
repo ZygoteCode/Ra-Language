@@ -2,7 +2,7 @@
 
 namespace RaLanguage.Parser.Nodes.Operations
 {
-    public class TernaryNode : AstNode
+    public sealed class TernaryNode : AstNode
     {
         public AstNode Condition { get; }
         public AstNode TrueExpression { get; }
