@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors.Types;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Values.Primitives;
 
 namespace RaLanguage.Interpreter.Values.Classes
@@ -18,10 +19,10 @@ namespace RaLanguage.Interpreter.Values.Classes
             CurrentClass = currentClass;
         }
 
-        public override RuntimeResult Execute(List<RuntimeValue> args)
-            => ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
+        public override async ValueTask<RuntimeResult> Execute(List<RuntimeValue> args)
+            => await ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
 
-        public RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
+        public async ValueTask<RuntimeResult> ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
         {
             var res = new RuntimeResult();
 
@@ -39,7 +40,7 @@ namespace RaLanguage.Interpreter.Values.Classes
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
 
-            return boundCtor.ExecuteWithNamedArgs(positionalArgs, namedArgs);
+            return await boundCtor.ExecuteWithNamedArgs(positionalArgs, namedArgs);
         }
 
         public override RuntimeValue Copy()

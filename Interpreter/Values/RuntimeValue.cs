@@ -1,15 +1,61 @@
+using System.Threading.Tasks;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Runtime.Async;
 using RaLanguage.Interpreter.Values.Operators;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes.Variables;
 using RaLanguage.Types;
+using System.Runtime.CompilerServices;
 
 namespace RaLanguage.Interpreter.Values
 {
+    // --- Ra memory model ---------------------------------------------------
+    //
+    // Three categories of RuntimeValue, each with its own aliasing rule:
+    //
+    //   1. Immutable primitives (Integer, Boolean, Float, Number, Decimal,
+    //      String, Char, Null, BigNumber-backed): one instance can be shared
+    //      across any number of bindings. `IsCopy` is true (the binding cannot
+    //      be moved — the value is freely reusable) and `Copy()` returns
+    //      `this` because there is no observable state to clone.
+    //
+    //   2. Containers (List, Map, Set, Tuple): shared by default. `IsCopy` is
+    //      false so `let` bindings transfer ownership rather than silently
+    //      cloning on each use; passing a list to a function or storing it
+    //      into another `var` slot aliases the same container. To produce an
+    //      actual independent copy, the program must call `clone(x)` (shallow)
+    //      or `deep_clone(x)` (recursive). `Copy()` on a container DOES still
+    //      build a fresh structural copy — that is the explicit-clone hook
+    //      used by the `clone` built-in; it is NOT invoked on the default
+    //      read/assign path.
+    //
+    //   3. Struct / Class instances: shared by default, like containers.
+    //      `let`/`var` choose ownership versus aliasing at the binding layer;
+    //      the value layer never auto-copies the instance graph. `Copy()`
+    //      remains a structural clone for the explicit path.
+    //
+    // The two helpers that enforce this contract on read/assign hot paths are:
+    //   * `Aliased()`   — returns `this` for sharable values (containers and
+    //                     instances), `Copy()` for IsCopy primitives. Call
+    //                     this anywhere a value is being handed back to a
+    //                     caller from storage (variable access, builtins,
+    //                     etc.). Replaces every redundant unconditional
+    //                     `.Copy()` that used to clone containers per access.
+    //   * `Copy()`      — always materialise a fresh value (deep for
+    //                     containers/instances, identity for primitives).
+    //                     Reserved for explicit clone built-ins and rare
+    //                     defensive snapshot cases.
+    //
+    // History: a previous design called `.Copy()` on every variable read,
+    // which deep-cloned containers and instances and made aliasing impossible
+    // — every `let m = list` produced an independent list, defeating shared
+    // mutability and burning GC. The new contract above keeps `let` move
+    // semantics (still enforced in `Interpreter.ExtractVariableValueByName`)
+    // while letting the rest of the codebase share by default.
     public abstract class RuntimeValue
     {
         public Position PositionStart { get; protected set; }
@@ -18,6 +64,30 @@ namespace RaLanguage.Interpreter.Values
         public virtual VariableDeclarationType VariableDeclarationType { get; set; } = VariableDeclarationType.VARIABLE;
         public abstract RuntimeValueType Type { get; }
         public virtual bool IsCopy => false;
+
+        // "Sync" marker. A value is Sync if it is safe to share a reference to
+        // it across thread/fiber boundaries — i.e. no observable state can be
+        // mutated through that reference, OR the value implements its own
+        // synchronisation. Used by SpawnNodeVisitor and the borrow checker to
+        // refuse handing non-Sync borrows or captures into a spawned fiber.
+        //
+        // Default: tracks IsCopy. Immutable copy-types (Integer, Boolean,
+        // Float, Number, Null, fixed-width integers, etc.) are Sync because
+        // they have no observable mutable state; mutable containers (List,
+        // Map, Set, Tuple) and class/struct instances keep IsCopy=false and
+        // are therefore non-Sync by default. Explicit overrides handle the
+        // exceptions: StringValue is immutable but IsCopy=false (so it must
+        // opt back into Sync); thread-safe runtime constructs (channels,
+        // tasks, async streams) likewise.
+        public virtual bool IsSync => IsCopy;
+
+        // Default read/assign path. Sharable values (containers, instances,
+        // immutable strings) return `this`; IsCopy primitives still call
+        // Copy() — which is a no-op identity return for them anyway, but the
+        // branch keeps the contract symmetric and lets a future subtype opt
+        // back into snapshot-on-read by overriding either IsCopy or Copy().
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public RuntimeValue Aliased() => IsCopy ? Copy() : this;
 
         public virtual RuntimeValue SetPos(Position positionStart, Position positionEnd)
         {
@@ -155,7 +225,7 @@ namespace RaLanguage.Interpreter.Values
             return (null, IllegalOperation(other));
         }
 
-        public virtual RuntimeResult Execute(List<RuntimeValue> args)
+        public virtual async ValueTask<RuntimeResult> Execute(List<RuntimeValue> args)
         {
             return new RuntimeResult().Failure(IllegalOperation());
         }
@@ -1295,7 +1365,7 @@ namespace RaLanguage.Interpreter.Values
                             .SetContext(Context)
                             .SetPos(PositionStart, PositionEnd);
 
-                        var result = boundOp.Execute(new List<RuntimeValue> { other });
+                        var result = SyncAwait.Get(boundOp.Execute(new List<RuntimeValue> { other }));
                         if (result.Error != null)
                             return (null, result.Error);
 
@@ -1354,7 +1424,7 @@ namespace RaLanguage.Interpreter.Values
                             .SetContext(Context)
                             .SetPos(PositionStart, PositionEnd);
 
-                        var result = boundOp.Execute(new List<RuntimeValue> { other });
+                        var result = SyncAwait.Get(boundOp.Execute(new List<RuntimeValue> { other }));
                         if (result.Error != null)
                             return (null, result.Error);
 

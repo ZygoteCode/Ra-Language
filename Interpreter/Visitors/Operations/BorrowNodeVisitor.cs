@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
@@ -25,7 +26,7 @@ namespace RaLanguage.Interpreter.Visitors.Operations
     //   * & or &mut a moved binding                        — rejected
     public class BorrowNodeVisitor : NodeVisitor<BorrowNode>
     {
-        protected sealed override RuntimeResult VisitNode(BorrowNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(BorrowNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

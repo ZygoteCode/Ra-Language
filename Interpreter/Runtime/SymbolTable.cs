@@ -1,4 +1,5 @@
 ﻿using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Parser.Nodes.Variables;
 using RaLanguage.Types;

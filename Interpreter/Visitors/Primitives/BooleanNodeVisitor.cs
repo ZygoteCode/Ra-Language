@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors.Types;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
@@ -9,7 +10,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
 {
     public class BooleanNodeVisitor : NodeVisitor<BooleanNode>
     {
-        protected sealed override RuntimeResult VisitNode(BooleanNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(BooleanNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

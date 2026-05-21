@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors;
+using System.Threading.Tasks;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
@@ -13,7 +14,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
 {
     public class VariableAssignmentNodeVisitor : NodeVisitor<VariableAssignmentNode>
     {
-        protected sealed override RuntimeResult VisitNode(VariableAssignmentNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(VariableAssignmentNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var varName = node.Name;
@@ -118,7 +119,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
             }
             else
             {
-                value = res.Register(interpreter.Visit(node.ValueNode, context));
+                value = res.Register(await interpreter.Visit(node.ValueNode, context));
                 if (res.ShouldReturn()) return res;
             }
 

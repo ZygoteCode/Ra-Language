@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
@@ -7,7 +8,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 {
     public class IfNodeVisitor : NodeVisitor<IfNode>
     {
-        protected sealed override RuntimeResult VisitNode(IfNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(IfNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var cases = node.Cases;
@@ -20,7 +21,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 // Evaluate them in the surrounding scope so reads see live outer state
                 // (this is what makes `if x == latest_outer_value` correct after an
                 // inner mutation that happened in a previous case).
-                var conditionValue = res.Register(interpreter.Visit(condition, context));
+                var conditionValue = res.Register(await interpreter.Visit(condition, context));
                 if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
 
@@ -37,7 +38,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                     if (freshScope) bodyContext = context.Copy();
                     else bodyContext = context;
 
-                    var exprValue = res.Register(interpreter.Visit(expr, bodyContext));
+                    var exprValue = res.Register(await interpreter.Visit(expr, bodyContext));
                     if (res.Error != null) return res;
                     if (res.ShouldReturn()) return res;
                     return res.Success(shouldReturnNull ? NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd) : exprValue);
@@ -51,7 +52,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 bool freshScope = node.BranchNeedsScope(cases.Count, expr);
                 if (freshScope) elseContext = context.Copy();
                 else elseContext = context;
-                var exprValue = res.Register(interpreter.Visit(expr, elseContext));
+                var exprValue = res.Register(await interpreter.Visit(expr, elseContext));
                 if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
                 return res.Success(shouldReturnNull ? NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd) : exprValue);

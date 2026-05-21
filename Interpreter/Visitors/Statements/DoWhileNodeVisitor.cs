@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
@@ -7,7 +8,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 {
     public class DoWhileNodeVisitor : NodeVisitor<DoWhileNode>
     {
-        protected sealed override RuntimeResult VisitNode(DoWhileNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(DoWhileNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             bool firstTime = true;
@@ -19,7 +20,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 
             while (true)
             {
-                var condition = res.Register(interpreter.Visit(node.ConditionNode, loopContext));
+                var condition = res.Register(await interpreter.Visit(node.ConditionNode, loopContext));
                 if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
 
@@ -28,7 +29,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 
                 bodySymbols.Clear();
                 bodyContext.ScopeSkipCopy = true;
-                res.Register(interpreter.Visit(node.BodyNode, bodyContext));
+                res.Register(await interpreter.Visit(node.BodyNode, bodyContext));
                 if (res.Error != null) return res;
 
                 if (res.LoopShouldContinue) continue;

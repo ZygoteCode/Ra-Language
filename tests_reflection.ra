@@ -1,0 +1,43 @@
+print("=== Ra Extended Reflection Tests ===");
+
+class Animal { fn speak() => "noise" }
+class Dog : Animal { fn bark() => "woof" }
+class Cat : Animal { fn meow() => "miao" }
+
+let d = Dog();
+
+// [R1] is_subclass_of: strict ancestor check.
+if is_subclass_of(Dog, Animal): print("[R1] OK") else: print("[R1] FAIL");
+
+// [R2] is_subclass_of false on identity.
+if !is_subclass_of(Dog, Dog): print("[R2] OK") else: print("[R2] FAIL");
+
+// [R3] is_subclass_of via instance argument.
+if is_subclass_of(d, Animal): print("[R3] OK") else: print("[R3] FAIL");
+
+// [R4] is_subclass_of false across sibling classes.
+if !is_subclass_of(Dog, Cat): print("[R4] OK") else: print("[R4] FAIL");
+
+// [R5] fields_of returns the declared field name list.
+class Box { var lid; var weight }
+let f = fields_of(Box);
+if f[0] == "lid" && f[1] == "weight": print("[R5] OK") else: print("[R5] FAIL got " + f);
+
+// [R6] methods_of returns the declared method name list.
+class Doer { fn run() => 1 fn stop() => 2 }
+let m = methods_of(Doer);
+if m[0] == "run" && m[1] == "stop": print("[R6] OK") else: print("[R6] FAIL got " + m);
+
+// [R7] type_name returns the runtime type string for primitives. Ra uses
+//      "number" for the unified numeric primitive (NumberValue).
+if type_name(42) == "number": print("[R7] OK") else: print("[R7] FAIL got " + type_name(42));
+
+// [R8] implements: interface conformance probe.
+interface Speaker { fn speak() }
+if implements(Dog, Speaker): print("[R8] OK") else: print("[R8] FAIL");
+
+// [R9] implements: false for unrelated interface.
+interface Flyer { fn fly() }
+if !implements(Dog, Flyer): print("[R9] OK") else: print("[R9] FAIL");
+
+print("=== Done ===");

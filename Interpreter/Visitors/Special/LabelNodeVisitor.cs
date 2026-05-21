@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Interpreter.Architecture;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Parser.Nodes.Special;
@@ -7,7 +8,7 @@ namespace RaLanguage.Interpreter.Visitors.Special
 {
     public class LabelNodeVisitor : NodeVisitor<LabelNode>
     {
-        protected sealed override RuntimeResult VisitNode(LabelNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(LabelNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             string varName = node.Token.Value.ToString();
@@ -28,7 +29,7 @@ namespace RaLanguage.Interpreter.Visitors.Special
 
             if (alreadyExists) interpreter.Labels.RemoveAt(index);
             interpreter.Labels.Add((varName, node.Statements));
-            res.Register(interpreter.Visit(node.Statements, context));
+            res.Register(await interpreter.Visit(node.Statements, context));
             if (res.ShouldReturn()) return res;
             return res.Success(NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }

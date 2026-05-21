@@ -1,5 +1,7 @@
+using System.Threading.Tasks;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
+using RaLanguage.Interpreter.Runtime.Async;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes.Variables;
@@ -128,8 +130,8 @@ namespace RaLanguage.Interpreter.Values.Structs
                     .SetContext(Context)
                     .SetPos(PositionStart, PositionEnd);
 
-                var result = boundMethod.Execute(new List<RuntimeValue>());
-                
+                var result = SyncAwait.Get(boundMethod.Execute(new List<RuntimeValue>()));
+
                 if (result.Error != null || result.Value == null)
                 {
                     return (ToString(), false);

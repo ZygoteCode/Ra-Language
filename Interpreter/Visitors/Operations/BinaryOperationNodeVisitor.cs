@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using System.Runtime.CompilerServices;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
@@ -12,13 +13,13 @@ namespace RaLanguage.Interpreter.Visitors.Operations
 {
     public class BinaryOperationNodeVisitor : NodeVisitor<BinaryOperationNode>
     {
-        protected sealed override RuntimeResult VisitNode(BinaryOperationNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(BinaryOperationNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
-            var left = res.Register(interpreter.Visit(node.LeftNode, context));
+            var left = res.Register(await interpreter.Visit(node.LeftNode, context));
             if (res.ShouldReturn()) return res;
 
-            var right = res.Register(interpreter.Visit(node.RightNode, context));
+            var right = res.Register(await interpreter.Visit(node.RightNode, context));
             if (res.ShouldReturn()) return res;
 
             var op = node.OpTok.Type;

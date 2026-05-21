@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using System.Text.RegularExpressions;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
@@ -15,7 +16,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
     // every subsequent visit hits the cache and returns the same instance.
     public class RegexLiteralNodeVisitor : NodeVisitor<RegexLiteralNode>
     {
-        protected sealed override RuntimeResult VisitNode(RegexLiteralNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(RegexLiteralNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

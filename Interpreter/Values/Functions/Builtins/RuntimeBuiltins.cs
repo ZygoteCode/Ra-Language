@@ -1,4 +1,6 @@
 ﻿using System;
+using RaLanguage.Interpreter.Runtime.Async;
+using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Linq;
 using RaLanguage.Errors;
@@ -222,7 +224,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
 
             if (target is BaseFunctionValue bf)
             {
-                var result = bf.Execute(callArgs);
+                var result = SyncAwait.Get(bf.Execute(callArgs));
                 if (result.Error != null) return new RuntimeResult().Failure(result.Error);
                 return Ok(result.Value ?? NullValue.Null, ctx, p1, p2);
             }
@@ -244,7 +246,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
                 if (methods.Count == 0) return Fail(ctx, p1, p2, $"invoke_method: no method '{name}' on class '{ci.Definition.ClassName}'");
                 var bound = new BoundClassMethodValue(ci.Definition, ci, methods[0], false)
                     .SetContext(ctx).SetPos(p1, p2);
-                var r = ((BaseFunctionValue)bound).Execute(callArgs);
+                var r = SyncAwait.Get(((BaseFunctionValue)bound).Execute(callArgs));
                 if (r.Error != null) return new RuntimeResult().Failure(r.Error);
                 return Ok(r.Value ?? NullValue.Null, ctx, p1, p2);
             }
@@ -253,7 +255,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
                 var m = si.Definition.GetMethod(name);
                 if (m == null) return Fail(ctx, p1, p2, $"invoke_method: no method '{name}' on struct '{si.Definition.StructName}'");
                 var bound = new BoundStructMethodValue(si.Definition, si, m).SetContext(ctx).SetPos(p1, p2);
-                var r = ((BaseFunctionValue)bound).Execute(callArgs);
+                var r = SyncAwait.Get(((BaseFunctionValue)bound).Execute(callArgs));
                 if (r.Error != null) return new RuntimeResult().Failure(r.Error);
                 return Ok(r.Value ?? NullValue.Null, ctx, p1, p2);
             }
@@ -271,7 +273,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             if (!ct.TryGetStaticMethodOwner(name, out var owner, out var method) || method == null)
                 return Fail(ctx, p1, p2, $"invoke_static: no static method '{name}' on '{ct.ClassName}'");
             var bound = new BoundClassMethodValue(owner, null, method, true).SetContext(ctx).SetPos(p1, p2);
-            var r = ((BaseFunctionValue)bound).Execute(callArgs);
+            var r = SyncAwait.Get(((BaseFunctionValue)bound).Execute(callArgs));
             if (r.Error != null) return new RuntimeResult().Failure(r.Error);
             return Ok(r.Value ?? NullValue.Null, ctx, p1, p2);
         }
@@ -286,13 +288,13 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
 
             if (target is ClassTypeValue ct)
             {
-                var r = ((BaseFunctionValue)ct).Execute(callArgs);
+                var r = SyncAwait.Get(((BaseFunctionValue)ct).Execute(callArgs));
                 if (r.Error != null) return new RuntimeResult().Failure(r.Error);
                 return Ok(r.Value ?? NullValue.Null, ctx, p1, p2);
             }
             if (target is StructTypeValue st)
             {
-                var r = st.Execute(callArgs);
+                var r = SyncAwait.Get(st.Execute(callArgs));
                 if (r.Error != null) return new RuntimeResult().Failure(r.Error);
                 return Ok(r.Value ?? NullValue.Null, ctx, p1, p2);
             }

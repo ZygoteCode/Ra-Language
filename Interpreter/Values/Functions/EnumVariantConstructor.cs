@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using System.Collections.Generic;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
@@ -26,7 +27,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             Variant = variant;
         }
 
-        public override RuntimeResult Execute(List<RuntimeValue> args)
+        public override async ValueTask<RuntimeResult> Execute(List<RuntimeValue> args)
         {
             var res = new RuntimeResult();
 
@@ -64,7 +65,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             return res.Success(value);
         }
 
-        public override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<RaLanguage.Types.TypeDescriptor?>? explicitTypeArgs)
+        public override async ValueTask<RuntimeResult> ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<RaLanguage.Types.TypeDescriptor?>? explicitTypeArgs)
         {
             if (namedArgs != null && namedArgs.Count > 0)
             {
@@ -75,7 +76,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                     primaryLabel: "named arguments not supported for enum variants",
                     help: "pass payload positionally, e.g. 'Result.Ok(value)'"));
             }
-            return Execute(positionalArgs);
+            return await Execute(positionalArgs);
         }
 
         public override RuntimeValue Copy() => this;

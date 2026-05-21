@@ -73,5 +73,6 @@
         Asm,
         Mut,
         Match,
+        Move,
     }
 }

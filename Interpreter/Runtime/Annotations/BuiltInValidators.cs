@@ -1,3 +1,5 @@
+using RaLanguage.Interpreter.Runtime.Async;
+using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using RaLanguage.Interpreter.Runtime;
@@ -447,7 +449,7 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
                     var condFn = ctx.SymbolTable.Get(condName);
                     if (condFn is not Values.Functions.BaseFunctionValue bfn)
                         return (false, $"@when condition '{condName}' is not a defined function");
-                    var execRes = bfn.Execute(new List<RuntimeValue> { value });
+                    var execRes = SyncAwait.Get(bfn.Execute(new List<RuntimeValue> { value }));
                     if (execRes.Error != null) return (false, execRes.Error.Details);
                     bool gate = execRes.Value switch
                     {
@@ -507,7 +509,7 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
                     var fnSymbol = ctx.SymbolTable.Get(fnName.Value);
                     if (fnSymbol is not Values.Functions.BaseFunctionValue bfn)
                         return (false, $"@predicate function '{fnName.Value}' not defined");
-                    var execRes = bfn.Execute(new List<RuntimeValue> { value, ann });
+                    var execRes = SyncAwait.Get(bfn.Execute(new List<RuntimeValue> { value, ann }));
                     if (execRes.Error != null) return (false, execRes.Error.Details);
                     bool ok = execRes.Value switch
                     {

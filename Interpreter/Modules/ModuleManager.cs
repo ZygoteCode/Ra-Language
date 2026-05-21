@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
@@ -233,18 +234,29 @@ namespace RaLanguage.Interpreter.Modules
 
         private static Error? ExecuteModule(AstNode root, Context ctx, IInterpreter interpreter)
         {
+            // Module bodies are evaluated at import time, before any user
+            // `await` can fire. We collapse the ValueTask synchronously here:
+            // top-level module statements should not themselves suspend, and
+            // bottling them off through GetAwaiter().GetResult() keeps the
+            // import API sync without infecting every caller.
             if (root is ScopeNode scope)
             {
                 foreach (var stmt in scope.Nodes)
                 {
-                    var result = interpreter.Visit(stmt, ctx);
+                    var result = AwaitSync(interpreter.Visit(stmt, ctx));
                     if (result.Error != null) return result.Error;
                 }
                 return null;
             }
 
-            var single = interpreter.Visit(root, ctx);
+            var single = AwaitSync(interpreter.Visit(root, ctx));
             return single.Error;
+        }
+
+        private static RuntimeResult AwaitSync(System.Threading.Tasks.ValueTask<RuntimeResult> task)
+        {
+            if (task.IsCompletedSuccessfully) return task.Result;
+            return task.AsTask().GetAwaiter().GetResult();
         }
     }
 }

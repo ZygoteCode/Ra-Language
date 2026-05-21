@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Traits;
 using RaLanguage.Parser.Nodes.Structs;

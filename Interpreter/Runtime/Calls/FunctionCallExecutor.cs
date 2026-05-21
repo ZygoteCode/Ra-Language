@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using System.Collections.Generic;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
@@ -31,18 +32,32 @@ namespace RaLanguage.Interpreter.Runtime.Calls
     // accidentally bypass the annotation / borrow / null-handling rules.
     public static class FunctionCallExecutor
     {
-        public static RuntimeResult EvaluateArguments(
+        public readonly struct EvaluatedArguments
+        {
+            public readonly RuntimeResult Result;
+            public readonly List<RuntimeValue> Positional;
+            public readonly Dictionary<string, RuntimeValue> Named;
+
+            public EvaluatedArguments(RuntimeResult r, List<RuntimeValue> p, Dictionary<string, RuntimeValue> n)
+            {
+                Result = r; Positional = p; Named = n;
+            }
+        }
+
+        // Async-friendly argument evaluator. The previous sync version
+        // exposed `out` parameters which are incompatible with async return
+        // shapes, so the tuple-style EvaluatedArguments struct replaces them.
+        // Callers destructure: `var ea = await EvaluateArguments(...); ... ea.Positional ...`.
+        public static async ValueTask<EvaluatedArguments> EvaluateArguments(
             IList<ArgumentNode>? argNodes,
             Context context,
-            IInterpreter interpreter,
-            out List<RuntimeValue> positionalArgs,
-            out Dictionary<string, RuntimeValue> namedArgs)
+            IInterpreter interpreter)
         {
-            positionalArgs = new List<RuntimeValue>(argNodes?.Count ?? 0);
-            namedArgs = new Dictionary<string, RuntimeValue>(System.StringComparer.Ordinal);
+            var positionalArgs = new List<RuntimeValue>(argNodes?.Count ?? 0);
+            var namedArgs = new Dictionary<string, RuntimeValue>(System.StringComparer.Ordinal);
 
             var res = new RuntimeResult();
-            if (argNodes == null) return res;
+            if (argNodes == null) return new EvaluatedArguments(res, positionalArgs, namedArgs);
 
             foreach (var argNode in argNodes)
             {
@@ -50,14 +65,14 @@ namespace RaLanguage.Interpreter.Runtime.Calls
 
                 if (argNode.IsRef)
                 {
-                    var refRes = CreateReferenceFromNode(argNode.Expr, context, interpreter);
-                    if (refRes.Error != null) return res.Failure(refRes.Error);
+                    var refRes = await CreateReferenceFromNode(argNode.Expr, context, interpreter);
+                    if (refRes.Error != null) return new EvaluatedArguments(res.Failure(refRes.Error), positionalArgs, namedArgs);
                     evaluated = refRes.Value!;
                 }
                 else
                 {
-                    evaluated = res.Register(interpreter.Visit(argNode.Expr, context))!;
-                    if (res.ShouldReturn()) return res;
+                    evaluated = res.Register(await interpreter.Visit(argNode.Expr, context))!;
+                    if (res.ShouldReturn()) return new EvaluatedArguments(res, positionalArgs, namedArgs);
                 }
 
                 if (argNode.NameTok != null)
@@ -65,12 +80,12 @@ namespace RaLanguage.Interpreter.Runtime.Calls
                     string name = argNode.NameTok.Value.ToString() ?? "";
                     if (namedArgs.ContainsKey(name))
                     {
-                        return res.Failure(new RuntimeError(argNode.PositionStart, argNode.PositionEnd,
+                        return new EvaluatedArguments(res.Failure(new RuntimeError(argNode.PositionStart, argNode.PositionEnd,
                             $"duplicate named argument '{name}'",
                             context,
                             code: DiagnosticCode.RuntimeGeneric,
                             primaryLabel: "this name was already supplied",
-                            help: "named arguments must be unique within a single call"));
+                            help: "named arguments must be unique within a single call")), positionalArgs, namedArgs);
                     }
                     namedArgs[name] = evaluated;
                 }
@@ -80,10 +95,14 @@ namespace RaLanguage.Interpreter.Runtime.Calls
                 }
             }
 
-            return res;
+            return new EvaluatedArguments(res, positionalArgs, namedArgs);
         }
 
-        public static RuntimeResult Invoke(
+        // Async version. Invoke is on the call hot path: anything inside the
+        // body (including a user `await x`) must be able to suspend without
+        // the host worker being pinned. Keep this method async ValueTask so
+        // the suspension propagates.
+        public static async ValueTask<RuntimeResult> Invoke(
             RuntimeValue calleeVal,
             List<RuntimeValue> positionalArgs,
             Dictionary<string, RuntimeValue> namedArgs,
@@ -116,7 +135,7 @@ namespace RaLanguage.Interpreter.Runtime.Calls
                 }
 
                 var resolvedTypeArgs = ResolveTypeArgs(genericTypeArgs, context);
-                var fnExecRes = bfunc.ExecuteWithNamedArgs(positionalArgs, namedArgs, resolvedTypeArgs);
+                var fnExecRes = await bfunc.ExecuteWithNamedArgs(positionalArgs, namedArgs, resolvedTypeArgs);
                 var fnReturn = res.Register(fnExecRes);
                 if (res.ShouldReturn()) return res;
 
@@ -138,11 +157,11 @@ namespace RaLanguage.Interpreter.Runtime.Calls
                     if (afterErr != null) return res.Failure(afterErr);
                 }
 
-                var outVal = callResult.Copy().SetPos(posStart, posEnd).SetContext(context);
+                var outVal = callResult.Aliased().SetPos(posStart, posEnd).SetContext(context);
                 return res.Success(outVal);
             }
 
-            var execRes = calleeVal.Execute(positionalArgs);
+            var execRes = await calleeVal.Execute(positionalArgs);
             var execReturn = res.Register(execRes);
             if (res.ShouldReturn()) return res;
 
@@ -154,11 +173,11 @@ namespace RaLanguage.Interpreter.Runtime.Calls
                 return res.Success(nullVal);
             }
 
-            var finalVal = execReturn.Copy().SetPos(posStart, posEnd).SetContext(context);
+            var finalVal = execReturn.Aliased().SetPos(posStart, posEnd).SetContext(context);
             return res.Success(finalVal);
         }
 
-        public static RuntimeResult CreateReferenceFromNode(AstNode node, Context context, IInterpreter interpreter)
+        public static async ValueTask<RuntimeResult> CreateReferenceFromNode(AstNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
@@ -186,7 +205,7 @@ namespace RaLanguage.Interpreter.Runtime.Calls
 
             if (node is MemberAccessNode memberAccess)
             {
-                var owner = res.Register(interpreter.Visit(memberAccess.TargetNode, context));
+                var owner = res.Register(await interpreter.Visit(memberAccess.TargetNode, context));
                 if (res.ShouldReturn()) return res;
 
                 var memberName = memberAccess.MemberTok.Value?.ToString();
@@ -225,10 +244,10 @@ namespace RaLanguage.Interpreter.Runtime.Calls
 
             if (node is ListAccessNode listAccess)
             {
-                var listVal = res.Register(interpreter.Visit(listAccess.Target, context));
+                var listVal = res.Register(await interpreter.Visit(listAccess.Target, context));
                 if (res.ShouldReturn()) return res;
 
-                var indexVal = res.Register(interpreter.Visit(listAccess.Index, context));
+                var indexVal = res.Register(await interpreter.Visit(listAccess.Index, context));
                 if (res.ShouldReturn()) return res;
 
                 if (listVal!.Type == RuntimeValueType.List)

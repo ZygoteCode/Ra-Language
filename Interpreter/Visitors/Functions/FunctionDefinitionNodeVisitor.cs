@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors.Types;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
@@ -10,7 +11,7 @@ namespace RaLanguage.Interpreter.Visitors.Functions
 {
     public class FunctionDefinitionNodeVisitor : NodeVisitor<FunctionDefinitionNode>
     {
-        protected sealed override RuntimeResult VisitNode(FunctionDefinitionNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(FunctionDefinitionNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
@@ -45,6 +46,18 @@ namespace RaLanguage.Interpreter.Visitors.Functions
             // bindings (e.g. match-arm pattern variables) into recursive
             // calls.
             funcValue.FreezeBindingContext(context);
+
+            // Explicit closure capture list (e.g. `fn[x, &y, move z](...)`).
+            // If the AST node carried one, propagate it onto the function
+            // value and materialise the captures against the definition-time
+            // scope. Borrow-check failures, missing names, or moved bindings
+            // surface here as runtime errors instead of silent miscaptures.
+            if (node.CaptureList != null)
+            {
+                funcValue.CaptureList = node.CaptureList;
+                var capErr = funcValue.FreezeCaptures(context);
+                if (capErr != null) return res.Failure(capErr);
+            }
 
             if (node.VarNameTok != null)
             {

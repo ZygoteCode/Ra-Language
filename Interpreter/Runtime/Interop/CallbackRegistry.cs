@@ -1,10 +1,12 @@
 ﻿using System;
+using System.Threading.Tasks;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Runtime.Async;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Functions;
 using RaLanguage.Interpreter.Values.Primitives;
@@ -127,7 +129,7 @@ namespace RaLanguage.Interpreter.Runtime.Interop
             {
                 var list = new List<RuntimeValue>(args.Length);
                 for (int i = 0; i < args.Length; i++) list.Add(args[i]);
-                var res = fn.Execute(list);
+                var res = SyncAwait.Get(fn.Execute(list));
                 if (res.Error != null) return NullValue.Null;
                 return res.Value ?? NullValue.Null;
             }

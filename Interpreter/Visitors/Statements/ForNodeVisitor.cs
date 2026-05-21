@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
@@ -8,7 +9,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 {
     public class ForNodeVisitor : NodeVisitor<ForNode>
     {
-        protected sealed override RuntimeResult VisitNode(ForNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(ForNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
@@ -17,18 +18,18 @@ namespace RaLanguage.Interpreter.Visitors.Statements
             var loopContext = context.Copy();
             var loopSymbols = loopContext.SymbolTable!;
 
-            var startValue = res.Register(interpreter.Visit(node.StartValueNode, loopContext));
+            var startValue = res.Register(await interpreter.Visit(node.StartValueNode, loopContext));
             if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
 
-            var endValue = res.Register(interpreter.Visit(node.EndValueNode, loopContext));
+            var endValue = res.Register(await interpreter.Visit(node.EndValueNode, loopContext));
             if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
 
             RuntimeValue stepValue;
             if (node.StepValueNode != null)
             {
-                stepValue = res.Register(interpreter.Visit(node.StepValueNode, loopContext));
+                stepValue = res.Register(await interpreter.Visit(node.StepValueNode, loopContext));
                 if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
             }
@@ -62,7 +63,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 
                 bodySymbols.Clear();
                 bodyContext.ScopeSkipCopy = true;
-                res.Register(interpreter.Visit(node.BodyNode, bodyContext));
+                res.Register(await interpreter.Visit(node.BodyNode, bodyContext));
                 if (res.Error != null) return res;
 
                 if (res.LoopShouldContinue) continue;

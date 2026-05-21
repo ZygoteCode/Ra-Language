@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors;
+using System.Threading.Tasks;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
@@ -17,7 +18,7 @@ namespace RaLanguage.Interpreter.Visitors.Classes
 {
     public class ClassDefinitionNodeVisitor : NodeVisitor<ClassDefinitionNode>
     {
-        protected override RuntimeResult VisitNode(ClassDefinitionNode node, Context context, IInterpreter interpreter)
+        protected override async ValueTask<RuntimeResult> VisitNode(ClassDefinitionNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var className = node.NameTok.Value?.ToString() ?? "";
@@ -139,7 +140,7 @@ namespace RaLanguage.Interpreter.Visitors.Classes
 
                 if (field.DefaultValueNode != null)
                 {
-                    var initRes = interpreter.Visit(field.DefaultValueNode, context);
+                    var initRes = await interpreter.Visit(field.DefaultValueNode, context);
                     if (initRes.Error != null) return res.Failure(initRes.Error);
                     value = initRes.Value ?? value;
                 }

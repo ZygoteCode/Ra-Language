@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors;
+using System.Threading.Tasks;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
@@ -15,11 +16,11 @@ namespace RaLanguage.Interpreter.Visitors.Members
 {
     public class MemberAccessNodeVisitor : NodeVisitor<MemberAccessNode>
     {
-        protected sealed override RuntimeResult VisitNode(MemberAccessNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(MemberAccessNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
-            var target = res.Register(interpreter.Visit(node.TargetNode, context));
+            var target = res.Register(await interpreter.Visit(node.TargetNode, context));
             if (res.ShouldReturn()) return res;
 
             string memberName = node.MemberTok.Value?.ToString() ?? "";

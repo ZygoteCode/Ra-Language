@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors;
+using System.Threading.Tasks;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
@@ -11,7 +12,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
 {
     public class RetryNodeVisitor : NodeVisitor<RetryNode>
     {
-        protected sealed override RuntimeResult VisitNode(RetryNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(RetryNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
@@ -116,7 +117,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
                 }
             }
 
-            RuntimeValue countValue = res.Register(interpreter.Visit(node.CountNode, context));
+            RuntimeValue countValue = res.Register(await interpreter.Visit(node.CountNode, context));
             if (res.ShouldReturn()) return res;
 
             int retries = -1;
@@ -134,7 +135,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
             int delayMs = 0;
             if (node.DelayNode != null)
             {
-                RuntimeValue delayValue = res.Register(interpreter.Visit(node.DelayNode, context));
+                RuntimeValue delayValue = res.Register(await interpreter.Visit(node.DelayNode, context));
                 if (res.ShouldReturn()) return res;
 
                 var _delayMs = ExtractRetryInt(delayValue, node.DelayNode, "delay");
@@ -155,7 +156,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
             {
                 if (node.ElseNode != null)
                 {
-                    var elseRes = res.Register(interpreter.Visit(node.ElseNode, context));
+                    var elseRes = res.Register(await interpreter.Visit(node.ElseNode, context));
                     if (res.Error != null) return res;
                     return res.Success(elseRes ?? NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
@@ -166,7 +167,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
             for (int attempt = 0; attempt < retries; attempt++)
             {
                 var attemptContext = context.Copy();
-                var bodyRes = interpreter.Visit(node.BodyNode, attemptContext);
+                var bodyRes = await interpreter.Visit(node.BodyNode, attemptContext);
 
                 if (bodyRes.Error == null)
                 {
@@ -208,7 +209,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
 
             if (node.ElseNode != null)
             {
-                var elseRes = res.Register(interpreter.Visit(node.ElseNode, context));
+                var elseRes = res.Register(await interpreter.Visit(node.ElseNode, context));
                 if (res.ShouldReturn()) return res;
 
                 return res.Success(elseRes ?? NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));

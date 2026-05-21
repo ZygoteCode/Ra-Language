@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using RaLanguage.Errors;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
@@ -8,13 +9,13 @@ namespace RaLanguage.Interpreter.Visitors.Variables
 {
     public class ListAccessNodeVisitor : NodeVisitor<ListAccessNode>
     {
-        protected sealed override RuntimeResult VisitNode(ListAccessNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(ListAccessNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
-            var target = res.Register(interpreter.Visit(node.Target, context));
+            var target = res.Register(await interpreter.Visit(node.Target, context));
             if (res.ShouldReturn()) return res;
 
-            var index = res.Register(interpreter.Visit(node.Index, context));
+            var index = res.Register(await interpreter.Visit(node.Index, context));
             if (res.ShouldReturn()) return res;
 
             ValueResult result = target.ListAccess(index);

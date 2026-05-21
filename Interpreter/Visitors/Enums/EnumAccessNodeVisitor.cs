@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors.Types;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
@@ -9,11 +10,11 @@ namespace RaLanguage.Interpreter.Visitors.Enums
 {
     public class EnumAccessNodeVisitor : NodeVisitor<EnumAccessNode>
     {
-        protected sealed override RuntimeResult VisitNode(EnumAccessNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(EnumAccessNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
-            var enumValue = res.Register(interpreter.Visit(node.EnumNode, context));
+            var enumValue = res.Register(await interpreter.Visit(node.EnumNode, context));
             if (res.ShouldReturn()) return res;
 
             if (enumValue.Type != RuntimeValueType.EnumType)

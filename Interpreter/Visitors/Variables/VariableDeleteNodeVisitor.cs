@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors.Types;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
@@ -9,7 +10,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
 {
     public class VariableDeleteNodeVisitor : NodeVisitor<VariableDeleteNode>
     {
-        protected sealed override RuntimeResult VisitNode(VariableDeleteNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(VariableDeleteNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

@@ -1,0 +1,37 @@
+print("=== Ra Async Concurrency Tests ===");
+
+// [A1] sleep returns a task; await unblocks at completion.
+let t1 = sleep(50);
+let r1 = await t1;
+print("[A1] OK");
+
+// [A2] gather of many sleeps completes in ~max(sleep) time, not sum.
+//      Pre-async-pipeline this pinned one worker per pending sleep; the
+//      visitor-async pipeline lets all of them park concurrently.
+let tasks = [sleep(80), sleep(80), sleep(80), sleep(80), sleep(80), sleep(80), sleep(80), sleep(80)];
+let r2 = await gather(tasks);
+print("[A2] OK");
+
+// [A3] race returns the first task to complete; cancels losers.
+let fast = sleep(20);
+let slow = sleep(2000);
+let r3 = await race([fast, slow]);
+print("[A3] OK");
+
+// [A4] async fn chained via spawn + await.
+async fn add(a, b) => a + b;
+let r4 = await spawn add(2, 3);
+if r4 == 5: print("[A4] OK") else: print("[A4] FAIL got " + r4);
+
+// [A5] sequential awaits in a tight loop — verifies suspension/resume
+//      across many iterations does not leak workers.
+let total = 0;
+var i = 0;
+while i < 16 {
+    let small = sleep(5);
+    let _ = await small;
+    i = i + 1;
+}
+print("[A5] OK");
+
+print("=== Done ===");

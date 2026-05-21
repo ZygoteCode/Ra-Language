@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors.Types;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
@@ -11,7 +12,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
 {
     public class ListNodeVisitor : NodeVisitor<ListNode>
     {
-        protected sealed override RuntimeResult VisitNode(ListNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(ListNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var elements = new List<RuntimeValue>();
@@ -21,7 +22,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
                 if (elementNode.NodeType == AstNodeType.Spread)
                 {
                     SpreadNode spread = (SpreadNode)elementNode;
-                    var val = res.Register(interpreter.Visit(spread.Expression, context));
+                    var val = res.Register(await interpreter.Visit(spread.Expression, context));
                     if (res.ShouldReturn()) return res;
 
                     if (val.Type != RuntimeValueType.List)
@@ -38,7 +39,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
                 }
                 else
                 {
-                    var val = res.Register(interpreter.Visit(elementNode, context));
+                    var val = res.Register(await interpreter.Visit(elementNode, context));
                     if (res.ShouldReturn()) return res;
                     elements.Add(val);
                 }

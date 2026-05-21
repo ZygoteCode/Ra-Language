@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Lexer;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Runtime.Async;
 using RaLanguage.Interpreter.Values.Primitives;
 

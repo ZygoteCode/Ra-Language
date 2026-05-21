@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors.Types;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
@@ -12,7 +13,7 @@ namespace RaLanguage.Interpreter.Visitors.Interfaces
 {
     public class InterfaceDefinitionNodeVisitor : NodeVisitor<InterfaceDefinitionNode>
     {
-        protected override RuntimeResult VisitNode(InterfaceDefinitionNode node, Context context, IInterpreter interpreter)
+        protected override async ValueTask<RuntimeResult> VisitNode(InterfaceDefinitionNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var name = node.NameTok.Value?.ToString() ?? "";

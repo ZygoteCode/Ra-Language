@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Interpreter.Architecture;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Parser.Nodes;
@@ -9,11 +10,11 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 {
     public class SwitchNodeVisitor : NodeVisitor<SwitchNode>
     {
-        protected sealed override RuntimeResult VisitNode(SwitchNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(SwitchNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
-            var ctrlRes = interpreter.Visit(node.Expression, context);
+            var ctrlRes = await interpreter.Visit(node.Expression, context);
             var switchVal = res.Register(ctrlRes, propagateLoopControl: false);
             if (ctrlRes.Error != null) return res.Failure(ctrlRes.Error);
             if (ctrlRes.FuncReturnValue != null) return res.SuccessReturn(ctrlRes.FuncReturnValue);
@@ -35,7 +36,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 {
                     foreach (var labelExpr in c.Labels)
                     {
-                        var labelRes = interpreter.Visit(labelExpr, context);
+                        var labelRes = await interpreter.Visit(labelExpr, context);
                         var labelVal = res.Register(labelRes, propagateLoopControl: false);
                         if (labelRes.Error != null) return res.Failure(labelRes.Error);
                         if (labelRes.FuncReturnValue != null) return res.SuccessReturn(labelRes.FuncReturnValue);
@@ -69,7 +70,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 
                         foreach (var stmt in arrowBlock.ElementNodes)
                         {
-                            var childRes = interpreter.Visit(stmt, context);
+                            var childRes = await interpreter.Visit(stmt, context);
                             res.Register(childRes, propagateLoopControl: false);
 
                             if (childRes.Error != null) return res.Failure(childRes.Error);
@@ -92,7 +93,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                     }
                     else
                     {
-                        var exprRes = interpreter.Visit(c.Body, context);
+                        var exprRes = await interpreter.Visit(c.Body, context);
                         var exprVal = res.Register(exprRes, propagateLoopControl: false);
 
                         if (exprRes.Error != null) return res.Failure(exprRes.Error);
@@ -118,7 +119,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 
                                 foreach (var stmt in arrowBlock2.ElementNodes)
                                 {
-                                    var childRes = interpreter.Visit(stmt, context);
+                                    var childRes = await interpreter.Visit(stmt, context);
                                     res.Register(childRes, propagateLoopControl: false);
 
                                     if (childRes.Error != null) return res.Failure(childRes.Error);
@@ -139,7 +140,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                             }
                             else if (caseToExec.Body != null)
                             {
-                                var exprRes = interpreter.Visit(caseToExec.Body, context);
+                                var exprRes = await interpreter.Visit(caseToExec.Body, context);
                                 var exprVal = res.Register(exprRes, propagateLoopControl: false);
 
                                 if (exprRes.Error != null) return res.Failure(exprRes.Error);
@@ -159,7 +160,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 
                                 foreach (var stmt in colonBlock.ElementNodes)
                                 {
-                                    var childRes = interpreter.Visit(stmt, context);
+                                    var childRes = await interpreter.Visit(stmt, context);
                                     res.Register(childRes, propagateLoopControl: false);
 
                                     if (childRes.Error != null) return res.Failure(childRes.Error);

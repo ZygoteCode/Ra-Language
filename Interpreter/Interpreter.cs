@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
@@ -35,12 +36,18 @@ namespace RaLanguage.Interpreter
         // Replaces the previous INodeVisitor[] + interface dispatch: delegate invocation
         // is a single indirect call the JIT/AOT can inline and devirtualize, while
         // interface dispatch always pays the IVT lookup per node.
-        private readonly Func<AstNode, Context, IInterpreter, RuntimeResult>[] _visitors;
+        //
+        // Async-capable since the v5.7 pipeline change: each delegate returns a
+        // ValueTask<RuntimeResult>. Sync-completing visitors (the overwhelming
+        // majority) return a synchronously-completed ValueTask so dispatch
+        // pays no allocation. Only visitors that genuinely suspend (the await
+        // path) yield to their caller, propagating the suspension up.
+        private readonly Func<AstNode, Context, IInterpreter, ValueTask<RuntimeResult>>[] _visitors;
 
         public Interpreter()
         {
             var typesCount = Enum.GetValues<AstNodeType>().Length;
-            _visitors = new Func<AstNode, Context, IInterpreter, RuntimeResult>[typesCount];
+            _visitors = new Func<AstNode, Context, IInterpreter, ValueTask<RuntimeResult>>[typesCount];
             RegisterVisitors();
         }
 
@@ -122,12 +129,24 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.TryUnwrap] = new RaLanguage.Interpreter.Visitors.Patterns.TryUnwrapNodeVisitor().Visit;
         }
 
-        public RuntimeResult Visit(AstNode node, Context context)
+        public ValueTask<RuntimeResult> Visit(AstNode node, Context context)
         {
             var index = (int)node.NodeType;
             if (index < 0 || index >= _visitors.Length || _visitors[index] == null)
                 throw new Exception($"No visitor module registered for the node: {node.NodeType}");
             return _visitors[index](node, context, this);
+        }
+
+        // Sync entry-point for hosts that cannot await (Program.Run, REPL
+        // top-level, microbenchmark loop). Blocks the calling thread exactly
+        // once — at the outermost frame — instead of paying the
+        // sync-over-async tax inside every Ra `await` expression. ValueTask
+        // sync-completion fast-path is preserved by GetAwaiter().GetResult().
+        public RuntimeResult VisitBlocking(AstNode node, Context context)
+        {
+            var task = Visit(node, context);
+            if (task.IsCompletedSuccessfully) return task.Result;
+            return task.AsTask().GetAwaiter().GetResult();
         }
 
         public (RuntimeValue? value, Error? error) ExtractVariableValueByName(string name, Position posStart, Position posEnd, Context context)
@@ -149,11 +168,14 @@ namespace RaLanguage.Interpreter
                     primaryLabel: "used here after move",
                     help: "non-copy 'let' bindings transfer ownership on use; rebind the value or take a copy"));
 
-            // `let const` bindings are compile-time-stable constants: they may not be
-            // moved out, only read (effectively borrowed by value via Copy). This keeps
-            // them aligned with `const` while still benefiting from the borrow checker.
+            // `let const` bindings are compile-time-stable constants: the binding
+            // itself may not be reseated and the value may not be moved out. For
+            // sharable types (containers, instances) the read aliases the underlying
+            // value — mutations through a shared list are still possible, matching
+            // the documented memory model. For IsCopy primitives Aliased() yields a
+            // fresh-identity copy (which is a no-op identity for immutable scalars).
             if (entry.IsConstBinding)
-                return (entry.Value.Copy().SetContext(context).SetPos(posStart, posEnd), null);
+                return (entry.Value.Aliased().SetContext(context).SetPos(posStart, posEnd), null);
 
             if (entry.IsLet && !entry.Value.IsCopy)
             {
@@ -171,7 +193,9 @@ namespace RaLanguage.Interpreter
                 return (entry.Value.SetContext(context).SetPos(posStart, posEnd), null);
             }
 
-            return (entry.Value.Copy().SetContext(context).SetPos(posStart, posEnd), null);
+            // Default read path. Aliased() shares containers/instances and keeps
+            // primitives at the same observable cost (Copy() returns `this`).
+            return (entry.Value.Aliased().SetContext(context).SetPos(posStart, posEnd), null);
         }
     }
 }

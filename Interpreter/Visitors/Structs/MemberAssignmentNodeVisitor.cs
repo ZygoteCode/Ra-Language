@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors.Types;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
@@ -16,16 +17,16 @@ namespace RaLanguage.Interpreter.Visitors.Members
 {
     public class MemberAssignmentNodeVisitor : NodeVisitor<MemberAssignmentNode>
     {
-        protected override RuntimeResult VisitNode(MemberAssignmentNode node, Context context, IInterpreter interpreter)
+        protected override async ValueTask<RuntimeResult> VisitNode(MemberAssignmentNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
-            var owner = res.Register(interpreter.Visit(node.TargetNode.TargetNode, context));
+            var owner = res.Register(await interpreter.Visit(node.TargetNode.TargetNode, context));
             if (res.ShouldReturn()) return res;
 
             string memberName = node.TargetNode.MemberTok.Value?.ToString() ?? "";
 
-            var value = res.Register(interpreter.Visit(node.ValueNode, context));
+            var value = res.Register(await interpreter.Visit(node.ValueNode, context));
             if (res.ShouldReturn()) return res;
 
             if (owner.Type == RuntimeValueType.StructInstance)

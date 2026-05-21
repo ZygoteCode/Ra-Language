@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors.Types;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Parser.Nodes.Structs;
@@ -7,7 +8,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
 {
     public class SelfNodeVisitor : NodeVisitor<SelfNode>
     {
-        protected sealed override RuntimeResult VisitNode(SelfNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(SelfNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

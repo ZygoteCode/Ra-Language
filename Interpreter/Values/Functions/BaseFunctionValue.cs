@@ -1,10 +1,12 @@
 ﻿using RaLanguage.Errors;
+using System.Threading.Tasks;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes;
+using RaLanguage.Parser.Nodes.Functions;
 using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Functions
@@ -23,9 +25,135 @@ namespace RaLanguage.Interpreter.Values.Functions
 
         public Context? BindingContext { get; private set; }
 
+        // Mirrors FunctionDefinitionNode.CaptureList. Null means "no explicit
+        // capture clause" — the function uses the legacy implicit lexical
+        // closure (every parent binding reachable through BindingContext).
+        // Non-null means the listed names are materialised once into
+        // `_capturedValues` at FreezeCaptures time and bound per-call into
+        // the execution scope by GenerateNewContext.
+        public List<CaptureSpec>? CaptureList { get; set; }
+
+        // Concrete snapshot / borrow / moved value per explicit capture.
+        // Populated by FreezeCaptures and consulted by GenerateNewContext.
+        protected Dictionary<string, RuntimeValue>? _capturedValues;
+
+        // Read-only projection so cross-cutting passes (SpawnNodeVisitor,
+        // borrow-checker integration) can inspect captures without exposing
+        // the internal dictionary for mutation.
+        public IReadOnlyDictionary<string, RuntimeValue>? CapturedValues => _capturedValues;
+
         public void FreezeBindingContext(Context ctx)
         {
             if (BindingContext == null) BindingContext = ctx;
+        }
+
+        // Materialises every entry in CaptureList against the definition-time
+        // context. Should be called immediately after FreezeBindingContext on
+        // a freshly constructed function value. Returns a diagnostic Error if
+        // any capture references an unknown / moved binding or attempts to
+        // move out of a currently borrowed one.
+        public Error? FreezeCaptures(Context definitionContext)
+        {
+            if (CaptureList == null || CaptureList.Count == 0) return null;
+
+            _capturedValues = new Dictionary<string, RuntimeValue>(StringComparer.Ordinal);
+            foreach (var spec in CaptureList)
+            {
+                var entry = definitionContext.SymbolTable.GetEntry(spec.Name);
+                if (entry == null)
+                    return new RuntimeError(spec.PositionStart, spec.PositionEnd,
+                        $"capture '{spec.Name}' is not defined in the enclosing scope",
+                        definitionContext,
+                        code: DiagnosticCode.RuntimeUndefinedSymbol,
+                        primaryLabel: "unknown capture target",
+                        help: "the capture list of a closure can only name bindings visible in the surrounding scope");
+
+                if (entry.IsMoved)
+                    return new RuntimeError(spec.PositionStart, spec.PositionEnd,
+                        $"capture '{spec.Name}' was already moved out of the enclosing scope",
+                        definitionContext,
+                        code: DiagnosticCode.RuntimeMovedValue);
+
+                switch (spec.Mode)
+                {
+                    case CaptureMode.ByValue:
+                        // Snapshot semantics. Aliased() respects the memory model:
+                        // primitives identity-copy, containers/instances alias the
+                        // captured graph. The captured value is frozen against
+                        // later rebinding of `spec.Name` in the outer scope.
+                        _capturedValues[spec.Name] = entry.Value.Aliased();
+                        break;
+
+                    case CaptureMode.ByRef:
+                    {
+                        var ownerTable = FindOwnerTable(definitionContext.SymbolTable, spec.Name);
+                        if (ownerTable == null) ownerTable = definitionContext.SymbolTable;
+
+                        if (spec.IsMutableBorrow)
+                        {
+                            if (entry.SharedBorrowCount > 0)
+                                return new RuntimeError(spec.PositionStart, spec.PositionEnd,
+                                    $"cannot take '&mut {spec.Name}' into closure: shared borrows are alive",
+                                    definitionContext,
+                                    code: DiagnosticCode.RuntimeBorrowViolation,
+                                    primaryLabel: "mutable capture while shared borrows live",
+                                    help: "drop the outstanding '&' borrows before forming an '&mut' capture");
+
+                            if (entry.HasMutableBorrow)
+                                return new RuntimeError(spec.PositionStart, spec.PositionEnd,
+                                    $"cannot take '&mut {spec.Name}' into closure: another mutable borrow is alive",
+                                    definitionContext,
+                                    code: DiagnosticCode.RuntimeBorrowViolation,
+                                    primaryLabel: "second mutable capture",
+                                    help: "only one '&mut' may be live at a time");
+
+                            entry.HasMutableBorrow = true;
+                        }
+                        else
+                        {
+                            if (entry.HasMutableBorrow)
+                                return new RuntimeError(spec.PositionStart, spec.PositionEnd,
+                                    $"cannot take '&{spec.Name}' into closure: a mutable borrow is alive",
+                                    definitionContext,
+                                    code: DiagnosticCode.RuntimeBorrowViolation);
+                            entry.SharedBorrowCount++;
+                        }
+
+                        var borrow = new BorrowValue(entry, ownerTable, spec.Name, spec.IsMutableBorrow, null)
+                            .SetContext(definitionContext)
+                            .SetPos(spec.PositionStart, spec.PositionEnd);
+                        _capturedValues[spec.Name] = borrow;
+                        break;
+                    }
+
+                    case CaptureMode.ByMove:
+                        if (entry.IsBorrowed)
+                            return new RuntimeError(spec.PositionStart, spec.PositionEnd,
+                                $"cannot 'move {spec.Name}' into closure: it is currently borrowed",
+                                definitionContext,
+                                code: DiagnosticCode.RuntimeBorrowViolation,
+                                primaryLabel: entry.HasMutableBorrow
+                                    ? "binding is exclusively borrowed (&mut)"
+                                    : $"binding has {entry.SharedBorrowCount} shared borrow(s) alive",
+                                help: "let outstanding borrows drop before moving the value into a closure");
+
+                        _capturedValues[spec.Name] = entry.Value;
+                        entry.IsMoved = true;
+                        break;
+                }
+            }
+            return null;
+        }
+
+        private static SymbolTable? FindOwnerTable(SymbolTable start, string name)
+        {
+            SymbolTable? st = start;
+            while (st != null)
+            {
+                if (st.GetLocalEntry(name) != null) return st;
+                st = st.Parent;
+            }
+            return null;
         }
 
         public Context GenerateNewContext()
@@ -33,6 +161,20 @@ namespace RaLanguage.Interpreter.Values.Functions
             var closure = BindingContext ?? Context;
             var newCtx = new Context(Name, closure, PositionStart);
             newCtx.SymbolTable = new SymbolTable(newCtx.Parent?.SymbolTable);
+
+            // Explicit captures shadow the lexical chain. The remaining free
+            // variables of the body still resolve through the parent (so
+            // sibling top-level functions, builtins, namespace members keep
+            // working) — only the listed names are forcibly rebound to
+            // their captured representation.
+            if (_capturedValues != null)
+            {
+                foreach (var kv in _capturedValues)
+                {
+                    newCtx.SymbolTable.SetLocal(kv.Key, kv.Value);
+                }
+            }
+
             return newCtx;
         }
 
@@ -58,17 +200,17 @@ namespace RaLanguage.Interpreter.Values.Functions
             }
         }
 
-        public virtual RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
+        public virtual async ValueTask<RuntimeResult> ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
         {
-            return ExecuteWithNamedArgs(positionalArgs, namedArgs, null);
+            return await ExecuteWithNamedArgs(positionalArgs, namedArgs, null);
         }
 
-        public virtual RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs)
+        public virtual async ValueTask<RuntimeResult> ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs)
         {
-            return Execute(positionalArgs);
+            return await Execute(positionalArgs);
         }
 
-        public (Context? execCtx, Error? error) PrepareExecutionContextForCall(
+        public async ValueTask<(Context? execCtx, Error? error)> PrepareExecutionContextForCall(
             List<RuntimeValue> positionalArgs,
             Dictionary<string, RuntimeValue> namedArgs,
             List<string> formalNames,
@@ -157,7 +299,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                     AstNode? defAst = i < paramDefaults.Count ? paramDefaults[i] : null;
                     if (defAst != null)
                     {
-                        var innerRes = interpreter.Visit(defAst, execCtx);
+                        var innerRes = await interpreter.Visit(defAst, execCtx);
                         if (innerRes.Error != null) return (null, innerRes.Error);
                         var val = innerRes.Value;
                         if (val == null) val = new RaLanguage.Interpreter.Values.Primitives.NullValue().SetContext(execCtx).SetPos(defAst.PositionStart, defAst.PositionEnd);

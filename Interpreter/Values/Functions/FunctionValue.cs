@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors;
+using System.Threading.Tasks;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Runtime.Async;
@@ -60,18 +61,18 @@ namespace RaLanguage.Interpreter.Values.Functions
             if (whereConstraints != null) WhereConstraints = whereConstraints;
         }
 
-        public sealed override RuntimeResult Execute(List<RuntimeValue> args)
+        public sealed override async ValueTask<RuntimeResult> Execute(List<RuntimeValue> args)
         {
-            return ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
+            return await ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
         }
 
-        public sealed override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs)
+        public sealed override async ValueTask<RuntimeResult> ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs)
         {
             if (IsAsync || IsAsyncStream)
             {
                 return ExecuteAsyncDispatch(positionalArgs, namedArgs, explicitTypeArgs);
             }
-            return ExecuteBodySync(positionalArgs, namedArgs, explicitTypeArgs, null);
+            return await ExecuteBodySync(positionalArgs, namedArgs, explicitTypeArgs, null);
         }
 
         private RuntimeResult ExecuteAsyncDispatch(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs)
@@ -100,7 +101,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                 {
                     childAsyncCtx.InsideAsyncStream = true;
                     childAsyncCtx.CurrentStreamProducer = new RaLanguage.Interpreter.Runtime.Async.StreamProducerAdapter(stream, (AsyncStreamValue)streamValue);
-                    var streamRes = ExecuteBodySync(capturedArgs, capturedNamed, capturedTypeArgs, childAsyncCtx);
+                    var streamRes = SyncAwait.Get(ExecuteBodySync(capturedArgs, capturedNamed, capturedTypeArgs, childAsyncCtx));
                     stream.Close();
                     return (streamRes.Value ?? streamRes.FuncReturnValue, streamRes.Error);
                 });
@@ -111,7 +112,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             var task = AsyncScheduler.Schedule($"async:{Name}", parentAsync, childAsyncCtx =>
             {
                 childAsyncCtx.InsideAsyncFunction = true;
-                var taskRes = ExecuteBodySync(capturedArgs, capturedNamed, capturedTypeArgs, childAsyncCtx);
+                var taskRes = SyncAwait.Get(ExecuteBodySync(capturedArgs, capturedNamed, capturedTypeArgs, childAsyncCtx));
                 if (taskRes.Error != null) return (null, taskRes.Error);
                 var produced = taskRes.FuncReturnValue ?? taskRes.Value;
                 return (produced, null);
@@ -126,7 +127,7 @@ namespace RaLanguage.Interpreter.Values.Functions
         }
 
 
-        private RuntimeResult ExecuteBodySync(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs, AsyncContext? asyncCtxOverride)
+        private async ValueTask<RuntimeResult> ExecuteBodySync(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs, AsyncContext? asyncCtxOverride)
         {
             var res = new RuntimeResult();
             var bindings = new Dictionary<string, TypeDescriptor>(StringComparer.Ordinal);
@@ -241,7 +242,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                 instantiatedReturnType = ReturnType;
             }
 
-            var (execCtx, err) = PrepareExecutionContextForCall(positionalArgs, namedArgs, ArgNames, instantiatedArgTypes, ParamDefaults, HasVarArgs, VarArgNameTok, instantiatedVarArgType);
+            var (execCtx, err) = await PrepareExecutionContextForCall(positionalArgs, namedArgs, ArgNames, instantiatedArgTypes, ParamDefaults, HasVarArgs, VarArgNameTok, instantiatedVarArgType);
             if (err != null)
             {
                 return res.Failure(err);
@@ -259,7 +260,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             }
 
             var interpreter = new Interpreter();
-            var bodyRes = interpreter.Visit(BodyNode, execCtx!);
+            var bodyRes = await interpreter.Visit(BodyNode, execCtx!);
             if (bodyRes.Error != null) return res.Failure(bodyRes.Error);
 
             if (bodyRes.FuncReturnValue != null)

@@ -1,10 +1,12 @@
 ﻿using System;
+using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Text;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Asm;
+using RaLanguage.Interpreter.Runtime.Async;
 using RaLanguage.Interpreter.Runtime.Interop;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer;
@@ -102,7 +104,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
                 try
                 {
                     var fn = AsmFunctionFactory.Create("<asm-invoke>", address, signature);
-                    var res = fn.Execute(callArgs);
+                    var res = SyncAwait.Get(fn.Execute(callArgs));
                     if (res.Error != null) return new RuntimeResult().Failure(res.Error);
                     return Ok(res.Value ?? NullValue.Null, ctx, p1, p2);
                 }
@@ -313,9 +315,9 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
                     var hash = AsmCodePool.ComputeHash(src);
                     var slot = AsmCodePool.Allocate(bytes, hash);
                     var fn = AsmFunctionFactory.Create("<rdtsc>", slot.Address, "i64()");
-                    long start = ((LongValue)fn.Execute(new List<RuntimeValue>()).Value!).Value;
+                    long start = ((LongValue)SyncAwait.Get(fn.Execute(new List<RuntimeValue>())).Value!).Value;
                     System.Threading.Thread.Sleep(50);
-                    long end = ((LongValue)fn.Execute(new List<RuntimeValue>()).Value!).Value;
+                    long end = ((LongValue)SyncAwait.Get(fn.Execute(new List<RuntimeValue>())).Value!).Value;
                     return Ok(new MapValue(new List<(RuntimeValue, RuntimeValue)>
                     {
                         (new StringValue("start"), new LongValue(start)),

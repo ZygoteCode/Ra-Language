@@ -51,6 +51,16 @@ namespace RaLanguage.Parser.Nodes.Functions
         public bool IsAsync { get; set; }
         public bool IsAsyncStream { get; set; }
 
+        // Explicit closure-capture specification. `null` means "no capture
+        // clause present" — the function uses the legacy implicit lexical
+        // closure (every parent binding is reachable via the parent scope
+        // chain). When non-null, the closure binds ONLY the listed names
+        // into its execution scope, each materialised according to its
+        // CaptureMode (value / ref / move). The lexical chain is still
+        // available for top-level / namespace lookups so calls to sibling
+        // functions continue to work, but the listed names shadow it.
+        public List<CaptureSpec>? CaptureList { get; }
+
         Token? ICallableMethodDefinition.NameTok => VarNameTok;
         List<bool> ICallableMethodDefinition.IsRefParams => IsRefParams;
         bool ICallableMethodDefinition.HasBody => BodyNode != null && !IsAbstract;
@@ -79,7 +89,8 @@ namespace RaLanguage.Parser.Nodes.Functions
             bool isAbstract = false,
             bool isStatic = false,
             List<WhereConstraintNode>? whereConstraints = null,
-            List<List<AnnotationApplicationNode>?>? paramAnnotations = null
+            List<List<AnnotationApplicationNode>?>? paramAnnotations = null,
+            List<CaptureSpec>? captureList = null
         ) : base(AstNodeType.FunctionDefinition)
         {
             VarNameTok = varNameTok;
@@ -101,6 +112,7 @@ namespace RaLanguage.Parser.Nodes.Functions
             IsOverride = isOverride;
             IsAbstract = isAbstract || bodyNode == null;
             IsStatic = isStatic;
+            CaptureList = captureList;
 
             if (varNameTok != null) PositionStart = varNameTok.Value.PositionStart;
             else if (ArgNameToks.Count > 0) PositionStart = ArgNameToks[0].PositionStart;

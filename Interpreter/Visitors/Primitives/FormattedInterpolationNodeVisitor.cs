@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
@@ -15,11 +16,11 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
     // call-site that injects such a node will get the same semantics for free.
     public class FormattedInterpolationNodeVisitor : NodeVisitor<FormattedInterpolationNode>
     {
-        protected sealed override RuntimeResult VisitNode(FormattedInterpolationNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(FormattedInterpolationNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
-            var inner = res.Register(interpreter.Visit(node.Expression, context));
+            var inner = res.Register(await interpreter.Visit(node.Expression, context));
             if (res.ShouldReturn()) return res;
 
             var (text, error) = FormatEngine.Format(inner!, node.FormatSpec, node.PositionStart, node.PositionEnd, context);

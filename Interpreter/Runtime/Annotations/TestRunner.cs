@@ -1,3 +1,5 @@
+using RaLanguage.Interpreter.Runtime.Async;
+using System.Threading.Tasks;
 using System.Collections.Generic;
 using RaLanguage.Errors;
 using RaLanguage.Interpreter.Runtime;
@@ -132,7 +134,7 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
             {
                 var beforeFn = ctx.SymbolTable.Get(beforeName) as BaseFunctionValue;
                 if (beforeFn == null) continue;
-                var beforeRes = beforeFn.Execute(new List<RuntimeValue>());
+                var beforeRes = SyncAwait.Get(beforeFn.Execute(new List<RuntimeValue>()));
                 if (beforeRes.Error != null)
                 {
                     results.Add(new TestResult(fnName, paramLabel, false, false, $"@before '{beforeName}' failed: {beforeRes.Error.Details}"));
@@ -145,7 +147,7 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
                 "expected_throws",
                 MetadataKeyResolver.ForContext(ctx));
 
-            var execRes = fn.Execute(args);
+            var execRes = SyncAwait.Get(fn.Execute(args));
             string? failureMsg = null;
             bool passed = true;
 
@@ -177,7 +179,7 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
             {
                 var afterFn = ctx.SymbolTable.Get(afterName) as BaseFunctionValue;
                 if (afterFn == null) continue;
-                afterFn.Execute(new List<RuntimeValue>());
+                SyncAwait.Get(afterFn.Execute(new List<RuntimeValue>()));
             }
 
             results.Add(new TestResult(fnName, paramLabel, passed, false, failureMsg));

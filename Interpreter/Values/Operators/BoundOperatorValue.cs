@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
@@ -40,10 +41,10 @@ namespace RaLanguage.Interpreter.Values.Operators
             ShouldAutoReturn = shouldAutoReturn;
         }
 
-        public override RuntimeResult Execute(List<RuntimeValue> args)
-            => ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
+        public override async ValueTask<RuntimeResult> Execute(List<RuntimeValue> args)
+            => await ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
 
-        public override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
+        public override async ValueTask<RuntimeResult> ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
         {
             var res = new RuntimeResult();
 
@@ -73,11 +74,11 @@ namespace RaLanguage.Interpreter.Values.Operators
 
             if (ShouldAutoReturn)
             {
-                var exprRes = new Interpreter().Visit(BodyNode, operatorContext);
+                var exprRes = await new Interpreter().Visit(BodyNode, operatorContext);
                 if (exprRes.Error != null) return res.Failure(exprRes.Error);
-                
+
                 var returnValue = exprRes.FuncReturnValue ?? exprRes.Value;
-                
+
                 if (returnValue == null)
                 {
                     return res.Failure(new RuntimeError(
@@ -86,16 +87,16 @@ namespace RaLanguage.Interpreter.Values.Operators
                         $"Operator {OperatorType} body returned null value",
                         Context!));
                 }
-                
+
                 return res.Success(returnValue);
             }
             else
             {
-                var bodyRes = new Interpreter().Visit(BodyNode, operatorContext);
+                var bodyRes = await new Interpreter().Visit(BodyNode, operatorContext);
                 if (bodyRes.Error != null) return res.Failure(bodyRes.Error);
-                
+
                 var returnValue = bodyRes.FuncReturnValue ?? bodyRes.Value;
-                
+
                 if (returnValue == null)
                 {
                     return res.Failure(new RuntimeError(
@@ -104,7 +105,7 @@ namespace RaLanguage.Interpreter.Values.Operators
                         $"Operator {OperatorType} body returned null value",
                         Context!));
                 }
-                
+
                 return res.Success(returnValue);
             }
         }

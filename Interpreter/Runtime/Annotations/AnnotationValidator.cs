@@ -1,3 +1,5 @@
+using RaLanguage.Interpreter.Runtime.Async;
+using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Text;
 using RaLanguage.Errors;
@@ -92,7 +94,7 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
                 }
 
                 var argsList = new List<RuntimeValue> { value, annotation };
-                var execRes = bfn.Execute(argsList);
+                var execRes = SyncAwait.Get(bfn.Execute(argsList));
                 if (execRes.Error != null) return execRes.Error;
 
                 bool ok = execRes.Value switch
@@ -200,7 +202,7 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
                 var fnSymbol = context.SymbolTable.Get(def.CoercerFunctionName);
                 if (fnSymbol is not BaseFunctionValue bfn)
                     return (null, new RuntimeError(annotation.ApplicationStart, annotation.ApplicationEnd, $"Coercer function '{def.CoercerFunctionName}' not defined", context));
-                var execRes = bfn.Execute(new List<RuntimeValue> { value, annotation });
+                var execRes = SyncAwait.Get(bfn.Execute(new List<RuntimeValue> { value, annotation }));
                 if (execRes.Error != null) return (null, execRes.Error);
                 return (execRes.Value, null);
             }

@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using System;
 using System.Collections.Generic;
 using RaLanguage.Errors;
@@ -14,7 +15,7 @@ namespace RaLanguage.Interpreter.Visitors.Enums
 {
     public class EnumDefinitionNodeVisitor : NodeVisitor<EnumDefinitionNode>
     {
-        protected sealed override RuntimeResult VisitNode(EnumDefinitionNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(EnumDefinitionNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
@@ -42,7 +43,7 @@ namespace RaLanguage.Interpreter.Visitors.Enums
                 Int128 value;
                 if (spec.ValueNode != null)
                 {
-                    var val = res.Register(interpreter.Visit(spec.ValueNode, context));
+                    var val = res.Register(await interpreter.Visit(spec.ValueNode, context));
                     if (res.ShouldReturn()) return res;
                     var (parsed, err) = ExtractEnumInt128(val!, spec.ValueNode, context);
                     if (err != null) return res.Failure(err);

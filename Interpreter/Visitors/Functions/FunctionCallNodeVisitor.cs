@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
@@ -9,7 +10,7 @@ namespace RaLanguage.Interpreter.Visitors.Functions
 {
     public class FunctionCallNodeVisitor : NodeVisitor<FunctionCallNode>
     {
-        protected sealed override RuntimeResult VisitNode(FunctionCallNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(FunctionCallNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
@@ -23,18 +24,17 @@ namespace RaLanguage.Interpreter.Visitors.Functions
                     help: "this expression runs in a context (e.g. an annotation argument) where calls are forbidden"));
             }
 
-            var calleeVal = res.Register(interpreter.Visit(node.NodeToCall, context));
+            var calleeVal = res.Register(await interpreter.Visit(node.NodeToCall, context));
             if (res.ShouldReturn()) return res;
 
-            var argEval = FunctionCallExecutor.EvaluateArguments(
-                node.ArgNodes, context, interpreter,
-                out var positionalArgs, out var namedArgs);
-            if (argEval.Error != null) return res.Failure(argEval.Error);
+            var argEval = await FunctionCallExecutor.EvaluateArguments(
+                node.ArgNodes, context, interpreter);
+            if (argEval.Result.Error != null) return res.Failure(argEval.Result.Error);
 
-            return FunctionCallExecutor.Invoke(
+            return await FunctionCallExecutor.Invoke(
                 calleeVal!,
-                positionalArgs,
-                namedArgs,
+                argEval.Positional,
+                argEval.Named,
                 node.GenericTypeArgs,
                 node.PositionStart,
                 node.PositionEnd,

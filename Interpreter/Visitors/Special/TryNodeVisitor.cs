@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Interpreter.Architecture;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Parser.Nodes.Special;
@@ -7,16 +8,16 @@ namespace RaLanguage.Interpreter.Visitors.Special
 {
     public class TryNodeVisitor : NodeVisitor<TryNode>
     {
-        protected sealed override RuntimeResult VisitNode(TryNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(TryNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
-            var tryRes = interpreter.Visit(node.TryBody, context);
+            var tryRes = await interpreter.Visit(node.TryBody, context);
 
             if (tryRes.Error == null)
             {
                 if (node.FinallyBody != null)
                 {
-                    var finallyRes = interpreter.Visit(node.FinallyBody, context);
+                    var finallyRes = await interpreter.Visit(node.FinallyBody, context);
                     if (finallyRes.Error != null) return res.Failure(finallyRes.Error);
                     if (finallyRes.FuncReturnValue != null) return res.SuccessReturn(finallyRes.FuncReturnValue);
                     if (finallyRes.LoopShouldContinue) return res.SuccessContinue();
@@ -43,13 +44,13 @@ namespace RaLanguage.Interpreter.Visitors.Special
                     catchCtx.SymbolTable.Set(node.CatchVarTok.Value.ToString(), errVal);
                 }
 
-                var catchRes = interpreter.Visit(node.CatchBody, catchCtx);
+                var catchRes = await interpreter.Visit(node.CatchBody, catchCtx);
 
                 if (catchRes.Error != null)
                 {
                     if (node.FinallyBody != null)
                     {
-                        var finallyRes2 = interpreter.Visit(node.FinallyBody, context);
+                        var finallyRes2 = await interpreter.Visit(node.FinallyBody, context);
                         if (finallyRes2.Error != null) return res.Failure(finallyRes2.Error);
                         if (finallyRes2.FuncReturnValue != null) return res.SuccessReturn(finallyRes2.FuncReturnValue);
                         if (finallyRes2.LoopShouldContinue) return res.SuccessContinue();
@@ -60,7 +61,7 @@ namespace RaLanguage.Interpreter.Visitors.Special
 
                 if (node.FinallyBody != null)
                 {
-                    var finallyRes3 = interpreter.Visit(node.FinallyBody, context);
+                    var finallyRes3 = await interpreter.Visit(node.FinallyBody, context);
                     if (finallyRes3.Error != null) return res.Failure(finallyRes3.Error);
                     if (finallyRes3.FuncReturnValue != null) return res.SuccessReturn(finallyRes3.FuncReturnValue);
                     if (finallyRes3.LoopShouldContinue) return res.SuccessContinue();
@@ -77,7 +78,7 @@ namespace RaLanguage.Interpreter.Visitors.Special
             {
                 if (node.FinallyBody != null)
                 {
-                    var finallyRes4 = interpreter.Visit(node.FinallyBody, context);
+                    var finallyRes4 = await interpreter.Visit(node.FinallyBody, context);
                     if (finallyRes4.Error != null) return res.Failure(finallyRes4.Error);
                     if (finallyRes4.FuncReturnValue != null) return res.SuccessReturn(finallyRes4.FuncReturnValue);
                     if (finallyRes4.LoopShouldContinue) return res.SuccessContinue();

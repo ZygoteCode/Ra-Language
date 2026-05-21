@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using System;
 
 namespace RaLanguage.Interpreter.Runtime.Asm
