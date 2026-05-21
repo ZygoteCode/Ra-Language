@@ -1,4 +1,5 @@
-﻿using RaLanguage.Interpreter.Runtime;
+﻿using RaLanguage.Interpreter.Pipeline;
+using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Lexer.Tokens;
 
 namespace RaLanguage.Parser.Nodes.Variables
@@ -12,6 +13,10 @@ namespace RaLanguage.Parser.Nodes.Variables
         public string Name { get; }
 
         internal SymbolLookupCache? LookupCache;
+
+        // See VariableAccessNode for the Resolver contract.
+        public BindingId Binding = BindingId.Unresolved;
+        public BindingKind BindingKind = BindingKind.Unresolved;
 
         public VariableAssignmentNode(Token varNameTok, Token assignmentToken, AstNode valueNode) : base(AstNodeType.VariableAssignment)
         {

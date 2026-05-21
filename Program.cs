@@ -1,4 +1,5 @@
 using RaLanguage.Errors;
+using RaLanguage.Interpreter.Pipeline;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Runtime.Namespaces;
@@ -169,6 +170,15 @@ namespace RaLanguage
             if (parseResult.Diagnostics.HasWarnings) PrintDiagnostics(parseResult.Diagnostics, onlyWarnings: true);
 
             DeriveTransformer.Apply(parseResult.Node);
+
+            // Resolver pass: assigns a BindingId / BindingKind to every identifier
+            // node in the tree and computes static closure captures on each
+            // FunctionDefinitionNode. Annotations are advisory — runtime visitors
+            // still tolerate Unresolved bindings via the existing name-lookup
+            // fallback — so this pass is safe to run unconditionally. Must come
+            // AFTER DeriveTransformer (which can rewrite the AST) and BEFORE the
+            // analyzers that consume the post-derive shape.
+            Resolver.Resolve(parseResult.Node);
 
             var staticDiagnostics = StaticAnalyzer.Analyze(parseResult.Node, GlobalSymbolTable);
             if (staticDiagnostics.Count > 0)

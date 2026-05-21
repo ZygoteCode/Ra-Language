@@ -1,4 +1,5 @@
-﻿using RaLanguage.Interpreter.Runtime;
+﻿using RaLanguage.Interpreter.Pipeline;
+using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Lexer.Tokens;
 
 namespace RaLanguage.Parser.Nodes.Variables
@@ -15,6 +16,14 @@ namespace RaLanguage.Parser.Nodes.Variables
         // assignment) by the visitor; reads see either the previous cache or the
         // new one, never a torn read. See SymbolLookupCache for invalidation rules.
         internal SymbolLookupCache? LookupCache;
+
+        // Static-resolution outputs filled by Interpreter.Pipeline.Resolver. The
+        // pipeline assigns a BindingId (frame_id<<16 | offset) plus a Kind tag so
+        // the runtime can choose the right read strategy without re-walking the
+        // scope chain. Defaults to Unresolved/Unresolved when the resolver hasn't
+        // run or couldn't bind the name.
+        public BindingId Binding = BindingId.Unresolved;
+        public BindingKind BindingKind = BindingKind.Unresolved;
 
         public VariableAccessNode(Token varNameTok) : base(AstNodeType.VariableAccess)
         {

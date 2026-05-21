@@ -1,0 +1,445 @@
+﻿using RaLanguage.Errors;
+using RaLanguage.Errors.Types;
+using RaLanguage.Lexer;
+using RaLanguage.Lexer.Tokens;
+using RaLanguage.Parser.Nodes;
+using RaLanguage.Parser.Nodes.Annotations;
+using RaLanguage.Parser.Nodes.Classes;
+using RaLanguage.Parser.Nodes.Enums;
+using RaLanguage.Parser.Nodes.Functions;
+using RaLanguage.Parser.Nodes.Interfaces;
+using RaLanguage.Parser.Nodes.Iterations;
+using RaLanguage.Parser.Nodes.Operations;
+using RaLanguage.Parser.Nodes.Primitives;
+using RaLanguage.Parser.Nodes.Special;
+using RaLanguage.Parser.Nodes.Statements;
+using RaLanguage.Parser.Nodes.Structs;
+using RaLanguage.Parser.Nodes.Traits;
+using RaLanguage.Parser.Nodes.Variables;
+using RaLanguage.Parser.Nodes.Imports;
+using RaLanguage.Parser.Nodes.Namespaces;
+using RaLanguage.Types;
+
+namespace RaLanguage.Parser
+{
+    public partial class Parser
+    {
+        private TypeDescriptor? ParseType(ParserResult res)
+        {
+            // Reference type syntax: `&T`, `&mut T`, `&'a T`, `&'a mut T`.
+            // Mirrors the borrow-expression grammar in ParseFactor. The result is a
+            // TypeDescriptor created via RefType so the existing IsAssignable path
+            // continues to enforce ref-vs-non-ref checks; the new IsMutableRef +
+            // Lifetime fields are consumed by the borrow checker.
+            if (_currentToken.Type == TokenType.BITWISE_AND)
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                string? lifetime = null;
+                if (_currentToken.Type == TokenType.LIFETIME)
+                {
+                    lifetime = _currentToken.Value?.ToString();
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                bool isMut = false;
+                if (_currentToken.Matches(Keyword.Mut))
+                {
+                    isMut = true;
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                var inner = ParseType(res);
+                if (inner == null) return null;
+                return TypeDescriptor.RefType(inner, isMut, lifetime);
+            }
+
+            if (_currentToken.Type == TokenType.LPAREN)
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                var elements = new List<TypeDescriptor>();
+
+                if (_currentToken.Type == TokenType.RPAREN)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                    return TypeDescriptor.Tuple(elements);
+                }
+
+                while (true)
+                {
+                    var elem = ParseType(res);
+                    if (elem == null) return null;
+                    elements.Add(elem);
+
+                    if (_currentToken.Type == TokenType.COMMA)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                        continue;
+                    }
+
+                    if (_currentToken.Type != TokenType.RPAREN) return null;
+                    res.RegisterAdvancement();
+                    Advance();
+                    break;
+                }
+
+                return TypeDescriptor.Tuple(elements);
+            }
+
+            if (!(_currentToken.Type == TokenType.IDENTIFIER || _currentToken.Type == TokenType.KEYWORD))
+            {
+                return null;
+            }
+
+            var baseName = _currentToken.Value?.ToString() ?? _currentToken.ToString();
+
+            res.RegisterAdvancement();
+            Advance();
+
+            var genericArgs = new List<TypeDescriptor>();
+
+            if (_currentToken.Type == TokenType.LT)
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                while (true)
+                {
+                    var argType = ParseType(res);
+                    if (argType == null)
+                    {
+                        return null;
+                    }
+
+                    genericArgs.Add(argType);
+
+                    if (_currentToken.Type == TokenType.COMMA)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                        continue;
+                    }
+
+                    if (_currentToken.Type != TokenType.GT)
+                    {
+                        return null;
+                    }
+
+                    res.RegisterAdvancement();
+                    Advance();
+                    break;
+                }
+            }
+
+            if (IsActiveGenericParam(baseName) && genericArgs.Count == 0)
+            {
+                return TypeDescriptor.TypeParameter(baseName);
+            }
+
+            return new TypeDescriptor(baseName, genericArgs);
+        }
+
+        private ParserResult ParseOptionalGenericTypeParameters(out List<string> genericTypeParams)
+        {
+            var res = new ParserResult();
+            genericTypeParams = new List<string>();
+
+            if (_currentToken.Type != TokenType.LT)
+                return res.Success(null);
+
+            res.RegisterAdvancement();
+            Advance();
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            // First param: either a type parameter (identifier) or a lifetime ('a).
+            // Lifetime params are recognised by the parser so signatures like
+            //   fn longest<'a, T>(x: &'a T, y: &'a T) -> &'a T
+            // are valid syntax. They are not stored in genericTypeParams (which
+            // governs type-name substitution) — the borrow checker reads BorrowNode
+            // / RefType lifetimes directly to validate their scopes.
+            if (_currentToken.Type == TokenType.LIFETIME)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+            else if (_currentToken.Type == TokenType.IDENTIFIER)
+            {
+                genericTypeParams.Add(_currentToken.Value?.ToString() ?? "");
+                res.RegisterAdvancement();
+                Advance();
+            }
+            else
+            {
+                return res.Failure(ParserDiagnostics.ExpectedGenericParamName(_currentToken));
+            }
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            while (_currentToken.Type == TokenType.COMMA)
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type == TokenType.LIFETIME)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+                else
+                {
+                    if (_currentToken.Type != TokenType.IDENTIFIER)
+                        return res.Failure(ParserDiagnostics.ExpectedGenericParamName(_currentToken));
+
+                    var name = _currentToken.Value?.ToString() ?? "";
+                    if (genericTypeParams.Contains(name))
+                        return res.Failure(ParserDiagnostics.DuplicateGenericParam(name, _currentToken.PositionStart, _currentToken.PositionEnd));
+
+                    genericTypeParams.Add(name);
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+            }
+
+            if (_currentToken.Type != TokenType.GT)
+                return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '>', '<', context: "the generic type parameter list"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            return res.Success(null);
+        }
+
+        // Parses an optional explicit closure-capture list: `[x, &y, &mut z, move w]`.
+        // Returns Success(null) with `captureList == null` if no `[` is present —
+        // the function then uses the legacy implicit lexical closure. Returns
+        // Success(null) with a non-null `captureList` after the closing `]` is
+        // consumed when one was present.
+        //
+        // Spec syntax per entry:
+        //   identifier            → CaptureMode.ByValue (snapshot)
+        //   '&' identifier        → CaptureMode.ByRef (shared borrow)
+        //   '&' 'mut' identifier  → CaptureMode.ByRef with IsMutableBorrow=true
+        //   'move' identifier     → CaptureMode.ByMove (transfer ownership)
+        private ParserResult ParseOptionalCaptureList(out List<CaptureSpec>? captureList)
+        {
+            var res = new ParserResult();
+            captureList = null;
+
+            if (_currentToken.Type != TokenType.LSQUARE)
+                return res.Success(null);
+
+            res.RegisterAdvancement();
+            Advance();
+
+            var list = new List<CaptureSpec>();
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            // Empty capture list `[]` is a legal, explicit "capture nothing".
+            if (_currentToken.Type == TokenType.RSQUARE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+                captureList = list;
+                return res.Success(null);
+            }
+
+            var firstErr = ParseSingleCaptureSpec(res, list);
+            if (firstErr != null) return res.Failure(firstErr);
+
+            while (true)
+            {
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type != TokenType.COMMA) break;
+
+                res.RegisterAdvancement();
+                Advance();
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                var nextErr = ParseSingleCaptureSpec(res, list);
+                if (nextErr != null) return res.Failure(nextErr);
+            }
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            if (_currentToken.Type != TokenType.RSQUARE)
+                return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, ']', '[', context: "the closure capture list"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            captureList = list;
+            return res.Success(null);
+        }
+
+        // Reads one capture-spec entry and appends it to `list`. Returns a
+        // diagnostic Error on shape failure (no identifier where one was
+        // required). Caller-style: takes the active ParserResult so token
+        // advancements are accounted for in the surrounding helper.
+        private RaLanguage.Errors.Error? ParseSingleCaptureSpec(ParserResult res, List<CaptureSpec> list)
+        {
+            var mode = CaptureMode.ByValue;
+            bool isMutBorrow = false;
+
+            if (_currentToken.Type == TokenType.BITWISE_AND)
+            {
+                mode = CaptureMode.ByRef;
+                res.RegisterAdvancement();
+                Advance();
+
+                if (_currentToken.Matches(Keyword.Mut))
+                {
+                    isMutBorrow = true;
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+            }
+            else if (_currentToken.Matches(Keyword.Move))
+            {
+                mode = CaptureMode.ByMove;
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            if (_currentToken.Type != TokenType.IDENTIFIER)
+                return ParserDiagnostics.ExpectedIdentifier(_currentToken, after: "capture-list element",
+                    help: "each capture must name an outer binding, optionally prefixed with '&', '&mut', or 'move'");
+
+            var nameTok = _currentToken;
+            list.Add(new CaptureSpec(nameTok, mode, isMutBorrow));
+            res.RegisterAdvancement();
+            Advance();
+            return null;
+        }
+
+        private ParserResult ParseOptionalWhereClause(List<string> genericTypeParams, out List<WhereConstraintNode> constraints)
+        {
+            var res = new ParserResult();
+            constraints = new List<WhereConstraintNode>();
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            if (!_currentToken.Matches(Keyword.Where))
+                return res.Success(null);
+
+            if (genericTypeParams == null || genericTypeParams.Count == 0)
+                return res.Failure(ParserDiagnostics.WhereClauseRequiresGeneric(_currentToken.PositionStart, _currentToken.PositionEnd));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            while (true)
+            {
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type != TokenType.IDENTIFIER)
+                    return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
+                        after: "'where'",
+                        help: "the 'where' clause constrains one of the declared generic parameters"));
+
+                var paramTok = _currentToken;
+                var paramName = paramTok.Value?.ToString() ?? "";
+
+                if (!genericTypeParams.Contains(paramName))
+                    return res.Failure(ParserDiagnostics.UnknownGenericParam(paramName, paramTok.PositionStart, paramTok.PositionEnd));
+
+                if (constraints.Any(c => string.Equals(c.ParameterName, paramName, StringComparison.Ordinal)))
+                    return res.Failure(ParserDiagnostics.DuplicateWhereConstraint(paramName, paramTok.PositionStart, paramTok.PositionEnd));
+
+                res.RegisterAdvancement();
+                Advance();
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type != TokenType.COLON)
+                    return res.Failure(ParserDiagnostics.ExpectedColon(_currentToken,
+                        context: "after the parameter name in a 'where' clause"));
+
+                res.RegisterAdvancement();
+                Advance();
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                var constraintType = ParseType(res);
+                if (constraintType == null)
+                    return res.Failure(ParserDiagnostics.ExpectedTypeAfterColon(_currentToken, where: "a 'where' clause constraint"));
+
+                constraints.Add(new WhereConstraintNode(paramTok, constraintType));
+
+                if (_currentToken.Type == TokenType.COMMA)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                    continue;
+                }
+
+                break;
+            }
+
+            return res.Success(null);
+        }
+
+    }
+}

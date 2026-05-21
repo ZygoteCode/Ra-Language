@@ -11,6 +11,44 @@ namespace RaLanguage.Interpreter.Runtime
         private Dictionary<string, SymbolEntry> _symbols = new();
         public SymbolTable? Parent { get; private set; }
 
+        // Optional slot-indexed view of the local entries. Populated only when
+        // the resolver pipeline + a visitor opt in: declarations carry a
+        // BindingId allocated by Interpreter.Pipeline.Resolver, and the visitor
+        // can route hot accesses through GetEntryBySlot(offset) to bypass the
+        // dictionary lookup entirely. The slot array stays null on tables that
+        // never opt in, so unmodified visitors keep their existing fast path
+        // (dict + inline cache via SymbolLookupCache) untouched.
+        //
+        // Invariants when non-null:
+        //   * Slots[i] is either null (offset i not allocated in this table) or
+        //     points to the same SymbolEntry as _symbols[name] for the name the
+        //     resolver assigned to (frame_id, i).
+        //   * The array grows monotonically; entries are never reordered.
+        //   * The frame_id half of a BindingId is owned by the resolver and is
+        //     not stored here — the runtime treats slots as "anonymous offsets
+        //     into this table". Two tables can both own offset 0 without
+        //     conflict: they belong to different BindingId.FrameIds.
+        private List<SymbolEntry>? _slots;
+
+        public SymbolEntry? GetEntryBySlot(int offset)
+        {
+            var slots = _slots;
+            if (slots == null || (uint)offset >= (uint)slots.Count) return null;
+            return slots[offset];
+        }
+
+        // Append-only slot registration. Returns the offset assigned. The
+        // caller is responsible for keeping `name` and `entry` in agreement
+        // with the dictionary; declaration-style call sites should already
+        // hold an entry created by the standard SetLocal* path.
+        public int RegisterSlot(SymbolEntry entry)
+        {
+            _slots ??= new List<SymbolEntry>();
+            int offset = _slots.Count;
+            _slots.Add(entry);
+            return offset;
+        }
+
         // Bumps whenever the local key set changes (add or remove). Pure value
         // mutations on an existing SymbolEntry (Value, IsLet, ...) do NOT bump,
         // because the SymbolEntry pointer remains valid — and that's exactly what

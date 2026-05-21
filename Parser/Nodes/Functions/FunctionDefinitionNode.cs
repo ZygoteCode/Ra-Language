@@ -1,4 +1,5 @@
-﻿using RaLanguage.Lexer.Tokens;
+﻿using RaLanguage.Interpreter.Pipeline;
+using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes.Annotations;
 using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Types;
@@ -7,6 +8,14 @@ namespace RaLanguage.Parser.Nodes.Functions
 {
     public sealed class FunctionDefinitionNode : AstNode, ICallableMethodDefinition
     {
+        // Resolver output. FrameId is the 16-bit identifier of this function's
+        // frame, ParamBindings[i] is the slot allocated to parameter i, and
+        // ResolvedCaptures lists every outer binding the body actually
+        // references — the static capture set that closure machinery can use to
+        // materialise upvalues without scanning the implicit lexical chain.
+        public int FrameId = -1;
+        public BindingId[]? ParamBindings;
+        public List<ResolvedCapture>? ResolvedCaptures;
         public Token? VarNameTok { get; }
         public List<Token> ArgNameToks { get; }
 
