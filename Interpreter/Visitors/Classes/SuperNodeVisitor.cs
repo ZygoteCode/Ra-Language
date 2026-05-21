@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors.Types;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
@@ -10,7 +11,7 @@ namespace RaLanguage.Interpreter.Visitors.Classes
 {
     public class SuperNodeVisitor : NodeVisitor<SuperNode>
     {
-        protected override RuntimeResult VisitNode(SuperNode node, Context context, IInterpreter interpreter)
+        protected override async ValueTask<RuntimeResult> VisitNode(SuperNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

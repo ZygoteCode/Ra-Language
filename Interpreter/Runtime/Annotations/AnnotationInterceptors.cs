@@ -1,3 +1,5 @@
+using RaLanguage.Interpreter.Runtime.Async;
+using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Linq;
 using RaLanguage.Errors;
@@ -40,12 +42,12 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
                     .SetContext(context)
                     .SetPos(ann.ApplicationStart, ann.ApplicationEnd);
 
-                var execRes = bfn.Execute(new List<RuntimeValue>
+                var execRes = SyncAwait.Get(bfn.Execute(new List<RuntimeValue>
                 {
                     new StringValue(calleeName).SetContext(context).SetPos(ann.ApplicationStart, ann.ApplicationEnd),
                     argsList,
                     ann
-                });
+                }));
                 if (execRes.Error != null) return execRes.Error;
             }
             return null;
@@ -67,12 +69,12 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
                 var handler = context.SymbolTable.Get(afterFn);
                 if (handler is not BaseFunctionValue bfn) continue;
 
-                var execRes = bfn.Execute(new List<RuntimeValue>
+                var execRes = SyncAwait.Get(bfn.Execute(new List<RuntimeValue>
                 {
                     new StringValue(calleeName).SetContext(context).SetPos(ann.ApplicationStart, ann.ApplicationEnd),
                     result,
                     ann
-                });
+                }));
                 if (execRes.Error != null) return execRes.Error;
             }
             return null;

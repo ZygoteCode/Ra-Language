@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
@@ -19,11 +20,11 @@ namespace RaLanguage.Interpreter.Visitors.Patterns
     // loops, and async fibers.
     public class TryUnwrapNodeVisitor : NodeVisitor<TryUnwrapNode>
     {
-        protected sealed override RuntimeResult VisitNode(TryUnwrapNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(TryUnwrapNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
-            var value = res.Register(interpreter.Visit(node.Target, context));
+            var value = res.Register(await interpreter.Visit(node.Target, context));
             if (res.ShouldReturn()) return res;
 
             if (value is not EnumValue ev || !string.Equals(ev.EnumName, "Result", System.StringComparison.Ordinal))
@@ -44,13 +45,13 @@ namespace RaLanguage.Interpreter.Visitors.Patterns
                         $"Result.Ok payload arity {ev.Payload.Count} is unexpected",
                         context, code: DiagnosticCode.RuntimeTypeMismatch));
                 }
-                return res.Success(ev.Payload[0].Copy().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                return res.Success(ev.Payload[0].Aliased().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
             }
 
             if (string.Equals(ev.MemberName, "Err", System.StringComparison.Ordinal))
             {
                 // Early return Result.Err(e) via the standard return channel.
-                return res.SuccessReturn(value.Copy().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                return res.SuccessReturn(value.Aliased().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
             }
 
             return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,

@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -63,6 +64,9 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             BuiltInRegistry.Register("base_class", BaseClass);
             BuiltInRegistry.Register("super_classes", SuperClasses);
             BuiltInRegistry.Register("traits_of", TraitsOf);
+            BuiltInRegistry.Register("is_subclass_of", IsSubclassOf);
+            BuiltInRegistry.Register("implements", Implements);
+            BuiltInRegistry.Register("interfaces_of", InterfacesOf);
             BuiltInRegistry.Register("fields_of", FieldsOf);
             BuiltInRegistry.Register("static_fields_of", StaticFieldsOf);
             BuiltInRegistry.Register("methods_of", MethodsOf);
@@ -210,6 +214,94 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             if (AsClassType(args[0]) is ClassTypeValue ct)
             {
                 foreach (var t in ct.Traits) list.Add(t);
+            }
+            return Ok(new ListValue(list), ctx, p1, p2);
+        }
+
+        // is_subclass_of(child, parent) — true if `child` (a class type or an
+        // instance) inherits from `parent` (a class type). Walks the BaseClass
+        // chain by reference equality. A class is NOT considered a subclass of
+        // itself; callers needing reflexive comparison should `||` an explicit
+        // identity check. (Matches the conventional "strict subclass" semantic
+        // used by e.g. Python's issubclass — though Python's variant is
+        // reflexive; we expose the strict form as the primitive and let users
+        // build the reflexive form on top.)
+        private static RuntimeResult IsSubclassOf(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("is_subclass_of", args, 2, ctx, p1, p2, out var err)) return err;
+            var child = AsClassType(args[0]);
+            var parent = AsClassType(args[1]);
+            if (child == null || parent == null) return Ok(MakeBool(false), ctx, p1, p2);
+
+            var cur = child.BaseClass;
+            while (cur != null)
+            {
+                if (ReferenceEquals(cur, parent)) return Ok(MakeBool(true), ctx, p1, p2);
+                cur = cur.BaseClass;
+            }
+            return Ok(MakeBool(false), ctx, p1, p2);
+        }
+
+        // implements(type, iface_or_trait) — true if `type` (class type or
+        // instance) satisfies the interface or trait `iface_or_trait`. For
+        // interfaces this delegates to the structural-compatibility check in
+        // ClassTypeValue.ImplementsInterface. For traits it checks by
+        // reference equality against the class's declared Traits list.
+        private static RuntimeResult Implements(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("implements", args, 2, ctx, p1, p2, out var err)) return err;
+            var ct = AsClassType(args[0]);
+            if (ct == null) return Ok(MakeBool(false), ctx, p1, p2);
+
+            if (args[1] is InterfaceTypeValue iface)
+            {
+                return Ok(MakeBool(ct.ImplementsInterface(iface)), ctx, p1, p2);
+            }
+
+            if (args[1] is TraitTypeValue trait)
+            {
+                var cur = ct;
+                while (cur != null)
+                {
+                    foreach (var t in cur.Traits)
+                    {
+                        if (ReferenceEquals(t, trait)) return Ok(MakeBool(true), ctx, p1, p2);
+                    }
+                    cur = cur.BaseClass;
+                }
+                return Ok(MakeBool(false), ctx, p1, p2);
+            }
+
+            return Ok(MakeBool(false), ctx, p1, p2);
+        }
+
+        // interfaces_of(type) — lists the interface types this class
+        // structurally satisfies. Built by scanning the global symbol table
+        // for interface declarations and probing each with the existing
+        // structural check. (Ra has no explicit `implements` clause on
+        // classes; conformance is checked at use sites. This builtin makes
+        // that probe accessible at runtime for reflection.)
+        private static RuntimeResult InterfacesOf(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("interfaces_of", args, 1, ctx, p1, p2, out var err)) return err;
+            var list = new List<RuntimeValue>();
+            var ct = AsClassType(args[0]);
+            if (ct == null) return Ok(new ListValue(list), ctx, p1, p2);
+
+            // Walk every reachable symbol scope and collect interfaces. Use a
+            // set to avoid duplicates when interfaces shadow each other.
+            var seen = new HashSet<InterfaceTypeValue>();
+            var st = ctx?.SymbolTable;
+            while (st != null)
+            {
+                foreach (var kv in st.LocalDict)
+                {
+                    if (kv.Value.Value is InterfaceTypeValue iv && seen.Add(iv) && ct.ImplementsInterface(iv))
+                    {
+                        list.Add(iv);
+                    }
+                }
+                st = st.Parent;
             }
             return Ok(new ListValue(list), ctx, p1, p2);
         }

@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using System.Collections.Generic;
 using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Lexer;

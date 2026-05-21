@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Interpreter.Architecture;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Primitives;
@@ -9,10 +10,10 @@ namespace RaLanguage.Interpreter.Visitors.Special
 {
     public class TypeofNodeVisitor : NodeVisitor<TypeofNode>
     {
-        protected sealed override RuntimeResult VisitNode(TypeofNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(TypeofNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
-            var value = res.Register(interpreter.Visit(node.Node, context));
+            var value = res.Register(await interpreter.Visit(node.Node, context));
             if (res.ShouldReturn()) return res;
 
             string type = value.Type switch

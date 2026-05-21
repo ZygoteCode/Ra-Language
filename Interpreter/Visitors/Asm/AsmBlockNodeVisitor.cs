@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Runtime.InteropServices;
@@ -8,6 +9,7 @@ using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Asm;
+using RaLanguage.Interpreter.Runtime.Async;
 using RaLanguage.Interpreter.Runtime.Interop;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Primitives;
@@ -27,7 +29,7 @@ namespace RaLanguage.Interpreter.Visitors.Asm
     /// </summary>
     public sealed class AsmBlockNodeVisitor : NodeVisitor<AsmBlockNode>
     {
-        protected sealed override RuntimeResult VisitNode(AsmBlockNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(AsmBlockNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
@@ -56,7 +58,7 @@ namespace RaLanguage.Interpreter.Visitors.Asm
                     evalPart = ip.Expr;
                 }
 
-                var val = res.Register(interpreter.Visit(evalPart, context));
+                var val = res.Register(await interpreter.Visit(evalPart, context));
                 if (res.ShouldReturn()) return res;
                 if (val == null)
                 {
@@ -84,7 +86,7 @@ namespace RaLanguage.Interpreter.Visitors.Asm
                 {
                     var fn = AsmFunctionFactory.Create("<asm-inline>", addr, signature);
                     RuntimeResult execRes = default;
-                    AsmSehGuard.RunVoid(() => execRes = fn.Execute(new List<RuntimeValue>()));
+                    AsmSehGuard.RunVoid(() => execRes = SyncAwait.Get(fn.Execute(new List<RuntimeValue>())));
                     if (execRes.Error != null) return res.Failure(execRes.Error);
                     var value = execRes.Value ?? new LongValue(0);
                     return res.Success(value.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));

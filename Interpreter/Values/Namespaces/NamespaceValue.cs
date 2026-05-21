@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Namespaces;
 

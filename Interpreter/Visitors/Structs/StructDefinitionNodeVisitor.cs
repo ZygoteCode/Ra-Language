@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors.Types;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
@@ -11,7 +12,7 @@ namespace RaLanguage.Interpreter.Visitors.Structs
 {
     public class StructDefinitionNodeVisitor : NodeVisitor<StructDefinitionNode>
     {
-        protected sealed override RuntimeResult VisitNode(StructDefinitionNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(StructDefinitionNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var name = node.NameTok.Value?.ToString() ?? "";

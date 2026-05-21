@@ -1251,7 +1251,8 @@ namespace RaLanguage.Lexer
                 { "namespace", Keyword.Namespace },
                 { "using", Keyword.Using },
                 { "asm", Keyword.Asm },
-                { "mut", Keyword.Mut }
+                { "mut", Keyword.Mut },
+                { "move", Keyword.Move }
             };
         }
 

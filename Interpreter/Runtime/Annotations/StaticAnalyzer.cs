@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Threading.Tasks;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;

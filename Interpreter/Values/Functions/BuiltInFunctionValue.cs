@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Threading.Tasks;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
@@ -13,7 +14,7 @@ namespace RaLanguage.Interpreter.Values.Functions
         public BuiltInFunctionValue(string name) : base(name) { }
 
 
-        public sealed override RuntimeResult Execute(List<RuntimeValue> args)
+        public sealed override async ValueTask<RuntimeResult> Execute(List<RuntimeValue> args)
         {
             var res = new RuntimeResult();
             var execCtx = GenerateNewContext();
@@ -289,7 +290,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             if (found != null)
             {
                 var v = found.Get(keyStr);
-                if (v != null) return new RuntimeResult().Success(v.Copy().SetContext(ctx).SetPos(PositionStart, PositionEnd));
+                if (v != null) return new RuntimeResult().Success(v.Aliased().SetContext(ctx).SetPos(PositionStart, PositionEnd));
             }
             return new RuntimeResult().Success(NullValue.Null.SetContext(ctx).SetPos(PositionStart, PositionEnd));
         });
@@ -367,7 +368,7 @@ namespace RaLanguage.Interpreter.Values.Functions
             var (newVal, err) = AnnotationValidator.CoerceTarget(ks.Value, val, ks.Value, c);
             if (err != null)
                 return new RuntimeResult().Failure(err);
-            return new RuntimeResult().Success(newVal.Copy().SetContext(ctx).SetPos(PositionStart, PositionEnd));
+            return new RuntimeResult().Success(newVal.Aliased().SetContext(ctx).SetPos(PositionStart, PositionEnd));
         });
 
         private static string? ResolveMetadataKey(RuntimeValue target)

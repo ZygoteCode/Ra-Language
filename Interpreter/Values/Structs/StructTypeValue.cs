@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using System.Threading.Tasks;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
@@ -97,10 +98,10 @@ namespace RaLanguage.Interpreter.Values.Structs
         public StructFieldDefinitionNode? GetField(string name)
             => Fields.FirstOrDefault(f => string.Equals(f.NameTok.Value?.ToString(), name, StringComparison.Ordinal));
 
-        public sealed override RuntimeResult Execute(List<RuntimeValue> args)
-            => ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
+        public sealed override async ValueTask<RuntimeResult> Execute(List<RuntimeValue> args)
+            => await ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
 
-        public RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
+        public async ValueTask<RuntimeResult> ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
         {
             var res = new RuntimeResult();
 
@@ -114,7 +115,7 @@ namespace RaLanguage.Interpreter.Values.Structs
 
                 if (field.DefaultValueNode != null)
                 {
-                    var initRes = new Interpreter().Visit(field.DefaultValueNode, Context);
+                    var initRes = await new Interpreter().Visit(field.DefaultValueNode, Context);
                     if (initRes.Error != null) return res.Failure(initRes.Error);
                     fieldValue = initRes.Value ?? fieldValue;
                 }
@@ -137,7 +138,7 @@ namespace RaLanguage.Interpreter.Values.Structs
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
 
-            var callRes = boundCtor.ExecuteWithNamedArgs(positionalArgs, namedArgs);
+            var callRes = await boundCtor.ExecuteWithNamedArgs(positionalArgs, namedArgs);
             if (callRes.Error != null) return callRes;
 
             return res.Success(instance);

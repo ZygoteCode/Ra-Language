@@ -188,7 +188,11 @@ namespace RaLanguage
             var interpreter = new Interpreter.Interpreter();
             var context = new Context(fn);
             context.SymbolTable = GlobalSymbolTable;
-            var result = interpreter.Visit(parseResult.Node, context);
+            // Top-level host frame: this is the only place we honour
+            // sync-over-async. Internal `await` expressions inside the
+            // program now suspend the visitor chain via real ValueTask
+            // continuations instead of pinning a worker.
+            var result = interpreter.VisitBlocking(parseResult.Node, context);
 
             return (result.Value, result.Error);
         }

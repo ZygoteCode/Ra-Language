@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors.Types;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Namespaces;
@@ -13,7 +14,7 @@ namespace RaLanguage.Interpreter.Visitors.Namespaces
 {
     public class NamespaceDeclarationNodeVisitor : NodeVisitor<NamespaceDeclarationNode>
     {
-        protected sealed override RuntimeResult VisitNode(
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(
             NamespaceDeclarationNode node,
             Context context,
             IInterpreter interpreter)
@@ -82,7 +83,7 @@ namespace RaLanguage.Interpreter.Visitors.Namespaces
             var statements = ExtractStatements(node.Body);
             foreach (var stmt in statements)
             {
-                var stmtRes = interpreter.Visit(stmt, bodyContext);
+                var stmtRes = await interpreter.Visit(stmt, bodyContext);
                 if (stmtRes.Error != null) return res.Failure(stmtRes.Error);
                 if (stmtRes.FuncReturnValue != null)
                 {

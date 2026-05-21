@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using System.Globalization;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;

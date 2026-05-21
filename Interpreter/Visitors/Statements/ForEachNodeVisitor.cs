@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
@@ -9,7 +10,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 {
     public class ForEachNodeVisitor : NodeVisitor<ForEachNode>
     {
-        protected sealed override RuntimeResult VisitNode(ForEachNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(ForEachNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             string varName = node.VarNameToken.Value?.ToString();
@@ -20,7 +21,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 
             var loopContext = context.Copy();
             var loopSymbols = loopContext.SymbolTable!;
-            var collection = res.Register(interpreter.Visit(node.CollectionNode, loopContext));
+            var collection = res.Register(await interpreter.Visit(node.CollectionNode, loopContext));
             if (res.Error != null) return res;
 
             if (collection.Type != RuntimeValueType.List && collection.Type != RuntimeValueType.Set && collection.Type != RuntimeValueType.Map && collection.Type != RuntimeValueType.Tuple)
@@ -47,7 +48,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 for (int idx = 0; idx < elements.Count; idx++)
                 {
                     iterEntry!.Value = elements[idx];
-                    if (ExecuteBody(node, bodyContext, bodySymbols, interpreter, res)) return res;
+                    if (await ExecuteBody(node, bodyContext, bodySymbols, interpreter, res)) return res;
                     if (res.LoopShouldBreak) break;
                 }
             }
@@ -56,7 +57,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 foreach (var element in ((SetValue)collection).Elements)
                 {
                     iterEntry!.Value = element;
-                    if (ExecuteBody(node, bodyContext, bodySymbols, interpreter, res)) return res;
+                    if (await ExecuteBody(node, bodyContext, bodySymbols, interpreter, res)) return res;
                     if (res.LoopShouldBreak) break;
                 }
             }
@@ -66,7 +67,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 for (int idx = 0; idx < elements.Count; idx++)
                 {
                     iterEntry!.Value = elements[idx];
-                    if (ExecuteBody(node, bodyContext, bodySymbols, interpreter, res)) return res;
+                    if (await ExecuteBody(node, bodyContext, bodySymbols, interpreter, res)) return res;
                     if (res.LoopShouldBreak) break;
                 }
             }
@@ -77,7 +78,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 {
                     var pair = pairs[idx];
                     iterEntry!.Value = new TupleValue(new System.Collections.Generic.List<RuntimeValue> { pair.Key, pair.Value });
-                    if (ExecuteBody(node, bodyContext, bodySymbols, interpreter, res)) return res;
+                    if (await ExecuteBody(node, bodyContext, bodySymbols, interpreter, res)) return res;
                     if (res.LoopShouldBreak) break;
                 }
             }
@@ -88,11 +89,11 @@ namespace RaLanguage.Interpreter.Visitors.Statements
             return res.Success(NullValue.Null);
         }
 
-        private static bool ExecuteBody(ForEachNode node, Context bodyContext, RaLanguage.Interpreter.Runtime.SymbolTable bodySymbols, IInterpreter interpreter, RuntimeResult res)
+        private static async ValueTask<bool> ExecuteBody(ForEachNode node, Context bodyContext, RaLanguage.Interpreter.Runtime.SymbolTable bodySymbols, IInterpreter interpreter, RuntimeResult res)
         {
             bodySymbols.Clear();
             bodyContext.ScopeSkipCopy = true;
-            res.Register(interpreter.Visit(node.BodyNode, bodyContext));
+            res.Register(await interpreter.Visit(node.BodyNode, bodyContext));
             if (res.Error != null) return true;
 
             if (res.LoopShouldContinue) return false;

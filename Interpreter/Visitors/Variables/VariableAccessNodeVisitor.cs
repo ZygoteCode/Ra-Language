@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors;
+using System.Threading.Tasks;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
@@ -9,7 +10,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
 {
     public class VariableAccessNodeVisitor : NodeVisitor<VariableAccessNode>
     {
-        protected sealed override RuntimeResult VisitNode(VariableAccessNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(VariableAccessNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
@@ -89,7 +90,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                 return res.Success(value.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
             }
 
-            var valueToReturn = entry.Value.IsCopy ? entry.Value.Copy() : entry.Value;
+            var valueToReturn = entry.Value.Aliased();
             return res.Success(valueToReturn.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
     }

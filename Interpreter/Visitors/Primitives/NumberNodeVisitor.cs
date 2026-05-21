@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
@@ -8,7 +9,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
 {
     public class NumberNodeVisitor : NodeVisitor<NumberNode>
     {
-        protected sealed override RuntimeResult VisitNode(NumberNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(NumberNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

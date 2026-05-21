@@ -18,7 +18,7 @@ namespace RaLanguage.Interpreter.Runtime.Async
         //                     get distinct cancellation scopes)
         // The previous design also allocated a Task.Run lambda + display class which
         // are now both eliminated.
-        public static RaTaskCore Schedule(string name, AsyncContext? parentAsync, Func<AsyncContext, ValueResult> body)
+        public static RaTaskCore Schedule(string name, AsyncContext? parentAsync, Func<AsyncContext, ValueTask<ValueResult>> body)
         {
             var childScope = new CancellationScope(parentAsync?.CancellationScope);
             var task = new RaTaskCore(childScope, parentAsync?.CurrentTask, name);
@@ -33,6 +33,16 @@ namespace RaLanguage.Interpreter.Runtime.Async
             FiberExecutorRegistry.Current.Queue(task);
 
             return task;
+        }
+
+        // Convenience overload for callers that have a sync body. Wraps it in
+        // a synchronously-completed ValueTask so the scheduler path stays
+        // single-shape. The lambda must not contain any blocking await of an
+        // Ra task — sync bodies are appropriate only when the underlying
+        // computation is pure CPU / IO-free.
+        public static RaTaskCore Schedule(string name, AsyncContext? parentAsync, Func<AsyncContext, ValueResult> syncBody)
+        {
+            return Schedule(name, parentAsync, ctx => new ValueTask<ValueResult>(syncBody(ctx)));
         }
 
         // Cold path: schedules a task that completes after `delayMs` via a Timer,

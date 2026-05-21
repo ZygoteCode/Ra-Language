@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Interpreter.Architecture;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Parser.Nodes.Special;
@@ -7,7 +8,7 @@ namespace RaLanguage.Interpreter.Visitors.Special
 {
     public class ScopeNodeVisitor : NodeVisitor<ScopeNode>
     {
-        protected sealed override RuntimeResult VisitNode(ScopeNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(ScopeNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
@@ -29,7 +30,7 @@ namespace RaLanguage.Interpreter.Visitors.Special
             var nodes = node.Nodes;
             for (int i = 0; i < nodes.Count; i++)
             {
-                res.Register(interpreter.Visit(nodes[i], newContext));
+                res.Register(await interpreter.Visit(nodes[i], newContext));
 
                 if (res.FuncReturnValue != null)
                 {

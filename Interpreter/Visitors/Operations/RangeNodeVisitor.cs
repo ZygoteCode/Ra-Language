@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors.Types;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
@@ -10,16 +11,16 @@ namespace RaLanguage.Interpreter.Visitors.Operations
 {
     public class RangeNodeVisitor : NodeVisitor<RangeNode>
     {
-        protected sealed override RuntimeResult VisitNode(RangeNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(RangeNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
-            var start = res.Register(interpreter.Visit(node.Start, context));
+            var start = res.Register(await interpreter.Visit(node.Start, context));
             if (res.ShouldReturn()) return res;
 
             if (start.Type != RuntimeValueType.Number)
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Start value should be a number", context));
 
-            var end = res.Register(interpreter.Visit(node.End, context));
+            var end = res.Register(await interpreter.Visit(node.End, context));
             if (res.ShouldReturn()) return res;
 
             if (end.Type != RuntimeValueType.Number)
@@ -29,7 +30,7 @@ namespace RaLanguage.Interpreter.Visitors.Operations
 
             if (node.Step != null)
             {
-                step = res.Register(interpreter.Visit(node.Step, context));
+                step = res.Register(await interpreter.Visit(node.Step, context));
                 if (res.ShouldReturn()) return res;
 
                 if (step.Type != RuntimeValueType.Number)

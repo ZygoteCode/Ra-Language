@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors.Types;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
@@ -11,7 +12,7 @@ namespace RaLanguage.Interpreter.Visitors.Traits
 {
     public class TraitDefinitionNodeVisitor : NodeVisitor<TraitDefinitionNode>
     {
-        protected override RuntimeResult VisitNode(TraitDefinitionNode node, Context context, IInterpreter interpreter)
+        protected override async ValueTask<RuntimeResult> VisitNode(TraitDefinitionNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var traitName = node.NameTok.Value?.ToString() ?? "";

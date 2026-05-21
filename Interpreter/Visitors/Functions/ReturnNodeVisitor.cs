@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Interpreter.Architecture;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Primitives;
@@ -10,7 +11,7 @@ namespace RaLanguage.Interpreter.Visitors.Functions
 {
     public class ReturnNodeVisitor : NodeVisitor<ReturnNode>
     {
-        protected sealed override RuntimeResult VisitNode(ReturnNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(ReturnNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             RuntimeValue value = NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
@@ -27,7 +28,7 @@ namespace RaLanguage.Interpreter.Visitors.Functions
                 }
                 else
                 {
-                    value = res.Register(interpreter.Visit(node.NodeToReturn, context));
+                    value = res.Register(await interpreter.Visit(node.NodeToReturn, context));
                     if (res.ShouldReturn()) return res;
                 }
             }

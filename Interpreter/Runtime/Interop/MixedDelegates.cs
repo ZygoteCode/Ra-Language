@@ -1,4 +1,5 @@
 // AUTO-GENERATED: mixed int/float delegate matrix up to N=4
+using System.Threading.Tasks;
 using System;
 using System.Runtime.InteropServices;
 

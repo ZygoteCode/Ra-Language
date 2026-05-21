@@ -1,4 +1,6 @@
 ﻿using System;
+using RaLanguage.Interpreter.Runtime.Async;
+using System.Threading.Tasks;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -585,7 +587,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
                     {
                         try
                         {
-                            var r = bfv.Execute(callArgs);
+                            var r = SyncAwait.Get(bfv.Execute(callArgs));
                             if (r.Error != null) return ((RuntimeValue?)null, (Error?)r.Error);
                             return ((RuntimeValue?)(r.Value ?? NullValue.Null), (Error?)null);
                         }
@@ -609,7 +611,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
                 if (e != null) return Fail(ctx, p1, p2, e);
                 try
                 {
-                    var r = bodyFn.Execute(new List<RuntimeValue> { handle });
+                    var r = SyncAwait.Get(bodyFn.Execute(new List<RuntimeValue> { handle }));
                     if (r.Error != null) return new RuntimeResult().Failure(r.Error);
                     return Ok(r.Value ?? NullValue.Null, ctx, p1, p2);
                 }

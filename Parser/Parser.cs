@@ -739,6 +739,127 @@ namespace RaLanguage.Parser
             return res.Success(null);
         }
 
+        // Parses an optional explicit closure-capture list: `[x, &y, &mut z, move w]`.
+        // Returns Success(null) with `captureList == null` if no `[` is present —
+        // the function then uses the legacy implicit lexical closure. Returns
+        // Success(null) with a non-null `captureList` after the closing `]` is
+        // consumed when one was present.
+        //
+        // Spec syntax per entry:
+        //   identifier            → CaptureMode.ByValue (snapshot)
+        //   '&' identifier        → CaptureMode.ByRef (shared borrow)
+        //   '&' 'mut' identifier  → CaptureMode.ByRef with IsMutableBorrow=true
+        //   'move' identifier     → CaptureMode.ByMove (transfer ownership)
+        private ParserResult ParseOptionalCaptureList(out List<CaptureSpec>? captureList)
+        {
+            var res = new ParserResult();
+            captureList = null;
+
+            if (_currentToken.Type != TokenType.LSQUARE)
+                return res.Success(null);
+
+            res.RegisterAdvancement();
+            Advance();
+
+            var list = new List<CaptureSpec>();
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            // Empty capture list `[]` is a legal, explicit "capture nothing".
+            if (_currentToken.Type == TokenType.RSQUARE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+                captureList = list;
+                return res.Success(null);
+            }
+
+            var firstErr = ParseSingleCaptureSpec(res, list);
+            if (firstErr != null) return res.Failure(firstErr);
+
+            while (true)
+            {
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type != TokenType.COMMA) break;
+
+                res.RegisterAdvancement();
+                Advance();
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                var nextErr = ParseSingleCaptureSpec(res, list);
+                if (nextErr != null) return res.Failure(nextErr);
+            }
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            if (_currentToken.Type != TokenType.RSQUARE)
+                return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, ']', '[', context: "the closure capture list"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            captureList = list;
+            return res.Success(null);
+        }
+
+        // Reads one capture-spec entry and appends it to `list`. Returns a
+        // diagnostic Error on shape failure (no identifier where one was
+        // required). Caller-style: takes the active ParserResult so token
+        // advancements are accounted for in the surrounding helper.
+        private RaLanguage.Errors.Error? ParseSingleCaptureSpec(ParserResult res, List<CaptureSpec> list)
+        {
+            var mode = CaptureMode.ByValue;
+            bool isMutBorrow = false;
+
+            if (_currentToken.Type == TokenType.BITWISE_AND)
+            {
+                mode = CaptureMode.ByRef;
+                res.RegisterAdvancement();
+                Advance();
+
+                if (_currentToken.Matches(Keyword.Mut))
+                {
+                    isMutBorrow = true;
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+            }
+            else if (_currentToken.Matches(Keyword.Move))
+            {
+                mode = CaptureMode.ByMove;
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            if (_currentToken.Type != TokenType.IDENTIFIER)
+                return ParserDiagnostics.ExpectedIdentifier(_currentToken, after: "capture-list element",
+                    help: "each capture must name an outer binding, optionally prefixed with '&', '&mut', or 'move'");
+
+            var nameTok = _currentToken;
+            list.Add(new CaptureSpec(nameTok, mode, isMutBorrow));
+            res.RegisterAdvancement();
+            Advance();
+            return null;
+        }
+
         private ParserResult ParseOptionalWhereClause(List<string> genericTypeParams, out List<WhereConstraintNode> constraints)
         {
             var res = new ParserResult();
@@ -5573,6 +5694,7 @@ namespace RaLanguage.Parser
 
             Token? varNameTok = null;
             var genericTypeParams = new List<string>();
+            List<CaptureSpec>? captureList = null;
 
             while (_currentToken.Type == TokenType.NEWLINE)
             {
@@ -5601,6 +5723,15 @@ namespace RaLanguage.Parser
                     Advance();
                 }
 
+                res.Register(ParseOptionalCaptureList(out captureList));
+                if (res.Error != null) return res;
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
                 if (_currentToken.Type != TokenType.LPAREN)
                     return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '('));
             }
@@ -5615,11 +5746,29 @@ namespace RaLanguage.Parser
                     Advance();
                 }
 
+                res.Register(ParseOptionalCaptureList(out captureList));
+                if (res.Error != null) return res;
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
                 if (_currentToken.Type != TokenType.LPAREN)
                     return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '(', context: "the parameter list (after the generic type parameters)"));
             }
             else
             {
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                res.Register(ParseOptionalCaptureList(out captureList));
+                if (res.Error != null) return res;
+
                 while (_currentToken.Type == TokenType.NEWLINE)
                 {
                     res.RegisterAdvancement();
@@ -5949,7 +6098,8 @@ namespace RaLanguage.Parser
                     isAbstract,
                     isStatic,
                     whereConstraints,
-                    paramAnnotations
+                    paramAnnotations,
+                    captureList
                 ) { VarArgAnnotations = varArgAnnotations, IsAsync = isAsync, IsAsyncStream = isAsyncStream });
             }
 
@@ -5980,7 +6130,8 @@ namespace RaLanguage.Parser
                     isAbstract,
                     isStatic,
                     whereConstraints,
-                    paramAnnotations
+                    paramAnnotations,
+                    captureList
                 ) { VarArgAnnotations = varArgAnnotations, IsAsync = isAsync, IsAsyncStream = isAsyncStream });
             }
 
@@ -6015,7 +6166,8 @@ namespace RaLanguage.Parser
                 isAbstract,
                 isStatic,
                 whereConstraints,
-                paramAnnotations
+                paramAnnotations,
+                captureList
             ) { VarArgAnnotations = varArgAnnotations, IsAsync = isAsync, IsAsyncStream = isAsyncStream });
             }
             finally

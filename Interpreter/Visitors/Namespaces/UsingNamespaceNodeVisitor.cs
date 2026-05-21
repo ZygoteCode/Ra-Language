@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors.Types;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Namespaces;
@@ -10,7 +11,7 @@ namespace RaLanguage.Interpreter.Visitors.Namespaces
 {
     public class UsingNamespaceNodeVisitor : NodeVisitor<UsingNamespaceNode>
     {
-        protected sealed override RuntimeResult VisitNode(
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(
             UsingNamespaceNode node,
             Context context,
             IInterpreter interpreter)

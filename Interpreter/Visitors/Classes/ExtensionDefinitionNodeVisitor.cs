@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors.Types;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
@@ -8,7 +9,7 @@ namespace RaLanguage.Interpreter.Visitors.Extensions
 {
     public class ExtensionDefinitionNodeVisitor : NodeVisitor<ExtensionDefinitionNode>
     {
-        protected override RuntimeResult VisitNode(ExtensionDefinitionNode node, Context context, IInterpreter interpreter)
+        protected override async ValueTask<RuntimeResult> VisitNode(ExtensionDefinitionNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

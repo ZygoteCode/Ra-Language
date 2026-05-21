@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors.Types;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
@@ -8,7 +9,7 @@ namespace RaLanguage.Interpreter.Visitors.Special
 {
     public class NameofNodeVisitor : NodeVisitor<NameofNode>
     {
-        protected sealed override RuntimeResult VisitNode(NameofNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(NameofNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             string varName = node.Token.Value.ToString();

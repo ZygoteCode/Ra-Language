@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using System.Collections.Generic;
 using RaLanguage.Errors;
 using RaLanguage.Interpreter.Runtime.Annotations;
@@ -285,13 +286,16 @@ namespace RaLanguage.Interpreter.Runtime.Borrowing
         }
 
         // Walks the function body looking for `return &name` where `name` is a
-        // function-local binding. Classic dangling-reference case.
+        // function-local binding (classic dangling-reference case), and for
+        // `return <closure with [&local] capture>` where the captured borrow
+        // would outlive its source (closure-leak dangling-reference).
         private static void ScanReturns(AstNode? node, ScopeFrame fnFrame, List<StaticAnalyzerDiagnostic> diags)
         {
             if (node == null) return;
-            if (node is ReturnNode ret && ret.NodeToReturn is BorrowNode br)
+            if (node is ReturnNode ret)
             {
-                if (br.Target is VariableAccessNode v)
+                // Case 1: returning a literal borrow of a local.
+                if (ret.NodeToReturn is BorrowNode br && br.Target is VariableAccessNode v)
                 {
                     var name = v.VarNameTok.Value?.ToString();
                     if (!string.IsNullOrEmpty(name) && IsLocalToFunction(fnFrame, name!))
@@ -299,6 +303,28 @@ namespace RaLanguage.Interpreter.Runtime.Borrowing
                         diags.Add(new StaticAnalyzerDiagnostic(
                             $"returning '&{name}' to a function-local binding (dangling reference at the call site)",
                             ret.PositionStart, ret.PositionEnd));
+                    }
+                }
+
+                // Case 2: returning a closure literal that captures '&local'.
+                // The returned function value will outlive the borrow source,
+                // making the captured reference dangle at every invocation
+                // after the enclosing function exits. We probe the literal
+                // FunctionDefinitionNode shape; closures returned via a
+                // variable indirection (let f = fn[&x](){}; return f;) are
+                // out of scope for this cheap static check and are caught by
+                // the runtime borrow machinery instead.
+                if (ret.NodeToReturn is FunctionDefinitionNode fdn && fdn.CaptureList != null)
+                {
+                    foreach (var spec in fdn.CaptureList)
+                    {
+                        if (spec.Mode != CaptureMode.ByRef) continue;
+                        if (IsLocalToFunction(fnFrame, spec.Name))
+                        {
+                            diags.Add(new StaticAnalyzerDiagnostic(
+                                $"returning closure that captures '&{spec.Name}' of a function-local binding (dangling reference at every invocation after the enclosing function exits)",
+                                ret.PositionStart, ret.PositionEnd));
+                        }
                     }
                 }
             }

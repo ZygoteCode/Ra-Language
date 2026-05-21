@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
@@ -11,11 +12,11 @@ namespace RaLanguage.Interpreter.Visitors.Async
 {
     public class AwaitNodeVisitor : NodeVisitor<AwaitNode>
     {
-        protected sealed override RuntimeResult VisitNode(AwaitNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(AwaitNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
-            var inner = interpreter.Visit(node.Expression, context);
+            var inner = await interpreter.Visit(node.Expression, context);
             if (inner.Error != null) return res.Failure(inner.Error);
             var value = inner.Value;
             if (value == null) return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot await null", context));
@@ -25,10 +26,26 @@ namespace RaLanguage.Interpreter.Visitors.Async
                 var core = tv.Core;
                 if (!core.IsCompleted)
                 {
+                    // True async wait. The visitor pipeline now propagates
+                    // ValueTask end-to-end, so awaiting `core.WaitAsync()`
+                    // releases the host worker instead of pinning it via
+                    // sync-over-async `GetAwaiter().GetResult()`. The audit
+                    // (item 5.7) called this out as the core blocker for
+                    // high-fan-out fiber programs; with the pipeline async
+                    // and this site honestly awaiting, the worker is free
+                    // to pick up other queued work while this fiber sleeps.
                     var token = context.AsyncCtx?.Token ?? System.Threading.CancellationToken.None;
                     try
                     {
-                        core.Wait(token);
+                        if (token.CanBeCanceled)
+                        {
+                            using var reg = token.Register(static state => ((RaTaskCore)state!).RequestCancel(), core);
+                            await core.WaitAsync().ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await core.WaitAsync().ConfigureAwait(false);
+                        }
                     }
                     catch (System.OperationCanceledException)
                     {

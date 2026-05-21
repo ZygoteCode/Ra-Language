@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -28,7 +29,7 @@ namespace RaLanguage.Interpreter.Runtime.Interop
             Binding = binding;
         }
 
-        public sealed override RuntimeResult Execute(List<RuntimeValue> args)
+        public sealed override async ValueTask<RuntimeResult> Execute(List<RuntimeValue> args)
         {
             var res = new RuntimeResult();
 

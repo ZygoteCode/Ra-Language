@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors.Types;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Values.Functions;
@@ -30,10 +31,10 @@ namespace RaLanguage.Interpreter.Values.Classes
             Candidates = candidates ?? new List<FunctionDefinitionNode>();
         }
 
-        public override RuntimeResult Execute(List<RuntimeValue> args)
-            => ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
+        public override async ValueTask<RuntimeResult> Execute(List<RuntimeValue> args)
+            => await ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
 
-        public override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
+        public override async ValueTask<RuntimeResult> ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
         {
             var res = new RuntimeResult();
             var interpreter = new Interpreter();
@@ -62,7 +63,7 @@ namespace RaLanguage.Interpreter.Values.Classes
                 var bound = new BoundClassMethodValue(Definition, SelfInstance, selected, isStatic: false)
                     .SetContext(Context)
                     .SetPos(PositionStart, PositionEnd);
-                return ((BoundClassMethodValue)bound).ExecuteWithNamedArgs(positionalArgs, namedArgs);
+                return await ((BoundClassMethodValue)bound).ExecuteWithNamedArgs(positionalArgs, namedArgs);
             }
 
             var execCtx = GenerateNewContext();
@@ -77,12 +78,11 @@ namespace RaLanguage.Interpreter.Values.Classes
                 isStaticallyTyped: true,
                 isPublic: false);
 
-            var bindError = BindArgumentsIntoContext(
+            var bindError = await BindArgumentsIntoContext(
                 selected,
                 execCtx,
                 positionalArgs,
-                namedArgs,
-                out RuntimeResult? bindResult);
+                namedArgs);
 
             if (bindError != null)
             {
@@ -91,7 +91,7 @@ namespace RaLanguage.Interpreter.Values.Classes
 
             // NullValue.SetContext is a sealed no-op (NullValue is a true singleton),
             // so execCtx would always be null. Pass execCtx directly.
-            var bodyRes = interpreter.Visit(selected.BodyNode!, execCtx);
+            var bodyRes = await interpreter.Visit(selected.BodyNode!, execCtx);
             if (bodyRes.Error != null)
             {
                 return res.Failure(bodyRes.Error);
@@ -232,14 +232,12 @@ namespace RaLanguage.Interpreter.Values.Classes
             return true;
         }
 
-        private RuntimeError? BindArgumentsIntoContext(
+        private async ValueTask<RuntimeError?> BindArgumentsIntoContext(
             FunctionDefinitionNode method,
             Context execCtx,
             List<RuntimeValue> positionalArgs,
-            Dictionary<string, RuntimeValue> namedArgs,
-            out RuntimeResult? bindResult)
+            Dictionary<string, RuntimeValue> namedArgs)
         {
-            bindResult = new RuntimeResult();
             var interpreter = new Interpreter();
 
             var argNames = method.ArgNames;
@@ -335,7 +333,7 @@ namespace RaLanguage.Interpreter.Values.Classes
                         Context);
                 }
 
-                var defRes = interpreter.Visit(defAst, execCtx);
+                var defRes = await interpreter.Visit(defAst, execCtx);
                 if (defRes.Error != null)
                     return (RuntimeError) defRes.Error;
 
@@ -422,15 +420,7 @@ namespace RaLanguage.Interpreter.Values.Classes
                 }
             }
 
-            bindResult = resSuccess(execCtx);
             return null;
-
-            RuntimeResult resSuccess(Context ctx)
-            {
-                var rr = new RuntimeResult();
-                rr.Success(NullValue.Null.SetContext(ctx).SetPos(PositionStart, PositionEnd));
-                return rr;
-            }
         }
 
         public override RuntimeValue Copy()

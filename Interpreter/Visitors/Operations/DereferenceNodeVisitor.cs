@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
@@ -14,10 +15,10 @@ namespace RaLanguage.Interpreter.Visitors.Operations
     // IReferenceValue setter; this visitor only handles the read case.
     public class DereferenceNodeVisitor : NodeVisitor<DereferenceNode>
     {
-        protected sealed override RuntimeResult VisitNode(DereferenceNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(DereferenceNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
-            var target = res.Register(interpreter.Visit(node.Target, context));
+            var target = res.Register(await interpreter.Visit(node.Target, context));
             if (res.ShouldReturn()) return res;
             if (target == null)
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
@@ -40,13 +41,13 @@ namespace RaLanguage.Interpreter.Visitors.Operations
                         context,
                         code: DiagnosticCode.RuntimeMovedValue));
                 var v = bv.SourceEntry.Value;
-                return res.Success((v.IsCopy ? v.Copy() : v).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                return res.Success(v.Aliased().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
             }
 
             if (target is IReferenceValue refVal)
             {
                 var v = refVal.Value;
-                return res.Success((v.IsCopy ? v.Copy() : v).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                return res.Success(v.Aliased().SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
             }
 
             return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,

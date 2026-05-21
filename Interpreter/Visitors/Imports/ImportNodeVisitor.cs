@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors;
+using System.Threading.Tasks;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Modules;
@@ -40,15 +41,16 @@ namespace RaLanguage.Interpreter.Visitors.Imports
             _moduleManager?.Clear();
         }
 
-        public RuntimeResult Visit(AstNode node, Context context, IInterpreter interpreter)
+        public ValueTask<RuntimeResult> Visit(AstNode node, Context context, IInterpreter interpreter)
         {
-            return node.NodeType switch
+            RuntimeResult result = node.NodeType switch
             {
                 AstNodeType.ImportAll => VisitImportAll((ImportAllNode)node, context, interpreter),
                 AstNodeType.ImportSelective => VisitImportSelective((ImportSelectiveNode)node, context, interpreter),
                 AstNodeType.ImportAlias => VisitImportAlias((ImportAliasNode)node, context, interpreter),
                 _ => throw new InvalidOperationException($"Unknown import node type: {node.NodeType}")
             };
+            return new ValueTask<RuntimeResult>(result);
         }
 
         private static LoadedModule? LoadOrFail(

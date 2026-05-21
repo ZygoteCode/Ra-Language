@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors;
+using System.Threading.Tasks;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Async;
@@ -27,10 +28,10 @@ namespace RaLanguage.Interpreter.Values.Structs
             MethodNode = methodNode;
         }
 
-        public sealed override RuntimeResult Execute(List<RuntimeValue> args)
-            => ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
+        public sealed override async ValueTask<RuntimeResult> Execute(List<RuntimeValue> args)
+            => await ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
 
-        public sealed override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
+        public sealed override async ValueTask<RuntimeResult> ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
         {
             if (MethodNode.IsAsync || MethodNode.IsAsyncStream)
             {
@@ -43,12 +44,12 @@ namespace RaLanguage.Interpreter.Values.Structs
                     Context,
                     PositionStart,
                     PositionEnd,
-                    asyncCtxOverride => ExecuteSyncBody(capturedPositional, capturedNamed, asyncCtxOverride));
+                    asyncCtxOverride => SyncAwait.Get(ExecuteSyncBody(capturedPositional, capturedNamed, asyncCtxOverride)));
             }
-            return ExecuteSyncBody(positionalArgs, namedArgs, null);
+            return await ExecuteSyncBody(positionalArgs, namedArgs, null);
         }
 
-        private RuntimeResult ExecuteSyncBody(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, AsyncContext? asyncCtxOverride)
+        private async ValueTask<RuntimeResult> ExecuteSyncBody(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, AsyncContext? asyncCtxOverride)
         {
             var res = new RuntimeResult();
             var interpreter = new Interpreter();
@@ -80,7 +81,7 @@ namespace RaLanguage.Interpreter.Values.Structs
             if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
 
-            var bodyRes = interpreter.Visit(MethodNode.BodyNode, execCtx);
+            var bodyRes = await interpreter.Visit(MethodNode.BodyNode, execCtx);
             if (bodyRes.Error != null) return res.Failure(bodyRes.Error);
 
             if (bodyRes.FuncReturnValue != null)

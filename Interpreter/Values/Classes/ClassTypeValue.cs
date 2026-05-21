@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors;
+using System.Threading.Tasks;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
@@ -430,15 +431,15 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return null;
         }
 
-        public override RuntimeResult Execute(List<RuntimeValue> args)
-            => ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
+        public override async ValueTask<RuntimeResult> Execute(List<RuntimeValue> args)
+            => await ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
 
-        public override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
+        public override async ValueTask<RuntimeResult> ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
         {
-            return ExecuteWithNamedArgs(positionalArgs, namedArgs, null);
+            return await ExecuteWithNamedArgs(positionalArgs, namedArgs, null);
         }
 
-        public override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs)
+        public override async ValueTask<RuntimeResult> ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs)
         {
             var res = new RuntimeResult();
 
@@ -495,7 +496,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
 
-            var initFieldErr = InitializeFieldChain(instance, Context, this);
+            var initFieldErr = await InitializeFieldChain(instance, Context, this);
             if (initFieldErr != null) return res.Failure(initFieldErr);
 
             var ownCtor = ResolveOwnConstructor(positionalArgs, namedArgs);
@@ -505,7 +506,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                     .SetContext(Context)
                     .SetPos(PositionStart, PositionEnd);
 
-                var ctorRes = boundCtor.ExecuteWithNamedArgs(positionalArgs, namedArgs);
+                var ctorRes = await boundCtor.ExecuteWithNamedArgs(positionalArgs, namedArgs);
                 if (ctorRes.Error != null) return ctorRes;
 
                 return res.Success(instance);
@@ -525,7 +526,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                             .SetContext(Context)
                             .SetPos(PositionStart, PositionEnd);
 
-                        var baseCtorRes = boundBaseCtor.ExecuteWithNamedArgs(positionalArgs, namedArgs);
+                        var baseCtorRes = await boundBaseCtor.ExecuteWithNamedArgs(positionalArgs, namedArgs);
                         if (baseCtorRes.Error != null) return baseCtorRes;
 
                         return res.Success(instance);
@@ -553,11 +554,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 Context));
         }
 
-        private static Error? InitializeFieldChain(ClassInstanceValue instance, Context context, ClassTypeValue type)
+        private static async ValueTask<Error?> InitializeFieldChain(ClassInstanceValue instance, Context context, ClassTypeValue type)
         {
             if (type.BaseClass != null)
             {
-                var baseErr = InitializeFieldChain(instance, context, type.BaseClass);
+                var baseErr = await InitializeFieldChain(instance, context, type.BaseClass);
                 if (baseErr != null) return baseErr;
             }
 
@@ -567,7 +568,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
                 if (field.DefaultValueNode != null)
                 {
-                    var initRes = new Interpreter().Visit(field.DefaultValueNode, context);
+                    var initRes = await new Interpreter().Visit(field.DefaultValueNode, context);
                     if (initRes.Error == null && initRes.Value != null)
                         value = initRes.Value;
                 }

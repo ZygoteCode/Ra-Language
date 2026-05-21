@@ -1,5 +1,7 @@
+using System.Threading.Tasks;
 using System.Collections.Generic;
 using RaLanguage.Errors.Types;
+using RaLanguage.Interpreter.Runtime.Async;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Annotations;
 using RaLanguage.Interpreter.Values.Functions;
@@ -230,7 +232,7 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
                     var fnSym = ctx.SymbolTable.Get(fnName);
                     if (fnSym is not BaseFunctionValue bfn)
                         return (null, $"coercer function '{fnName}' not defined");
-                    var execRes = bfn.Execute(new List<RuntimeValue> { value, inst });
+                    var execRes = SyncAwait.Get(bfn.Execute(new List<RuntimeValue> { value, inst }));
                     if (execRes.Error != null) return (null, execRes.Error.Details);
                     return (execRes.Value, null);
                 }

@@ -1,4 +1,6 @@
 ﻿using RaLanguage.Errors.Types;
+using System.Threading.Tasks;
+using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Runtime.Async;
 using RaLanguage.Interpreter.Values.Functions;
@@ -29,15 +31,15 @@ namespace RaLanguage.Interpreter.Values.Primitives
         protected override string? ParameterOwnerForMetadata
             => $"{Definition.ClassName}.{MethodNode.VarNameTok?.Value?.ToString() ?? "<method>"}";
 
-        public override RuntimeResult Execute(List<RuntimeValue> args)
-            => ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
+        public override async ValueTask<RuntimeResult> Execute(List<RuntimeValue> args)
+            => await ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
 
-        public override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
+        public override async ValueTask<RuntimeResult> ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
         {
-            return ExecuteWithNamedArgs(positionalArgs, namedArgs, null);
+            return await ExecuteWithNamedArgs(positionalArgs, namedArgs, null);
         }
 
-        public override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs)
+        public override async ValueTask<RuntimeResult> ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs)
         {
             if (MethodNode.IsAsync || MethodNode.IsAsyncStream)
             {
@@ -51,12 +53,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                     Context,
                     PositionStart,
                     PositionEnd,
-                    asyncCtxOverride => ExecuteSyncBody(capturedPositional, capturedNamed, capturedTypeArgs, asyncCtxOverride));
+                    asyncCtxOverride => SyncAwait.Get(ExecuteSyncBody(capturedPositional, capturedNamed, capturedTypeArgs, asyncCtxOverride)));
             }
-            return ExecuteSyncBody(positionalArgs, namedArgs, explicitTypeArgs, null);
+            return await ExecuteSyncBody(positionalArgs, namedArgs, explicitTypeArgs, null);
         }
 
-        private RuntimeResult ExecuteSyncBody(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs, AsyncContext? asyncCtxOverride)
+        private async ValueTask<RuntimeResult> ExecuteSyncBody(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs, AsyncContext? asyncCtxOverride)
         {
             var res = new RuntimeResult();
             var interpreter = new Interpreter();
@@ -135,7 +137,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             var instantiatedVarArgType = MethodNode.VarArgType == null ? null : MethodNode.VarArgType.SubstituteBindings(bindings);
             var instantiatedReturnType = MethodNode.ReturnType == null ? null : MethodNode.ReturnType.SubstituteBindings(bindings);
 
-            var bindRes = PrepareExecutionContextForCall(
+            var bindRes = await PrepareExecutionContextForCall(
                 positionalArgs,
                 namedArgs,
                 argNames,
@@ -178,7 +180,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 bindRes.execCtx!.AsyncCtx = asyncCtxOverride;
             }
 
-            var bodyRes = interpreter.Visit(MethodNode.BodyNode, bindRes.execCtx!);
+            var bodyRes = await interpreter.Visit(MethodNode.BodyNode, bindRes.execCtx!);
             if (bodyRes.Error != null)
                 return res.Failure(bodyRes.Error);
 

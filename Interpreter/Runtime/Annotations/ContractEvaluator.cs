@@ -1,3 +1,5 @@
+using RaLanguage.Interpreter.Runtime.Async;
+using System.Threading.Tasks;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
@@ -74,7 +76,7 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
             }
 
             var interpreter = new Interpreter();
-            var res = interpreter.Visit(exprNode!, ctx);
+            var res = SyncAwait.Get(interpreter.Visit(exprNode!, ctx));
             if (res.Error != null)
             {
                 return new RuntimeError(ann.ApplicationStart, ann.ApplicationEnd,

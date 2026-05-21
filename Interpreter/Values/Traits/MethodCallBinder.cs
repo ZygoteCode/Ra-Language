@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors;
+using System.Threading.Tasks;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Functions;
@@ -77,7 +78,7 @@ namespace RaLanguage.Interpreter.Values.Traits
             return true;
         }
 
-        public static (Context? execCtx, Error? error) BindIntoContext(
+        public static async ValueTask<(Context? execCtx, Error? error)> BindIntoContext(
             ICallableMethodDefinition method,
             Context execCtx,
             List<RuntimeValue> positionalArgs,
@@ -129,7 +130,7 @@ namespace RaLanguage.Interpreter.Values.Traits
                 if (def == null)
                     return (null, new RuntimeError(method.NameTok.Value.PositionStart, method.NameTok.Value.PositionEnd, $"Missing required argument '{argName}'", execCtx));
 
-                var defRes = interpreter.Visit(def, execCtx);
+                var defRes = await interpreter.Visit(def, execCtx);
                 if (defRes.Error != null) return (null, defRes.Error);
                 finalAssigned[argName] = defRes.Value ?? NullValue.Null.SetContext(execCtx).SetPos(def.PositionStart, def.PositionEnd);
             }
@@ -187,10 +188,10 @@ namespace RaLanguage.Interpreter.Values.Traits
             Candidates = candidates;
         }
 
-        public override RuntimeResult Execute(List<RuntimeValue> args)
-            => ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
+        public override async ValueTask<RuntimeResult> Execute(List<RuntimeValue> args)
+            => await ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
 
-        public override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
+        public override async ValueTask<RuntimeResult> ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
         {
             var res = new RuntimeResult();
             var interpreter = new Interpreter();
@@ -211,11 +212,11 @@ namespace RaLanguage.Interpreter.Values.Traits
                 isStaticallyTyped: true,
                 isPublic: false);
 
-            var bindRes = MethodCallBinder.BindIntoContext(selected, execCtx, positionalArgs, namedArgs, OwnerType.ClassName);
+            var bindRes = await MethodCallBinder.BindIntoContext(selected, execCtx, positionalArgs, namedArgs, OwnerType.ClassName);
             if (bindRes.error != null)
                 return res.Failure(bindRes.error);
 
-            var bodyRes = interpreter.Visit(selected.BodyNode!, bindRes.execCtx!);
+            var bodyRes = await interpreter.Visit(selected.BodyNode!, bindRes.execCtx!);
             if (bodyRes.Error != null) return res.Failure(bodyRes.Error);
 
             if (bodyRes.FuncReturnValue != null)

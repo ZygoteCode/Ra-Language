@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using System.Collections.Generic;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
@@ -27,11 +28,11 @@ namespace RaLanguage.Interpreter.Visitors.Patterns
     // This avoids leaking partial state when a deeper sub-pattern fails.
     public class MatchNodeVisitor : NodeVisitor<MatchNode>
     {
-        protected sealed override RuntimeResult VisitNode(MatchNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(MatchNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
-            var scrutinee = res.Register(interpreter.Visit(node.Scrutinee, context));
+            var scrutinee = res.Register(await interpreter.Visit(node.Scrutinee, context));
             if (res.ShouldReturn()) return res;
             if (scrutinee == null)
             {
@@ -58,7 +59,7 @@ namespace RaLanguage.Interpreter.Visitors.Patterns
 
                 if (arm.Guard != null)
                 {
-                    var guardRes = interpreter.Visit(arm.Guard, armCtx);
+                    var guardRes = await interpreter.Visit(arm.Guard, armCtx);
                     if (guardRes.Error != null) return res.Failure(guardRes.Error);
                     if (guardRes.FuncReturnValue != null || guardRes.LoopShouldBreak || guardRes.LoopShouldContinue)
                     {
@@ -76,7 +77,7 @@ namespace RaLanguage.Interpreter.Visitors.Patterns
                         continue;
                 }
 
-                var bodyRes = interpreter.Visit(arm.Body, armCtx);
+                var bodyRes = await interpreter.Visit(arm.Body, armCtx);
                 // Propagate everything (return / break / continue / yield).
                 if (bodyRes.Error != null) return res.Failure(bodyRes.Error);
                 if (bodyRes.FuncReturnValue != null) return res.SuccessReturn(bodyRes.FuncReturnValue);

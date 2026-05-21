@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Errors.Types;
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Functions;
 using RaLanguage.Interpreter.Values.Primitives;
@@ -26,10 +27,10 @@ namespace RaLanguage.Interpreter.Values.Classes
             Candidates = candidates;
         }
 
-        public override RuntimeResult Execute(List<RuntimeValue> args)
-            => ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
+        public override async ValueTask<RuntimeResult> Execute(List<RuntimeValue> args)
+            => await ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
 
-        public override RuntimeResult ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
+        public override async ValueTask<RuntimeResult> ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
         {
             var res = new RuntimeResult();
             var interpreter = new Interpreter();
@@ -53,7 +54,7 @@ namespace RaLanguage.Interpreter.Values.Classes
                 isStaticallyTyped: true,
                 isPublic: false);
 
-            var bind = MethodCallBinder.BindIntoContext(
+            var bind = await MethodCallBinder.BindIntoContext(
                 selected,
                 execCtx,
                 positionalArgs,
@@ -63,7 +64,7 @@ namespace RaLanguage.Interpreter.Values.Classes
             if (bind.error != null)
                 return res.Failure(bind.error);
 
-            var bodyRes = interpreter.Visit(selected.BodyNode!, bind.execCtx!);
+            var bodyRes = await interpreter.Visit(selected.BodyNode!, bind.execCtx!);
             if (bodyRes.Error != null) return res.Failure(bodyRes.Error);
 
             if (bodyRes.FuncReturnValue != null)

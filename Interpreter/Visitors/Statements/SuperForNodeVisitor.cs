@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
@@ -7,7 +8,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 {
     public class SuperForNodeVisitor : NodeVisitor<SuperForNode>
     {
-        protected sealed override RuntimeResult VisitNode(SuperForNode node, Context context, IInterpreter interpreter)
+        protected sealed override async ValueTask<RuntimeResult> VisitNode(SuperForNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var loopContext = context.Copy();
@@ -16,7 +17,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
             // stay LOCAL to the for-statement and do not pollute the surrounding scope.
             foreach (var initializationNode in node.InitializationNodes)
             {
-                res.Register(interpreter.Visit(initializationNode, loopContext));
+                res.Register(await interpreter.Visit(initializationNode, loopContext));
                 if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
             }
@@ -33,7 +34,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 
                 foreach (var conditionNode in node.ConditionNodes)
                 {
-                    var condition = res.Register(interpreter.Visit(conditionNode, loopContext));
+                    var condition = res.Register(await interpreter.Visit(conditionNode, loopContext));
                     if (res.Error != null) return res;
                     if (res.ShouldReturn()) return res;
 
@@ -48,7 +49,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 
                 bodySymbols.Clear();
                 bodyContext.ScopeSkipCopy = true;
-                res.Register(interpreter.Visit(node.BodyNode, bodyContext));
+                res.Register(await interpreter.Visit(node.BodyNode, bodyContext));
                 if (res.Error != null) return res;
 
                 if (res.LoopShouldBreak) break;
@@ -56,7 +57,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 
                 foreach (var stepNode in node.StepNodes)
                 {
-                    var stepRes = res.Register(interpreter.Visit(stepNode, loopContext));
+                    var stepRes = res.Register(await interpreter.Visit(stepNode, loopContext));
                     if (res.Error != null) return res;
                     if (res.ShouldReturn()) return res;
                 }

@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using Microsoft.VisualBasic;
 using RaLanguage.Errors;
 using System.Globalization;
@@ -12,6 +13,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public StringValue(string value) { Value = value; }
         public sealed override RuntimeValueType Type => RuntimeValueType.String;
         public sealed override bool IsCopy => false;
+        // Ra strings wrap an immutable System.String, so they are safe to
+        // share across fiber boundaries despite opting out of IsCopy (we want
+        // let-move semantics for ownership, not because the bytes are
+        // mutable). Override IsSync=true so spawn(string_arg) is allowed.
+        public sealed override bool IsSync => true;
 
         private string NormalizeNFC(string s) => s?.Normalize(NormalizationForm.FormC) ?? s;
 
