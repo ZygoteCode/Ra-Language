@@ -1,0 +1,31 @@
+// Ra Language - modules: namespace + using-as remap.
+//
+// Cases:
+//   U1   `using` brings names directly into scope
+//   U2   `using ... as alias` remaps the prefix
+//   U3   nested namespace 3 deep
+//   U4   namespace function uses local helper from same namespace
+
+print("=== modules/namespace_using_as ===");
+
+namespace Sys.Mod.Deep {
+    pub fn ping() { ret "pong"; }
+    pub var VERSION = "3.0";
+    pub fn dub(x: int) { ret x * 2; }
+}
+
+if Sys.Mod.Deep.ping() == "pong" { print("[U3] OK"); } else { print("[U3] FAIL"); }
+
+using Sys.Mod.Deep;
+if ping() == "pong" and VERSION == "3.0" { print("[U1] OK"); } else { print("[U1] FAIL"); }
+
+using Sys.Mod.Deep as D;
+if D.ping() == "pong" { print("[U2] OK"); } else { print("[U2] FAIL"); }
+
+namespace Internal {
+    pub fn helper() { ret 7; }
+    pub fn ext_call() { ret helper() + 3; }
+}
+if Internal.ext_call() == 10 { print("[U4] OK"); } else { print("[U4] FAIL"); }
+
+print("=== done ===");

@@ -1,0 +1,51 @@
+// Ra Language - lexer: comments handling.
+// Verifies that line comments do not corrupt token stream.
+//
+// Cases:
+//   L1  trailing line comment on a statement
+//   L2  comment-only line between statements
+//   L3  comment containing operators, keywords, punctuation
+//   L4  comment immediately before EOF
+//   L5  multiple comment lines stacked
+//   L6  empty comment marker
+//   L7  comment inside braces
+
+print("=== lexer/comments ===");
+
+// L1
+var l1 = 1 + 2; // trailing comment with `let var fn` keywords inside
+if l1 == 3 { print("[L1] OK"); } else { print("[L1] FAIL " + (l1 as string)); }
+
+// L2
+var l2a = 10;
+// pure comment line, no code
+var l2b = 20;
+if (l2a + l2b) == 30 { print("[L2] OK"); } else { print("[L2] FAIL"); }
+
+// L3
+// fn class struct enum @ # !! 1 + 2 == 3 "string" 'c'
+var l3 = "ok";
+if l3 == "ok" { print("[L3] OK"); } else { print("[L3] FAIL"); }
+
+// L5
+//
+//
+//
+var l5 = 7;
+if l5 == 7 { print("[L5] OK"); } else { print("[L5] FAIL"); }
+
+// L6
+//
+var l6 = 8;
+if l6 == 8 { print("[L6] OK"); } else { print("[L6] FAIL"); }
+
+// L7
+{
+    // comment inside a block
+    var l7 = 99;
+    if l7 == 99 { print("[L7] OK"); } else { print("[L7] FAIL"); }
+}
+
+// L4 - last line is comment before EOF
+print("=== done ===");
+// trailing comment at end of file

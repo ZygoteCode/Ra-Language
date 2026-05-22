@@ -384,14 +384,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return new SetValue(DeepCopySet()).SetPos(PositionStart, PositionEnd).SetContext(Context);
         }
 
-        public sealed override bool IsTrue()
-        {
-            foreach (RuntimeValue v in Elements)
-            {
-                if (!v.IsTrue()) return false;
-            }
-            return true;
-        }
+        public sealed override bool IsTrue() => Elements.Count > 0;
 
         public sealed override string ToString()
         {

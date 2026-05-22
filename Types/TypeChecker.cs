@@ -52,23 +52,37 @@ namespace RaLanguage.Types
             if (!TryGetRawValue(value, out object? rawValue))
                 return value;
 
-            RuntimeValue? newValue = kind switch
+            // Int128 / UInt128: the boxed `rawValue` is rarely already an Int128;
+            // for NumberValue / double-backed literals it's a `double`, and a raw
+            // `(Int128)object` cast on the wrong unbox throws InvalidCastException
+            // — which previously aborted the whole interpreter thread silently.
+            // Parse through BigInteger so any numeric source widens cleanly, then
+            // narrow into Int128 / UInt128 via their ctors.
+            RuntimeValue? newValue;
+            try
             {
-                PrimitiveTypeKind.Int => new IntegerValue(Convert.ToInt32(rawValue)),
-                PrimitiveTypeKind.Number => new NumberValue(BigNumber.Parse(rawValue.ToString())),
-                PrimitiveTypeKind.Long => new LongValue(Convert.ToInt64(rawValue)),
-                PrimitiveTypeKind.Float => new FloatValue(Convert.ToSingle(rawValue)),
-                PrimitiveTypeKind.Double => new DoubleValue(Convert.ToDouble(rawValue)),
-                PrimitiveTypeKind.UInt => new UnsignedIntegerValue(Convert.ToUInt32(rawValue)),
-                PrimitiveTypeKind.ULong => new UnsignedLongValue(Convert.ToUInt64(rawValue)),
-                PrimitiveTypeKind.Short => new ShortValue(Convert.ToInt16(rawValue)),
-                PrimitiveTypeKind.UShort => new UnsignedShortValue(Convert.ToUInt16(rawValue)),
-                PrimitiveTypeKind.Int128 => new Int128Value((Int128)rawValue),
-                PrimitiveTypeKind.UInt128 => new UnsignedInt128Value((UInt128)rawValue),
-                PrimitiveTypeKind.Decimal => new DecimalValue(Convert.ToDecimal(rawValue)),
-                PrimitiveTypeKind.Byte => new ByteValue(Convert.ToByte(rawValue)),
-                _ => null
-            };
+                newValue = kind switch
+                {
+                    PrimitiveTypeKind.Int => new IntegerValue(Convert.ToInt32(rawValue)),
+                    PrimitiveTypeKind.Number => new NumberValue(BigNumber.Parse(rawValue.ToString())),
+                    PrimitiveTypeKind.Long => new LongValue(Convert.ToInt64(rawValue)),
+                    PrimitiveTypeKind.Float => new FloatValue(Convert.ToSingle(rawValue)),
+                    PrimitiveTypeKind.Double => new DoubleValue(Convert.ToDouble(rawValue)),
+                    PrimitiveTypeKind.UInt => new UnsignedIntegerValue(Convert.ToUInt32(rawValue)),
+                    PrimitiveTypeKind.ULong => new UnsignedLongValue(Convert.ToUInt64(rawValue)),
+                    PrimitiveTypeKind.Short => new ShortValue(Convert.ToInt16(rawValue)),
+                    PrimitiveTypeKind.UShort => new UnsignedShortValue(Convert.ToUInt16(rawValue)),
+                    PrimitiveTypeKind.Int128 => new Int128Value(ToInt128(rawValue)),
+                    PrimitiveTypeKind.UInt128 => new UnsignedInt128Value(ToUInt128(rawValue)),
+                    PrimitiveTypeKind.Decimal => new DecimalValue(Convert.ToDecimal(rawValue)),
+                    PrimitiveTypeKind.Byte => new ByteValue(Convert.ToByte(rawValue)),
+                    _ => null
+                };
+            }
+            catch (Exception)
+            {
+                return value;
+            }
 
             return newValue?.SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
         }
@@ -101,6 +115,48 @@ namespace RaLanguage.Types
             if (double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var d))
                 return d;
             return null;
+        }
+
+        private static Int128 ToInt128(object raw)
+        {
+            return raw switch
+            {
+                Int128 v => v,
+                UInt128 v => (Int128)v,
+                long v => (Int128)v,
+                int v => (Int128)v,
+                short v => (Int128)v,
+                byte v => (Int128)v,
+                ulong v => (Int128)v,
+                uint v => (Int128)v,
+                ushort v => (Int128)v,
+                double v => (Int128)v,
+                float v => (Int128)v,
+                decimal v => (Int128)v,
+                System.Numerics.BigInteger b => (Int128)b,
+                _ => Int128.Parse(raw.ToString() ?? "0", CultureInfo.InvariantCulture),
+            };
+        }
+
+        private static UInt128 ToUInt128(object raw)
+        {
+            return raw switch
+            {
+                UInt128 v => v,
+                Int128 v => (UInt128)v,
+                long v => (UInt128)v,
+                int v => (UInt128)v,
+                short v => (UInt128)v,
+                byte v => (UInt128)v,
+                ulong v => (UInt128)v,
+                uint v => (UInt128)v,
+                ushort v => (UInt128)v,
+                double v => (UInt128)v,
+                float v => (UInt128)v,
+                decimal v => (UInt128)v,
+                System.Numerics.BigInteger b => (UInt128)b,
+                _ => UInt128.Parse(raw.ToString() ?? "0", CultureInfo.InvariantCulture),
+            };
         }
     }
 }

@@ -140,6 +140,12 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
                 case RuntimeValueType.Int128:
                 case RuntimeValueType.UnsignedInt128:
                     return true;
+                case RuntimeValueType.Number:
+                    // The default numeric kind for literals such as `5` is
+                    // Number. Treat it as integral when there is no decimal
+                    // scale so that `is_int(5)` returns true.
+                    var n = (NumberValue)v;
+                    return n.Value.Scale.IsZero;
                 default: return false;
             }
         }

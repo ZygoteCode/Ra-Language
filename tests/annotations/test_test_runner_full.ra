@@ -1,0 +1,50 @@
+// Ra Language - annotations: @test framework with all decorators.
+//
+// Cases:
+//   T1   plain @test discovered
+//   T2   @skip excludes
+//   T3   @expected_throws passes on raise
+//   T4   @parameterized expands
+//   T5   @before / @after fixtures run around tests
+
+print("=== annotations/test_runner_full ===");
+
+var ran = [];
+
+@before
+fn _before() { ran = ran + ["before"]; }
+@after
+fn _after() { ran = ran + ["after"]; }
+
+@test
+fn t_pass() {
+    if 1 + 1 != 2 { ret "math broke"; }
+}
+
+@skip(reason = "WIP")
+@test
+fn t_skipped() {
+    ret "should not run";
+}
+
+@expected_throws(type = "Runtime")
+@test
+fn t_throws() {
+    var l = [1];
+    var _ = l[99];
+}
+
+@parameterized(values = [1, 2, 3])
+@test
+fn t_param(n: int) {
+    if n <= 0 { ret "non-positive"; }
+}
+
+try {
+    var results = run_tests();
+    print("[T1-T5] OK results=" + (results as string));
+    if str_contains(ran as string, "before") { print("[T-before] OK"); } else { print("[T-before] FAIL"); }
+    if str_contains(ran as string, "after") { print("[T-after] OK"); } else { print("[T-after] FAIL"); }
+} catch (ex) { print("[T1-T5] FAIL: " + ex); }
+
+print("=== done ===");

@@ -130,6 +130,8 @@ namespace RaLanguage.Lexer
                         // Disambiguate string literal vs lifetime annotation.
                         // 'ident NOT followed by another `'` → LIFETIME 'ident (e.g. 'a, 'static, '_).
                         // Anything that closes with `'` (including `'a'`, `'abc'`, `''`) → STRING.
+                        // A `\` after the alpha-run means an escape inside a string, so
+                        // route to ProcessString and let it scan for the closing `'`.
                         int peek = _idx + 1;
                         bool isLifetime = false;
                         int identEnd = peek;
@@ -140,8 +142,10 @@ namespace RaLanguage.Lexer
                             {
                                 int j = peek;
                                 while (j < span.Length && span[j] < 128 && s_isLetterOrDigit[span[j]]) j++;
-                                // If immediately followed by another apostrophe, it's a 'char-like' string.
-                                if (j >= span.Length || span[j] != '\'')
+                                // Closing `'` immediately after the alpha-run → 'char-like' string.
+                                // `\` after the alpha-run → escape sequence inside a string.
+                                // Otherwise the `'ident` is a lifetime annotation.
+                                if (j >= span.Length || (span[j] != '\'' && span[j] != '\\'))
                                 {
                                     isLifetime = true;
                                     identEnd = j;
@@ -1252,7 +1256,8 @@ namespace RaLanguage.Lexer
                 { "using", Keyword.Using },
                 { "asm", Keyword.Asm },
                 { "mut", Keyword.Mut },
-                { "move", Keyword.Move }
+                { "move", Keyword.Move },
+                { "throw", Keyword.Throw }
             };
         }
 

@@ -1,0 +1,71 @@
+// Ra Language - types: class basics (declaration, fields, methods).
+//
+// Cases:
+//   C1   construct + read pub fields
+//   C2   write to pub field directly
+//   C3   default field initialiser
+//   C4   overloaded constructors
+//   C5   class with private field still constructs
+//   C6   getter method
+//   C7   setter method mutates
+//   C8   method calling another method via self
+//   C9   private field is reachable only via methods
+
+print("=== types/class_basics ===");
+
+pub class Person {
+    pub var name: string;
+    pub var age: int;
+
+    pub Person(n: string, a: int) {
+        self.name = n;
+        self.age = a;
+    }
+
+    pub fn get_name() { ret self.name; }
+    pub fn set_name(n: string) { self.name = n; }
+    pub fn describe() { ret self.get_name() + ":" + (self.age as string); }
+}
+
+var p = Person("Ana", 30);
+if p.name == "Ana" and p.age == 30 { print("[C1] OK"); } else { print("[C1] FAIL"); }
+
+p.name = "Bob";
+p.age = 31;
+if p.name == "Bob" and p.age == 31 { print("[C2] OK"); } else { print("[C2] FAIL"); }
+
+pub class WithDefault {
+    pub var v: int = 99;
+    pub WithDefault() { pass; }
+}
+var wd = WithDefault();
+if wd.v == 99 { print("[C3] OK"); } else { print("[C3] FAIL " + (wd.v as string)); }
+
+pub class TwoCtors {
+    pub var x: int;
+    pub TwoCtors() { self.x = 1; }
+    pub TwoCtors(a: int) { self.x = a; }
+}
+var t1 = TwoCtors();
+var t2 = TwoCtors(42);
+if t1.x == 1 and t2.x == 42 { print("[C4] OK"); } else { print("[C4] FAIL"); }
+
+pub class HasPriv {
+    pub var open: int = 1;
+    var hidden: int = 2;
+    pub HasPriv() { pass; }
+    pub fn peek_hidden() { ret self.hidden; }
+}
+var hp = HasPriv();
+if hp.open == 1 { print("[C5] OK"); } else { print("[C5] FAIL"); }
+
+if p.get_name() == "Bob" { print("[C6] OK"); } else { print("[C6] FAIL " + p.get_name()); }
+
+p.set_name("Carol");
+if p.name == "Carol" { print("[C7] OK"); } else { print("[C7] FAIL"); }
+
+if p.describe() == "Carol:31" { print("[C8] OK"); } else { print("[C8] FAIL " + p.describe()); }
+
+if hp.peek_hidden() == 2 { print("[C9] OK"); } else { print("[C9] FAIL"); }
+
+print("=== done ===");

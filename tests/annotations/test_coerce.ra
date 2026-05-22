@@ -1,0 +1,22 @@
+// Ra Language - annotations: @coerce + coerce_value builtin.
+// `@coerce` must apply to a coercer host (often a class/struct entry
+// point), not directly to an arbitrary function in this build. The
+// test exercises the no-op fallback path and documents the constraint.
+//
+// Cases:
+//   C1   coerce_value returns the input untouched when no rule matches
+//   C2   coerce_value targets the same type as the value (identity)
+
+print("=== annotations/coerce ===");
+
+try {
+    var raw = coerce_value(7, "int");
+    if raw == 7 { print("[C1] OK"); } else { print("[C1] FAIL " + (raw as string)); }
+} catch (ex) { print("[C1] FAIL: " + ex); }
+
+try {
+    var s = coerce_value("hi", "string");
+    if s == "hi" { print("[C2] OK"); } else { print("[C2] FAIL"); }
+} catch (ex) { print("[C2] FAIL: " + ex); }
+
+print("=== done ===");

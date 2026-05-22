@@ -127,6 +127,7 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.RegexLiteral] = new RegexLiteralNodeVisitor().Visit;
             _visitors[(int)AstNodeType.Match] = new RaLanguage.Interpreter.Visitors.Patterns.MatchNodeVisitor().Visit;
             _visitors[(int)AstNodeType.TryUnwrap] = new RaLanguage.Interpreter.Visitors.Patterns.TryUnwrapNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.Throw] = new ThrowNodeVisitor().Visit;
         }
 
         public ValueTask<RuntimeResult> Visit(AstNode node, Context context)

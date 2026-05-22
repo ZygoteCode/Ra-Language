@@ -1,0 +1,57 @@
+// Ra Language - functions: declarations and basic call.
+//
+// Cases:
+//   F1   no-arg function
+//   F2   one positional arg
+//   F3   typed parameters
+//   F4   typed return
+//   F5   arrow form
+//   F6   typed arrow form
+//   F7   multi-arg
+//   F8   nested function definition
+//   F9   recursion factorial(5)
+//   F10  early return short-circuits
+
+print("=== functions/definitions ===");
+
+fn f1() { ret 42; }
+if f1() == 42 { print("[F1] OK"); } else { print("[F1] FAIL"); }
+
+fn f2(x) { ret x + 1; }
+if f2(10) == 11 { print("[F2] OK"); } else { print("[F2] FAIL"); }
+
+fn f3(a: int, b: int) { ret a + b; }
+if f3(3, 4) == 7 { print("[F3] OK"); } else { print("[F3] FAIL"); }
+
+fn f4(a: int, b: int): int { ret a * b; }
+if f4(3, 4) == 12 { print("[F4] OK"); } else { print("[F4] FAIL"); }
+
+fn f5(x) => x * 2;
+if f5(7) == 14 { print("[F5] OK"); } else { print("[F5] FAIL"); }
+
+fn f6(x: int): int => x + 100;
+if f6(5) == 105 { print("[F6] OK"); } else { print("[F6] FAIL"); }
+
+fn f7(a, b, c, d, e) { ret a + b + c + d + e; }
+if f7(1, 2, 3, 4, 5) == 15 { print("[F7] OK"); } else { print("[F7] FAIL"); }
+
+fn outer_f8() {
+    fn inner_f8(x) { ret x * 10; }
+    ret inner_f8(3);
+}
+if outer_f8() == 30 { print("[F8] OK"); } else { print("[F8] FAIL"); }
+
+fn fact(n: int): int {
+    if n <= 1 { ret 1; }
+    ret n * fact(n - 1);
+}
+if fact(5) == 120 { print("[F9] OK"); } else { print("[F9] FAIL " + (fact(5) as string)); }
+
+fn early(x) {
+    if x > 0 { ret "pos"; }
+    if x == 0 { ret "zero"; }
+    ret "neg";
+}
+if early(5) == "pos" and early(0) == "zero" and early(-1) == "neg" { print("[F10] OK"); } else { print("[F10] FAIL"); }
+
+print("=== done ===");

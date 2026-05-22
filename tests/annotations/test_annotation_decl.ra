@@ -1,0 +1,59 @@
+// Ra Language - annotations: user-declared annotation forms.
+//
+// Cases:
+//   A1   parenthesised parameter list
+//   A2   brace parameter list (body form)
+//   A3   brace form with default value
+//   A4   brace form with multiple parameters
+//   A5   apply user annotation to a function
+//   A6   read user annotation parameter via annotation_arg
+
+print("=== annotations/decl ===");
+
+try {
+    annotation Inline {
+        label: string
+    }
+    print("[A1] OK");
+} catch (ex) { print("[A1] FAIL: " + ex); }
+
+try {
+    annotation Tag {
+        name: string
+    }
+    print("[A2] OK");
+} catch (ex) { print("[A2] FAIL: " + ex); }
+
+try {
+    annotation Limit {
+        min: int = 0
+    }
+    print("[A3] OK");
+} catch (ex) { print("[A3] FAIL: " + ex); }
+
+try {
+    annotation Multi {
+        a: string,
+        b: int = 1
+    }
+    print("[A4] OK");
+} catch (ex) { print("[A4] FAIL: " + ex); }
+
+annotation Meta {
+    label: string
+}
+
+@Meta(label = "alpha")
+fn tagged_fn() { ret 1; }
+
+try {
+    var has = has_annotation("fn:tagged_fn", "Meta");
+    if has { print("[A5] OK"); } else { print("[A5] FAIL has=false"); }
+} catch (ex) { print("[A5] FAIL: " + ex); }
+
+try {
+    var lbl = annotation_arg("fn:tagged_fn", "Meta", "label");
+    if lbl == "alpha" { print("[A6] OK"); } else { print("[A6] FAIL " + (lbl as string)); }
+} catch (ex) { print("[A6] FAIL: " + ex); }
+
+print("=== done ===");

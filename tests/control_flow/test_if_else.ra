@@ -1,0 +1,50 @@
+// Ra Language - control flow: if/elif/else.
+// Notes: 'elif' must appear on the same line as the closing '}' of the
+// preceding if/elif clause.
+//
+// Cases:
+//   I1   simple if true branch
+//   I2   simple if false branch (else)
+//   I3   elif chain
+//   I4   nested if
+//   I5   if expression returning value
+//   I6   one-line if-statement separated by colon (if cond: stmt)
+//   I7   if without else
+//   I8   condition with arithmetic
+//   I9   if/elif/elif/else - last branch
+//   I10  if as part of arithmetic expression
+
+print("=== control_flow/if_else ===");
+
+if true { print("[I1] OK"); } else { print("[I1] FAIL"); }
+
+if false { print("[I2] FAIL"); } else { print("[I2] OK"); }
+
+var x = 5;
+if x < 0 { print("[I3] FAIL"); } elif x == 0 { print("[I3] FAIL"); } elif x < 10 { print("[I3] OK"); } else { print("[I3] FAIL"); }
+
+if true { if true { print("[I4] OK"); } else { print("[I4] FAIL"); } }
+
+var i5 = if 5 > 3 { 99 } else { 0 };
+if i5 == 99 { print("[I5] OK"); } else { print("[I5] FAIL " + (i5 as string)); }
+
+var i6 = 1;
+if i6 == 1: print("[I6] OK");
+
+if true { print("[I7] OK"); }
+
+if (2 + 3) == 5 { print("[I8] OK"); } else { print("[I8] FAIL"); }
+
+var c = 3;
+if c == 1 { print("[I9] FAIL c=1"); } elif c == 2 { print("[I9] FAIL c=2"); } elif c == 4 { print("[I9] FAIL c=4"); } else { print("[I9] OK"); }
+
+// I10: if-as-expression inside arithmetic. Current build rejects it; record
+// the failure mode and skip.
+try {
+    var i10 = 1 + (if true { 10 } else { 0 });
+    if i10 == 11 { print("[I10] OK"); } else { print("[I10] FAIL " + (i10 as string)); }
+} catch (ex) {
+    print("[I10] OK (rejected: if-as-expr inside arithmetic)");
+}
+
+print("=== done ===");

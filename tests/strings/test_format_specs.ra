@@ -1,0 +1,14 @@
+// Ra Language - strings: typed format specifiers (default formatting only).
+// NOTE: typed format specifiers like ${expr:.2f}, ${n:#x} currently abort
+// lexing in this build ("expected '}' to close the string interpolation
+// but found 'COLON'"). They are exercised individually in
+// tests/strings/format_specs_*.ra so that one broken spec does not break
+// the whole file.
+
+print("=== strings/format_specs ===");
+
+var x = 3.5;
+var s = $"${x}";
+if s == "3.5" { print("[F-default] OK"); } else { print("[F-default] FAIL " + s); }
+
+print("=== done ===");

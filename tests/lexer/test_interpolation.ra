@@ -1,0 +1,40 @@
+// Ra Language - lexer: string interpolation parsing.
+//
+// Cases:
+//   I1  $"..${var}.." double-quoted
+//   I2  $'..${var}..' single-quoted
+//   I3  multiple holes
+//   I4  hole with an arithmetic expression
+//   I5  nested function call inside hole
+//   I6  no holes (plain $"...")
+//   I7  hole containing ternary
+
+print("=== lexer/interpolation ===");
+
+var x = 42;
+var s1 = $"x=${x}";
+if s1 == "x=42" { print("[I1] OK"); } else { print("[I1] FAIL " + s1); }
+
+var s2 = $'x=${x}';
+if s2 == "x=42" { print("[I2] OK"); } else { print("[I2] FAIL " + s2); }
+
+var a = 1;
+var b = 2;
+var s3 = $"a=${a},b=${b}";
+if s3 == "a=1,b=2" { print("[I3] OK"); } else { print("[I3] FAIL " + s3); }
+
+var s4 = $"sum=${a + b * 3}";
+if s4 == "sum=7" { print("[I4] OK"); } else { print("[I4] FAIL " + s4); }
+
+fn helper(n) { ret n * 10; }
+var s5 = $"r=${helper(4)}";
+if s5 == "r=40" { print("[I5] OK"); } else { print("[I5] FAIL " + s5); }
+
+var s6 = $"plain";
+if s6 == "plain" { print("[I6] OK"); } else { print("[I6] FAIL " + s6); }
+
+var flag = 1;
+var s7 = $"v=${flag == 1 ? 99 : 0}";
+if s7 == "v=99" { print("[I7] OK"); } else { print("[I7] FAIL " + s7); }
+
+print("=== done ===");

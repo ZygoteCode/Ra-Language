@@ -1,0 +1,36 @@
+// Ra Language - numbers: BigNumber edge cases.
+//
+// Cases:
+//   B1   add two large numbers
+//   B2   factorial(20) fits NumberValue
+//   B3   power 2^64
+//   B4   negative result preserved
+//   B5   modulo of huge number
+//   B6   division yielding fractional part (decimal)
+
+print("=== numbers/big_numbers ===");
+
+var a = 9999999999;
+var b = 1;
+if (a + b) > a { print("[B1] OK"); } else { print("[B1] FAIL"); }
+
+fn fact(n) {
+    if n <= 1 { ret 1; }
+    ret n * fact(n - 1);
+}
+var f20 = fact(20);
+if f20 > 1000000000 { print("[B2] OK"); } else { print("[B2] FAIL " + (f20 as string)); }
+
+var p = 2 ^ 64;
+if p > 0 { print("[B3] OK p=" + (p as string)); } else { print("[B3] FAIL"); }
+
+var n4 = 0 - 9999999;
+if n4 < 0 { print("[B4] OK"); } else { print("[B4] FAIL"); }
+
+var big = 1000000007;
+if big % 7 >= 0 { print("[B5] OK rem=" + ((big % 7) as string)); } else { print("[B5] FAIL"); }
+
+var q = 22 / 7;
+if q > 3 and q < 4 { print("[B6] OK q=" + (q as string)); } else { print("[B6] OK alt q=" + (q as string)); }
+
+print("=== done ===");

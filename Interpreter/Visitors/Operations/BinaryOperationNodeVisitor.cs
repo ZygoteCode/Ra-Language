@@ -19,6 +19,36 @@ namespace RaLanguage.Interpreter.Visitors.Operations
             var left = res.Register(await interpreter.Visit(node.LeftNode, context));
             if (res.ShouldReturn()) return res;
 
+            // Short-circuit `and` / `or` before evaluating the right-hand side.
+            // The operands are coerced to booleans through IsTrue() so non-bool
+            // values follow the same falsy/truthy rules as in `if` conditions.
+            if (node.OpTok.Type == TokenType.KEYWORD)
+            {
+                var kw = (Keyword)node.OpTok.Value!;
+                if (kw == Keyword.And)
+                {
+                    bool lt = left!.IsTrue();
+                    if (!lt)
+                    {
+                        return res.Success(BooleanValue.Of(false).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                    }
+                    var rightSc = res.Register(await interpreter.Visit(node.RightNode, context));
+                    if (res.ShouldReturn()) return res;
+                    return res.Success(BooleanValue.Of(rightSc!.IsTrue()).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                }
+                if (kw == Keyword.Or)
+                {
+                    bool lt = left!.IsTrue();
+                    if (lt)
+                    {
+                        return res.Success(BooleanValue.Of(true).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                    }
+                    var rightSc = res.Register(await interpreter.Visit(node.RightNode, context));
+                    if (res.ShouldReturn()) return res;
+                    return res.Success(BooleanValue.Of(rightSc!.IsTrue()).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                }
+            }
+
             var right = res.Register(await interpreter.Visit(node.RightNode, context));
             if (res.ShouldReturn()) return res;
 

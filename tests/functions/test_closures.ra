@@ -1,0 +1,60 @@
+// Ra Language - functions: closures and lexical access.
+//
+// Cases:
+//   C1   nested fn captures enclosing parameter
+//   C2   counter closure preserves state
+//   C3   lambda observes mutable outer
+//   C4   lambda observes let-bound constant
+//   C5   higher-order: lambda passed to apply
+//   C6   by-value capture freezes snapshot
+//   C7   by-ref capture observes through borrow
+//   C8   move capture transfers ownership
+
+print("=== functions/closures ===");
+
+fn make_adder(n: int) {
+    fn add(x: int): int { ret x + n; }
+    ret add;
+}
+var add5 = make_adder(5);
+if add5(10) == 15 { print("[C1] OK"); } else { print("[C1] FAIL " + (add5(10) as string)); }
+
+fn make_counter() {
+    var c = 0;
+    fn tick(): int { c = c + 1; ret c; }
+    ret tick;
+}
+var counter = make_counter();
+counter();
+counter();
+var r2 = counter();
+if r2 == 3 { print("[C2] OK"); } else { print("[C2] FAIL " + (r2 as string)); }
+
+var z = 50;
+var leg = fn() => z;
+z = 51;
+if leg() == 51 { print("[C3] OK"); } else { print("[C3] FAIL " + (leg() as string)); }
+
+let k = 42;
+var reader = fn() => k;
+if reader() == 42 { print("[C4] OK"); } else { print("[C4] FAIL"); }
+
+fn apply(f, x) { ret f(x); }
+let twice = fn(n: int) => n * 2;
+if apply(twice, 7) == 14 { print("[C5] OK"); } else { print("[C5] FAIL"); }
+
+let mut snap_src = 10;
+let snap = fn[snap_src]() => snap_src;
+snap_src = 99;
+if snap() == 10 { print("[C6] OK"); } else { print("[C6] FAIL " + (snap() as string)); }
+
+let live_src = 7;
+let live = fn[&live_src]() => *live_src;
+if live() == 7 { print("[C7] OK"); } else { print("[C7] FAIL"); }
+
+let box_src = [1, 2, 3];
+let owner = fn[move box_src]() => box_src;
+var got = owner();
+if got[0] == 1 and got[2] == 3 { print("[C8] OK"); } else { print("[C8] FAIL"); }
+
+print("=== done ===");

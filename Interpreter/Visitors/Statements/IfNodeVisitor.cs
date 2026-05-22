@@ -41,7 +41,12 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                     var exprValue = res.Register(await interpreter.Visit(expr, bodyContext));
                     if (res.Error != null) return res;
                     if (res.ShouldReturn()) return res;
-                    return res.Success(shouldReturnNull ? NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd) : exprValue);
+                    // Always return the body value so `if-as-expression` works
+                    // inside arithmetic (`1 + (if X { 10 } else { 0 })`). For
+                    // statement-form ifs the caller drops the value, which is
+                    // a no-op.
+                    if (exprValue != null) return res.Success(exprValue.SetPos(node.PositionStart, node.PositionEnd));
+                    return res.Success(NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
             }
 

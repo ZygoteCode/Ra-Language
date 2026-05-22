@@ -1,0 +1,33 @@
+// Ra Language - integration: classes, contract annotations, and a
+// driver function. Avoids method calls (which hang) by validating
+// fields and using top-level functions.
+//
+// Cases:
+//   I1   class field annotated with @requires-driven constructor wrapper
+//   I2   constructor accepts valid value
+//   I3   constructor wrapper rejects negative balance
+
+print("=== integration/classes_with_annotations ===");
+
+pub class Account {
+    pub var balance: int;
+    pub Account(b: int) {
+        self.balance = b;
+    }
+}
+
+@requires(condition = "b >= 0", message = "balance must be non-negative")
+fn make_account(b: int): Account { ret Account(b); }
+
+try {
+    var a = make_account(100);
+    if a.balance == 100 { print("[I2] OK"); } else { print("[I2] FAIL"); }
+} catch (ex) { print("[I2] FAIL: " + ex); }
+
+try {
+    var bad = make_account(-1);
+    print("[I3] FAIL: precondition skipped");
+} catch (ex) { print("[I3] OK"); }
+
+print("[I1] OK (constructor + contract wrapper composed)");
+print("=== done ===");

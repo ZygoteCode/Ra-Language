@@ -1,5 +1,0 @@
-var a: double = 5;
-var b: double = 2.5;
-var c = a + b;
-print(c);
-print(a as string);

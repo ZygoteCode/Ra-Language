@@ -1,0 +1,43 @@
+// Ra Language - reflection: type / kind / is_* helpers.
+//
+// Cases:
+//   T1   type_of int/string/list/bool
+//   T2   type_kind list
+//   T3   is_int / is_string / is_list / is_bool
+//   T4   nameof
+//   T5   typeof()
+//   T6   exists()
+
+print("=== reflection/type_introspection ===");
+
+if type_of(5) == "number" or type_of(5) == "int" { print("[T1a] OK kind=" + type_of(5)); } else { print("[T1a] FAIL " + type_of(5)); }
+if type_of("hello") == "string" { print("[T1b] OK"); } else { print("[T1b] FAIL " + type_of("hello")); }
+if type_of(true) == "bool" or type_of(true) == "boolean" { print("[T1c] OK kind=" + type_of(true)); } else { print("[T1c] FAIL " + type_of(true)); }
+if type_of([1, 2]) == "list" { print("[T1d] OK"); } else { print("[T1d] FAIL " + type_of([1, 2])); }
+
+try {
+    var k = type_kind([1, 2]);
+    print("[T2] kind=" + (k as string));
+} catch (ex) { print("[T2] FAIL: " + ex); }
+
+// T3 individually so we can see which built-in fails.
+print("[T3-is_int]    " + (is_int(5) as string));
+print("[T3-is_string] " + (is_string("x") as string));
+print("[T3-is_list]   " + (is_list([1]) as string));
+try { print("[T3-is_bool] " + (is_bool(true) as string)); } catch (ex) { print("[T3-is_bool] FAIL: " + ex); }
+
+try {
+    var x = 42;
+    var n = nameof(x);
+    print("[T4] name=" + n);
+} catch (ex) { print("[T4] FAIL: " + ex); }
+
+try {
+    var t = typeof(5);
+    print("[T5] type=" + (t as string));
+} catch (ex) { print("[T5] FAIL: " + ex); }
+
+var exi = 99;
+if exists("exi") and not exists("definitely_not_declared_zzz") { print("[T6] OK"); } else { print("[T6] FAIL"); }
+
+print("=== done ===");

@@ -1,0 +1,31 @@
+// Ra Language - edge: unusual but legal identifiers.
+//
+// Cases:
+//   U1   underscore-prefixed identifier
+//   U2   mixed-case identifier
+//   U3   trailing underscore identifier
+//   U4   long identifier
+//   U5   numeric tail
+//   U6   reserved-looking name
+
+print("=== edge_cases/unusual_identifiers ===");
+
+var _underscored = 1;
+if _underscored == 1 { print("[U1] OK"); } else { print("[U1] FAIL"); }
+
+var MixedCase = 2;
+if MixedCase == 2 { print("[U2] OK"); } else { print("[U2] FAIL"); }
+
+var trailing_ = 3;
+if trailing_ == 3 { print("[U3] OK"); } else { print("[U3] FAIL"); }
+
+var very_long_identifier_name_here_for_testing = 4;
+if very_long_identifier_name_here_for_testing == 4 { print("[U4] OK"); } else { print("[U4] FAIL"); }
+
+var v123 = 5;
+if v123 == 5 { print("[U5] OK"); } else { print("[U5] FAIL"); }
+
+var imp = 6;
+if imp == 6 { print("[U6] OK"); } else { print("[U6] FAIL"); }
+
+print("=== done ===");

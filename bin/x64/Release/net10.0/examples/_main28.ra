@@ -1,8 +1,0 @@
-var a: ushort = 7;
-var b: ushort = 13;
-var c: ushort = a + b;
-print(c);
-print(typeof(c));
-c = 7;
-print(c);
-print(typeof(c));

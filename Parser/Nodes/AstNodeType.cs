@@ -86,6 +86,7 @@
         FormattedInterpolation,
         RegexLiteral,
         Match,
-        TryUnwrap
+        TryUnwrap,
+        Throw
     }
 }

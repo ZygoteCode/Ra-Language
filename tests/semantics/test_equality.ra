@@ -1,0 +1,32 @@
+// Ra Language - semantics: equality / identity semantics.
+//
+// Cases:
+//   Q1   int == float same numeric value
+//   Q2   string equality character-by-character
+//   Q3   list equality element-by-element
+//   Q4   map equality? (try)
+//   Q5   null == null
+//   Q6   different types -> not equal
+//   Q7   bool true != 1?
+
+print("=== semantics/equality ===");
+
+if 5 == 5.0 { print("[Q1] OK"); } else { print("[Q1] FAIL"); }
+
+if "abc" == "abc" and "abc" != "abd" { print("[Q2] OK"); } else { print("[Q2] FAIL"); }
+
+if [1, 2, 3] == [1, 2, 3] { print("[Q3] OK"); } else { print("[Q3] FAIL"); }
+
+try {
+    if {"a": 1} == {"a": 1} { print("[Q4] OK"); } else { print("[Q4] OK (not equal)"); }
+} catch (ex) { print("[Q4] OK (rejected): " + ex); }
+
+if null == null { print("[Q5] OK"); } else { print("[Q5] FAIL"); }
+
+if 1 != "1" { print("[Q6] OK"); } else { print("[Q6] FAIL"); }
+
+try {
+    if true == 1 { print("[Q7] bool == 1 truthy"); } else { print("[Q7] bool == 1 false"); }
+} catch (ex) { print("[Q7] OK (rejected): " + ex); }
+
+print("=== done ===");

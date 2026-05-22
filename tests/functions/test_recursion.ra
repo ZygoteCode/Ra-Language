@@ -1,0 +1,49 @@
+// Ra Language - functions: recursion forms.
+//
+// Cases:
+//   R1   factorial
+//   R2   fibonacci slow recursive
+//   R3   mutual recursion is_even / is_odd
+//   R4   accumulator-style tail-ish recursion
+//   R5   recursion returns list
+
+print("=== functions/recursion ===");
+
+fn fact(n: int): int {
+    if n <= 1 { ret 1; }
+    ret n * fact(n - 1);
+}
+if fact(7) == 5040 { print("[R1] OK"); } else { print("[R1] FAIL " + (fact(7) as string)); }
+
+fn fib(n: int): int {
+    if n < 2 { ret n; }
+    ret fib(n - 1) + fib(n - 2);
+}
+if fib(10) == 55 { print("[R2] OK"); } else { print("[R2] FAIL " + (fib(10) as string)); }
+
+fn is_odd(n: int): bool {
+    if n == 0 { ret false; }
+    ret is_even(n - 1);
+}
+fn is_even(n: int): bool {
+    if n == 0 { ret true; }
+    ret is_odd(n - 1);
+}
+if is_even(10) and not is_even(7) and is_odd(11) { print("[R3] OK"); } else { print("[R3] FAIL"); }
+
+fn sum_acc(n: int, acc: int): int {
+    if n == 0 { ret acc; }
+    ret sum_acc(n - 1, acc + n);
+}
+if sum_acc(100, 0) == 5050 { print("[R4] OK"); } else { print("[R4] FAIL " + (sum_acc(100, 0) as string)); }
+
+fn build(n: int) {
+    if n == 0 { ret []; }
+    var rest = build(n - 1);
+    var head = [n];
+    ret head + rest;
+}
+var b = build(5);
+if len(b) == 5 and b[0] == 5 { print("[R5] OK"); } else { print("[R5] FAIL " + (b as string)); }
+
+print("=== done ===");

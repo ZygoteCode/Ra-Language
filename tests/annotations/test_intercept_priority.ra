@@ -1,0 +1,24 @@
+// Ra Language - annotations: @intercept + @priority on user annotations.
+// @intercept(before = "fn_name", after = "fn_name") chains hooks at the
+// call site of any function the user annotation is applied to.
+//
+// Cases:
+//   I1   @intercept annotation declaration parses
+//   I2   @priority on the same annotation parses
+
+print("=== annotations/intercept_priority ===");
+
+@intercept(before = "log_pre", after = "log_post")
+annotation Around {
+    handler: string
+}
+print("[I1] OK");
+
+@priority(value = 10)
+@intercept(before = "trace_pre", after = "trace_post")
+annotation Traced {
+    label: string
+}
+print("[I2] OK");
+
+print("=== done ===");

@@ -1,0 +1,27 @@
+// Ra Language - functions: generic + where-constraint cases.
+//
+// Cases:
+//   G1   single-type generic fn
+//   G2   generic with where T: int
+//   G3   two type params
+//   G4   identity fn preserves value
+//   G5   generic call with explicit type arg
+
+print("=== functions/generic_constraints ===");
+
+fn first<T>(l: list<T>): T { ret l[0]; }
+if first([1, 2, 3]) == 1 and first(["a", "b"]) == "a" { print("[G1] OK"); } else { print("[G1] FAIL"); }
+
+fn add1<T>(x: T): T where T: int { ret x + 1; }
+if add1<int>(9) == 10 { print("[G2] OK"); } else { print("[G2] FAIL"); }
+
+fn pair_of<A, B>(a: A, b: B) { ret (a, b); }
+let p = pair_of<int, string>(7, "hi");
+if p[0] == 7 and p[1] == "hi" { print("[G3] OK"); } else { print("[G3] FAIL"); }
+
+fn id_v<T>(x: T): T { ret x; }
+if id_v(42) == 42 and id_v("hi") == "hi" { print("[G4] OK"); } else { print("[G4] FAIL"); }
+
+if id_v<int>(99) == 99 { print("[G5] OK"); } else { print("[G5] FAIL"); }
+
+print("=== done ===");

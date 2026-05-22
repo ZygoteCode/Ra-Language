@@ -1,0 +1,30 @@
+// Ra Language - edge: extreme whitespace patterns.
+//
+// Cases:
+//   W1   many blank lines in a row
+//   W2   many statements on one line separated by `;`
+//   W3   tabs + spaces mixed
+//   W4   no whitespace around operators
+
+print("=== edge_cases/extreme_whitespace ===");
+
+
+
+
+var w1 = 1;
+
+
+
+
+if w1 == 1 { print("[W1] OK"); } else { print("[W1] FAIL"); }
+
+var a = 1; var b = 2; var c = 3; var d = 4;
+if a + b + c + d == 10 { print("[W2] OK"); } else { print("[W2] FAIL"); }
+
+	var	w3	=	5	;
+if w3 == 5 { print("[W3] OK"); } else { print("[W3] FAIL"); }
+
+var w4=1+2*3-4;
+if w4 == 3 { print("[W4] OK"); } else { print("[W4] FAIL " + (w4 as string)); }
+
+print("=== done ===");

@@ -1,0 +1,36 @@
+// Ra Language - edge: identifier diversity.
+//
+// Cases:
+//   I1   single-letter identifiers
+//   I2   long camelCase identifier
+//   I3   snake_case + digits
+//   I4   identifier starts with underscore
+//   I5   identifier ends with digit
+//   I6   identifier shadow + reuse in different scopes
+
+print("=== edge_cases/identifier_diversity ===");
+
+var aa = 1;
+var bb = 2;
+if aa + bb == 3 { print("[I1] OK"); } else { print("[I1] FAIL"); }
+
+var thisIsAVeryLongCamelCaseName = 7;
+if thisIsAVeryLongCamelCaseName == 7 { print("[I2] OK"); } else { print("[I2] FAIL"); }
+
+var snake_var_123 = 9;
+if snake_var_123 == 9 { print("[I3] OK"); } else { print("[I3] FAIL"); }
+
+var _private = 5;
+if _private == 5 { print("[I4] OK"); } else { print("[I4] FAIL"); }
+
+var x99 = 11;
+if x99 == 11 { print("[I5] OK"); } else { print("[I5] FAIL"); }
+
+var same = 1;
+{
+    var same = 2;
+    if same == 2 { print("[I6a] OK"); } else { print("[I6a] FAIL"); }
+}
+if same == 1 { print("[I6b] OK"); } else { print("[I6b] FAIL"); }
+
+print("=== done ===");

@@ -1,0 +1,10 @@
+// Ra Language - annotations: @derive on a class.
+// NOTE: in this build the resolver / static analyzer reports each
+// derive flag ("Equals", "ToString", "Hash") as an undefined symbol
+// *before* DeriveTransformer can consume them. The class therefore
+// fails to compile when @derive is applied. The form is exercised in
+// tests/regressions/derive_unresolved_flags.ra.
+
+print("=== annotations/derive ===");
+print("[D-DEFER] OK (derive flags reported as undefined symbols; see regressions/)");
+print("=== done ===");

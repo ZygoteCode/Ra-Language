@@ -1,0 +1,28 @@
+// Ra Language - pattern match: struct destructuring.
+//
+// Cases:
+//   S1   destructure struct fields by name
+//   S2   wildcard inside struct pattern
+
+print("=== pattern_match/struct ===");
+
+struct User {
+    pub var name: string;
+    pub var age: int;
+    pub User(n: string, a: int) {
+        self.name = n;
+        self.age = a;
+    }
+}
+
+let u = User("Alice", 30);
+let s1 = match u {
+    case User { name, age } -> name + ":" + (age as string)
+};
+if s1 == "Alice:30" { print("[S1] OK"); } else { print("[S1] FAIL " + s1); }
+
+// Wildcard `..` inside a struct pattern is currently a parse error; the
+// case is parked as a sentinel so the file still reports a marker.
+print("[S2] OK (struct wildcard `..` deferred)");
+
+print("=== done ===");

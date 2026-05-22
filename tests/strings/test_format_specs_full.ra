@@ -1,0 +1,62 @@
+// Ra Language - strings: full format-spec matrix inside ${...:spec}.
+//
+// Cases:
+//   F1   :.Nf  float precision
+//   F2   :x / :X hex
+//   F3   :#x prefixed hex
+//   F4   :#b binary
+//   F5   :#o octal
+//   F6   :.N% percent
+//   F7   :e   scientific
+//   F8   :d   integer decimal
+//   F9   negative float
+//   F10  multiple holes one literal
+//   F11  default formatting (no spec)
+//   F12  precision-only `:.3`
+
+print("=== strings/format_specs_full ===");
+
+let pi = 3.14159;
+let f1 = $"v=${pi:.2f}";
+if f1 == "v=3.14" { print("[F1] OK"); } else { print("[F1] FAIL " + f1); }
+
+let n = 255;
+let f2a = $"${n:x}";
+let f2b = $"${n:X}";
+if f2a == "ff" and f2b == "FF" { print("[F2] OK"); } else { print("[F2] FAIL"); }
+
+let f3 = $"${n:#x}";
+if f3 == "0xff" { print("[F3] OK"); } else { print("[F3] FAIL " + f3); }
+
+let f4 = $"${10:#b}";
+if f4 == "0b1010" { print("[F4] OK"); } else { print("[F4] FAIL " + f4); }
+
+let f5 = $"${8:#o}";
+if f5 == "0o10" { print("[F5] OK"); } else { print("[F5] FAIL " + f5); }
+
+let f6 = $"${0.875:.1%}";
+if f6 == "87.5%" { print("[F6] OK"); } else { print("[F6] FAIL " + f6); }
+
+try {
+    let f7 = $"${12345.0:.2e}";
+    if str_contains(f7, "e") or str_contains(f7, "E") { print("[F7] OK"); } else { print("[F7] FAIL " + f7); }
+} catch (ex) { print("[F7] FAIL: " + ex); }
+
+let f8 = $"${42:d}";
+if f8 == "42" { print("[F8] OK"); } else { print("[F8] FAIL " + f8); }
+
+let f9 = $"${-1.5:.2f}";
+if f9 == "-1.50" { print("[F9] OK"); } else { print("[F9] FAIL " + f9); }
+
+let f10 = $"a=${1:d} b=${2:#x} c=${0.5:.2f}";
+if f10 == "a=1 b=0x2 c=0.50" { print("[F10] OK"); } else { print("[F10] FAIL " + f10); }
+
+let f11 = $"${3.5}";
+if f11 == "3.5" { print("[F11] OK"); } else { print("[F11] FAIL " + f11); }
+
+try {
+    let f12 = $"${1.23456:.3}";
+    print("[F12] OK got=" + f12);
+} catch (ex) { print("[F12] FAIL: " + ex); }
+
+print("=== done ===");

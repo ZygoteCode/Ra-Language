@@ -1,0 +1,30 @@
+// Ra Language - async: sleep + await.
+//
+// Cases:
+//   A1   sleep(N) returns a task
+//   A2   await sleep completes
+//   A3   gather([sleep, sleep, sleep])
+//   A4   race returns the fastest
+
+print("=== async/sleep_await ===");
+
+try {
+    var t = sleep(5);
+    var r = await t;
+    print("[A1-A2] OK");
+} catch (ex) { print("[A1-A2] FAIL: " + ex); }
+
+try {
+    var tasks = [sleep(2), sleep(2), sleep(2)];
+    var r = await gather(tasks);
+    print("[A3] OK len=" + (len(r) as string));
+} catch (ex) { print("[A3] FAIL: " + ex); }
+
+try {
+    var fast = sleep(2);
+    var slow = sleep(200);
+    var r = await race([fast, slow]);
+    print("[A4] OK");
+} catch (ex) { print("[A4] FAIL: " + ex); }
+
+print("=== done ===");

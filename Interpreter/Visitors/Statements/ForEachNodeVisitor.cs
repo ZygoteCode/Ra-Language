@@ -42,64 +42,74 @@ namespace RaLanguage.Interpreter.Visitors.Statements
             var bodyContext = loopContext.Copy();
             var bodySymbols = bodyContext.SymbolTable!;
 
+            // ExecuteBody is inlined: RuntimeResult is a struct, so it cannot be
+            // passed to a helper that mutates `res` for the caller. The previous
+            // implementation lost LoopShouldBreak / LoopShouldContinue across the
+            // by-value copy and the loop never exited on `break;`.
+            bool shouldBreak = false;
             if (collection.Type == RuntimeValueType.List)
             {
                 var elements = ((ListValue)collection).Elements;
-                for (int idx = 0; idx < elements.Count; idx++)
+                for (int idx = 0; idx < elements.Count && !shouldBreak; idx++)
                 {
                     iterEntry!.Value = elements[idx];
-                    if (await ExecuteBody(node, bodyContext, bodySymbols, interpreter, res)) return res;
-                    if (res.LoopShouldBreak) break;
+                    bodySymbols.Clear();
+                    bodyContext.ScopeSkipCopy = true;
+                    res.Register(await interpreter.Visit(node.BodyNode, bodyContext));
+                    if (res.Error != null) return res;
+                    if (res.FuncReturnValue != null) return res;
+                    if (res.LoopShouldBreak) { res.LoopShouldBreak = false; shouldBreak = true; continue; }
+                    if (res.LoopShouldContinue) { res.LoopShouldContinue = false; continue; }
                 }
             }
             else if (collection.Type == RuntimeValueType.Set)
             {
                 foreach (var element in ((SetValue)collection).Elements)
                 {
+                    if (shouldBreak) break;
                     iterEntry!.Value = element;
-                    if (await ExecuteBody(node, bodyContext, bodySymbols, interpreter, res)) return res;
-                    if (res.LoopShouldBreak) break;
+                    bodySymbols.Clear();
+                    bodyContext.ScopeSkipCopy = true;
+                    res.Register(await interpreter.Visit(node.BodyNode, bodyContext));
+                    if (res.Error != null) return res;
+                    if (res.FuncReturnValue != null) return res;
+                    if (res.LoopShouldBreak) { res.LoopShouldBreak = false; shouldBreak = true; continue; }
+                    if (res.LoopShouldContinue) { res.LoopShouldContinue = false; continue; }
                 }
             }
             else if (collection.Type == RuntimeValueType.Tuple)
             {
                 var elements = ((TupleValue)collection).Elements;
-                for (int idx = 0; idx < elements.Count; idx++)
+                for (int idx = 0; idx < elements.Count && !shouldBreak; idx++)
                 {
                     iterEntry!.Value = elements[idx];
-                    if (await ExecuteBody(node, bodyContext, bodySymbols, interpreter, res)) return res;
-                    if (res.LoopShouldBreak) break;
+                    bodySymbols.Clear();
+                    bodyContext.ScopeSkipCopy = true;
+                    res.Register(await interpreter.Visit(node.BodyNode, bodyContext));
+                    if (res.Error != null) return res;
+                    if (res.FuncReturnValue != null) return res;
+                    if (res.LoopShouldBreak) { res.LoopShouldBreak = false; shouldBreak = true; continue; }
+                    if (res.LoopShouldContinue) { res.LoopShouldContinue = false; continue; }
                 }
             }
             else if (collection.Type == RuntimeValueType.Map)
             {
                 var pairs = ((MapValue)collection).Pairs;
-                for (int idx = 0; idx < pairs.Count; idx++)
+                for (int idx = 0; idx < pairs.Count && !shouldBreak; idx++)
                 {
                     var pair = pairs[idx];
                     iterEntry!.Value = new TupleValue(new System.Collections.Generic.List<RuntimeValue> { pair.Key, pair.Value });
-                    if (await ExecuteBody(node, bodyContext, bodySymbols, interpreter, res)) return res;
-                    if (res.LoopShouldBreak) break;
+                    bodySymbols.Clear();
+                    bodyContext.ScopeSkipCopy = true;
+                    res.Register(await interpreter.Visit(node.BodyNode, bodyContext));
+                    if (res.Error != null) return res;
+                    if (res.FuncReturnValue != null) return res;
+                    if (res.LoopShouldBreak) { res.LoopShouldBreak = false; shouldBreak = true; continue; }
+                    if (res.LoopShouldContinue) { res.LoopShouldContinue = false; continue; }
                 }
             }
 
-            // No write-back. Outer mutations already propagated via shared SymbolEntry refs;
-            // loop locals (the iter var and body locals) die when loopContext / bodyContext
-            // become unreachable.
             return res.Success(NullValue.Null);
-        }
-
-        private static async ValueTask<bool> ExecuteBody(ForEachNode node, Context bodyContext, RaLanguage.Interpreter.Runtime.SymbolTable bodySymbols, IInterpreter interpreter, RuntimeResult res)
-        {
-            bodySymbols.Clear();
-            bodyContext.ScopeSkipCopy = true;
-            res.Register(await interpreter.Visit(node.BodyNode, bodyContext));
-            if (res.Error != null) return true;
-
-            if (res.LoopShouldContinue) return false;
-            if (res.LoopShouldBreak) return false;
-            if (res.ShouldReturn()) return true;
-            return false;
         }
     }
 }

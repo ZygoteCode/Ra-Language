@@ -591,8 +591,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
             }
             else if (other.Type == RuntimeValueType.String)
             {
-                StringValue s = (StringValue)other;
-                return (BooleanValue.Of(Value.ToString() == s.Value).SetContext(Context), null);
+                // Number vs string is never equal (no string<->number coercion).
+                return (BooleanValue.Of(false).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Float)
             {
@@ -671,12 +671,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
             else if (other.Type == RuntimeValueType.Long)
             {
                 NumberValue n = Promote((LongValue)other);
-                return (BooleanValue.Of(Value == n.Value).SetContext(Context), null);
+                return (BooleanValue.Of(Value != n.Value).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.String)
             {
-                StringValue s = (StringValue)other;
-                return (BooleanValue.Of(Value.ToString() != s.Value).SetContext(Context), null);
+                // Number vs string is always unequal.
+                return (BooleanValue.Of(true).SetContext(Context), null);
             }
             else if (other.Type == RuntimeValueType.Float)
             {
@@ -1405,7 +1405,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.CastTo(targetType);
         }
 
-        public sealed override bool IsTrue() => Value == 1;
+        public sealed override bool IsTrue() => !Value.IsZero();
 
         public sealed override string ToString() => Value.ToString();
     }

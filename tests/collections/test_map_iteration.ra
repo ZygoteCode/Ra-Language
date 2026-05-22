@@ -1,0 +1,45 @@
+// Ra Language - collections: map iteration / mutation.
+//
+// Cases:
+//   M1   for k in map yields tuple
+//   M2   for-in totals values
+//   M3   len reflects mutation
+//   M4   delete a key via -= operator
+//   M5   map copy preserves entries
+//   M6   nested map access
+//   M7   missing key raises
+
+print("=== collections/map_iteration ===");
+
+var m = {"a": 1, "b": 2, "c": 3};
+var sum = 0;
+for entry in m { sum = sum + entry[1]; }
+if sum == 6 { print("[M1] OK"); } else { print("[M1] FAIL " + (sum as string)); }
+
+var s = "";
+for entry in m { s = s + entry[0]; }
+if str_contains(s, "a") and str_contains(s, "b") and str_contains(s, "c") { print("[M2] OK"); } else { print("[M2] FAIL " + s); }
+
+m["d"] = 4;
+if len(m) == 4 { print("[M3] OK"); } else { print("[M3] FAIL"); }
+
+try {
+    m -= "a";
+    if len(m) == 3 { print("[M4] OK"); } else { print("[M4] FAIL " + (len(m) as string)); }
+} catch (ex) { print("[M4] FAIL: " + ex); }
+
+try {
+    var snap = {"x": 1, "y": 2};
+    var copy = snap;
+    if copy["x"] == 1 and copy["y"] == 2 { print("[M5] OK"); } else { print("[M5] FAIL"); }
+} catch (ex) { print("[M5] FAIL: " + ex); }
+
+var nested = {"outer": {"inner": 99}};
+if nested["outer"]["inner"] == 99 { print("[M6] OK"); } else { print("[M6] FAIL"); }
+
+try {
+    var miss = m["__missing__"];
+    print("[M7] FAIL accepted " + (miss as string));
+} catch (ex) { print("[M7] OK"); }
+
+print("=== done ===");

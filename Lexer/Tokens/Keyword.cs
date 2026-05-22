@@ -74,5 +74,6 @@
         Mut,
         Match,
         Move,
+        Throw,
     }
 }

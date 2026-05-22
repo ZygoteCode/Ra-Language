@@ -1,0 +1,41 @@
+// Ra Language - annotations: built-in validators on parameters.
+//
+// Cases:
+//   V1   @positive_int accepts positive
+//   V2   @positive_int rejects non-positive
+//   V3   @not_empty accepts non-empty string
+//   V4   @not_empty rejects empty string
+//   V5   @length min/max
+//   V6   @range bounds
+
+print("=== annotations/validators ===");
+
+try {
+    fn use_pos(@positive_int n: int): int { ret n; }
+    if use_pos(5) == 5 { print("[V1] OK"); } else { print("[V1] FAIL"); }
+    try {
+        var _x = use_pos(0);
+        print("[V2] FAIL: 0 accepted");
+    } catch (ex2) { print("[V2] OK"); }
+} catch (ex) { print("[V1-V2] FAIL: " + ex); }
+
+try {
+    fn use_ne(@not_empty s: string): string { ret s; }
+    if use_ne("ok") == "ok" { print("[V3] OK"); } else { print("[V3] FAIL"); }
+    try {
+        var _x = use_ne("");
+        print("[V4] FAIL: empty accepted");
+    } catch (ex2) { print("[V4] OK"); }
+} catch (ex) { print("[V3-V4] FAIL: " + ex); }
+
+try {
+    fn use_len(@length(min = 1, max = 5) s: string): string { ret s; }
+    if use_len("abc") == "abc" { print("[V5] OK"); } else { print("[V5] FAIL"); }
+} catch (ex) { print("[V5] FAIL: " + ex); }
+
+try {
+    fn use_range(@range(min = 1, max = 10) n: int): int { ret n; }
+    if use_range(5) == 5 { print("[V6] OK"); } else { print("[V6] FAIL"); }
+} catch (ex) { print("[V6] FAIL: " + ex); }
+
+print("=== done ===");

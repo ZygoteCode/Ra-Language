@@ -1,0 +1,45 @@
+// Ra Language - types: class inheritance + dispatch.
+//
+// Cases:
+//   I1   subclass inherits parent field
+//   I2   subclass inherits parent method
+//   I3   override changes dispatch
+//   I4   subclass adds own method
+//   I5   default field initialisers apply through inheritance
+
+print("=== types/inheritance ===");
+
+pub class Animal {
+    pub var name: string = "?";
+    pub Animal() { pass; }
+    pub fn speak() { ret "<silence>"; }
+}
+
+pub class Dog : Animal {
+    pub var breed: string = "?";
+    pub Dog() { pass; }
+    pub override fn speak() { ret "woof"; }
+    pub fn fetch() { ret self.name + " fetches"; }
+}
+
+var d = Dog();
+d.name = "Rex";
+d.breed = "Lab";
+
+if d.name == "Rex" { print("[I1] OK"); } else { print("[I1] FAIL"); }
+
+pub class Cat : Animal {
+    pub Cat() { pass; }
+}
+var c = Cat();
+c.name = "Tom";
+if c.speak() == "<silence>" { print("[I2] OK"); } else { print("[I2] FAIL " + c.speak()); }
+
+if d.speak() == "woof" { print("[I3] OK"); } else { print("[I3] FAIL " + d.speak()); }
+
+if d.fetch() == "Rex fetches" { print("[I4] OK"); } else { print("[I4] FAIL"); }
+
+var d2 = Dog();
+if d2.name == "?" and d2.breed == "?" { print("[I5] OK"); } else { print("[I5] FAIL"); }
+
+print("=== done ===");

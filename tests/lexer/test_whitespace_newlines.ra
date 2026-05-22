@@ -1,0 +1,35 @@
+// Ra Language - lexer: whitespace handling.
+//
+// Cases:
+//   W1  semicolon terminator
+//   W2  newline terminator
+//   W3  multiple blank lines between statements
+//   W4  tabs and mixed indentation
+//   W5  trailing whitespace after token
+//   W6  expression with optional spaces around operators
+
+print("=== lexer/whitespace ===");
+
+var w1 = 1 ;
+if w1 == 1 { print("[W1] OK"); } else { print("[W1] FAIL"); }
+
+var w2 = 2
+if w2 == 2 { print("[W2] OK"); } else { print("[W2] FAIL"); }
+
+
+
+var w3 = 3
+if w3 == 3 { print("[W3] OK"); } else { print("[W3] FAIL"); }
+
+	var w4 = 4;
+if w4 == 4 { print("[W4] OK"); } else { print("[W4] FAIL"); }
+
+var w5 = 5;
+if w5 == 5 { print("[W5] OK"); } else { print("[W5] FAIL"); }
+
+var w6a = 1+2;
+var w6b = 1 + 2;
+var w6c = 1  +  2;
+if w6a == 3 and w6b == 3 and w6c == 3 { print("[W6] OK"); } else { print("[W6] FAIL"); }
+
+print("=== done ===");

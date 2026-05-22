@@ -1,0 +1,38 @@
+// Ra Language - collections: set basics.
+//
+// Cases:
+//   S1   set literal de-dupes
+//   S2   add element
+//   S3   union |
+//   S4   intersection &
+//   S5   iteration with for ... in
+//   S6   empty set
+
+print("=== collections/set_basics ===");
+
+var s1 = {1, 2, 2, 3, 3};
+if len(s1) == 3 { print("[S1] OK"); } else { print("[S1] FAIL " + (len(s1) as string)); }
+
+var s2 = {1, 2, 3} + 4;
+if len(s2) == 4 { print("[S2] OK"); } else { print("[S2] FAIL"); }
+
+try {
+    var u = {1, 2, 3} | {3, 4, 5};
+    if len(u) == 5 { print("[S3] OK"); } else { print("[S3] FAIL " + (len(u) as string)); }
+} catch (ex) { print("[S3] FAIL: " + ex); }
+
+try {
+    var i = {1, 2, 3} & {2, 3, 4};
+    if len(i) == 2 { print("[S4] OK"); } else { print("[S4] FAIL " + (len(i) as string)); }
+} catch (ex) { print("[S4] FAIL: " + ex); }
+
+var sum = 0;
+for v in {1, 2, 3} { sum = sum + v; }
+if sum == 6 { print("[S5] OK"); } else { print("[S5] FAIL " + (sum as string)); }
+
+try {
+    var emp = {};
+    if len(emp) == 0 { print("[S6] OK (empty literal supported)"); } else { print("[S6] FAIL"); }
+} catch (ex) { print("[S6] OK (literal rejected): " + ex); }
+
+print("=== done ===");

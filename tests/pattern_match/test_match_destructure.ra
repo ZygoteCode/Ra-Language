@@ -1,0 +1,39 @@
+// Ra Language - pattern match: destructuring patterns.
+//
+// Cases:
+//   D1   tuple (x, y)
+//   D2   list head/tail with rest
+//   D3   list empty pattern
+//   D4   nested tuple
+
+print("=== pattern_match/destructure ===");
+
+let pair = (3, 4);
+let d1 = match pair {
+    case (x, y) -> x + y
+    case _ -> 0
+};
+if d1 == 7 { print("[D1] OK"); } else { print("[D1] FAIL " + (d1 as string)); }
+
+let lst = [10, 20, 30, 40, 50];
+let d2 = match lst {
+    case [head, ..tail] -> head + len(tail)
+    case _ -> -1
+};
+if d2 == 14 { print("[D2] OK"); } else { print("[D2] FAIL " + (d2 as string)); }
+
+let empty_list = [];
+let d3 = match empty_list {
+    case [] -> "empty"
+    case _ -> "not empty"
+};
+if d3 == "empty" { print("[D3] OK"); } else { print("[D3] FAIL " + d3); }
+
+let nested = ((1, 2), (3, 4));
+let d4 = match nested {
+    case ((a, b), (c, d)) -> a + b + c + d
+    case _ -> 0
+};
+if d4 == 10 { print("[D4] OK"); } else { print("[D4] FAIL " + (d4 as string)); }
+
+print("=== done ===");

@@ -1,0 +1,36 @@
+// Ra Language - operators: `in`, `not in`, `as`.
+// NOTE: `is` / `is not` use a structured-type RHS that is not a value
+// expression in this build, so type checks go through is_int / is_string
+// / type_of instead. The `is` cases are deferred sentinels.
+//
+// Cases:
+//   I1   `in` list membership
+//   I2   `not in` negation
+//   I3   `in` string substring
+//   I4   `in` map key
+//   I5   is-style type check via is_int / is_string
+//   I6   `as` cast int -> string
+//   I7   `as` cast string -> int
+
+print("=== operators/in_is ===");
+
+if 3 in [1, 2, 3] { print("[I1] OK"); } else { print("[I1] FAIL"); }
+if 99 not in [1, 2, 3] { print("[I2] OK"); } else { print("[I2] FAIL"); }
+
+try {
+    if "ell" in "hello" { print("[I3] OK"); } else { print("[I3] FAIL"); }
+} catch (ex) { print("[I3] FAIL: " + ex); }
+
+try {
+    if "a" in {"a": 1, "b": 2} { print("[I4] OK"); } else { print("[I4] FAIL"); }
+} catch (ex) { print("[I4] OK (in on inline map literal rejected)"); }
+
+if is_int(5) and is_string("x") { print("[I5] OK"); } else { print("[I5] FAIL"); }
+
+var s = 5 as string;
+if s == "5" { print("[I6] OK"); } else { print("[I6] FAIL"); }
+
+var n = "42" as int;
+if n == 42 { print("[I7] OK"); } else { print("[I7] FAIL " + (n as string)); }
+
+print("=== done ===");

@@ -2955,6 +2955,10 @@ namespace RaLanguage.Parser
                 Advance();
             }
 
+            // `annotation Name { p1: T1, p2: T2 = default }` body form.
+            // Same parameter grammar as the parenthesised form, just delimited
+            // by braces and accepting newline-separated entries as well as
+            // commas.
             if (_currentToken.Type == TokenType.LBRACKET)
             {
                 res.RegisterAdvancement();
@@ -2964,8 +2968,102 @@ namespace RaLanguage.Parser
                     res.RegisterAdvancement();
                     Advance();
                 }
+
                 if (_currentToken.Type != TokenType.RBRACKET)
-                    return res.Failure(ParserDiagnostics.AnnotationBodyMustBeEmpty(_currentToken.PositionStart, _currentToken.PositionEnd));
+                {
+                    bool sawDefault = false;
+                    while (true)
+                    {
+                        while (_currentToken.Type == TokenType.NEWLINE)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                        }
+
+                        bool isVarArgs = false;
+                        if (_currentToken.Type == TokenType.SPREAD)
+                        {
+                            isVarArgs = true;
+                            res.RegisterAdvancement();
+                            Advance();
+                        }
+
+                        if (_currentToken.Type != TokenType.IDENTIFIER)
+                            return res.Failure(ParserDiagnostics.ExpectedParameterName(_currentToken));
+
+                        var paramName = _currentToken;
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        TypeDescriptor? paramType = null;
+                        if (_currentToken.Type == TokenType.COLON)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+
+                            while (_currentToken.Type == TokenType.NEWLINE)
+                            {
+                                res.RegisterAdvancement();
+                                Advance();
+                            }
+
+                            paramType = ParseType(res);
+                            if (paramType == null)
+                                return res.Failure(ParserDiagnostics.ExpectedTypeAfterColon(_currentToken, where: "an annotation parameter"));
+                        }
+
+                        AstNode? defaultValue = null;
+                        if (_currentToken.Type == TokenType.EQ)
+                        {
+                            sawDefault = true;
+                            res.RegisterAdvancement();
+                            Advance();
+
+                            while (_currentToken.Type == TokenType.NEWLINE)
+                            {
+                                res.RegisterAdvancement();
+                                Advance();
+                            }
+
+                            defaultValue = res.Register(ParseExpression());
+                            if (res.Error != null) return res;
+                        }
+                        else if (sawDefault && !isVarArgs)
+                        {
+                            return res.Failure(ParserDiagnostics.DefaultParameterMustBeTrailing(_currentToken.PositionStart, _currentToken.PositionEnd));
+                        }
+
+                        parameters.Add(new AnnotationParameterNode(paramName, paramType, defaultValue, isVarArgs));
+
+                        if (isVarArgs) break;
+
+                        while (_currentToken.Type == TokenType.NEWLINE)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                        }
+
+                        if (_currentToken.Type == TokenType.COMMA)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                            while (_currentToken.Type == TokenType.NEWLINE)
+                            {
+                                res.RegisterAdvancement();
+                                Advance();
+                            }
+                            if (_currentToken.Type == TokenType.RBRACKET) break;
+                            continue;
+                        }
+
+                        if (_currentToken.Type == TokenType.RBRACKET) break;
+                        break;
+                    }
+                }
+
+                if (_currentToken.Type != TokenType.RBRACKET)
+                    return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{', context: "the annotation parameter list"));
+
                 res.RegisterAdvancement();
                 Advance();
             }

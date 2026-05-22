@@ -1,8 +1,0 @@
-var a: byte = 7;
-var b: byte = 13;
-var c: byte = a + b;
-print(c);
-print(typeof(c));
-c = 7;
-print(c);
-print(typeof(c));

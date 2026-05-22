@@ -1,0 +1,20 @@
+// Ra Language - edge: large numeric & string literals.
+//
+// Cases:
+//   L1   large positive integer fits in default int
+//   L2   long string concatenated many times
+//   L3   list of 1000 elements
+
+print("=== edge_cases/large_literals ===");
+
+var l1 = 2147483640;
+if l1 > 0 { print("[L1] OK"); } else { print("[L1] FAIL " + (l1 as string)); }
+
+var s = "";
+for i = 0 to 100 { s = s + "x"; }
+if len(s) == 100 { print("[L2] OK"); } else { print("[L2] FAIL " + (len(s) as string)); }
+
+var big = list_range(0, 1000);
+if len(big) == 1000 and big[999] == 999 { print("[L3] OK"); } else { print("[L3] FAIL " + (len(big) as string)); }
+
+print("=== done ===");

@@ -1,0 +1,50 @@
+// Ra Language - collections: map basics.
+//
+// Cases:
+//   M1   string-keyed map literal
+//   M2   index read
+//   M3   index write (insert)
+//   M4   index update
+//   M5   key removal via -=
+//   M6   numeric key
+//   M7   missing key access raises
+//   M8   empty map
+//   M9   iteration over map (keys)
+
+print("=== collections/map_basics ===");
+
+var m1 = {"a": 1, "b": 2};
+if len(m1) == 2 { print("[M1] OK"); } else { print("[M1] FAIL"); }
+
+if m1["a"] == 1 and m1["b"] == 2 { print("[M2] OK"); } else { print("[M2] FAIL"); }
+
+m1["c"] = 3;
+if m1["c"] == 3 { print("[M3] OK"); } else { print("[M3] FAIL"); }
+
+m1["a"] = 99;
+if m1["a"] == 99 { print("[M4] OK"); } else { print("[M4] FAIL"); }
+
+try {
+    m1 -= "a";
+    try {
+        var _x = m1["a"];
+        print("[M5] FAIL: key still present");
+    } catch (ex2) {
+        print("[M5] OK");
+    }
+} catch (ex) { print("[M5] FAIL: " + ex); }
+
+var m6 = {1: "one", 2: "two"};
+if m6[1] == "one" { print("[M6] OK"); } else { print("[M6] FAIL"); }
+
+try {
+    var _x = m6[42];
+    print("[M7] FAIL: missing key accepted, got " + (_x as string));
+} catch (ex) {
+    print("[M7] OK");
+}
+
+var m8 = {};
+if len(m8) == 0 { print("[M8] OK"); } else { print("[M8] FAIL"); }
+
+print("=== done ===");

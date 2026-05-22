@@ -1,0 +1,33 @@
+// Ra Language - integration: parameter validators + business function.
+//
+// Cases:
+//   I1   pipeline of validators on a single parameter
+//   I2   nested validation: positive + length
+
+print("=== integration/validators_with_fns ===");
+
+try {
+    fn save_username(@chain(@not_empty, @length(min = 3, max = 12)) name: string): string {
+        ret str_upper(name);
+    }
+    if save_username("alice") == "ALICE" { print("[I1] OK"); } else { print("[I1] FAIL"); }
+    try {
+        var _x = save_username("");
+        print("[I1b] FAIL: empty accepted");
+    } catch (ex2) { print("[I1b] OK"); }
+    try {
+        var _x = save_username("ab");
+        print("[I1c] FAIL: too short accepted");
+    } catch (ex3) { print("[I1c] OK"); }
+} catch (ex) { print("[I1] FAIL: " + ex); }
+
+try {
+    fn deposit(@positive_int amount: int): int { ret amount; }
+    if deposit(100) == 100 { print("[I2a] OK"); } else { print("[I2a] FAIL"); }
+    try {
+        var _x = deposit(-5);
+        print("[I2b] FAIL: negative accepted");
+    } catch (ex2) { print("[I2b] OK"); }
+} catch (ex) { print("[I2] FAIL: " + ex); }
+
+print("=== done ===");

@@ -1,0 +1,45 @@
+// Ra Language - collections: list basics.
+//
+// Cases:
+//   L1   list literal
+//   L2   indexing positive
+//   L3   indexing past end raises
+//   L4   negative index? (try)
+//   L5   list assignment by index
+//   L6   len of list
+//   L7   list of mixed types
+//   L8   empty list
+//   L9   list equality
+
+print("=== collections/list_basics ===");
+
+var l1 = [1, 2, 3, 4, 5];
+if len(l1) == 5 { print("[L1] OK"); } else { print("[L1] FAIL"); }
+
+if l1[0] == 1 and l1[4] == 5 { print("[L2] OK"); } else { print("[L2] FAIL"); }
+
+try {
+    var _x = l1[99];
+    print("[L3] FAIL: out-of-range accepted, got " + (_x as string));
+} catch (ex) {
+    print("[L3] OK");
+}
+
+try {
+    var lx = l1[-1];
+    if lx == 5 { print("[L4] OK (negative wraps)"); } else { print("[L4] OK (other: " + (lx as string) + ")"); }
+} catch (ex) {
+    print("[L4] OK (rejected)");
+}
+
+l1[0] = 99;
+if l1[0] == 99 { print("[L5] OK"); } else { print("[L5] FAIL " + (l1[0] as string)); }
+
+if len([]) == 0 { print("[L8] OK"); } else { print("[L8] FAIL"); }
+
+var l7 = [1, "two", 3.0, true];
+if len(l7) == 4 { print("[L7] OK"); } else { print("[L7] FAIL"); }
+
+if [1, 2, 3] == [1, 2, 3] { print("[L9] OK"); } else { print("[L9] FAIL"); }
+
+print("=== done ===");

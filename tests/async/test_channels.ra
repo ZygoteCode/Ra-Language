@@ -1,0 +1,53 @@
+// Ra Language - async: channels.
+//
+// Cases:
+//   C1   send + recv round-trip
+//   C2   channel_count reflects buffered messages
+//   C3   channel_close + channel_is_closed
+//   C4   multiple sends then drain via recv
+//   C5   close after drain still reports closed
+
+print("=== async/channels ===");
+
+try {
+    var ch = channel();
+    channel_send(ch, 7);
+    var v = channel_recv(ch);
+    if v == 7 { print("[C1] OK"); } else { print("[C1] FAIL " + (v as string)); }
+} catch (ex) { print("[C1] FAIL: " + ex); }
+
+try {
+    var ch2 = channel();
+    channel_send(ch2, 1);
+    channel_send(ch2, 2);
+    var c = channel_count(ch2);
+    if c == 2 { print("[C2] OK"); } else { print("[C2] FAIL " + (c as string)); }
+} catch (ex) { print("[C2] FAIL: " + ex); }
+
+try {
+    var ch3 = channel();
+    if not channel_is_closed(ch3) { print("[C3a] OK"); } else { print("[C3a] FAIL"); }
+    channel_close(ch3);
+    if channel_is_closed(ch3) { print("[C3b] OK"); } else { print("[C3b] FAIL"); }
+} catch (ex) { print("[C3] FAIL: " + ex); }
+
+try {
+    var ch4 = channel();
+    channel_send(ch4, 10);
+    channel_send(ch4, 20);
+    channel_send(ch4, 30);
+    var a = channel_recv(ch4);
+    var b = channel_recv(ch4);
+    var d = channel_recv(ch4);
+    if a == 10 and b == 20 and d == 30 { print("[C4] OK"); } else { print("[C4] FAIL"); }
+} catch (ex) { print("[C4] FAIL: " + ex); }
+
+try {
+    var ch5 = channel();
+    channel_send(ch5, 1);
+    channel_recv(ch5);
+    channel_close(ch5);
+    if channel_is_closed(ch5) and channel_count(ch5) == 0 { print("[C5] OK"); } else { print("[C5] FAIL"); }
+} catch (ex) { print("[C5] FAIL: " + ex); }
+
+print("=== done ===");

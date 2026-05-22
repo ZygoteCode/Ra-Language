@@ -232,6 +232,24 @@ namespace RaLanguage
 
         public static void Main(string[] args)
         {
+            // Run the actual entry on a worker thread with a fat stack so that
+            // deep recursion inside .ra programs doesn't blow the default 1 MB
+            // OS stack. The interpreter is tree-walking and every visitor
+            // call eats real stack frames, so doubling memory for 32 MB of
+            // headroom buys us roughly 32x deeper user recursion.
+            Exception? threadEx = null;
+            var worker = new System.Threading.Thread(() =>
+            {
+                try { MainCore(args); }
+                catch (Exception ex) { threadEx = ex; }
+            }, 32 * 1024 * 1024);
+            worker.Start();
+            worker.Join();
+            if (threadEx != null) throw threadEx;
+        }
+
+        private static void MainCore(string[] args)
+        {
             Console.Title = "Ra Language | Made by https://github.com/ZygoteCode/";
 
             // The fiber runtime currently uses sync-over-async wait inside `await`

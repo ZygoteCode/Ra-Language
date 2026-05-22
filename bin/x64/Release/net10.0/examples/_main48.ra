@@ -1,5 +1,0 @@
-pub trait TSerializable
-{
-    pub final id: int;
-    pub let serialized: bool;
-}

@@ -1,0 +1,3 @@
+// helper for selective/alias imports
+pub fn repeat(s: string, n: int) { ret s * n; }
+pub fn shout(s: string) { ret str_upper(s) + "!"; }

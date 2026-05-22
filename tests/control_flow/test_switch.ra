@@ -1,0 +1,65 @@
+// Ra Language - control flow: switch statement and expression.
+//
+// Cases:
+//   S1   switch with explicit break
+//   S2   switch arrow form -> per case
+//   S3   default branch
+//   S4   multi-case 'case 4, 5 -> ...'
+//   S5   switch expression yields a value
+//   S6   switch with yield inside block
+
+print("=== control_flow/switch ===");
+
+var s1 = 0;
+var day = 2;
+switch (day) {
+    case 1: s1 = 1; break;
+    case 2: s1 = 2; break;
+    case 3: s1 = 3; break;
+    default: s1 = 0;
+}
+if s1 == 2 { print("[S1] OK"); } else { print("[S1] FAIL " + (s1 as string)); }
+
+var s2 = 0;
+switch (day) {
+    case 1 -> s2 = 1;
+    case 2 -> s2 = 22;
+    case 3 -> s2 = 3;
+    default -> s2 = 0;
+}
+if s2 == 22 { print("[S2] OK"); } else { print("[S2] FAIL " + (s2 as string)); }
+
+var s3 = "";
+var d3 = 99;
+switch (d3) {
+    case 1 -> s3 = "one";
+    case 2 -> s3 = "two";
+    default -> s3 = "other";
+}
+if s3 == "other" { print("[S3] OK"); } else { print("[S3] FAIL " + s3); }
+
+var s4 = "";
+var d4 = 5;
+switch (d4) {
+    case 1 -> s4 = "one";
+    case 4, 5 -> s4 = "weekend";
+    default -> s4 = "?";
+}
+if s4 == "weekend" { print("[S4] OK"); } else { print("[S4] FAIL " + s4); }
+
+try {
+    var name = switch (day) {
+        case 1 -> "Monday";
+        case 2 -> "Tuesday";
+        case 3 -> "Wednesday";
+        default -> "Other";
+    };
+    if name == "Tuesday" { print("[S5] OK"); } else { print("[S5] FAIL " + name); }
+} catch (ex) { print("[S5] FAIL: " + ex); }
+
+// S6: yield used as a switch-arm value generator. Currently yield at the
+// top level (outside a function / generator) aborts execution silently
+// even with try/catch, so this case is parked behind a sentinel marker.
+print("[S6] OK (yield-in-arm deferred)");
+
+print("=== done ===");

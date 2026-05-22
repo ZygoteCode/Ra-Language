@@ -1,0 +1,36 @@
+// Ra Language - types: generics (functions, classes, structs).
+//
+// Cases:
+//   G1   generic function picks element of a list
+//   G2   generic function with where clause
+//   G3   generic class with method dispatch
+//   G4-G5  two-type-param generic struct
+
+print("=== types/generics ===");
+
+fn first_of<T>(l: list<T>): T { ret l[0]; }
+if first_of([10, 20, 30]) == 10 { print("[G1] OK"); } else { print("[G1] FAIL"); }
+
+fn boosted<T>(x: T): T where T: int { ret x + 1; }
+if boosted<int>(5) == 6 { print("[G2] OK"); } else { print("[G2] FAIL"); }
+
+pub class GBox<T> where T: int {
+    pub var v: T;
+    pub GBox(v: T) { self.v = v; }
+    pub fn get(): T { ret self.v; }
+}
+var gb = GBox<int>(42);
+if gb.v == 42 and gb.get() == 42 { print("[G3] OK"); } else { print("[G3] FAIL"); }
+
+pub struct Pair<A, B> {
+    pub var first: A;
+    pub var second: B;
+    pub Pair(a: A, b: B) {
+        self.first = a;
+        self.second = b;
+    }
+}
+var pr = Pair<int, string>(7, "hello");
+if pr.first == 7 and pr.second == "hello" { print("[G4-G5] OK"); } else { print("[G4-G5] FAIL"); }
+
+print("=== done ===");

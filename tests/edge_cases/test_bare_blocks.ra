@@ -1,0 +1,41 @@
+// Ra Language - edge: bare `{ ... }` blocks at file scope.
+//
+// Cases:
+//   B1   single-line `{ pass; }`
+//   B2   multi-line block with locals
+//   B3   bare block does NOT leak its locals
+//   B4   nested bare blocks
+//   B5   bare block after if/else
+
+print("=== edge_cases/bare_blocks ===");
+
+{ pass; }
+print("[B1] OK");
+
+{
+    var inside = 10;
+    if inside == 10 { print("[B2] OK"); } else { print("[B2] FAIL"); }
+}
+
+{
+    var ephemeral = 99;
+}
+try {
+    var probe = ephemeral;
+    print("[B3] FAIL: ephemeral leaked = " + (probe as string));
+} catch (ex) {
+    print("[B3] OK");
+}
+
+{
+    var outer = 1;
+    {
+        var inner = 2;
+        if outer + inner == 3 { print("[B4] OK"); } else { print("[B4] FAIL"); }
+    }
+}
+
+if true { pass; }
+{ var b5 = 5; if b5 == 5 { print("[B5] OK"); } else { print("[B5] FAIL"); } }
+
+print("=== done ===");

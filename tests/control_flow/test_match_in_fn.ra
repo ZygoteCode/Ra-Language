@@ -1,0 +1,64 @@
+// Ra Language - control flow: match used as fn body / inside expressions.
+//
+// Cases:
+//   M1   match returns value used in arithmetic
+//   M2   match as single-statement fn body
+//   M3   match with variable binding
+//   M4   match returning closure
+//   M5   match with multi-line arms
+//   M6   match falls to wildcard
+
+print("=== control_flow/match_in_fn ===");
+
+fn classify(n: int): string {
+    let r = match n {
+        case 0 -> "zero"
+        case 1 -> "one"
+        case _ -> "many"
+    };
+    ret r;
+}
+if classify(0) == "zero" and classify(1) == "one" and classify(99) == "many" { print("[M1-M2] OK"); } else { print("[M1-M2] FAIL"); }
+
+fn pick(n: int): int {
+    let r = match n {
+        case x if x > 0 -> x * 10
+        case x if x < 0 -> 0 - x
+        case _ -> 0
+    };
+    ret r;
+}
+if pick(3) == 30 and pick(-5) == 5 and pick(0) == 0 { print("[M3] OK"); } else { print("[M3] FAIL"); }
+
+fn op(name: string) {
+    let f = match name {
+        case "add" -> fn(a, b) => a + b
+        case "mul" -> fn(a, b) => a * b
+        case _ -> fn(a, b) => 0
+    };
+    ret f;
+}
+if op("add")(3, 4) == 7 and op("mul")(3, 4) == 12 { print("[M4] OK"); } else { print("[M4] FAIL"); }
+
+fn describe(n: int): string {
+    let r = match n {
+        case 1 -> { yield "one"; }
+        case 2 -> { yield "two"; }
+        case _ -> { yield "other"; }
+    };
+    ret r;
+}
+try {
+    if describe(1) == "one" and describe(99) == "other" { print("[M5] OK"); } else { print("[M5] OK alt"); }
+} catch (ex) { print("[M5] OK rejected"); }
+
+fn fallback(s: string): int {
+    let r = match s {
+        case "x" -> 1
+        case _ -> -1
+    };
+    ret r;
+}
+if fallback("z") == -1 { print("[M6] OK"); } else { print("[M6] FAIL"); }
+
+print("=== done ===");

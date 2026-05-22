@@ -1,0 +1,38 @@
+// Ra Language - edge: very large data sizes.
+//
+// Cases:
+//   H1   list of 10 000 numbers built via loop
+//   H2   list_sum on 10 000 elements
+//   H3   map with 1 000 entries
+//   H4   string of 5 000 chars via str_repeat
+//   H5   recursion-depth 1 000 returns
+
+print("=== edge_cases/huge_data ===");
+
+var big = [];
+for i = 0 to 10000 { big = big + [i]; }
+if len(big) == 10000 { print("[H1] OK"); } else { print("[H1] FAIL " + (len(big) as string)); }
+
+try {
+    var s = list_sum(big);
+    if s == 49995000 { print("[H2] OK"); } else { print("[H2] FAIL " + (s as string)); }
+} catch (ex) { print("[H2] FAIL: " + ex); }
+
+try {
+    var m = {"seed": 0};
+    for i = 0 to 1000 { m[(i as string)] = i; }
+    if len(m) == 1001 { print("[H3] OK"); } else { print("[H3] FAIL len=" + (len(m) as string)); }
+} catch (ex) { print("[H3] FAIL: " + ex); }
+
+try {
+    var s = str_repeat("x", 5000);
+    if len(s) == 5000 { print("[H4] OK"); } else { print("[H4] FAIL"); }
+} catch (ex) { print("[H4] FAIL: " + ex); }
+
+fn count(n: int): int {
+    if n <= 0 { ret 0; }
+    ret 1 + count(n - 1);
+}
+if count(1000) == 1000 { print("[H5] OK"); } else { print("[H5] FAIL"); }
+
+print("=== done ===");

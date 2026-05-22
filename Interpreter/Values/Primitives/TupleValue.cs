@@ -502,14 +502,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return NewTupleFrom(DeepCopyElements());
         }
 
-        public sealed override bool IsTrue()
-        {
-            foreach (var v in Elements)
-            {
-                if (!v.IsTrue()) return false;
-            }
-            return true;
-        }
+        public sealed override bool IsTrue() => Elements.Count > 0;
 
         public sealed override string ToString()
         {

@@ -1,0 +1,2 @@
+// level_b — terminal module
+pub fn level_b_call() { ret 41; }

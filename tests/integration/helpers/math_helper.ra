@@ -1,0 +1,8 @@
+// helper module for tests/integration/*
+
+pub var PI = 3.14;
+
+pub fn add(a, b) { ret a + b; }
+pub fn mul(a, b) { ret a * b; }
+
+pub fn area_of_disk(r) { ret PI * r * r; }

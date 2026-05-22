@@ -1,0 +1,32 @@
+// Ra Language - parser: deeply nested expressions.
+//
+// Cases:
+//   D1  10-level nested parentheses
+//   D2  deeply nested arithmetic
+//   D3  deeply nested call expression
+//   D4  deeply nested list literal
+//   D5  deeply nested if/else
+//   D6  deeply nested member access on a chain of struct literals
+
+print("=== parser/nesting ===");
+
+var d1 = ((((((((((42))))))))));
+if d1 == 42 { print("[D1] OK"); } else { print("[D1] FAIL " + (d1 as string)); }
+
+var d2 = 1 + (2 + (3 + (4 + (5 + (6 + (7 + (8 + (9 + 10))))))));
+if d2 == 55 { print("[D2] OK"); } else { print("[D2] FAIL " + (d2 as string)); }
+
+fn idf(x) { ret x; }
+var d3 = idf(idf(idf(idf(idf(idf(idf(idf(7))))))));
+if d3 == 7 { print("[D3] OK"); } else { print("[D3] FAIL"); }
+
+var d4 = [[[[[[1]]]]]];
+if d4[0][0][0][0][0][0] == 1 { print("[D4] OK"); } else { print("[D4] FAIL"); }
+
+var d5 = if true { if true { if true { if true { if true { 99 } else { 0 } } else { 0 } } else { 0 } } else { 0 } } else { 0 };
+if d5 == 99 { print("[D5] OK"); } else { print("[D5] FAIL " + (d5 as string)); }
+
+var d6 = [1, [2, [3, [4, [5, [6]]]]]];
+if d6[1][1][1][1][1][0] == 6 { print("[D6] OK"); } else { print("[D6] FAIL"); }
+
+print("=== done ===");

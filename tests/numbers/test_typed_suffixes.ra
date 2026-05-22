@@ -1,0 +1,65 @@
+// Ra Language - numbers: explicit typed declarations.
+// (int128/uint128 are tested in a dedicated file because they currently
+//  halt the interpreter and must run in isolation.)
+//
+// Cases:
+//   T1   uint declaration
+//   T2   long declaration
+//   T3   ulong declaration
+//   T4   short declaration
+//   T5   ushort declaration
+//   T6   decimal declaration
+//   T7   double declaration
+//   T8   float (float32) declaration
+//   T9   arithmetic on typed values
+
+print("=== numbers/typed_suffixes ===");
+
+try {
+    var t1ui: uint = 7;
+    if t1ui == 7 { print("[T1] OK"); } else { print("[T1] FAIL"); }
+} catch (ex) { print("[T1] FAIL: " + ex); }
+
+try {
+    var t2l: long = 13;
+    if t2l == 13 { print("[T2] OK"); } else { print("[T2] FAIL"); }
+} catch (ex) { print("[T2] FAIL: " + ex); }
+
+try {
+    var t3ul: ulong = 15;
+    if t3ul == 15 { print("[T3] OK"); } else { print("[T3] FAIL"); }
+} catch (ex) { print("[T3] FAIL: " + ex); }
+
+try {
+    var t4s: short = 17;
+    if t4s == 17 { print("[T4] OK"); } else { print("[T4] FAIL"); }
+} catch (ex) { print("[T4] FAIL: " + ex); }
+
+try {
+    var t5us: ushort = 19;
+    if t5us == 19 { print("[T5] OK"); } else { print("[T5] FAIL"); }
+} catch (ex) { print("[T5] FAIL: " + ex); }
+
+try {
+    var t6dec: decimal = 21;
+    if t6dec == 21 { print("[T6] OK"); } else { print("[T6] FAIL"); }
+} catch (ex) { print("[T6] FAIL: " + ex); }
+
+try {
+    var t7d: double = 1.5;
+    if t7d == 1.5 { print("[T7] OK"); } else { print("[T7] FAIL"); }
+} catch (ex) { print("[T7] FAIL: " + ex); }
+
+try {
+    var t8f: float = 2.5;
+    if t8f == 2.5 { print("[T8] OK"); } else { print("[T8] FAIL"); }
+} catch (ex) { print("[T8] FAIL: " + ex); }
+
+try {
+    var t9a: uint = 3;
+    var t9b: uint = 4;
+    var t9c = t9a + t9b;
+    if t9c == 7 { print("[T9] OK"); } else { print("[T9] FAIL " + (t9c as string)); }
+} catch (ex) { print("[T9] FAIL: " + ex); }
+
+print("=== done ===");

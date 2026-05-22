@@ -146,16 +146,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
         {
             try
             {
-                if (other.Type == RuntimeValueType.Number)
-                {
-                    int idx = (int)((NumberValue)other).Value;
-                    var ordered = PairsToListDeterministic();
-                    if (idx < 0) idx = ordered.Count + idx;
-                    if (idx < 0 || idx >= ordered.Count)
-                        return (null, new RuntimeError(other.PositionStart, other.PositionEnd, "Index out of bounds", Context));
-                    return (ordered[idx].Item2, null);
-                }
-
+                // Key lookup first so numeric keys like `{1: "one"}` resolve by value
+                // rather than by ordinal position into the pair list.
                 int keyIdx = IndexOfKey(Pairs, other);
                 if (keyIdx >= 0) return (Pairs[keyIdx].Value, null);
 
@@ -170,6 +162,9 @@ namespace RaLanguage.Interpreter.Values.Primitives
                     }
                     return (new MapValue(newPairs).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
                 }
+
+                return (null, new RuntimeError(other.PositionStart, other.PositionEnd,
+                    $"Key '{other}' not found in map", Context));
             }
             catch { }
 
@@ -453,14 +448,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return new MapValue(newPairs).SetPos(PositionStart, PositionEnd).SetContext(Context);
         }
 
-        public sealed override bool IsTrue()
-        {
-            foreach (var (_, v) in Pairs)
-            {
-                if (!v.IsTrue()) return false;
-            }
-            return true;
-        }
+        public sealed override bool IsTrue() => Pairs.Count > 0;
 
         public sealed override string ToString()
         {

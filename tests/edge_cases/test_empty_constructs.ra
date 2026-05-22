@@ -1,0 +1,39 @@
+// Ra Language - edge: empty / minimal constructs.
+// NOTE: a bare `{ pass; }` block at file scope fails to parse with
+// "this token has nowhere to attach"; the block-as-statement form
+// is therefore exercised only inside if/for. See regressions/.
+//
+// Cases:
+//   E1   empty fn body with `pass`
+//   E2   if/else with single pass per branch
+//   E3   for over empty list
+//   E4   empty list literal length 0
+//   E5   empty string length 0
+//   E6   empty class declaration with `pass` ctor
+
+print("=== edge_cases/empty_constructs ===");
+
+fn noop() { pass; }
+noop();
+print("[E1] OK");
+
+if true { pass; } else { pass; }
+print("[E2] OK");
+
+var c = 0;
+for v in [] { c = 999; }
+if c == 0 { print("[E3] OK"); } else { print("[E3] FAIL"); }
+
+if len([]) == 0 { print("[E4] OK"); } else { print("[E4] FAIL"); }
+
+if len("") == 0 { print("[E5] OK"); } else { print("[E5] FAIL"); }
+
+try {
+    pub class EmptyClass {
+        pub EmptyClass() { pass; }
+    }
+    var inst = EmptyClass();
+    print("[E6] OK type=" + type_of(inst));
+} catch (ex) { print("[E6] FAIL: " + ex); }
+
+print("=== done ===");

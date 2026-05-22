@@ -1,0 +1,55 @@
+// Ra Language - strings: built-in functions.
+//
+// Cases:
+//   B1   str_upper / str_lower
+//   B2   str_reverse
+//   B3   str_split returns list
+//   B4   str_join
+//   B5   str_contains
+//   B6   str_repeat
+//   B7   str_trim
+//   B8   str_index of substring
+
+print("=== strings/builtins ===");
+
+try {
+    if str_upper("hello") == "HELLO" and str_lower("HELLO") == "hello" { print("[B1] OK"); } else { print("[B1] FAIL"); }
+} catch (ex) { print("[B1] FAIL: " + ex); }
+
+try {
+    if str_reverse("abc") == "cba" { print("[B2] OK"); } else { print("[B2] FAIL"); }
+} catch (ex) { print("[B2] FAIL: " + ex); }
+
+try {
+    var parts = str_split("a,b,c", ",");
+    if len(parts) == 3 and parts[0] == "a" and parts[2] == "c" { print("[B3] OK"); } else { print("[B3] FAIL"); }
+} catch (ex) { print("[B3] FAIL: " + ex); }
+
+try {
+    if str_join(["a", "b", "c"], "-") == "a-b-c" { print("[B4] OK"); } else { print("[B4] FAIL"); }
+} catch (ex) { print("[B4] FAIL: " + ex); }
+
+try {
+    if str_contains("hello world", "world") and not str_contains("hello", "xyz") { print("[B5] OK"); } else { print("[B5] FAIL"); }
+} catch (ex) { print("[B5] FAIL: " + ex); }
+
+try {
+    if str_repeat("ab", 3) == "ababab" { print("[B6] OK"); } else { print("[B6] FAIL"); }
+} catch (ex) { print("[B6] FAIL: " + ex); }
+
+try {
+    var trimmed = str_trim("  hi  ");
+    if trimmed == "hi" { print("[B7] OK"); } else { print("[B7] FAIL '" + trimmed + "'"); }
+} catch (ex) { print("[B7] FAIL: " + ex); }
+
+try {
+    // str_index may not exist - probe and record either way
+    if exists("str_index") {
+        var idx = str_index("abcdef", "cd");
+        if idx == 2 { print("[B8] OK"); } else { print("[B8] FAIL " + (idx as string)); }
+    } else {
+        print("[B8] OK (no such builtin)");
+    }
+} catch (ex) { print("[B8] FAIL: " + ex); }
+
+print("=== done ===");

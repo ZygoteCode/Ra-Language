@@ -1,0 +1,41 @@
+// Ra Language - scoping: function-level scope.
+//
+// Cases:
+//   F1   function locals do not leak to caller
+//   F2   call site cannot see callee's body var
+//   F3   same name in two different functions doesn't cross-talk
+//   F4   parameter is a local binding only
+//   F5   var inside fn shadows global
+
+print("=== scoping/function_scope ===");
+
+var n_global = 999;
+fn touch() {
+    var n_global_local = 1;
+    n_global_local = n_global_local + 1;
+}
+touch();
+if n_global == 999 { print("[F1] OK"); } else { print("[F1] FAIL " + (n_global as string)); }
+
+fn make_temp() {
+    var inside = 7;
+    ret inside;
+}
+make_temp();
+try { var p = inside; print("[F2] FAIL " + (p as string)); } catch (ex) { print("[F2] OK"); }
+
+fn fA() { var local_x = 10; ret local_x; }
+fn fB() { var local_x = 20; ret local_x; }
+if fA() == 10 and fB() == 20 { print("[F3] OK"); } else { print("[F3] FAIL"); }
+
+fn takes(p: int) { ret p * 2; }
+takes(5);
+try { var v = p; print("[F4] FAIL"); } catch (ex) { print("[F4] OK"); }
+
+fn shadow_global() {
+    var n_global_inside = -1;
+    ret n_global_inside;
+}
+if shadow_global() == -1 and n_global == 999 { print("[F5] OK"); } else { print("[F5] FAIL"); }
+
+print("=== done ===");

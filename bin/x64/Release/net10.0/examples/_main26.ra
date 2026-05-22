@@ -1,8 +1,0 @@
-var a: ulong = 7;
-var b: ulong = 13;
-var c: ulong = a + b;
-print(c);
-print(typeof(c));
-c = 7;
-print(c);
-print(typeof(c));

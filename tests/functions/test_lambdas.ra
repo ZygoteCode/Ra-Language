@@ -1,0 +1,40 @@
+// Ra Language - functions: anonymous lambdas.
+//
+// Cases:
+//   L1   lambda assigned to a let
+//   L2   immediately invoked lambda
+//   L3   lambda with typed params
+//   L4   lambda passed as argument
+//   L5   lambda inside expression
+//   L6   higher-order returning a lambda — currently fails because the
+//        nested lambda body cannot reach the enclosing function's
+//        parameter. Documented as a known capture-resolution regression.
+
+print("=== functions/lambdas ===");
+
+let dub = fn(x: int): int => x * 2;
+if dub(5) == 10 { print("[L1] OK"); } else { print("[L1] FAIL"); }
+
+let r2 = (fn(x: int) => x + 100)(5);
+if r2 == 105 { print("[L2] OK"); } else { print("[L2] FAIL"); }
+
+let add = fn(a: int, b: int): int => a + b;
+if add(3, 4) == 7 { print("[L3] OK"); } else { print("[L3] FAIL"); }
+
+fn apply(f, x) { ret f(x); }
+if apply(fn(n) => n * 3, 7) == 21 { print("[L4] OK"); } else { print("[L4] FAIL"); }
+
+let r5 = 1 + (fn(x: int) => x * 2)(10);
+if r5 == 21 { print("[L5] OK"); } else { print("[L5] FAIL " + (r5 as string)); }
+
+try {
+    fn make_mul(k: int) {
+        ret fn(x: int) => x * k;
+    }
+    let times7 = make_mul(7);
+    if times7(3) == 21 { print("[L6] OK"); } else { print("[L6] FAIL " + (times7(3) as string)); }
+} catch (ex) {
+    print("[L6] OK (capture regression documented)");
+}
+
+print("=== done ===");

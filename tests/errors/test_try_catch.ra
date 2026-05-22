@@ -1,0 +1,61 @@
+// Ra Language - errors: try / catch / finally.
+// NOTE: the `throw` keyword does not parse in this build; replacement
+// fault-injection uses arithmetic/runtime errors instead.
+//
+// Cases:
+//   E1   try with no exception runs only try block
+//   E2   try with runtime exception jumps to catch
+//   E3   finally runs after success
+//   E4   finally runs after exception
+//   E5   nested try, inner catches
+
+print("=== errors/try_catch ===");
+
+var e1 = 0;
+try { e1 = 1; } catch (ex) { e1 = -1; }
+if e1 == 1 { print("[E1] OK"); } else { print("[E1] FAIL"); }
+
+var e2 = 0;
+try {
+    var bad = [1, 2, 3];
+    var _x = bad[100];
+    e2 = 1;
+} catch (ex) { e2 = 2; }
+if e2 == 2 { print("[E2] OK"); } else { print("[E2] FAIL"); }
+
+var e3a = 0;
+var e3b = 0;
+try {
+    e3a = 1;
+} catch (ex) {
+    e3a = -1;
+} finally {
+    e3b = 1;
+}
+if e3a == 1 and e3b == 1 { print("[E3] OK"); } else { print("[E3] FAIL"); }
+
+var e4a = 0;
+var e4b = 0;
+try {
+    var x = 1 / 0;
+    e4a = 1;
+} catch (ex) {
+    e4a = 2;
+} finally {
+    e4b = 1;
+}
+if e4a == 2 and e4b == 1 { print("[E4] OK"); } else { print("[E4] FAIL"); }
+
+var e5 = 0;
+try {
+    try {
+        var x = 1 / 0;
+    } catch (inner) {
+        e5 = 1;
+    }
+} catch (outer) {
+    e5 = 99;
+}
+if e5 == 1 { print("[E5] OK"); } else { print("[E5] FAIL " + (e5 as string)); }
+
+print("=== done ===");

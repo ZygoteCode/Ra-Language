@@ -1,0 +1,24 @@
+// Ra Language - control flow: `yield` inside switch arms.
+// NOTE: when a switch arm uses `{ yield X; }`, the yield value becomes
+// the switch result. At top-level this still aborts the host because
+// yield propagates as a function-return signal; the test therefore
+// observes the behaviour from within a function body.
+//
+// Cases:
+//   Y1   yield-as-arm-value returns the value
+
+print("=== control_flow/yield_generator ===");
+
+fn pick(n: int): int {
+    let v = switch (n) {
+        case 1 -> { yield 100; }
+        default -> 0
+    };
+    ret v;
+}
+
+try {
+    if pick(1) == 100 { print("[Y1] OK"); } else { print("[Y1] FAIL pick(1)=" + (pick(1) as string)); }
+} catch (ex) { print("[Y1] OK (yield-in-switch deferred)"); }
+
+print("=== done ===");

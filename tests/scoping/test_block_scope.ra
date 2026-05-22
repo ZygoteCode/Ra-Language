@@ -1,0 +1,57 @@
+// Ra Language - scoping: block-level scope rules.
+//
+// Cases:
+//   B1   inner declaration invisible outside its block
+//   B2   inner block can mutate outer binding
+//   B3   3-level nested block, inner names disappear on exit
+//   B4   block-local var freed after block (access errors)
+//   B5   for-loop iter variable does not leak past the loop
+//   B6   shadowing inside a sibling block does not affect outer
+
+print("=== scoping/block_scope ===");
+
+{
+    var inner_only = 7;
+}
+try {
+    var probe = inner_only;
+    print("[B1] FAIL probe=" + (probe as string));
+} catch (ex) {
+    print("[B1] OK");
+}
+
+var counter = 0;
+{
+    counter = counter + 1;
+    counter = counter + 1;
+}
+if counter == 2 { print("[B2] OK"); } else { print("[B2] FAIL"); }
+
+{
+    var l1 = "L1";
+    {
+        var l2 = "L2";
+        {
+            var l3 = "L3";
+            if l3 == "L3" { print("[B3a] OK"); } else { print("[B3a] FAIL"); }
+        }
+    }
+}
+try { var p = l3; print("[B3b] FAIL " + (p as string)); } catch (ex) { print("[B3b] OK"); }
+
+{
+    var ephemeral = 42;
+}
+try { var p = ephemeral; print("[B4] FAIL"); } catch (ex) { print("[B4] OK"); }
+
+for j5 = 0 to 3 { pass; }
+try { var v5 = j5; print("[B5] FAIL " + (v5 as string)); } catch (ex) { print("[B5] OK"); }
+
+var outer6 = "outer";
+{
+    var outer6_shadow = "inner";
+    if outer6_shadow == "inner" { print("[B6a] OK"); } else { print("[B6a] FAIL"); }
+}
+if outer6 == "outer" { print("[B6b] OK"); } else { print("[B6b] FAIL"); }
+
+print("=== done ===");

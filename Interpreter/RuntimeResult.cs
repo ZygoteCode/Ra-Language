@@ -61,6 +61,17 @@ namespace RaLanguage.Interpreter
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get => _state == FlowState.Continue;
+            set
+            {
+                if (value)
+                {
+                    _state = FlowState.Continue;
+                }
+                else if (_state == FlowState.Continue)
+                {
+                    _state = FlowState.Normal;
+                }
+            }
         }
 
         public bool LoopShouldBreak

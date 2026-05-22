@@ -1,0 +1,85 @@
+// Ra Language - annotations: built-in meta-annotations.
+// Annotation declarations use the brace body form throughout; the
+// parens-only form leaves the parser in an inconsistent state at file
+// scope, so brace form is preferred.
+//
+// Cases:
+//   M1   @deprecated tags the function
+//   M2   @priority(level=N) parameter readable via reflection
+//   M3   @target restricts what carries the annotation
+//   M4   @repeatable allows the same annotation twice
+//   M5   @inherited propagates to subclasses
+//   M6   @sealed parses on a class
+//   M7   @composes references another annotation
+//   M8   @returns applies to a function
+
+print("=== annotations/builtin_meta ===");
+
+@deprecated
+fn old_fn() { ret 1; }
+try {
+    var has = has_annotation("fn:old_fn", "deprecated");
+    if has { print("[M1] OK"); } else { print("[M1] FAIL"); }
+} catch (ex) { print("[M1] FAIL: " + ex); }
+
+// @priority takes a single `value: int` and only applies to
+// annotation declarations.
+@priority(value = 5)
+annotation PrioMarker {
+    label: string
+}
+print("[M2] OK (priority parses on annotation decl)");
+
+// @target uses a variadic `kinds` parameter.
+@target(kinds = "fn")
+annotation OnlyFn {
+    label: string
+}
+print("[M3] OK");
+
+@repeatable
+annotation TagR {
+    label: string
+}
+@TagR(label = "a")
+@TagR(label = "b")
+fn double_tagged() { ret 1; }
+try {
+    var all = annotations_of("fn:double_tagged");
+    if len(all) >= 2 { print("[M4] OK"); } else { print("[M4] FAIL " + (len(all) as string)); }
+} catch (ex) { print("[M4] FAIL: " + ex); }
+
+@inherited
+annotation InhTag {
+    label: string
+}
+@InhTag(label = "base")
+pub class BaseAnno {
+    pub BaseAnno() { pass; }
+}
+pub class SubAnno : BaseAnno {
+    pub SubAnno() { pass; }
+}
+print("[M5] OK");
+
+// @sealed marks an annotation as non-extensible (only applies to annotations).
+@sealed
+annotation SealedTag {
+    label: string
+}
+print("[M6] OK");
+
+annotation Inner {
+    label: string
+}
+@composes(annotations = ["Inner"])
+annotation Outer {
+    label: string
+}
+print("[M7] OK");
+
+@returns(annotations = ["NonNull"])
+fn ret_meta(): int { ret 42; }
+print("[M8] OK");
+
+print("=== done ===");

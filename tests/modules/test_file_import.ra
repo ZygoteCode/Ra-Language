@@ -1,0 +1,26 @@
+// Ra Language - modules: relative file import.
+//
+// Cases:
+//   F1   call imported pub function
+//   F2   read imported pub variable
+//   F3   private helper not accessible
+//   F4   pub wrapper exposes private helper
+
+print("=== modules/file_import ===");
+
+import "helpers/math_helper.ra";
+
+if add(2, 3) == 5 { print("[F1] OK"); } else { print("[F1] FAIL " + (add(2, 3) as string)); }
+
+if PI > 3.0 and PI < 4.0 { print("[F2] OK"); } else { print("[F2] FAIL"); }
+
+try {
+    var x = _internal();
+    print("[F3] FAIL: private helper visible (got " + (x as string) + ")");
+} catch (ex) {
+    print("[F3] OK");
+}
+
+if forward() == 99 { print("[F4] OK"); } else { print("[F4] FAIL"); }
+
+print("=== done ===");

@@ -1,0 +1,25 @@
+// Ra Language - errors: undefined access / assignment.
+//
+// Cases:
+//   U1   reading undefined name
+//   U2   assigning to undefined name without declaration
+//   U3   calling undefined name as function
+
+print("=== errors/undefined ===");
+
+try {
+    var x = some_undefined_variable;
+    print("[U1] FAIL");
+} catch (ex) { print("[U1] OK"); }
+
+try {
+    not_declared_now = 5;
+    print("[U2] FAIL");
+} catch (ex) { print("[U2] OK"); }
+
+try {
+    var x = not_a_function(1, 2);
+    print("[U3] FAIL");
+} catch (ex) { print("[U3] OK"); }
+
+print("=== done ===");

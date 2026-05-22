@@ -30,45 +30,55 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
         private static RuntimeValue ParseLiteral(NumberNode node)
         {
             var raw = node.Tok.Value!.ToString()!;
-            // Suffix tags use lowercase ASCII; comparing ordinally avoids ToLowerInvariant().
-            // The lexer already normalises numeric literals into the canonical form.
             string s = raw;
 
-            if (EndsWithCI(s, "us"))
+            // Hex / binary / octal literals never carry a type suffix - every
+            // ASCII letter after the prefix is part of the value (e.g. 0xFF).
+            // Skipping the suffix tests below prevents 0xFF from matching the
+            // `f` (float) suffix and collapsing to 0xF.
+            bool isBasePrefixed = s.Length >= 2 && s[0] == '0' &&
+                (s[1] == 'x' || s[1] == 'X' || s[1] == 'b' || s[1] == 'B' || s[1] == 'o' || s[1] == 'O');
+
+            if (!isBasePrefixed && EndsWithCI(s, "us"))
             {
                 return new UnsignedShortValue((ushort)BigNumber.Parse(s.Substring(0, s.Length - 2)));
             }
-            if (EndsWithCI(s, "ul"))
+            if (!isBasePrefixed && EndsWithCI(s, "ul"))
             {
                 string num = BigNumber.Parse(s.Substring(0, s.Length - 2)).ToString();
                 return new UnsignedLongValue(ulong.Parse(num));
             }
-            if (EndsWithCI(s, "ui"))
+            if (!isBasePrefixed && EndsWithCI(s, "ui"))
             {
                 string num = BigNumber.Parse(s.Substring(0, s.Length - 2)).ToString();
                 return new UnsignedIntegerValue(uint.Parse(num));
             }
-            if (EndsWithCI(s, "f"))
+            if (!isBasePrefixed && EndsWithCI(s, "f"))
             {
-                return new FloatValue((float)BigNumber.Parse(s.Substring(0, s.Length - 1)));
+                // BigNumber has no explicit `float` cast operator. Going
+                // directly through `(float)BigNumber` selects the
+                // `(float)(int)` chain and truncates the fractional part
+                // (e.g. `1.5f` collapsed to `1`). Route through `double` so
+                // the fractional component survives.
+                return new FloatValue((float)(double)BigNumber.Parse(s.Substring(0, s.Length - 1)));
             }
-            if (EndsWithCI(s, "d"))
+            if (!isBasePrefixed && EndsWithCI(s, "d"))
             {
                 return new DoubleValue((double)BigNumber.Parse(s.Substring(0, s.Length - 1)));
             }
-            if (EndsWithCI(s, "m"))
+            if (!isBasePrefixed && EndsWithCI(s, "m"))
             {
                 return new DecimalValue((decimal)BigNumber.Parse(s.Substring(0, s.Length - 1)));
             }
-            if (EndsWithCI(s, "s"))
+            if (!isBasePrefixed && EndsWithCI(s, "s"))
             {
                 return new ShortValue((short)BigNumber.Parse(s.Substring(0, s.Length - 1)));
             }
-            if (EndsWithCI(s, "l"))
+            if (!isBasePrefixed && EndsWithCI(s, "l"))
             {
                 return new LongValue((long)BigNumber.Parse(s.Substring(0, s.Length - 1)));
             }
-            if (EndsWithCI(s, "i"))
+            if (!isBasePrefixed && EndsWithCI(s, "i"))
             {
                 return new IntegerValue((int)BigNumber.Parse(s.Substring(0, s.Length - 1)));
             }

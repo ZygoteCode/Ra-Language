@@ -1,4 +1,6 @@
 ﻿using RaLanguage.Interpreter.Architecture;
+using System.Linq;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
@@ -85,8 +87,14 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                             if (childRes.LoopShouldContinue)
                                 return res.SuccessContinue();
 
+                            // `yield X;` inside a switch arm sets the value of
+                            // the switch expression and exits the arm. It does
+                            // NOT propagate up to an enclosing fn / generator.
                             if (childRes.ShouldYield)
-                                return res.SuccessYield(childRes.YieldValue ?? NullValue.Null.SetContext(context));
+                            {
+                                var yv = childRes.YieldValue ?? NullValue.Null.SetContext(context);
+                                return res.Success(yv);
+                            }
                         }
 
                         return res.Success(NullValue.Null.SetContext(context));
@@ -154,11 +162,27 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                         }
                         else
                         {
-                            if (caseToExec.Body.NodeType == AstNodeType.List)
+                            // Classic `case X: stmt; stmt; break;` builds a ScopeNode
+                            // (one branch per statement), not a ListNode. Earlier
+                            // versions checked for AstNodeType.List, which silently
+                            // skipped every classic-case body.
+                            IEnumerable<AstNode>? bodyStmts = null;
+                            if (caseToExec.Body is RaLanguage.Parser.Nodes.Special.ScopeNode colonScope)
                             {
-                                ListNode colonBlock = (ListNode)caseToExec.Body;
+                                bodyStmts = colonScope.Nodes.Where(s => s != null);
+                            }
+                            else if (caseToExec.Body is ListNode colonList)
+                            {
+                                bodyStmts = colonList.ElementNodes;
+                            }
+                            else if (caseToExec.Body != null)
+                            {
+                                bodyStmts = new[] { caseToExec.Body };
+                            }
 
-                                foreach (var stmt in colonBlock.ElementNodes)
+                            if (bodyStmts != null)
+                            {
+                                foreach (var stmt in bodyStmts)
                                 {
                                     var childRes = await interpreter.Visit(stmt, context);
                                     res.Register(childRes, propagateLoopControl: false);

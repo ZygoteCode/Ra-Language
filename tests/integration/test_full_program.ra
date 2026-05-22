@@ -1,0 +1,76 @@
+// Ra Language - integration: full program combining classes, ADTs,
+// pattern matching, modules, async, annotations.
+//
+// Cases:
+//   F1   class hierarchy with override resolves correctly
+//   F2   ADT + match drives a small interpreter pass
+//   F3   annotations + validators reject bad input, accept good
+//   F4   async pipeline with gather collects values
+//   F5   module import + nested namespace combined
+
+print("=== integration/full_program ===");
+
+import "helpers/math_helper.ra";
+
+pub class Shape {
+    pub var name: string = "?";
+    pub Shape() { pass; }
+    pub fn area() { ret 0; }
+}
+pub class Circle : Shape {
+    pub var r: int;
+    pub Circle(r: int) { self.name = "circle"; self.r = r; }
+    pub override fn area() { ret self.r * self.r * 3; }
+}
+pub class Square : Shape {
+    pub var s: int;
+    pub Square(s: int) { self.name = "square"; self.s = s; }
+    pub override fn area() { ret self.s * self.s; }
+}
+
+let shapes = [Circle(2), Square(3), Circle(5)];
+var total = 0;
+for s in shapes { total = total + s.area(); }
+if total == 12 + 9 + 75 { print("[F1] OK total=" + (total as string)); } else { print("[F1] FAIL " + (total as string)); }
+
+enum Expr {
+    Num(int),
+    Add(Expr, Expr),
+    Mul(Expr, Expr)
+}
+fn eval_expr(e: Expr): int {
+    let r = match e {
+        case Num(n) -> n
+        case Add(a, b) -> eval_expr(a) + eval_expr(b)
+        case Mul(a, b) -> eval_expr(a) * eval_expr(b)
+    };
+    ret r;
+}
+let prog = Expr.Mul(Expr.Add(Expr.Num(2), Expr.Num(3)), Expr.Num(7));
+if eval_expr(prog) == 35 { print("[F2] OK"); } else { print("[F2] FAIL " + (eval_expr(prog) as string)); }
+
+@requires(condition = "amount > 0", message = "positive deposit only")
+fn deposit(amount: int): int { ret amount * 2; }
+try {
+    if deposit(10) == 20 { print("[F3a] OK"); } else { print("[F3a] FAIL"); }
+    try {
+        var _ = deposit(-1);
+        print("[F3b] FAIL negative accepted");
+    } catch (ex2) { print("[F3b] OK"); }
+} catch (ex) { print("[F3] FAIL: " + ex); }
+
+async fn compute(n: int) {
+    await sleep(2);
+    ret n * 10;
+}
+try {
+    var results = await gather([spawn compute(1), spawn compute(2), spawn compute(3)]);
+    if list_sum(results) == 60 { print("[F4] OK"); } else { print("[F4] FAIL " + (results as string)); }
+} catch (ex) { print("[F4] FAIL: " + ex); }
+
+namespace App.Math {
+    pub fn use_pi() { ret PI * 2; }
+}
+if App.Math.use_pi() > 6 { print("[F5] OK"); } else { print("[F5] FAIL"); }
+
+print("=== done ===");

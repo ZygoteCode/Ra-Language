@@ -1,0 +1,10 @@
+// helper module for tests/modules/test_file_import.ra
+
+pub var PI = 3.14;
+
+pub fn add(a, b) { ret a + b; }
+pub fn mul(a, b) { ret a * b; }
+
+fn _internal() { ret 99; }
+
+pub fn forward() { ret _internal(); }

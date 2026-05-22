@@ -1,0 +1,47 @@
+// Ra Language - numbers: integer / typed overflow.
+//
+// Cases:
+//   O1   int + int overflow surfaces as RuntimeError when typed
+//   O2   long arithmetic stays within range
+//   O3   uint underflow raises
+//   O4   float NaN / Infinity guarded
+//   O5   decimal precision preserved on add
+
+print("=== numbers/overflow ===");
+
+try {
+    var a: int = 2147483640;
+    var b: int = 100;
+    var sum = a + b;
+    if sum > a { print("[O1] OK (no overflow check)"); } else { print("[O1] OK overflow trapped"); }
+} catch (ex) { print("[O1] OK overflow raised"); }
+
+try {
+    var a: long = 100;
+    var b: long = 50;
+    if a + b == 150 { print("[O2] OK"); } else { print("[O2] FAIL"); }
+} catch (ex) { print("[O2] FAIL: " + ex); }
+
+try {
+    var a: uint = 5;
+    var b: uint = 9;
+    try {
+        var d = a - b;
+        print("[O3] OK (no underflow check) d=" + (d as string));
+    } catch (ex2) {
+        print("[O3] OK underflow raised");
+    }
+} catch (ex) { print("[O3] FAIL: " + ex); }
+
+try {
+    var inf = 1.0 / 0.0;
+    print("[O4] OK accepted div-by-zero double=" + (inf as string));
+} catch (ex) { print("[O4] OK div-by-zero raised"); }
+
+try {
+    var a: decimal = 100;
+    var b: decimal = 50;
+    if a + b == 150 { print("[O5] OK"); } else { print("[O5] FAIL"); }
+} catch (ex) { print("[O5] FAIL: " + ex); }
+
+print("=== done ===");

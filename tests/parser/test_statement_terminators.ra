@@ -1,0 +1,29 @@
+// Ra Language - parser: statement terminators.
+//
+// Cases:
+//   T1  semicolon terminator
+//   T2  newline terminator
+//   T3  multiple statements on one line via ;
+//   T4  trailing semicolon allowed
+//   T5  empty statement (bare semicolon) tolerated
+
+print("=== parser/terminators ===");
+
+var t1 = 1;
+if t1 == 1 { print("[T1] OK"); } else { print("[T1] FAIL"); }
+
+var t2 = 2
+if t2 == 2 { print("[T2] OK"); } else { print("[T2] FAIL"); }
+
+var t3a = 1; var t3b = 2; var t3c = t3a + t3b;
+if t3c == 3 { print("[T3] OK"); } else { print("[T3] FAIL"); }
+
+var t4 = 4;;
+if t4 == 4 { print("[T4] OK"); } else { print("[T4] FAIL"); }
+
+;
+;
+var t5 = 5
+if t5 == 5 { print("[T5] OK"); } else { print("[T5] FAIL"); }
+
+print("=== done ===");

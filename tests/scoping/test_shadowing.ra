@@ -1,0 +1,62 @@
+// Ra Language - scoping: shadowing semantics.
+//
+// Cases:
+//   S1   inner block uses new binding, outer unchanged
+//   S2   for-loop iter variable shadows outer same-name
+//   S3   while-body shadow is dropped at loop exit
+//   S4   for-body local declared anew each iteration
+//   S5   3-level shadow chain
+//   S6   if-branch local does not leak
+
+print("=== scoping/shadowing ===");
+
+var s1 = "outer";
+{
+    var s1_inner = "inner";
+    if s1_inner == "inner" { print("[S1a] OK"); } else { print("[S1a] FAIL"); }
+}
+if s1 == "outer" { print("[S1b] OK"); } else { print("[S1b] FAIL"); }
+
+var item = "outer_item";
+var collected = "";
+for item_iter in [10, 20, 30] {
+    collected = collected + (item_iter as string) + ",";
+}
+if item == "outer_item" and collected == "10,20,30," { print("[S2] OK"); } else { print("[S2] FAIL item=" + item + " collected=" + collected); }
+
+var x9 = 100;
+var k9 = 0;
+while k9 < 3 {
+    var x9_local = k9 * 10;
+    k9 = k9 + 1;
+}
+if x9 == 100 { print("[S3] OK"); } else { print("[S3] FAIL"); }
+
+var collected10 = 0;
+for i10 = 0 to 4 {
+    var loc = i10 * i10;
+    collected10 = collected10 + loc;
+}
+if collected10 == 14 { print("[S4] OK"); } else { print("[S4] FAIL"); }
+
+var z = "L0";
+{
+    var z_l1 = "L1";
+    {
+        var z_l2 = "L2";
+        if z_l2 == "L2" { print("[S5a] OK"); } else { print("[S5a] FAIL"); }
+    }
+    if z_l1 == "L1" { print("[S5b] OK"); } else { print("[S5b] FAIL"); }
+}
+if z == "L0" { print("[S5c] OK"); } else { print("[S5c] FAIL"); }
+
+var outer11 = 0;
+if true {
+    var branch_local = 5;
+    outer11 = branch_local * 2;
+}
+try { var p = branch_local; print("[S6] FAIL"); } catch (ex) {
+    if outer11 == 10 { print("[S6] OK"); } else { print("[S6] FAIL outer11=" + (outer11 as string)); }
+}
+
+print("=== done ===");

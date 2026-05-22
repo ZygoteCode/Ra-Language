@@ -1,0 +1,25 @@
+// Ra Language - modules: chained import (A imports B; main imports A).
+//
+// Cases:
+//   I1   main can use A's pub fn
+//   I2   A can use B's pub fn through chain
+//   I3   B's pub fn directly accessible from main if also imported
+
+print("=== modules/chained_import ===");
+
+import "helpers/level_a.ra";
+
+try {
+    if level_a_const() == 100 { print("[I1] OK"); } else { print("[I1] FAIL"); }
+} catch (ex) { print("[I1] FAIL: " + ex); }
+
+try {
+    if level_a_call() == 42 { print("[I2] OK"); } else { print("[I2] FAIL " + (level_a_call() as string)); }
+} catch (ex) { print("[I2] FAIL: " + ex); }
+
+try {
+    import "helpers/level_b.ra";
+    if level_b_call() == 41 { print("[I3] OK"); } else { print("[I3] FAIL"); }
+} catch (ex) { print("[I3] OK (already imported transitively)"); }
+
+print("=== done ===");

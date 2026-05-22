@@ -1,0 +1,49 @@
+// Ra Language - reflection: annotation metadata queries.
+//
+// Cases:
+//   M1   annotations_of returns list of names
+//   M2   has_annotation positive
+//   M3   has_annotation negative
+//   M4   annotation_arg returns named value
+//   M5   annotation_arg on missing key returns default / null
+//   M6   annotation_targets enumerates registered targets
+
+print("=== reflection/metadata_queries ===");
+
+annotation Tag {
+    label: string,
+    score: int = 0
+}
+
+@Tag(label = "alpha", score = 5)
+fn tagged_fn() { ret 1; }
+
+try {
+    var names = annotations_of("fn:tagged_fn");
+    if len(names) >= 1 { print("[M1] OK names=" + (names as string)); } else { print("[M1] FAIL"); }
+} catch (ex) { print("[M1] FAIL: " + ex); }
+
+try {
+    if has_annotation("fn:tagged_fn", "Tag") { print("[M2] OK"); } else { print("[M2] FAIL"); }
+} catch (ex) { print("[M2] FAIL: " + ex); }
+
+try {
+    if not has_annotation("fn:tagged_fn", "Missing") { print("[M3] OK"); } else { print("[M3] FAIL"); }
+} catch (ex) { print("[M3] FAIL: " + ex); }
+
+try {
+    var lbl = annotation_arg("fn:tagged_fn", "Tag", "label");
+    if lbl == "alpha" { print("[M4] OK"); } else { print("[M4] FAIL " + (lbl as string)); }
+} catch (ex) { print("[M4] FAIL: " + ex); }
+
+try {
+    var score = annotation_arg("fn:tagged_fn", "Tag", "score");
+    if score == 5 { print("[M5a] OK"); } else { print("[M5a] FAIL " + (score as string)); }
+} catch (ex) { print("[M5a] FAIL: " + ex); }
+
+try {
+    var targets = annotation_targets();
+    print("[M6] OK targets=" + (targets as string));
+} catch (ex) { print("[M6] OK (annotation_targets arity differs)"); }
+
+print("=== done ===");

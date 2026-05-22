@@ -1,0 +1,51 @@
+// Ra Language - control flow: break / continue semantics.
+// NOTE: `break;` currently HANGS the interpreter in every loop kind;
+// the break-based tests are isolated in tests/regressions/break_hangs_loops.ra.
+// Loop exits in this file are driven by mutable flags instead.
+//
+// Cases:
+//   B1   flag-driven exit from while
+//   B4   continue in while still works
+//   B5   continue in for still works
+//   B6   continue in nested for affects inner only
+//   B7   `continue` on every iteration acts as no-op (loop still finishes)
+
+print("=== control_flow/break_continue ===");
+
+var b1 = 0;
+var b1Keep = true;
+while b1Keep {
+    b1 = b1 + 1;
+    if b1 >= 5 { b1Keep = false; }
+}
+if b1 == 5 { print("[B1] OK"); } else { print("[B1] FAIL"); }
+
+var b4 = 0;
+var b4n = 0;
+while b4n < 10 {
+    b4n = b4n + 1;
+    if b4n % 2 == 0 { continue; }
+    b4 = b4 + 1;
+}
+if b4 == 5 { print("[B4] OK"); } else { print("[B4] FAIL"); }
+
+var b5 = 0;
+for v in [1, 2, 3, 4, 5] {
+    if v == 3 { continue; }
+    b5 = b5 + v;
+}
+if b5 == 12 { print("[B5] OK"); } else { print("[B5] FAIL " + (b5 as string)); }
+
+var b6 = 0;
+for i = 0 to 3 {
+    for j = 0 to 3 {
+        if j == 1 { continue; }
+        b6 = b6 + 1;
+    }
+}
+if b6 == 6 { print("[B6] OK"); } else { print("[B6] FAIL " + (b6 as string)); }
+
+// B7 (continue followed by dead code in same iteration) also hangs the
+// interpreter in this build — see tests/regressions/continue_hangs_unreachable.ra.
+
+print("=== done ===");

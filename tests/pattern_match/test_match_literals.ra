@@ -1,0 +1,50 @@
+// Ra Language - pattern match: literal cases.
+//
+// Cases:
+//   M1   match wildcard
+//   M2   integer literal matches
+//   M3   string literal matches
+//   M4   bool literal matches
+//   M5   match returns a value (expression position)
+
+print("=== pattern_match/literals ===");
+
+let m1 = match 42 { case _ -> "any" };
+if m1 == "any" { print("[M1] OK"); } else { print("[M1] FAIL " + m1); }
+
+fn classify(n: int): string {
+    let r = match n {
+        case 0 -> "zero"
+        case 1 -> "one"
+        case _ -> "other"
+    };
+    ret r;
+}
+if classify(0) == "zero" and classify(1) == "one" and classify(99) == "other" { print("[M2] OK"); } else { print("[M2] FAIL"); }
+
+fn greet(s: string): string {
+    let r = match s {
+        case "hi" -> "hello"
+        case "bye" -> "goodbye"
+        case _ -> "?"
+    };
+    ret r;
+}
+if greet("hi") == "hello" and greet("bye") == "goodbye" and greet("xx") == "?" { print("[M3] OK"); } else { print("[M3] FAIL"); }
+
+try {
+    let r = match true {
+        case true -> 1
+        case false -> 0
+    };
+    if r == 1 { print("[M4] OK"); } else { print("[M4] FAIL " + (r as string)); }
+} catch (ex) { print("[M4] FAIL: " + ex); }
+
+let computed = match 5 {
+    case 1 -> 100
+    case 5 -> 500
+    case _ -> -1
+};
+if computed == 500 { print("[M5] OK"); } else { print("[M5] FAIL " + (computed as string)); }
+
+print("=== done ===");

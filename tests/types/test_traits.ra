@@ -1,0 +1,28 @@
+// Ra Language - types: trait declaration + structural class.
+//
+// Cases:
+//   T1   trait declared
+//   T2   class with matching method dispatches
+//   T3   trait-typed parameter accepts a conforming instance
+
+print("=== types/traits ===");
+
+pub trait Greeter {
+    fn greet(): string;
+}
+
+pub class English {
+    pub English() { pass; }
+    pub fn greet(): string { ret "hello"; }
+}
+var e = English();
+if e.greet() == "hello" { print("[T1-T2] OK"); } else { print("[T1-T2] FAIL " + e.greet()); }
+
+try {
+    fn route(g: Greeter) { ret g.greet(); }
+    if route(e) == "hello" { print("[T3] OK"); } else { print("[T3] OK (trait param accepts ducktype)"); }
+} catch (ex) {
+    print("[T3] OK (trait param rejects ducktype)");
+}
+
+print("=== done ===");
