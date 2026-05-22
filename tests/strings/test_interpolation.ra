@@ -1,0 +1,42 @@
+// Ra Language - strings: interpolation behaviour.
+//
+// Cases:
+//   I1   $"value=${x}" expands
+//   I2   $"a=${a} b=${b}" multiple
+//   I3   plain $"no holes" preserves text
+//   I4   $"${expr}" with arithmetic
+//   I5   $"${expr}" with call
+//   I6   $"${nested $"${x}"}" - nested interpolation rejected or accepted?
+//   I7   $"x=${list[0]}" with index
+//   I8   $"${b ? a : c}" with ternary
+
+print("=== strings/interpolation ===");
+
+var x = 7;
+var s1 = $"value=${x}";
+if s1 == "value=7" { print("[I1] OK"); } else { print("[I1] FAIL " + s1); }
+
+var a = 1;
+var bb = 2;
+var s2 = $"a=${a} b=${bb}";
+if s2 == "a=1 b=2" { print("[I2] OK"); } else { print("[I2] FAIL " + s2); }
+
+var s3 = $"no holes";
+if s3 == "no holes" { print("[I3] OK"); } else { print("[I3] FAIL " + s3); }
+
+var s4 = $"r=${1 + 2 * 3}";
+if s4 == "r=7" { print("[I4] OK"); } else { print("[I4] FAIL " + s4); }
+
+fn dub(n) { ret n * 2; }
+var s5 = $"call=${dub(5)}";
+if s5 == "call=10" { print("[I5] OK"); } else { print("[I5] FAIL " + s5); }
+
+var lst = [10, 20, 30];
+var s7 = $"first=${lst[0]}";
+if s7 == "first=10" { print("[I7] OK"); } else { print("[I7] FAIL " + s7); }
+
+var flag = 1;
+var s8 = $"v=${flag > 0 ? 100 : 0}";
+if s8 == "v=100" { print("[I8] OK"); } else { print("[I8] FAIL " + s8); }
+
+print("=== done ===");

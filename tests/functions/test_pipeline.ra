@@ -1,0 +1,54 @@
+// Ra Language - functions: pipeline `|>` operator.
+//
+// Cases:
+//   P1   value |> bare-identifier
+//   P2   chained: value |> a |> b
+//   P3   RHS with extra args
+//   P4   LHS arithmetic binds tighter
+//   P5   chain with arg-bearing RHS
+//   P6   parenthesised LHS
+//   P7   callable bound to variable
+//   P8   lambda on RHS
+//   P9   pipeline nested inside argument list
+//   P10  multiline pipeline
+
+print("=== functions/pipeline ===");
+
+fn dub(x: int): int { ret x * 2; }
+fn inc(x: int): int { ret x + 1; }
+fn addk(a: int, b: int): int { ret a + b; }
+
+let p1 = 5 |> dub;
+if p1 == 10 { print("[P1] OK"); } else { print("[P1] FAIL"); }
+
+let p2 = 5 |> dub |> inc;
+if p2 == 11 { print("[P2] OK"); } else { print("[P2] FAIL"); }
+
+let p3 = 5 |> addk(3);
+if p3 == 8 { print("[P3] OK"); } else { print("[P3] FAIL"); }
+
+let p4 = 2 + 3 |> dub;
+if p4 == 10 { print("[P4] OK"); } else { print("[P4] FAIL " + (p4 as string)); }
+
+let p5 = 5 |> addk(2) |> dub;
+if p5 == 14 { print("[P5] OK"); } else { print("[P5] FAIL " + (p5 as string)); }
+
+let p6 = (3 + 4) |> dub;
+if p6 == 14 { print("[P6] OK"); } else { print("[P6] FAIL"); }
+
+let cb = dub;
+let p7 = 10 |> cb;
+if p7 == 20 { print("[P7] OK"); } else { print("[P7] FAIL"); }
+
+let p8 = 4 |> fn(x: int) => x * x;
+if p8 == 16 { print("[P8] OK"); } else { print("[P8] FAIL " + (p8 as string)); }
+
+let p9 = addk(10, 5 |> dub);
+if p9 == 20 { print("[P9] OK"); } else { print("[P9] FAIL"); }
+
+let p10 = 5
+    |> dub
+    |> inc;
+if p10 == 11 { print("[P10] OK"); } else { print("[P10] FAIL " + (p10 as string)); }
+
+print("=== done ===");

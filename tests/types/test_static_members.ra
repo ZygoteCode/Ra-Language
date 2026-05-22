@@ -1,0 +1,44 @@
+// Ra Language - types: static fields and static methods.
+//
+// Cases:
+//   S1   class with static field
+//   S2   static method accessible via ClassName.method
+//   S3   static field mutated externally persists
+//   S4   instance method reads static state
+
+print("=== types/static_members ===");
+
+try {
+    pub class Counter {
+        pub static var count: int = 0;
+        pub Counter() { Counter.count = Counter.count + 1; }
+        pub static fn current(): int { ret Counter.count; }
+    }
+    Counter();
+    Counter();
+    Counter();
+    if Counter.count == 3 { print("[S1] OK"); } else { print("[S1] FAIL " + (Counter.count as string)); }
+    if Counter.current() == 3 { print("[S2] OK"); } else { print("[S2] FAIL"); }
+} catch (ex) { print("[S1-S2] FAIL: " + ex); }
+
+try {
+    pub class Reg {
+        pub static var slot: int = 0;
+        pub Reg() { pass; }
+    }
+    Reg.slot = 42;
+    if Reg.slot == 42 { print("[S3] OK"); } else { print("[S3] FAIL"); }
+} catch (ex) { print("[S3] FAIL: " + ex); }
+
+try {
+    pub class Tally {
+        pub static var n: int = 0;
+        pub Tally() { Tally.n = Tally.n + 1; }
+        pub fn read(): int { ret Tally.n; }
+    }
+    var t = Tally();
+    Tally();
+    if t.read() == 2 { print("[S4] OK"); } else { print("[S4] FAIL " + (t.read() as string)); }
+} catch (ex) { print("[S4] FAIL: " + ex); }
+
+print("=== done ===");

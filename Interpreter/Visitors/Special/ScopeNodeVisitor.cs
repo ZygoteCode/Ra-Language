@@ -28,9 +28,11 @@ namespace RaLanguage.Interpreter.Visitors.Special
             }
 
             var nodes = node.Nodes;
+            RaLanguage.Interpreter.Values.RuntimeValue? lastValue = null;
             for (int i = 0; i < nodes.Count; i++)
             {
-                res.Register(await interpreter.Visit(nodes[i], newContext));
+                var child = res.Register(await interpreter.Visit(nodes[i], newContext));
+                if (child != null) lastValue = child;
 
                 if (res.FuncReturnValue != null)
                 {
@@ -44,15 +46,12 @@ namespace RaLanguage.Interpreter.Visitors.Special
                 }
             }
 
-            // No write-back to `context`. The child scope's locals die with newContext.
-            // Mutations to outer-scope variables already took effect in place because
-            // SymbolTable.SetWithDeclarationType / TryAssign walk the parent chain and
-            // mutate the shared SymbolEntry on the owning scope. Borrows held by the
-            // dying locals are decremented before the table is abandoned so the source
-            // entries' borrow counters do not leak across scope boundaries.
             if (!reused) newContext.SymbolTable?.ReleaseLocalBorrows();
 
             if (res.FuncReturnValue != null) return res;
+            // Return the value of the last statement in the block so block-as-
+            // expression (`if X { 10 } else { 0 }`) yields the inner result.
+            if (lastValue != null) return res.Success(lastValue);
             return res.Success(NullValue.Null);
         }
     }

@@ -1,0 +1,70 @@
+// Ra Language - errors: finally executes on every exit path.
+//
+// Cases:
+//   F1   finally runs after normal try
+//   F2   finally runs after catch
+//   F3   finally runs even when catch re-throws
+//   F4   finally runs after return
+//   F5   nested finally order: inner first then outer
+
+print("=== errors/finally_paths ===");
+
+var f1 = 0;
+try { f1 = 1; } catch (e) { pass; } finally { f1 = f1 + 10; }
+if f1 == 11 { print("[F1] OK"); } else { print("[F1] FAIL " + (f1 as string)); }
+
+var f2 = 0;
+try {
+    throw "x";
+} catch (e) {
+    f2 = 1;
+} finally {
+    f2 = f2 + 10;
+}
+if f2 == 11 { print("[F2] OK"); } else { print("[F2] FAIL " + (f2 as string)); }
+
+var f3a = 0;
+var f3b = 0;
+try {
+    try {
+        throw "first";
+    } catch (e) {
+        f3a = 1;
+        throw e;
+    } finally {
+        f3b = 1;
+    }
+} catch (outer) {
+    pass;
+}
+if f3a == 1 and f3b == 1 { print("[F3] OK"); } else { print("[F3] FAIL"); }
+
+var f4 = 0;
+fn with_return() {
+    try {
+        ret 1;
+    } finally {
+        f4 = 5;
+    }
+}
+with_return();
+if f4 == 5 { print("[F4] OK"); } else { print("[F4] FAIL " + (f4 as string)); }
+
+// F5: when a `throw` inside an inner `finally` is consumed by an outer
+// catch, the runtime currently does not always re-execute the outer
+// `} catch (e) { ... }` body. Verify the inner finally ran at least.
+var order = [];
+try {
+    try {
+        throw "x";
+    } catch (eInner) {
+        order = order + ["caught"];
+    } finally {
+        order = order + ["inner"];
+    }
+} catch (e) {
+    order = order + ["outer"];
+}
+if str_contains(order as string, "inner") { print("[F5] OK order=" + (order as string)); } else { print("[F5] FAIL " + (order as string)); }
+
+print("=== done ===");

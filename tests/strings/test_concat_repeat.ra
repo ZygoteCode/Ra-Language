@@ -1,0 +1,36 @@
+// Ra Language - strings: concat, repeat, length.
+//
+// Cases:
+//   S1   "a" + "b" == "ab"
+//   S2   "" + "x" == "x"
+//   S3   string + number coerces number to string
+//   S4   "ab" * 3 == "ababab"
+//   S5   "ab" * 0 == ""
+//   S6   len("hello") == 5
+//   S7   len("") == 0
+//   S8   concat chain
+//   S9   concat with unicode-ish chars
+
+print("=== strings/concat_repeat ===");
+
+if "a" + "b" == "ab" { print("[S1] OK"); } else { print("[S1] FAIL"); }
+
+if "" + "x" == "x" { print("[S2] OK"); } else { print("[S2] FAIL"); }
+
+if "n=" + 5 == "n=5" { print("[S3] OK"); } else { print("[S3] FAIL " + ("n=" + 5)); }
+
+if "ab" * 3 == "ababab" { print("[S4] OK"); } else { print("[S4] FAIL " + ("ab" * 3)); }
+
+if "ab" * 0 == "" { print("[S5] OK"); } else { print("[S5] FAIL"); }
+
+if len("hello") == 5 { print("[S6] OK"); } else { print("[S6] FAIL"); }
+
+if len("") == 0 { print("[S7] OK"); } else { print("[S7] FAIL"); }
+
+var s8 = "x" + "y" + "z" + "!";
+if s8 == "xyz!" { print("[S8] OK"); } else { print("[S8] FAIL " + s8); }
+
+var s9 = "abç" + "de";
+if str_contains(s9, "ç") and str_contains(s9, "de") { print("[S9] OK"); } else { print("[S9] FAIL " + s9); }
+
+print("=== done ===");

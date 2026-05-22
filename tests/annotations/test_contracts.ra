@@ -1,0 +1,33 @@
+// Ra Language - annotations: design-by-contract.
+//
+// Cases:
+//   K1   @requires precondition true
+//   K2   @requires false raises
+//   K3   @ensures postcondition true
+//   K4   @ensures false raises
+
+print("=== annotations/contracts ===");
+
+try {
+    @requires(condition = "x > 0")
+    @ensures(condition = "result > x", message = "result must exceed x")
+    fn doubled(x: int): int { ret x * 2; }
+
+    if doubled(5) == 10 { print("[K1] OK"); } else { print("[K1] FAIL"); }
+
+    try {
+        var _r = doubled(-1);
+        print("[K2] FAIL: precondition skipped");
+    } catch (ex2) { print("[K2] OK"); }
+} catch (ex) { print("[K1-K2] FAIL: " + ex); }
+
+try {
+    @requires(condition = "n >= 0")
+    fn factorial(n: int): int {
+        if n <= 1 { ret 1; }
+        ret n * factorial(n - 1);
+    }
+    if factorial(5) == 120 { print("[K3] OK"); } else { print("[K3] FAIL"); }
+} catch (ex) { print("[K3] FAIL: " + ex); }
+
+print("=== done ===");

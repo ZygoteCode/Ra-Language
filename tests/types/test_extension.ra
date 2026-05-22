@@ -1,0 +1,39 @@
+// Ra Language - types: `extend` adds methods to existing struct/class.
+//
+// Cases:
+//   X1   extend a struct with a derived method
+//   X2   extend a class with a derived method
+
+print("=== types/extension ===");
+
+pub struct PtX {
+    pub var x: int;
+    pub var y: int;
+    pub PtX(a: int, b: int) {
+        self.x = a;
+        self.y = b;
+    }
+}
+extend PtX {
+    pub fn manhattan(): int {
+        var ax = self.x;
+        var ay = self.y;
+        if ax < 0 { ax = 0 - ax; }
+        if ay < 0 { ay = 0 - ay; }
+        ret ax + ay;
+    }
+}
+var p = PtX(3, -4);
+if p.manhattan() == 7 { print("[X1] OK"); } else { print("[X1] FAIL " + (p.manhattan() as string)); }
+
+pub class Item {
+    pub var v: int;
+    pub Item(v: int) { self.v = v; }
+}
+extend Item {
+    pub fn doubled(): int { ret self.v * 2; }
+}
+var it = Item(11);
+if it.doubled() == 22 { print("[X2] OK"); } else { print("[X2] FAIL"); }
+
+print("=== done ===");

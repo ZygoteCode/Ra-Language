@@ -1,0 +1,44 @@
+// Ra Language - annotations: @test / @skip / @expected_throws via run_tests().
+//
+// Cases:
+//   T1   @test discovered by run_tests()
+//   T2   @skip excluded
+//   T3   @expected_throws passes when the test does throw
+//   T4   @parameterized passes for every value
+
+print("=== annotations/test_framework ===");
+
+@test
+fn t_arith() {
+    var x = 2 + 2;
+    if x != 4 { ret "wrong"; }
+}
+
+@skip(reason = "WIP")
+@test
+fn t_skipped() {
+    ret "should not run";
+}
+
+@expected_throws(type = "Runtime")
+@test
+fn t_throws() {
+    var a = [1, 2, 3];
+    var _ = a[100];
+}
+
+@parameterized(values = [1, 2, 3])
+@test
+fn t_param(n: int) {
+    if n < 0 { ret "fail"; }
+}
+
+try {
+    print("[T-RUN] OK");
+    var results = run_tests();
+    print("[T-RES] count=" + (len(results) as string));
+} catch (ex) {
+    print("[T-RUN] FAIL: " + ex);
+}
+
+print("=== done ===");

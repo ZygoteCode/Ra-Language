@@ -1,0 +1,33 @@
+// Ra Language - types: struct equality via operator overload.
+//
+// Cases:
+//   E1   default identity-equality between fresh constructed structs
+//   E2   operator-overloaded `==` matches by field
+
+print("=== types/struct_equality ===");
+
+pub struct A {
+    pub var n: int;
+    pub A(v: int) { self.n = v; }
+}
+
+try {
+    var a = A(5);
+    var b = A(5);
+    var cmp = a == b;
+    print("[E1] OK default-eq=" + (cmp as string));
+} catch (ex) { print("[E1] OK (default `==` requires overload)"); }
+
+pub struct B {
+    pub var n: int;
+    pub B(v: int) { self.n = v; }
+    pub operator == (other: B) { ret self.n == other.n; }
+}
+try {
+    var p = B(7);
+    var q = B(7);
+    var r = B(99);
+    if p == q and not (p == r) { print("[E2] OK"); } else { print("[E2] FAIL"); }
+} catch (ex) { print("[E2] FAIL: " + ex); }
+
+print("=== done ===");

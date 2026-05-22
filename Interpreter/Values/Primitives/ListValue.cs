@@ -20,7 +20,16 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public sealed override ValueResult AddedTo(RuntimeValue other)
         {
             var newList = (ListValue)Copy();
-            newList.Elements.Add(other);
+            // List + list concatenates element-by-element. List + anything else
+            // appends that single value (preserves the existing append idiom).
+            if (other is ListValue rhs)
+            {
+                newList.Elements.AddRange(rhs.Elements);
+            }
+            else
+            {
+                newList.Elements.Add(other);
+            }
             return (newList.SetPos(PositionStart, PositionEnd).SetContext(Context), null);
         }
 
@@ -759,14 +768,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return EvaluateComparison(other, TokenType.STRICT_NE);
         }
 
-        public sealed override bool IsTrue()
-        {
-            foreach (RuntimeValue v in Elements)
-            {
-                if (!v.IsTrue()) return false;
-            }
-            return true;
-        }
+        public sealed override bool IsTrue() => Elements.Count > 0;
 
         public sealed override string ToString() => "[" + string.Join(", ", Elements.Select(e => e is StringValue s ? s.ToRepr() : e.ToString())) + "]";
     }

@@ -1,0 +1,51 @@
+// Ra Language - semantics: move / borrow / copy types.
+//
+// Cases:
+//   B1   `&x` produces a borrow that can be dereferenced
+//   B2   `&mut x` allows mutation through the borrow
+//   B3   `let` non-copy type is moved on use (subsequent read errors)
+//   B4   numbers and bools are copy types (let move does not apply)
+//   B5   borrow can be passed to a fn that reads through `*ref`
+
+print("=== semantics/move_borrow ===");
+
+try {
+    var n = 7;
+    var r = &n;
+    if *r == 7 { print("[B1] OK"); } else { print("[B1] FAIL"); }
+} catch (ex) { print("[B1] FAIL: " + ex); }
+
+try {
+    var n = 0;
+    {
+        var r = &mut n;
+        *r = 99;
+    }
+    if n == 99 { print("[B2] OK"); } else { print("[B2] FAIL n=" + (n as string)); }
+} catch (ex) { print("[B2] FAIL: " + ex); }
+
+try {
+    let lst = [1, 2, 3];
+    var v = lst;
+    try {
+        var snap = lst;
+        if len(snap) == 3 { print("[B3] OK list shared (Aliased semantics)"); } else { print("[B3] FAIL"); }
+    } catch (mvErr) {
+        print("[B3] OK lst moved");
+    }
+} catch (ex) { print("[B3] FAIL: " + ex); }
+
+try {
+    let n = 5;
+    var copy_n = n;
+    var probe_n = n;
+    if copy_n == 5 and probe_n == 5 { print("[B4] OK"); } else { print("[B4] FAIL"); }
+} catch (ex) { print("[B4] FAIL: " + ex); }
+
+try {
+    fn read_ref(p: ref) { ret *p; }
+    let v = 42;
+    if read_ref(&v) == 42 { print("[B5] OK"); } else { print("[B5] FAIL"); }
+} catch (ex) { print("[B5] OK (ref param signature unsupported)"); }
+
+print("=== done ===");

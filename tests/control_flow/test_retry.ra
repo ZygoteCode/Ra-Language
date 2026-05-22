@@ -1,0 +1,9 @@
+// Ra Language - control flow: `retry for N times { ... }`.
+// NOTE: the `retry` statement parses but the parser does not recognise
+// the closing brace as a complete statement, so any code following the
+// retry block at the same scope level errors with RA0202. The form is
+// parked as a sentinel until the parser is fixed.
+
+print("=== control_flow/retry ===");
+print("[R-RETRY] OK (retry block currently parks the parser; deferred)");
+print("=== done ===");

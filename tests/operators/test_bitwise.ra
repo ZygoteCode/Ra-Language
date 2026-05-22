@@ -1,0 +1,31 @@
+// Ra Language - operators: bitwise/shift.
+//
+// Cases:
+//   B1   bitwise AND
+//   B2   bitwise OR
+//   B3   bitwise NOT
+//   B4   shift left
+//   B5   shift right
+//   B6   shift by zero
+//   B7   AND with zero
+//   B8   OR with all-ones
+
+print("=== operators/bitwise ===");
+
+if (0b1100 & 0b1010) == 0b1000 { print("[B1] OK"); } else { print("[B1] FAIL"); }
+
+if (0b1100 | 0b0011) == 0b1111 { print("[B2] OK"); } else { print("[B2] FAIL"); }
+
+if (~0 + 1) == 0 { print("[B3] OK"); } else { print("[B3] FAIL " + ((~0 + 1) as string)); }
+
+if (1 << 4) == 16 { print("[B4] OK"); } else { print("[B4] FAIL " + ((1 << 4) as string)); }
+
+if (256 >> 4) == 16 { print("[B5] OK"); } else { print("[B5] FAIL " + ((256 >> 4) as string)); }
+
+if (5 << 0) == 5 and (5 >> 0) == 5 { print("[B6] OK"); } else { print("[B6] FAIL"); }
+
+if (12345 & 0) == 0 { print("[B7] OK"); } else { print("[B7] FAIL"); }
+
+if (0 | 12345) == 12345 { print("[B8] OK"); } else { print("[B8] FAIL"); }
+
+print("=== done ===");

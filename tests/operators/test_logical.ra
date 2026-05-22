@@ -1,0 +1,31 @@
+// Ra Language - operators: logical.
+//
+// Cases:
+//   L1   and  truth-table
+//   L2   or   truth-table
+//   L3   not  unary
+//   L4   short-circuit and (RHS not evaluated)
+//   L5   short-circuit or  (RHS not evaluated)
+//   L6   chain with not
+
+print("=== operators/logical ===");
+
+if (true and true) and not (true and false) and not (false and true) and not (false and false) { print("[L1] OK"); } else { print("[L1] FAIL"); }
+
+if (true or true) and (true or false) and (false or true) and not (false or false) { print("[L2] OK"); } else { print("[L2] FAIL"); }
+
+if not false and not not true { print("[L3] OK"); } else { print("[L3] FAIL"); }
+
+var l4 = 0;
+fn bump() { l4 = l4 + 1; ret true; }
+var _l4r = false and bump();
+if l4 == 0 { print("[L4] OK"); } else { print("[L4] FAIL l4=" + (l4 as string)); }
+
+var l5 = 0;
+fn bump2() { l5 = l5 + 1; ret false; }
+var _l5r = true or bump2();
+if l5 == 0 { print("[L5] OK"); } else { print("[L5] FAIL l5=" + (l5 as string)); }
+
+if not (false or false) and not (true and false) { print("[L6] OK"); } else { print("[L6] FAIL"); }
+
+print("=== done ===");

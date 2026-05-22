@@ -1,0 +1,39 @@
+// Ra Language - errors: runtime conditions raise.
+//
+// Cases:
+//   R1   division by zero
+//   R2   modulo by zero
+//   R3   list out-of-range read
+//   R4   map missing key read
+//   R5   type mismatch in operator (string + non-coercible)
+//   R6   call undefined function
+
+print("=== errors/runtime ===");
+
+try { var x = 1 / 0; print("[R1] FAIL"); } catch (ex) { print("[R1] OK"); }
+
+try { var x = 5 % 0; print("[R2] FAIL " + (x as string)); } catch (ex) { print("[R2] OK"); }
+
+try {
+    var l = [1, 2, 3];
+    var x = l[100];
+    print("[R3] FAIL " + (x as string));
+} catch (ex) { print("[R3] OK"); }
+
+try {
+    var m = {"a": 1};
+    var x = m["zzz"];
+    print("[R4] FAIL " + (x as string));
+} catch (ex) { print("[R4] OK"); }
+
+try {
+    var x = "abc" + true;
+    print("[R5] result accepted: " + x);
+} catch (ex) { print("[R5] OK (rejected)"); }
+
+try {
+    var x = totally_not_a_real_fn(1);
+    print("[R6] FAIL");
+} catch (ex) { print("[R6] OK"); }
+
+print("=== done ===");

@@ -1,0 +1,22 @@
+// Ra Language - annotations: reflection on built-in annotations.
+//
+// Cases:
+//   R1   annotations_of() returns names list
+//   R2   has_annotation() positive
+
+print("=== annotations/reflection ===");
+
+@deprecated
+fn old_fn() { ret 1; }
+
+try {
+    var names = annotations_of("fn:old_fn");
+    print("[R1] annotations_of=" + (names as string));
+} catch (ex) { print("[R1] FAIL: " + ex); }
+
+try {
+    var has = has_annotation("fn:old_fn", "deprecated");
+    print("[R2] has=" + (has as string));
+} catch (ex) { print("[R2] FAIL: " + ex); }
+
+print("=== done ===");

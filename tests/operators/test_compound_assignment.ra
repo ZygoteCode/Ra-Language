@@ -1,0 +1,53 @@
+// Ra Language - operators: compound assignment.
+//
+// Cases:
+//   C1  +=
+//   C2  -=
+//   C3  *=
+//   C4  /=
+//   C5  %=
+//   C6  power assign **=
+//   C7  &= bitwise and
+//   C8  |= bitwise or
+//   C9  <<= shift left
+//   C10 >>= shift right
+//   C11 ??= null coalesce assign
+
+print("=== operators/compound_assign ===");
+
+var x = 10; x += 5;
+if x == 15 { print("[C1] OK"); } else { print("[C1] FAIL " + (x as string)); }
+
+var y = 10; y -= 3;
+if y == 7 { print("[C2] OK"); } else { print("[C2] FAIL " + (y as string)); }
+
+var z = 4; z *= 3;
+if z == 12 { print("[C3] OK"); } else { print("[C3] FAIL"); }
+
+var w = 20; w /= 4;
+if w == 5 { print("[C4] OK"); } else { print("[C4] FAIL"); }
+
+var m = 17; m %= 5;
+if m == 2 { print("[C5] OK"); } else { print("[C5] FAIL"); }
+
+var p = 3; p **= 2;
+if p == 9 { print("[C6] OK"); } else { print("[C6] FAIL " + (p as string)); }
+
+var a = 0b1100; a &= 0b1010;
+if a == 0b1000 { print("[C7] OK"); } else { print("[C7] FAIL"); }
+
+var b = 0b1100; b |= 0b0011;
+if b == 0b1111 { print("[C8] OK"); } else { print("[C8] FAIL"); }
+
+var s = 1; s <<= 4;
+if s == 16 { print("[C9] OK"); } else { print("[C9] FAIL " + (s as string)); }
+
+var t = 32; t >>= 2;
+if t == 8 { print("[C10] OK"); } else { print("[C10] FAIL"); }
+
+var u = null; u ??= 42;
+if u == 42 { print("[C11a] OK"); } else { print("[C11a] FAIL"); }
+var v = 7; v ??= 99;
+if v == 7 { print("[C11b] OK"); } else { print("[C11b] FAIL"); }
+
+print("=== done ===");

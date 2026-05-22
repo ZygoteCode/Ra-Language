@@ -1,0 +1,59 @@
+// Ra Language - numbers: math built-ins.
+//
+// Cases:
+//   M1   abs positive
+//   M2   abs negative
+//   M3   sqrt of 16
+//   M4   pi() ~ 3.14159
+//   M5   floor
+//   M6   ceil
+//   M7   round
+//   M8   pow
+//   M9   math_min / math_max
+//   M10  sin / cos signature
+
+print("=== numbers/math_builtins ===");
+
+try {
+    if abs(5) == 5 and abs(-5) == 5 { print("[M1-M2] OK"); } else { print("[M1-M2] FAIL"); }
+} catch (e) { print("[M1-M2] FAIL: " + e); }
+
+try {
+    var r = sqrt(16);
+    if r == 4 or r == 4.0 { print("[M3] OK"); } else { print("[M3] FAIL " + (r as string)); }
+} catch (e) { print("[M3] FAIL: " + e); }
+
+try {
+    var p = pi();
+    if p > 3.14 and p < 3.15 { print("[M4] OK"); } else { print("[M4] FAIL " + (p as string)); }
+} catch (e) { print("[M4] FAIL: " + e); }
+
+try {
+    if floor(3.7) == 3 { print("[M5] OK"); } else { print("[M5] FAIL"); }
+} catch (e) { print("[M5] FAIL: " + e); }
+
+try {
+    if ceil(3.2) == 4 { print("[M6] OK"); } else { print("[M6] FAIL"); }
+} catch (e) { print("[M6] FAIL: " + e); }
+
+try {
+    var r = round(3.5);
+    if r == 3 or r == 4 { print("[M7] OK"); } else { print("[M7] FAIL"); }
+} catch (e) { print("[M7] FAIL: " + e); }
+
+try {
+    var r = pow(2, 10);
+    if r == 1024 { print("[M8] OK"); } else { print("[M8] FAIL " + (r as string)); }
+} catch (e) { print("[M8] FAIL: " + e); }
+
+try {
+    if math_min(3, 1, 5) == 1 and math_max(3, 1, 5) == 5 { print("[M9] OK"); } else { print("[M9] FAIL"); }
+} catch (e) { print("[M9] FAIL: " + e); }
+
+try {
+    var s = sin(0);
+    var c = cos(0);
+    if s == 0 and c == 1 { print("[M10] OK"); } else { print("[M10] FAIL s=" + (s as string) + " c=" + (c as string)); }
+} catch (e) { print("[M10] FAIL: " + e); }
+
+print("=== done ===");

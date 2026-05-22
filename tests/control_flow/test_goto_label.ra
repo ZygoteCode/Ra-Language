@@ -1,0 +1,22 @@
+// Ra Language - control flow: label / goto (only inside functions per _main16).
+//
+// Cases:
+//   G1   simple back-edge loop with goto
+//   G2   forward jump skips intermediate code (if supported)
+
+print("=== control_flow/goto_label ===");
+
+try {
+    fn loop_count() {
+        var x = 8;
+        loop: x = x - 1;
+        if x > 0 {
+            goto loop;
+        }
+        ret x;
+    }
+    var r = loop_count();
+    if r == 0 { print("[G1] OK"); } else { print("[G1] FAIL " + (r as string)); }
+} catch (ex) { print("[G1] FAIL: " + ex); }
+
+print("=== done ===");

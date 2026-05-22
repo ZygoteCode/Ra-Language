@@ -1,0 +1,16 @@
+// Ra Language - modules: aliased import.
+//
+// Cases:
+//   A1   alias namespaces the helper
+//   A2   selective import exposes a single symbol
+
+print("=== modules/alias_import ===");
+
+import "helpers/strings_helper.ra" as strs;
+
+if strs.repeat("ab", 3) == "ababab" { print("[A1] OK"); } else { print("[A1] FAIL " + strs.repeat("ab", 3)); }
+
+import { shout } from "helpers/strings_helper.ra";
+if shout("hi") == "HI!" { print("[A2] OK"); } else { print("[A2] FAIL " + shout("hi")); }
+
+print("=== done ===");

@@ -293,7 +293,10 @@ namespace RaLanguage.Interpreter.Values.Functions
         private static RuntimeResult BuiltinChannel(List<RuntimeValue> args, Context ctx, Position p1, Position p2)
         {
             var res = new RuntimeResult();
-            int cap = args.Count >= 1 ? ExtractInt(args[0]) : 1;
+            // Default to an essentially-unbounded buffer so `channel_send` does
+            // not block when no reader has registered yet — the previous cap=1
+            // default caused the second sync send to hang waiting for a recv.
+            int cap = args.Count >= 1 ? ExtractInt(args[0]) : int.MaxValue;
             return res.Success(new ChannelValue(new AsyncChannel(cap <= 0 ? 1 : cap)).SetContext(ctx).SetPos(p1, p2));
         }
 

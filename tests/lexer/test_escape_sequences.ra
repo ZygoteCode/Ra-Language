@@ -1,0 +1,35 @@
+// Ra Language - lexer: escape sequence decoding.
+//
+// Cases:
+//   E1  newline \n
+//   E2  tab \t
+//   E3  carriage return \r
+//   E4  backslash \\
+//   E5  double quote \"
+//   E6  single quote \'
+//   E7  multiple consecutive escapes
+
+print("=== lexer/escape_sequences ===");
+
+var e1 = "a\nb";
+if len(e1) == 3 { print("[E1] OK"); } else { print("[E1] FAIL " + (len(e1) as string)); }
+
+var e2 = "a\tb";
+if len(e2) == 3 { print("[E2] OK"); } else { print("[E2] FAIL"); }
+
+var e3 = "a\rb";
+if len(e3) == 3 { print("[E3] OK"); } else { print("[E3] FAIL"); }
+
+var e4 = "a\\b";
+if len(e4) == 3 { print("[E4] OK"); } else { print("[E4] FAIL"); }
+
+var e5 = "a\"b";
+if len(e5) == 3 { print("[E5] OK"); } else { print("[E5] FAIL"); }
+
+var e6 = 'a\'b';
+if len(e6) == 3 { print("[E6] OK"); } else { print("[E6] FAIL"); }
+
+var e7 = "\n\t\\\r";
+if len(e7) == 4 { print("[E7] OK"); } else { print("[E7] FAIL " + (len(e7) as string)); }
+
+print("=== done ===");

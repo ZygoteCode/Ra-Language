@@ -66,8 +66,8 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 res.Register(await interpreter.Visit(node.BodyNode, bodyContext));
                 if (res.Error != null) return res;
 
-                if (res.LoopShouldContinue) continue;
-                if (res.LoopShouldBreak) break;
+                if (res.LoopShouldContinue) { res.LoopShouldContinue = false; continue; }
+                if (res.LoopShouldBreak) { res.LoopShouldBreak = false; break; }
                 if (res.ShouldReturn()) return res;
             }
 

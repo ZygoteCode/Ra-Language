@@ -1,0 +1,47 @@
+// Ra Language - parser: operator precedence.
+//
+// Cases:
+//   P1  multiplication before addition
+//   P2  division before subtraction
+//   P3  parentheses override precedence
+//   P4  unary minus binds tighter than multiply
+//   P5  power has higher precedence than multiply
+//   P6  comparison after arithmetic
+//   P7  logical and binds tighter than logical or
+//   P8  not has higher precedence than and
+//   P9  bitwise & binds tighter than bitwise |
+//   P10 shift binds tighter than comparison
+//   P11 null-coalesce binds looser than comparison
+//   P12 ternary has very low precedence
+
+print("=== parser/precedence ===");
+
+if 2 + 3 * 4 == 14 { print("[P1] OK"); } else { print("[P1] FAIL " + ((2 + 3 * 4) as string)); }
+
+if 10 - 6 / 2 == 7 { print("[P2] OK"); } else { print("[P2] FAIL"); }
+
+if (2 + 3) * 4 == 20 { print("[P3] OK"); } else { print("[P3] FAIL"); }
+
+if -2 * 3 == -6 { print("[P4] OK"); } else { print("[P4] FAIL " + ((-2 * 3) as string)); }
+
+if 2 * 3 ^ 2 == 18 { print("[P5] OK"); } else { print("[P5] FAIL " + ((2 * 3 ^ 2) as string)); }
+
+if 2 + 3 == 5 { print("[P6] OK"); } else { print("[P6] FAIL"); }
+
+if true or false and false { print("[P7] OK"); } else { print("[P7] FAIL"); }
+
+if not false and true { print("[P8] OK"); } else { print("[P8] FAIL"); }
+
+if (12 & 10 | 1) == (((12 & 10)) | 1) { print("[P9] OK"); } else { print("[P9] FAIL"); }
+
+var p10 = 1 << 2;
+if p10 == 4 { print("[P10] OK"); } else { print("[P10] FAIL " + (p10 as string)); }
+
+var p11a = null;
+var p11b = p11a ?? 99;
+if p11b == 99 { print("[P11] OK"); } else { print("[P11] FAIL"); }
+
+var p12 = (5 > 3) ? "yes" : "no";
+if p12 == "yes" { print("[P12] OK"); } else { print("[P12] FAIL " + p12); }
+
+print("=== done ===");

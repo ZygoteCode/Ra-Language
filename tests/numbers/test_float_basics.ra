@@ -1,0 +1,33 @@
+// Ra Language - numbers: float basics.
+//
+// Cases:
+//   F1   simple fractional
+//   F2   negative float
+//   F3   float arithmetic
+//   F4   float comparison within tolerance
+//   F5   float to-string includes decimal point
+//   F6   integer/float mixing promotes
+
+print("=== numbers/float_basics ===");
+
+var f1 = 3.14;
+if f1 > 3.0 and f1 < 4.0 { print("[F1] OK"); } else { print("[F1] FAIL " + (f1 as string)); }
+
+var f2 = -2.5;
+if f2 < 0 { print("[F2] OK"); } else { print("[F2] FAIL"); }
+
+var f3 = 1.5 * 2.0;
+if f3 == 3.0 { print("[F3] OK"); } else { print("[F3] FAIL " + (f3 as string)); }
+
+var f4 = 0.1 + 0.2;
+var diff = f4 - 0.3;
+if diff < 0 { diff = 0 - diff; }
+if diff < 0.0001 { print("[F4] OK"); } else { print("[F4] FAIL diff=" + (diff as string)); }
+
+var f5 = 3.5 as string;
+if str_contains(f5, ".") { print("[F5] OK"); } else { print("[F5] FAIL " + f5); }
+
+var f6 = 1 + 0.5;
+if f6 == 1.5 { print("[F6] OK"); } else { print("[F6] FAIL"); }
+
+print("=== done ===");

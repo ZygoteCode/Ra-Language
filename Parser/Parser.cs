@@ -229,10 +229,20 @@ namespace RaLanguage.Parser
         }
 
 
+        // Kept for legacy compatibility but no longer used by ParseCastExpression;
+        // `or` and `and` now live in their own precedence bands.
         private static readonly (TokenType, Keyword?)[] s_opsLogical = new (TokenType, Keyword?)[]
         {
             (TokenType.KEYWORD, Keyword.And),
             (TokenType.KEYWORD, Keyword.Or),
+        };
+        private static readonly (TokenType, Keyword?)[] s_opsLogicalOr = new (TokenType, Keyword?)[]
+        {
+            (TokenType.KEYWORD, Keyword.Or),
+        };
+        private static readonly (TokenType, Keyword?)[] s_opsLogicalAnd = new (TokenType, Keyword?)[]
+        {
+            (TokenType.KEYWORD, Keyword.And),
         };
         private static readonly (TokenType, Keyword?)[] s_opsBitwiseOr = new (TokenType, Keyword?)[]
         {

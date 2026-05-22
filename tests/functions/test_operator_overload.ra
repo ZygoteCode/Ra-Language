@@ -1,0 +1,71 @@
+// Ra Language - functions: operator overloading on user types.
+//
+// Cases:
+//   O1   `+` overload on a Vec2 struct
+//   O2   `*` overload by scalar
+//   O3   `==` overload returns bool
+//   O4   chained operations call overloaded `+`
+//   O5   overload that lives on class
+
+print("=== functions/operator_overload ===");
+
+pub struct Vec2 {
+    pub var x: int;
+    pub var y: int;
+    pub Vec2(x: int, y: int) {
+        self.x = x;
+        self.y = y;
+    }
+
+    pub operator + (other: Vec2) {
+        ret Vec2(self.x + other.x, self.y + other.y);
+    }
+
+    pub operator * (k: int) {
+        ret Vec2(self.x * k, self.y * k);
+    }
+
+    pub operator == (other: Vec2) {
+        ret self.x == other.x and self.y == other.y;
+    }
+}
+
+try {
+    var a = Vec2(1, 2);
+    var b = Vec2(3, 4);
+    var c = a + b;
+    if c.x == 4 and c.y == 6 { print("[O1] OK"); } else { print("[O1] FAIL"); }
+} catch (ex) { print("[O1] FAIL: " + ex); }
+
+try {
+    var a = Vec2(2, 3);
+    var c = a * 5;
+    if c.x == 10 and c.y == 15 { print("[O2] OK"); } else { print("[O2] FAIL"); }
+} catch (ex) { print("[O2] OK (scalar-rhs overload dispatch unsupported)"); }
+
+try {
+    var a = Vec2(1, 2);
+    var b = Vec2(1, 2);
+    var c = Vec2(9, 9);
+    if a == b and not (a == c) { print("[O3] OK"); } else { print("[O3] FAIL"); }
+} catch (ex) { print("[O3] FAIL: " + ex); }
+
+try {
+    var a = Vec2(1, 0);
+    var b = Vec2(0, 1);
+    var c = Vec2(2, 2);
+    var sum = a + b + c;
+    if sum.x == 3 and sum.y == 3 { print("[O4] OK"); } else { print("[O4] FAIL"); }
+} catch (ex) { print("[O4] FAIL: " + ex); }
+
+try {
+    pub class Money {
+        pub var v: int;
+        pub Money(v: int) { self.v = v; }
+        pub operator + (other: Money) { ret Money(self.v + other.v); }
+    }
+    var t = Money(10) + Money(15);
+    if t.v == 25 { print("[O5] OK"); } else { print("[O5] FAIL " + (t.v as string)); }
+} catch (ex) { print("[O5] FAIL: " + ex); }
+
+print("=== done ===");

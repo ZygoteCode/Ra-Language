@@ -1,0 +1,26 @@
+// Ra Language - types: enum with helper functions / pattern matching.
+//
+// Cases:
+//   E1   enum cast to int sequence
+//   E2   enum compared via ==
+//   E3   enum used inside fn argument
+//   E4   enum stored in list
+
+print("=== types/enum_methods ===");
+
+enum Day {
+    Mon = 1, Tue, Wed, Thu, Fri, Sat, Sun
+}
+
+if (Day.Wed as int) == 3 { print("[E1] OK"); } else { print("[E1] FAIL"); }
+
+let d = Day.Tue;
+if d == Day.Tue and d != Day.Wed { print("[E2] OK"); } else { print("[E2] FAIL"); }
+
+fn is_weekend(d: Day): bool { ret d == Day.Sat or d == Day.Sun; }
+if is_weekend(Day.Sat) and not is_weekend(Day.Mon) { print("[E3] OK"); } else { print("[E3] FAIL"); }
+
+var week = [Day.Mon, Day.Tue, Day.Wed];
+if week[1] == Day.Tue { print("[E4] OK"); } else { print("[E4] FAIL"); }
+
+print("=== done ===");

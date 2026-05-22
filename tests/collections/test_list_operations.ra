@@ -1,0 +1,49 @@
+// Ra Language - collections: list manipulation built-ins.
+//
+// Cases:
+//   B1   list_reverse
+//   B2   list_sort ascending
+//   B3   list_sum integers
+//   B4   list_max / list_min
+//   B5   list_range generation
+//   B6   spread in list literal
+//   B7   iterate forEach
+//   B8   nested list of lists
+
+print("=== collections/list_operations ===");
+
+try {
+    var r = list_reverse([1, 2, 3]);
+    if r[0] == 3 and r[2] == 1 { print("[B1] OK"); } else { print("[B1] FAIL"); }
+} catch (ex) { print("[B1] FAIL: " + ex); }
+
+try {
+    var r = list_sort([3, 1, 2]);
+    if r[0] == 1 and r[2] == 3 { print("[B2] OK"); } else { print("[B2] FAIL"); }
+} catch (ex) { print("[B2] FAIL: " + ex); }
+
+try {
+    if list_sum([1, 2, 3, 4]) == 10 { print("[B3] OK"); } else { print("[B3] FAIL"); }
+} catch (ex) { print("[B3] FAIL: " + ex); }
+
+try {
+    if list_max([5, 3, 9, 1]) == 9 and list_min([5, 3, 9, 1]) == 1 { print("[B4] OK"); } else { print("[B4] FAIL"); }
+} catch (ex) { print("[B4] FAIL: " + ex); }
+
+try {
+    var r = list_range(0, 5);
+    if len(r) == 5 and r[0] == 0 and r[4] == 4 { print("[B5] OK"); } else { print("[B5] FAIL"); }
+} catch (ex) { print("[B5] FAIL: " + ex); }
+
+var base = [10, 20];
+var spread = [1, ...base, 99];
+if spread[0] == 1 and spread[1] == 10 and spread[2] == 20 and spread[3] == 99 { print("[B6] OK"); } else { print("[B6] FAIL " + (spread as string)); }
+
+var sum = 0;
+for v in [1, 2, 3, 4, 5] { sum = sum + v; }
+if sum == 15 { print("[B7] OK"); } else { print("[B7] FAIL " + (sum as string)); }
+
+var nested = [[1, 2], [3, 4], [5, 6]];
+if nested[1][1] == 4 and nested[2][0] == 5 { print("[B8] OK"); } else { print("[B8] FAIL"); }
+
+print("=== done ===");

@@ -1,0 +1,43 @@
+// Ra Language - collections: set operations.
+//
+// Cases:
+//   S1   literal de-duplicates
+//   S2   union via |
+//   S3   intersection via &
+//   S4   difference via -
+//   S5   contains via in
+//   S6   add via +
+//   S7   iteration enumerates every element
+
+print("=== collections/set_ops ===");
+
+var s1 = {1, 2, 2, 3, 3, 3};
+if len(s1) == 3 { print("[S1] OK"); } else { print("[S1] FAIL " + (len(s1) as string)); }
+
+try {
+    var u = {1, 2} | {2, 3};
+    if len(u) == 3 { print("[S2] OK"); } else { print("[S2] FAIL"); }
+} catch (ex) { print("[S2] FAIL: " + ex); }
+
+try {
+    var i = {1, 2, 3} & {2, 3, 4};
+    if len(i) == 2 { print("[S3] OK"); } else { print("[S3] FAIL"); }
+} catch (ex) { print("[S3] FAIL: " + ex); }
+
+try {
+    var d = {1, 2, 3} - {2};
+    if len(d) == 2 and not (2 in d) { print("[S4] OK"); } else { print("[S4] FAIL"); }
+} catch (ex) { print("[S4] FAIL: " + ex); }
+
+if 2 in {1, 2, 3} { print("[S5] OK"); } else { print("[S5] FAIL"); }
+
+try {
+    var a = {1, 2} + 3;
+    if len(a) == 3 { print("[S6] OK"); } else { print("[S6] FAIL"); }
+} catch (ex) { print("[S6] FAIL: " + ex); }
+
+var sum = 0;
+for v in {1, 2, 3, 4} { sum = sum + v; }
+if sum == 10 { print("[S7] OK"); } else { print("[S7] FAIL " + (sum as string)); }
+
+print("=== done ===");

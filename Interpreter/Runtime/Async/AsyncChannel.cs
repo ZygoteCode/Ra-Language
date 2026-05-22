@@ -30,7 +30,12 @@ namespace RaLanguage.Interpreter.Runtime.Async
         public AsyncChannel(int capacity)
         {
             _capacity = capacity > 0 ? capacity : 1;
-            _buffer = new Queue<RuntimeValue?>(_capacity);
+            // Pass a small hint instead of `_capacity` directly so a huge
+            // user-requested capacity (e.g. int.MaxValue for an effectively
+            // unbounded channel) does not OOM on the underlying Queue<T>
+            // backing array. The capacity is still enforced on Send().
+            int hint = _capacity > 256 ? 16 : _capacity;
+            _buffer = new Queue<RuntimeValue?>(hint);
         }
 
         private sealed class TaskState

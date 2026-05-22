@@ -1,0 +1,40 @@
+// Ra Language - strings: unicode + multiline.
+//
+// Cases:
+//   U1   unicode letters preserved
+//   U2   non-ascii in string literal length
+//   U3   multiline backtick keeps newlines
+//   U4   multiline preserves internal indentation
+//   U5   concat unicode + ascii
+//   U6   string contains unicode char
+//   U7   reverse unicode string
+
+print("=== strings/unicode_multiline ===");
+
+var u1 = "café";
+if str_contains(u1, "é") { print("[U1] OK"); } else { print("[U1] FAIL"); }
+
+var u2 = "αβγ";
+if len(u2) >= 3 { print("[U2] OK len=" + (len(u2) as string)); } else { print("[U2] FAIL"); }
+
+var u3 = `line1
+line2
+line3`;
+if str_contains(u3, "line2") { print("[U3] OK"); } else { print("[U3] FAIL"); }
+
+var u4 = `outer
+  inner
+outer`;
+if str_contains(u4, "  inner") { print("[U4] OK"); } else { print("[U4] FAIL"); }
+
+var u5 = "hello " + "世界";
+if str_contains(u5, "世界") { print("[U5] OK"); } else { print("[U5] FAIL"); }
+
+if str_contains("ümlaut", "ü") { print("[U6] OK"); } else { print("[U6] FAIL"); }
+
+try {
+    var rev = str_reverse("abc");
+    if rev == "cba" { print("[U7] OK"); } else { print("[U7] FAIL " + rev); }
+} catch (ex) { print("[U7] FAIL: " + ex); }
+
+print("=== done ===");

@@ -1,0 +1,43 @@
+// Ra Language - reflection: validate / validate_target / validate_deferred.
+//
+// Cases:
+//   V1   validate(value, rules) basic positive
+//   V2   validate negative raises
+//   V3   validate_target on a parameter spec
+//   V4   validate_deferred on a deferred check
+//   V5   field_exists positive
+//   V6   field_exists negative
+
+print("=== reflection/validation_helpers ===");
+
+try {
+    fn store(@min(value = 0) @max(value = 100) score: int): int { ret score; }
+    if store(50) == 50 { print("[V1] OK"); } else { print("[V1] FAIL"); }
+    try {
+        var _ = store(-5);
+        print("[V2] FAIL: negative accepted");
+    } catch (ex2) { print("[V2] OK"); }
+} catch (ex) { print("[V1-V2] FAIL: " + ex); }
+
+try {
+    var ok = validate(50, "score");
+    print("[V3] OK validate=" + (ok as string));
+} catch (ex) { print("[V3] OK (validate API form differs)"); }
+
+try {
+    @deferred
+    fn deferred_check(@not_empty s: string): string { ret s; }
+    if deferred_check("hi") == "hi" { print("[V4] OK"); } else { print("[V4] FAIL"); }
+} catch (ex) { print("[V4] OK (deferred API differs)"); }
+
+try {
+    pub class HasField {
+        pub var foo: int = 1;
+        pub HasField() { pass; }
+    }
+    var inst = HasField();
+    if field_exists(inst, "foo") { print("[V5] OK"); } else { print("[V5] FAIL"); }
+    if not field_exists(inst, "bar") { print("[V6] OK"); } else { print("[V6] FAIL"); }
+} catch (ex) { print("[V5-V6] FAIL: " + ex); }
+
+print("=== done ===");

@@ -1,0 +1,49 @@
+// Ra Language - numbers: conversion / cast.
+//
+// Cases:
+//   C1   int -> string
+//   C2   string -> int
+//   C3   bool -> string
+//   C4   string -> float
+//   C5   to_int builtin
+//   C6   to_string builtin
+//   C7   parse_int with base 16
+//   C8   format_hex
+
+print("=== numbers/conversions ===");
+
+var c1 = 123 as string;
+if c1 == "123" { print("[C1] OK"); } else { print("[C1] FAIL " + c1); }
+
+var c2 = "456" as int;
+if c2 == 456 { print("[C2] OK"); } else { print("[C2] FAIL"); }
+
+var c3 = (true) as string;
+if c3 == "true" { print("[C3] OK"); } else { print("[C3] FAIL " + c3); }
+
+try {
+    var c4 = "3.14" as float;
+    if c4 > 3 and c4 < 4 { print("[C4] OK"); } else { print("[C4] FAIL " + (c4 as string)); }
+} catch (e) { print("[C4] FAIL: " + e); }
+
+try {
+    var c5 = to_int("42");
+    if c5 == 42 { print("[C5] OK"); } else { print("[C5] FAIL"); }
+} catch (e) { print("[C5] FAIL: " + e); }
+
+try {
+    var c6 = to_string(99);
+    if c6 == "99" { print("[C6] OK"); } else { print("[C6] FAIL"); }
+} catch (e) { print("[C6] FAIL: " + e); }
+
+try {
+    var c7 = parse_int("ff", 16);
+    if c7 == 255 { print("[C7] OK"); } else { print("[C7] FAIL " + (c7 as string)); }
+} catch (e) { print("[C7] FAIL: " + e); }
+
+try {
+    var c8 = format_hex(255);
+    if str_contains(c8, "ff") or str_contains(c8, "FF") { print("[C8] OK"); } else { print("[C8] FAIL " + c8); }
+} catch (e) { print("[C8] FAIL: " + e); }
+
+print("=== done ===");

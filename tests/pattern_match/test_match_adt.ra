@@ -1,0 +1,74 @@
+// Ra Language - pattern match: ADT enum variants.
+//
+// Cases:
+//   A1   bind variant payload
+//   A2   match qualified vs unqualified variant
+//   A3   nested ADT (Tree sum)
+//   A4   Result<T, E> via ? operator + match
+//   A5   Option<T> via match
+//   A6   match returns value of last expr
+
+print("=== pattern_match/adt ===");
+
+enum Token {
+    Identifier(string),
+    Number(int),
+    Symbol(string, int),
+    Eof
+}
+
+let m1 = match Token.Identifier("zed") {
+    case Identifier(name) -> name
+    case _ -> "?"
+};
+if m1 == "zed" { print("[A1] OK"); } else { print("[A1] FAIL " + m1); }
+
+let m2 = match Token.Number(7) {
+    case Token.Number(n) -> n * 2
+    case _ -> -1
+};
+if m2 == 14 { print("[A2] OK"); } else { print("[A2] FAIL " + (m2 as string)); }
+
+enum Tree {
+    Leaf(int),
+    Node(Tree, Tree)
+}
+fn sum_tree(t: Tree): int {
+    let s = match t {
+        case Leaf(v) -> v
+        case Node(l, r) -> sum_tree(l) + sum_tree(r)
+    };
+    ret s;
+}
+let tree = Tree.Node(Tree.Leaf(1), Tree.Node(Tree.Leaf(2), Tree.Leaf(3)));
+if sum_tree(tree) == 6 { print("[A3] OK"); } else { print("[A3] FAIL " + (sum_tree(tree) as string)); }
+
+fn parse_pos(s: string): Result<int, string> {
+    let n = s as int;
+    if n <= 0 { ret Result.Err("not positive"); }
+    ret Result.Ok(n);
+}
+fn double_pos(s: string): Result<int, string> {
+    let v = parse_pos(s)?;
+    ret Result.Ok(v * 2);
+}
+let r2 = double_pos("21");
+let r2val = match r2 { case Ok(v) -> v, case Err(_) -> -1 };
+if r2val == 42 { print("[A4] OK"); } else { print("[A4] FAIL " + (r2val as string)); }
+
+fn first_or(lst: list<int>, fallback: int): int {
+    let r = match lst {
+        case [head, ..rest] -> head
+        case _ -> fallback
+    };
+    ret r;
+}
+if first_or([7, 8, 9], 0) == 7 and first_or([], 99) == 99 { print("[A5] OK"); } else { print("[A5] FAIL"); }
+
+let computed = match Token.Number(5) {
+    case Number(n) -> n + 1
+    case _ -> 0
+};
+if computed == 6 { print("[A6] OK"); } else { print("[A6] FAIL " + (computed as string)); }
+
+print("=== done ===");

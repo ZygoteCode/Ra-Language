@@ -1,0 +1,31 @@
+// Ra Language - operators: comparisons.
+//
+// Cases:
+//   C1   equality int
+//   C2   equality string
+//   C3   inequality
+//   C4   ordering
+//   C5   <= and >=
+//   C6   identical-value comparison across types: 1 == 1.0
+//   C7   string ordering
+//   C8   null comparisons
+//   C9   bool equality
+
+print("=== operators/comparison ===");
+
+if 5 == 5 { print("[C1] OK"); } else { print("[C1] FAIL"); }
+if "abc" == "abc" { print("[C2] OK"); } else { print("[C2] FAIL"); }
+if 5 != 6 { print("[C3] OK"); } else { print("[C3] FAIL"); }
+if 1 < 2 and 2 > 1 { print("[C4] OK"); } else { print("[C4] FAIL"); }
+if 1 <= 1 and 2 >= 2 { print("[C5] OK"); } else { print("[C5] FAIL"); }
+
+if 1 == 1.0 { print("[C6] OK"); } else { print("[C6] FAIL"); }
+
+if "a" < "b" and "abc" < "abd" { print("[C7] OK"); } else { print("[C7] FAIL"); }
+
+if null == null { print("[C8a] OK"); } else { print("[C8a] FAIL"); }
+if null != 0 { print("[C8b] OK"); } else { print("[C8b] FAIL"); }
+
+if true == true and false != true { print("[C9] OK"); } else { print("[C9] FAIL"); }
+
+print("=== done ===");

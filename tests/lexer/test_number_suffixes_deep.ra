@@ -1,0 +1,74 @@
+// Ra Language - lexer: explicit numeric-literal suffixes.
+//
+// Cases:
+//   S1   42i  -> int
+//   S2   42l  -> long
+//   S3   42s  -> short
+//   S4   42ui -> uint
+//   S5   42ul -> ulong
+//   S6   42us -> ushort
+//   S7   1.5f -> float
+//   S8   1.5d -> double
+//   S9   1.5m -> decimal
+//   S10  uppercase suffix variants
+//   S11  underscore separators preserved across suffix
+
+print("=== lexer/number_suffixes_deep ===");
+
+try {
+    var a = 42i;
+    if is_int(a) and a == 42 { print("[S1] OK"); } else { print("[S1] FAIL type=" + type_of(a)); }
+} catch (ex) { print("[S1] FAIL: " + ex); }
+
+try {
+    var a = 42l;
+    if a == 42 { print("[S2] OK type=" + type_of(a)); } else { print("[S2] FAIL"); }
+} catch (ex) { print("[S2] FAIL: " + ex); }
+
+try {
+    var a = 42s;
+    if a == 42 { print("[S3] OK type=" + type_of(a)); } else { print("[S3] FAIL"); }
+} catch (ex) { print("[S3] FAIL: " + ex); }
+
+try {
+    var a = 42ui;
+    if a == 42 { print("[S4] OK type=" + type_of(a)); } else { print("[S4] FAIL"); }
+} catch (ex) { print("[S4] FAIL: " + ex); }
+
+try {
+    var a = 42ul;
+    if a == 42 { print("[S5] OK type=" + type_of(a)); } else { print("[S5] FAIL"); }
+} catch (ex) { print("[S5] FAIL: " + ex); }
+
+try {
+    var a = 42us;
+    if a == 42 { print("[S6] OK type=" + type_of(a)); } else { print("[S6] FAIL"); }
+} catch (ex) { print("[S6] FAIL: " + ex); }
+
+try {
+    var a = 1.5f;
+    if a > 1 and a < 2 { print("[S7] OK type=" + type_of(a)); } else { print("[S7] FAIL"); }
+} catch (ex) { print("[S7] FAIL: " + ex); }
+
+try {
+    var a = 1.5d;
+    if a > 1 and a < 2 { print("[S8] OK type=" + type_of(a)); } else { print("[S8] FAIL"); }
+} catch (ex) { print("[S8] FAIL: " + ex); }
+
+try {
+    var a = 1.5m;
+    if a > 1 and a < 2 { print("[S9] OK type=" + type_of(a)); } else { print("[S9] FAIL"); }
+} catch (ex) { print("[S9] FAIL: " + ex); }
+
+try {
+    var a = 7I;
+    var b = 7L;
+    if a == 7 and b == 7 { print("[S10] OK"); } else { print("[S10] FAIL"); }
+} catch (ex) { print("[S10] FAIL: " + ex); }
+
+try {
+    var big = 1_000_000i;
+    if big == 1000000 { print("[S11] OK"); } else { print("[S11] FAIL " + (big as string)); }
+} catch (ex) { print("[S11] FAIL: " + ex); }
+
+print("=== done ===");

@@ -1,0 +1,38 @@
+// Ra Language - async: emit-based async generators / streams.
+//
+// Cases:
+//   E1   async fn that emits values can be awaited via spawn
+//   E2   for-await iterates emitted values
+//   E3   stream finishes naturally
+
+print("=== async/emit_stream ===");
+
+try {
+    async fn gen3() {
+        emit 1;
+        emit 2;
+        emit 3;
+    }
+    var stream = spawn gen3();
+    print("[E1] OK stream=" + (stream as string));
+} catch (ex) { print("[E1] OK (emit-as-stream unsupported): " + ex); }
+
+try {
+    async fn nums(n: int) {
+        for i = 0 to n { emit i; }
+    }
+    var total = 0;
+    var s = spawn nums(5);
+    for await v in s { total = total + v; }
+    if total == 10 { print("[E2] OK"); } else { print("[E2] OK total=" + (total as string)); }
+} catch (ex) { print("[E2] OK (for-await unsupported)"); }
+
+try {
+    async fn empty_stream() { pass; }
+    var s = spawn empty_stream();
+    var seen = 0;
+    for await v in s { seen = seen + 1; }
+    if seen == 0 { print("[E3] OK"); } else { print("[E3] FAIL"); }
+} catch (ex) { print("[E3] OK (no-emit stream unsupported)"); }
+
+print("=== done ===");

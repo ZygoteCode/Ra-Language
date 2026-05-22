@@ -267,7 +267,10 @@ namespace RaLanguage.Parser
         private ParserResult ParseCastExpression()
         {
             var res = new ParserResult();
-            var leftNode = res.Register(ParseBinaryOperation(ParseBitwiseOrExpression, s_opsLogical));
+            // `or` sits at the lowest band, `and` binds tighter; both are
+            // above bitwise-or. This matches the Python / Ruby precedence
+            // most users expect.
+            var leftNode = res.Register(ParseBinaryOperation(ParseLogicalAndExpression, s_opsLogicalOr));
             if (res.Error != null) return res;
 
             while (_currentToken.Matches(Keyword.As))
@@ -288,6 +291,11 @@ namespace RaLanguage.Parser
             }
 
             return res.Success(leftNode);
+        }
+
+        private ParserResult ParseLogicalAndExpression()
+        {
+            return ParseBinaryOperation(ParseBitwiseOrExpression, s_opsLogicalAnd);
         }
 
         private ParserResult ParseBitwiseOrExpression()
@@ -358,7 +366,7 @@ namespace RaLanguage.Parser
         {
             var res = new ParserResult();
 
-            if (_currentToken.Matches(Keyword.Not) || _currentToken.Type == TokenType.BITWISE_NOT)
+            if (_currentToken.Matches(Keyword.Not))
             {
                 var opTok = _currentToken;
                 res.RegisterAdvancement();
@@ -412,6 +420,17 @@ namespace RaLanguage.Parser
             }
 
             if (tok.Type == TokenType.PLUS || tok.Type == TokenType.MINUS)
+            {
+                res.RegisterAdvancement();
+                Advance();
+                var factor = res.Register(ParseFactor());
+                if (res.Error != null) return res;
+                return res.Success(new UnaryOperationNode(tok, factor, isLeft: true));
+            }
+
+            // Bitwise NOT binds at the factor level so `~0 + 1` parses as
+            // `(~0) + 1`, not `~(0 + 1)`.
+            if (tok.Type == TokenType.BITWISE_NOT)
             {
                 res.RegisterAdvancement();
                 Advance();

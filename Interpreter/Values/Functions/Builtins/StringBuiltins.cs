@@ -35,6 +35,8 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             BuiltInRegistry.Register("str_ends_with", StrEndsWith);
             BuiltInRegistry.Register("str_contains", StrContains);
             BuiltInRegistry.Register("str_index_of", StrIndexOf);
+            // `str_index` is a short alias for `str_index_of`.
+            BuiltInRegistry.Register("str_index", StrIndexOf);
             BuiltInRegistry.Register("str_last_index_of", StrLastIndexOf);
             BuiltInRegistry.Register("str_substring", StrSubstring);
             BuiltInRegistry.Register("str_repeat", StrRepeat);

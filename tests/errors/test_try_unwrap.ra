@@ -1,0 +1,56 @@
+// Ra Language - errors: `?` early-return on Result::Err.
+//
+// Cases:
+//   T1   `?` unwraps Ok value
+//   T2   `?` returns Err early to caller
+//   T3   chained `?` short-circuits at first Err
+//   T4   `?` inside expression position
+
+print("=== errors/try_unwrap ===");
+
+fn parse_pos(s: string): Result<int, string> {
+    let n = s as int;
+    if n <= 0 { ret Result.Err("non-positive"); }
+    ret Result.Ok(n);
+}
+
+fn dub_pos(s: string): Result<int, string> {
+    let v = parse_pos(s)?;
+    ret Result.Ok(v * 2);
+}
+
+let ok = dub_pos("21");
+let okVal = match ok {
+    case Ok(v) -> v
+    case Err(_) -> -1
+};
+if okVal == 42 { print("[T1] OK"); } else { print("[T1] FAIL"); }
+
+let bad = dub_pos("-5");
+let badIsErr = match bad {
+    case Err(_) -> true
+    case Ok(_) -> false
+};
+if badIsErr { print("[T2] OK"); } else { print("[T2] FAIL"); }
+
+fn chain(a: string, b: string): Result<int, string> {
+    let x = parse_pos(a)?;
+    let y = parse_pos(b)?;
+    ret Result.Ok(x + y);
+}
+
+let mid = chain("3", "-1");
+let midIsErr = match mid {
+    case Err(_) -> true
+    case Ok(_) -> false
+};
+if midIsErr { print("[T3] OK"); } else { print("[T3] FAIL"); }
+
+let full = chain("3", "4");
+let fullVal = match full {
+    case Ok(v) -> v
+    case Err(_) -> -1
+};
+if fullVal == 7 { print("[T4] OK"); } else { print("[T4] FAIL " + (fullVal as string)); }
+
+print("=== done ===");

@@ -80,36 +80,33 @@ namespace RaLanguage.Parser
 
                     List<AstNode?> scopeStatements = new List<AstNode?>();
 
+                    // Accept both `{ pass; }` on one line and the
+                    // multi-line form. Previously the loop only treated the
+                    // block as scoped when a newline immediately followed
+                    // the `{`, so `{ pass; }` was rejected with
+                    // "this token has nowhere to attach".
                     while (true)
                     {
-                        int _newLineCount = 0;
-
                         while (_currentToken.Type == TokenType.NEWLINE)
                         {
                             res.RegisterAdvancement();
                             Advance();
-                            _newLineCount++;
-                        }
-
-                        if (_newLineCount == 0)
-                        {
-                            break;
-                        }
-
-                        scopeStatements.Add(res.TryRegister(ParseStatements()));
-
-                        if (res.Error != null)
-                        {
-                            return res;
                         }
 
                         if (_currentToken.Type == TokenType.RBRACKET)
                         {
                             res.RegisterAdvancement();
                             Advance();
-
                             break;
                         }
+
+                        if (_currentToken.Type == TokenType.EOF)
+                        {
+                            return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{'));
+                        }
+
+                        scopeStatements.Add(res.TryRegister(ParseStatements()));
+                        if (res.Error != null) return res;
                     }
 
                     statements.AddRange(new ScopeNode(scopeStatements, _positionStart, _currentToken.PositionStart));
@@ -274,6 +271,13 @@ namespace RaLanguage.Parser
                         Advance();
 
                         return res.Success(new GotoNode(positionStart, varName));
+                    case Keyword.Throw:
+                        res.RegisterAdvancement();
+                        Advance();
+                        var throwExpr = res.Register(ParseExpression());
+                        if (res.Error != null) return res;
+                        return res.Success(new RaLanguage.Parser.Nodes.Statements.ThrowNode(
+                            throwExpr, positionStart, _currentToken.PositionStart));
                 }
             }
 
@@ -750,6 +754,27 @@ namespace RaLanguage.Parser
             var res = new ParserResult();
             var cases = new List<(AstNode, AstNode, bool)>();
             (AstNode, bool)? elseCase = null;
+
+            // Allow `elif` / `else` to appear on the line AFTER the closing `}`
+            // of the previous branch, e.g.
+            //     if X { ... }
+            //     elif Y { ... }
+            // Skip any newlines / semicolons separating the two without
+            // consuming the chain marker itself, so a stray bare `elif` later
+            // in the file still produces a parse error.
+            int saved = _tokenIndex;
+            int saveAdvance = res.ToReverseCount;
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+            if (!_currentToken.Matches(Keyword.Elif) && !_currentToken.Matches(Keyword.Else))
+            {
+                // Not a chain continuation -> rewind so the consumed newlines
+                // are visible to the outer ParseStatements loop.
+                while (_tokenIndex > saved) Reverse();
+            }
 
             if (_currentToken.Matches(Keyword.Elif))
             {

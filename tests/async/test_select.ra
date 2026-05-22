@@ -1,0 +1,35 @@
+// Ra Language - async: select() multiplexer across channels / tasks.
+//
+// Cases:
+//   S1   select returns from whichever channel is ready
+//   S2   select with one closed channel still resolves
+//   S3   select with already-buffered values
+
+print("=== async/select ===");
+
+try {
+    var a = channel();
+    var b = channel();
+    channel_send(a, 100);
+    var idx_val = await select([a, b]);
+    print("[S1] OK got=" + (idx_val as string));
+} catch (ex) { print("[S1] FAIL: " + ex); }
+
+try {
+    var a = channel();
+    var b = channel();
+    channel_close(b);
+    channel_send(a, 5);
+    var r = await select([a, b]);
+    print("[S2] OK r=" + (r as string));
+} catch (ex) { print("[S2] FAIL: " + ex); }
+
+try {
+    var c = channel();
+    channel_send(c, 1);
+    channel_send(c, 2);
+    var r = await select([c]);
+    print("[S3] OK r=" + (r as string));
+} catch (ex) { print("[S3] FAIL: " + ex); }
+
+print("=== done ===");

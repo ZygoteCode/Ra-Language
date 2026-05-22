@@ -1,0 +1,22 @@
+// Ra Language - edge: deep recursion smoke.
+// With the fat 32 MB worker thread stack the interpreter handles deep
+// recursion comfortably; previously the default 1 MB stack overflowed
+// around 75-100 visitor frames.
+//
+// Cases:
+//   D1   recursion of depth 100
+//   D2   recursion of depth 500
+//   D3   recursion of depth 2000
+
+print("=== edge_cases/deep_recursion ===");
+
+fn count(n: int): int {
+    if n <= 0 { ret 0; }
+    ret 1 + count(n - 1);
+}
+
+if count(100) == 100 { print("[D1] OK"); } else { print("[D1] FAIL"); }
+if count(500) == 500 { print("[D2] OK"); } else { print("[D2] FAIL"); }
+if count(2000) == 2000 { print("[D3] OK"); } else { print("[D3] FAIL"); }
+
+print("=== done ===");

@@ -1,0 +1,62 @@
+// Ra Language - strings: ad-hoc operator overloads exercised in _main13.ra.
+// Each case is wrapped in try because some forms are intentionally exotic
+// and not all of them survive future refactors. Document the surface area.
+//
+// Cases:
+//   O1   string + int  -> string
+//   O2   int + string  -> string (commutativity?)
+//   O3   string * int  -> repeat
+//   O4   string == string strict equality
+//   O5   string < string lexicographic
+//   O6   string - char  -> remove char(s)?
+//   O7   string / sep   -> split-like?
+//   O8   string ^ key   -> xor-like?
+//   O9   "hello" << N   -> left rotation?
+//   O10  "hello" >> N   -> right rotation?
+
+print("=== strings/string_operators ===");
+
+try {
+    var r = "n=" + 5;
+    if r == "n=5" { print("[O1] OK"); } else { print("[O1] FAIL " + r); }
+} catch (ex) { print("[O1] FAIL: " + ex); }
+
+try {
+    var r = 5 + "=n";
+    print("[O2] result=" + r);
+} catch (ex) { print("[O2] rejected: " + ex); }
+
+try {
+    var r = "ab" * 3;
+    if r == "ababab" { print("[O3] OK"); } else { print("[O3] FAIL " + r); }
+} catch (ex) { print("[O3] FAIL: " + ex); }
+
+if "abc" == "abc" { print("[O4] OK"); } else { print("[O4] FAIL"); }
+if "abc" < "abd" { print("[O5] OK"); } else { print("[O5] FAIL"); }
+
+try {
+    var r = "hello" - "l";
+    print("[O6] result='" + r + "'");
+} catch (ex) { print("[O6] rejected: " + ex); }
+
+try {
+    var r = "a,b,c" / ",";
+    print("[O7] result=" + (r as string));
+} catch (ex) { print("[O7] rejected: " + ex); }
+
+try {
+    var r = "abc" ^ "12";
+    print("[O8] result=" + r);
+} catch (ex) { print("[O8] rejected: " + ex); }
+
+try {
+    var r = "hello" << 2;
+    print("[O9] result=" + r);
+} catch (ex) { print("[O9] rejected: " + ex); }
+
+try {
+    var r = "hello" >> 2;
+    print("[O10] result=" + r);
+} catch (ex) { print("[O10] rejected: " + ex); }
+
+print("=== done ===");

@@ -1,6 +1,0 @@
-// imports_helpers/circle_b.ra — second leg of a circular dependency.
-import "circle_a.ra";
-
-pub fn from_b() {
-    ret "b";
-}

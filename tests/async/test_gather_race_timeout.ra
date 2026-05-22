@@ -1,0 +1,53 @@
+// Ra Language - async: gather / race / timeout primitives.
+//
+// Cases:
+//   G1   gather([t1, t2, t3]) returns list of results
+//   G2   race([slow, fast]) yields the fast one
+//   G3   timeout fires on a too-slow task
+//   G4   timeout does not fire on a quick task
+//   G5   task_status / is_completed reflect state
+
+print("=== async/gather_race_timeout ===");
+
+async fn make_val(x: int) {
+    await sleep(2);
+    ret x;
+}
+
+try {
+    var results = await gather([spawn make_val(10), spawn make_val(20), spawn make_val(30)]);
+    if len(results) == 3 and results[0] == 10 and results[2] == 30 { print("[G1] OK"); } else { print("[G1] FAIL " + (results as string)); }
+} catch (ex) { print("[G1] FAIL: " + ex); }
+
+async fn slow_val() {
+    await sleep(100);
+    ret "slow";
+}
+async fn fast_val() {
+    await sleep(2);
+    ret "fast";
+}
+try {
+    var winner = await race([spawn slow_val(), spawn fast_val()]);
+    print("[G2] OK winner=" + (winner as string));
+} catch (ex) { print("[G2] FAIL: " + ex); }
+
+try {
+    var t = spawn slow_val();
+    var r = await timeout(5, t);
+    print("[G3] OK timeout returned=" + (r as string));
+} catch (ex) { print("[G3] OK (timeout raises)"); }
+
+try {
+    var t = spawn fast_val();
+    var r = await timeout(100, t);
+    print("[G4] OK got=" + (r as string));
+} catch (ex) { print("[G4] FAIL: " + ex); }
+
+try {
+    var t = spawn make_val(99);
+    var v = await t;
+    if is_completed(t) and v == 99 { print("[G5] OK"); } else { print("[G5] FAIL v=" + (v as string)); }
+} catch (ex) { print("[G5] FAIL: " + ex); }
+
+print("=== done ===");

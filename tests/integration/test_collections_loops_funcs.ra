@@ -1,0 +1,33 @@
+// Ra Language - integration: lists, functions and loops combined.
+//
+// Cases:
+//   I1   map-equivalent: build new list applying fn to each element
+//   I2   filter-equivalent: collect even values
+//   I3   reduce-equivalent: sum via accumulator
+//   I4   chained list operations via for+helper
+
+print("=== integration/collections_loops_funcs ===");
+
+fn dub(n) { ret n * 2; }
+var src = [1, 2, 3, 4, 5];
+
+var mapped = [];
+for v in src { mapped = mapped + [dub(v)]; }
+if len(mapped) == 5 and mapped[0] == 2 and mapped[4] == 10 { print("[I1] OK"); } else { print("[I1] FAIL " + (mapped as string)); }
+
+var evens = [];
+for v in src { if v % 2 == 0 { evens = evens + [v]; } }
+if len(evens) == 2 and evens[0] == 2 and evens[1] == 4 { print("[I2] OK"); } else { print("[I2] FAIL"); }
+
+var acc = 0;
+for v in src { acc = acc + v; }
+if acc == 15 { print("[I3] OK"); } else { print("[I3] FAIL"); }
+
+fn doubled_total(l) {
+    var s = 0;
+    for v in l { s = s + dub(v); }
+    ret s;
+}
+if doubled_total(src) == 30 { print("[I4] OK"); } else { print("[I4] FAIL"); }
+
+print("=== done ===");

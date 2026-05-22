@@ -1,0 +1,42 @@
+// Ra Language - pattern match: `if` guards on arms.
+//
+// Cases:
+//   G1   guard distinguishes overlapping wildcard
+//   G2   multiple guards
+//   G3   guard false falls through to next arm
+
+print("=== pattern_match/guards ===");
+
+fn pos(n: int): string {
+    let r = match n {
+        case x if x > 0 -> "positive"
+        case 0 -> "zero"
+        case _ -> "negative"
+    };
+    ret r;
+}
+
+if pos(5) == "positive" { print("[G1a] OK"); } else { print("[G1a] FAIL " + pos(5)); }
+if pos(0) == "zero" { print("[G1b] OK"); } else { print("[G1b] FAIL"); }
+if pos(-1) == "negative" { print("[G1c] OK"); } else { print("[G1c] FAIL"); }
+
+fn bucket(n: int): string {
+    let r = match n {
+        case x if x < 10 -> "small"
+        case x if x < 100 -> "medium"
+        case _ -> "huge"
+    };
+    ret r;
+}
+if bucket(3) == "small" and bucket(42) == "medium" and bucket(9999) == "huge" { print("[G2] OK"); } else { print("[G2] FAIL"); }
+
+fn even(n: int): string {
+    let r = match n {
+        case x if x % 2 == 0 -> "even"
+        case _ -> "odd"
+    };
+    ret r;
+}
+if even(2) == "even" and even(3) == "odd" { print("[G3] OK"); } else { print("[G3] FAIL"); }
+
+print("=== done ===");

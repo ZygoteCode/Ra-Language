@@ -1,0 +1,20 @@
+// Ra Language - integration: async + lambdas + gather.
+//
+// Cases:
+//   I1   spawn an async fn, await result
+//   I2   gather of three sleeps reports 3 results
+
+print("=== integration/async_with_closures ===");
+
+async fn doubled(n) => n * 2;
+try {
+    var r = await spawn doubled(7);
+    if r == 14 { print("[I1] OK"); } else { print("[I1] FAIL " + (r as string)); }
+} catch (ex) { print("[I1] FAIL: " + ex); }
+
+try {
+    var rs = await gather([sleep(2), sleep(2), sleep(2)]);
+    if len(rs) == 3 { print("[I2] OK"); } else { print("[I2] FAIL len=" + (len(rs) as string)); }
+} catch (ex) { print("[I2] FAIL: " + ex); }
+
+print("=== done ===");

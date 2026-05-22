@@ -1,0 +1,57 @@
+// Ra Language - parser: complex expression composition.
+//
+// Cases:
+//   E1   arithmetic + ternary + comparison
+//   E2   logical chains with mixed precedence
+//   E3   pipeline + arithmetic
+//   E4   null-coalesce chain
+//   E5   string concat chain
+//   E6   list literal with expressions
+//   E7   map literal with computed values
+//   E8   nested ternary
+//   E9   range in for + step
+//   E10  member access then method chain
+
+print("=== parser/complex_expressions ===");
+
+var x = 5;
+var r1 = (x > 3 ? x * 2 : x - 2) + 10;
+if r1 == 20 { print("[E1] OK"); } else { print("[E1] FAIL " + (r1 as string)); }
+
+var r2 = true and (false or true) and not false;
+if r2 { print("[E2] OK"); } else { print("[E2] FAIL"); }
+
+fn dub(n: int): int { ret n * 2; }
+var r3 = (5 |> dub) + 3;
+if r3 == 13 { print("[E3] OK"); } else { print("[E3] FAIL " + (r3 as string)); }
+
+var a4 = null;
+var b4 = null;
+var r4 = a4 ?? b4 ?? 7;
+if r4 == 7 { print("[E4] OK"); } else { print("[E4] FAIL"); }
+
+var r5 = "a" + "b" + "c" + "d";
+if r5 == "abcd" { print("[E5] OK"); } else { print("[E5] FAIL"); }
+
+var r6 = [1 + 1, 2 * 3, 4 - 1];
+if r6[0] == 2 and r6[1] == 6 and r6[2] == 3 { print("[E6] OK"); } else { print("[E6] FAIL"); }
+
+var r7 = {"a": 1 + 2, "b": 3 * 4};
+if r7["a"] == 3 and r7["b"] == 12 { print("[E7] OK"); } else { print("[E7] FAIL"); }
+
+var r8 = (1 > 0) ? ((2 > 1) ? "yes" : "no") : "neither";
+if r8 == "yes" { print("[E8] OK"); } else { print("[E8] FAIL"); }
+
+var sum = 0;
+for i = 0 to 20 step 5 { sum = sum + i; }
+if sum == 30 { print("[E9] OK"); } else { print("[E9] FAIL " + (sum as string)); }
+
+pub class C10 {
+    pub var v: int;
+    pub C10(v: int) { self.v = v; }
+    pub fn doubled() { ret self.v * 2; }
+}
+fn make_c() { ret C10(8); }
+if make_c().doubled() == 16 { print("[E10] OK"); } else { print("[E10] FAIL"); }
+
+print("=== done ===");

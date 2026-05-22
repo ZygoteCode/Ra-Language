@@ -1,0 +1,32 @@
+// Ra Language - functions: default parameter values.
+//
+// Cases:
+//   D1   single default
+//   D2   call with arg overrides default
+//   D3   multiple defaults, partial call
+//   D4   default expression evaluated at call time? (try)
+//   D5   default after required
+
+print("=== functions/default_args ===");
+
+try {
+    fn d1(x: int = 10): int { ret x; }
+    if d1() == 10 { print("[D1] OK"); } else { print("[D1] FAIL " + (d1() as string)); }
+} catch (ex) { print("[D1] FAIL: " + ex); }
+
+try {
+    fn d2(x: int = 10): int { ret x; }
+    if d2(99) == 99 { print("[D2] OK"); } else { print("[D2] FAIL"); }
+} catch (ex) { print("[D2] FAIL: " + ex); }
+
+try {
+    fn d3(a: int = 1, b: int = 2, c: int = 3): int { ret a + b + c; }
+    if d3() == 6 and d3(10) == 15 and d3(10, 20) == 33 { print("[D3] OK"); } else { print("[D3] FAIL"); }
+} catch (ex) { print("[D3] FAIL: " + ex); }
+
+try {
+    fn d5(req: int, opt: int = 100): int { ret req + opt; }
+    if d5(5) == 105 and d5(5, 1) == 6 { print("[D5] OK"); } else { print("[D5] FAIL"); }
+} catch (ex) { print("[D5] FAIL: " + ex); }
+
+print("=== done ===");

@@ -1,0 +1,47 @@
+// Ra Language - lexer: regex literal + builtins.
+// Builtin arg order: regex_test(haystack, pattern), etc.
+//
+// Cases:
+//   R1   regex_test positive
+//   R2   regex_test negative
+//   R3   character class match
+//   R4   regex_find_all extracts numbers
+//   R5   regex_replace
+//   R6   regex_split
+//   R7   regex literal `re"..."` parses
+
+print("=== lexer/regex_literals ===");
+
+try {
+    if regex_test("hello world", "hello") { print("[R1] OK"); } else { print("[R1] FAIL"); }
+} catch (ex) { print("[R1] FAIL: " + ex); }
+
+try {
+    if not regex_test("foo", "zzz") { print("[R2] OK"); } else { print("[R2] FAIL"); }
+} catch (ex) { print("[R2] FAIL: " + ex); }
+
+try {
+    if regex_test("id42", "[0-9]+") { print("[R3] OK"); } else { print("[R3] FAIL"); }
+} catch (ex) { print("[R3] FAIL: " + ex); }
+
+try {
+    var hits = regex_find_all("id 12, age 34", "\\d+");
+    if len(hits) == 2 { print("[R4] OK"); } else { print("[R4] FAIL " + (len(hits) as string)); }
+} catch (ex) { print("[R4] FAIL: " + ex); }
+
+try {
+    var rep = regex_replace("id 12", "\\d+", "##");
+    if rep == "id ##" { print("[R5] OK"); } else { print("[R5] FAIL " + rep); }
+} catch (ex) { print("[R5] FAIL: " + ex); }
+
+try {
+    var parts = regex_split("a, b,c , d", ",\\s*");
+    if len(parts) == 4 { print("[R6] OK"); } else { print("[R6] FAIL " + (len(parts) as string)); }
+} catch (ex) { print("[R6] FAIL: " + ex); }
+
+try {
+    var rx = re"[a-z]+";
+    print("[R7] OK type=" + type_of(rx));
+} catch (ex) { print("[R7] FAIL: " + ex); }
+
+print("=== done ===");

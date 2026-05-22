@@ -1,0 +1,33 @@
+// Ra Language - scoping: `let` binding semantics.
+// NOTE: `let mut <name>` currently fails to parse (see regressions/);
+// these tests therefore use the plain `let` (immutable) form only.
+//
+// Cases:
+//   L1   plain let binds a value
+//   L2   let-bound name cannot be reassigned
+//   L3   let inside a function is local
+//   L4   let with explicit type annotation
+
+print("=== scoping/let_semantics ===");
+
+let l1 = 7;
+if l1 == 7 { print("[L1] OK"); } else { print("[L1] FAIL"); }
+
+try {
+    let l2 = 7;
+    l2 = 99;
+    print("[L2] FAIL: let reassigned to " + (l2 as string));
+} catch (ex) {
+    print("[L2] OK");
+}
+
+fn produces() {
+    let inside_let = 13;
+    ret inside_let;
+}
+if produces() == 13 { print("[L3] OK"); } else { print("[L3] FAIL"); }
+
+let l4: int = 42;
+if l4 == 42 { print("[L4] OK"); } else { print("[L4] FAIL"); }
+
+print("=== done ===");

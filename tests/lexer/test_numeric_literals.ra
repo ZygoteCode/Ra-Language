@@ -1,0 +1,56 @@
+// Ra Language - lexer: numeric literal forms.
+//
+// Cases:
+//   N1  decimal integer
+//   N2  hexadecimal upper/lower
+//   N3  binary
+//   N4  octal both spellings (0o / 0O)
+//   N5  float with fractional
+//   N6  float with exponent
+//   N7  large integer
+//   N8  zero in all bases
+//   N9  underscore as digit separator
+//   N10 sign-prefixed
+//   N11 leading-zero decimal still decimal
+
+print("=== lexer/numeric_literals ===");
+
+var n1 = 1234;
+if n1 == 1234 { print("[N1] OK"); } else { print("[N1] FAIL"); }
+
+var n2a = 0xFF;
+var n2b = 0xff;
+if n2a == 255 and n2b == 255 { print("[N2] OK"); } else { print("[N2] FAIL"); }
+
+var n3 = 0b1010;
+if n3 == 10 { print("[N3] OK"); } else { print("[N3] FAIL"); }
+
+var n4a = 0o755;
+var n4b = 0O7_0_1;
+if n4a == 493 and n4b == 449 { print("[N4] OK"); } else { print("[N4] FAIL " + (n4a as string) + "/" + (n4b as string)); }
+
+var n5 = 3.14;
+if n5 > 3.0 and n5 < 4.0 { print("[N5] OK"); } else { print("[N5] FAIL"); }
+
+var n6 = 1.5e3;
+if n6 == 1500.0 { print("[N6] OK"); } else { print("[N6] FAIL " + (n6 as string)); }
+
+var n7 = 1000000000;
+if n7 > 0 { print("[N7] OK"); } else { print("[N7] FAIL"); }
+
+var n8a = 0;
+var n8b = 0x0;
+var n8c = 0b0;
+var n8d = 0o0;
+if n8a == 0 and n8b == 0 and n8c == 0 and n8d == 0 { print("[N8] OK"); } else { print("[N8] FAIL"); }
+
+var n9 = 1_000_000;
+if n9 == 1000000 { print("[N9] OK"); } else { print("[N9] FAIL " + (n9 as string)); }
+
+var n10 = -42;
+if n10 == 0 - 42 { print("[N10] OK"); } else { print("[N10] FAIL " + (n10 as string)); }
+
+var n11 = 0123;
+if n11 == 123 { print("[N11] OK"); } else { print("[N11] FAIL " + (n11 as string)); }
+
+print("=== done ===");

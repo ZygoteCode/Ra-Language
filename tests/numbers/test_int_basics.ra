@@ -1,0 +1,36 @@
+// Ra Language - numbers: integer basics.
+//
+// Cases:
+//   I1   positive integer
+//   I2   negative integer
+//   I3   zero
+//   I4   large positive (< 2^31)
+//   I5   integer + integer stays integer
+//   I6   integer / integer with remainder returns integer or float?
+//   I7   integer increment
+
+print("=== numbers/int_basics ===");
+
+var i1 = 42;
+if i1 == 42 { print("[I1] OK"); } else { print("[I1] FAIL"); }
+
+var i2 = -7;
+if i2 == 0 - 7 { print("[I2] OK"); } else { print("[I2] FAIL"); }
+
+var i3 = 0;
+if i3 == 0 { print("[I3] OK"); } else { print("[I3] FAIL"); }
+
+var i4 = 2000000000;
+if i4 > 0 { print("[I4] OK"); } else { print("[I4] FAIL " + (i4 as string)); }
+
+var i5 = 1 + 2;
+if i5 == 3 { print("[I5] OK"); } else { print("[I5] FAIL"); }
+
+var i6 = 7 / 2;
+if i6 == 3 or i6 == 3.5 { print("[I6] OK kind=" + type_of(i6)); } else { print("[I6] FAIL " + (i6 as string)); }
+
+var i7 = 5;
+i7 = i7 + 1;
+if i7 == 6 { print("[I7] OK"); } else { print("[I7] FAIL"); }
+
+print("=== done ===");

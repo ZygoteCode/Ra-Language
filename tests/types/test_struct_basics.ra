@@ -1,0 +1,45 @@
+// Ra Language - types: struct basics + methods.
+//
+// Cases:
+//   S1   struct with ctor & field access
+//   S2   multi-field struct sum
+//   S3   struct method using self
+//   S4   nested struct field reach
+
+print("=== types/struct_basics ===");
+
+pub struct Point {
+    pub var x: int;
+    pub var y: int;
+    pub Point(a: int, b: int) {
+        self.x = a;
+        self.y = b;
+    }
+    pub fn norm_sq() { ret self.x * self.x + self.y * self.y; }
+}
+var p = Point(3, 4);
+if p.x == 3 and p.y == 4 { print("[S1] OK"); } else { print("[S1] FAIL"); }
+
+pub struct Triple {
+    pub var a: int;
+    pub var b: int;
+    pub var c: int;
+    pub Triple(a: int, b: int, c: int) {
+        self.a = a;
+        self.b = b;
+        self.c = c;
+    }
+}
+var t = Triple(1, 2, 3);
+if t.a + t.b + t.c == 6 { print("[S2] OK"); } else { print("[S2] FAIL"); }
+
+if p.norm_sq() == 25 { print("[S3] OK"); } else { print("[S3] FAIL " + (p.norm_sq() as string)); }
+
+pub struct Wrap {
+    pub var inner: Point;
+    pub Wrap(p: Point) { self.inner = p; }
+}
+var w = Wrap(Point(7, 8));
+if w.inner.x == 7 and w.inner.y == 8 { print("[S4] OK"); } else { print("[S4] FAIL"); }
+
+print("=== done ===");

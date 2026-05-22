@@ -1,0 +1,17 @@
+// Ra Language - async: spawn + async fn.
+//
+// Cases:
+//   S1   async fn declaration parses
+//   S2   spawn + await produces value
+//   S3   async fn returning value
+
+print("=== async/spawn ===");
+
+try {
+    async fn add_async(a, b) => a + b;
+    var t = spawn add_async(3, 4);
+    var r = await t;
+    if r == 7 { print("[S1-S2-S3] OK"); } else { print("[S1-S2-S3] FAIL " + (r as string)); }
+} catch (ex) { print("[S1-S2-S3] FAIL: " + ex); }
+
+print("=== done ===");

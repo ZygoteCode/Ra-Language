@@ -1,0 +1,43 @@
+// Ra Language - modules: namespaces declared inline.
+//
+// Cases:
+//   N1   simple namespace exposes pub fn
+//   N2   dotted namespace path
+//   N3   nested namespace declaration
+//   N4   `using` brings names into scope
+//   N5   `using ... as alias` re-namespaces
+
+print("=== modules/namespaces ===");
+
+namespace MyApp {
+    pub fn hello() { ret "hi from MyApp.hello"; }
+}
+if MyApp.hello() == "hi from MyApp.hello" { print("[N1] OK"); } else { print("[N1] FAIL"); }
+
+namespace System.IO {
+    pub fn read() { ret "System.IO.read called"; }
+}
+if System.IO.read() == "System.IO.read called" { print("[N2] OK"); } else { print("[N2] FAIL"); }
+
+namespace Outer {
+    pub fn at_outer() { ret "outer"; }
+    namespace Inner {
+        pub fn at_inner() { ret "inner"; }
+    }
+}
+if Outer.at_outer() == "outer" and Outer.Inner.at_inner() == "inner" { print("[N3] OK"); } else { print("[N3] FAIL"); }
+
+namespace Tools {
+    pub fn ping() { ret "pong"; }
+    pub var VERSION = "1.0";
+}
+using Tools;
+if ping() == "pong" and VERSION == "1.0" { print("[N4] OK"); } else { print("[N4] FAIL"); }
+
+namespace Networking.Http {
+    pub fn get() { ret "GET"; }
+}
+using Networking.Http as H;
+if H.get() == "GET" { print("[N5] OK"); } else { print("[N5] FAIL"); }
+
+print("=== done ===");

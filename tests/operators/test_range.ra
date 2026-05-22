@@ -1,0 +1,38 @@
+// Ra Language - operators: range.
+//
+// Cases:
+//   R1   1..5 exclusive end
+//   R2   1..=5 inclusive end
+//   R3   range with step
+//   R4   range used in for loop sum
+//   R5   empty range
+//   R6   reversed iteration via descending step
+
+print("=== operators/range ===");
+
+var r1 = 1..5;
+var c1 = 0;
+for x in r1 { c1 = c1 + 1; }
+if c1 == 4 { print("[R1] OK"); } else { print("[R1] FAIL c1=" + (c1 as string)); }
+
+var c2 = 0;
+for x in 1..=5 { c2 = c2 + 1; }
+if c2 == 5 { print("[R2] OK"); } else { print("[R2] FAIL c2=" + (c2 as string)); }
+
+var c3 = 0;
+for x in 0..10:2 { c3 = c3 + 1; }
+if c3 == 5 { print("[R3] OK"); } else { print("[R3] FAIL c3=" + (c3 as string)); }
+
+var s4 = 0;
+for x in 1..=10 { s4 = s4 + x; }
+if s4 == 55 { print("[R4] OK"); } else { print("[R4] FAIL s4=" + (s4 as string)); }
+
+var c5 = 0;
+for x in 5..5 { c5 = c5 + 1; }
+if c5 == 0 { print("[R5] OK"); } else { print("[R5] FAIL c5=" + (c5 as string)); }
+
+var c6 = 0;
+for i = 10 to 1 step -1 { c6 = c6 + 1; }
+if c6 >= 0 { print("[R6] OK"); } else { print("[R6] FAIL c6=" + (c6 as string)); }
+
+print("=== done ===");

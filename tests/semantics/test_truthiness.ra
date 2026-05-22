@@ -1,0 +1,41 @@
+// Ra Language - semantics: truthiness of values in if/while conditions.
+//
+// Cases:
+//   T1   true / false direct
+//   T2   integer 0 is falsy?
+//   T3   non-zero integer is truthy?
+//   T4   empty string falsy?
+//   T5   non-empty string truthy?
+//   T6   empty list falsy?
+//   T7   null falsy
+
+print("=== semantics/truthiness ===");
+
+if true { print("[T1a] OK"); } else { print("[T1a] FAIL"); }
+if false { print("[T1b] FAIL"); } else { print("[T1b] OK"); }
+
+try {
+    if 0 { print("[T2] 0 is truthy"); } else { print("[T2] 0 is falsy"); }
+} catch (ex) { print("[T2] FAIL: " + ex); }
+
+try {
+    if 5 { print("[T3] non-zero truthy"); } else { print("[T3] non-zero falsy"); }
+} catch (ex) { print("[T3] FAIL: " + ex); }
+
+try {
+    if "" { print("[T4] empty-string truthy"); } else { print("[T4] empty-string falsy"); }
+} catch (ex) { print("[T4] FAIL: " + ex); }
+
+try {
+    if "hi" { print("[T5] non-empty truthy"); } else { print("[T5] non-empty falsy"); }
+} catch (ex) { print("[T5] FAIL: " + ex); }
+
+try {
+    if [] { print("[T6] empty-list truthy"); } else { print("[T6] empty-list falsy"); }
+} catch (ex) { print("[T6] FAIL: " + ex); }
+
+try {
+    if null { print("[T7] null truthy"); } else { print("[T7] null falsy"); }
+} catch (ex) { print("[T7] FAIL: " + ex); }
+
+print("=== done ===");

@@ -1,0 +1,52 @@
+// Ra Language - lexer: string literal forms.
+//
+// Cases:
+//   S1  double-quoted basic string
+//   S2  single-quoted string
+//   S3  backtick-quoted multiline string
+//   S4  empty string ""
+//   S5  string with embedded spaces
+//   S6  string equality across forms
+//   S7  string with all common escapes
+//   S8  backslash literal
+//   S9  string containing the other quote types
+//   S10 numeric-looking string is not a number
+
+print("=== lexer/string_literals ===");
+
+var s1 = "hello";
+if s1 == "hello" { print("[S1] OK"); } else { print("[S1] FAIL"); }
+
+var s2 = 'hi';
+if s2 == "hi" { print("[S2] OK"); } else { print("[S2] FAIL"); }
+
+var s3 = `multi
+line`;
+if len(s3) > 4 { print("[S3] OK"); } else { print("[S3] FAIL len=" + (len(s3) as string)); }
+
+var s4 = "";
+if len(s4) == 0 { print("[S4] OK"); } else { print("[S4] FAIL"); }
+
+var s5 = "a b c";
+if len(s5) == 5 { print("[S5] OK"); } else { print("[S5] FAIL"); }
+
+// S6: same content, different quote style
+if "abc" == 'abc' { print("[S6] OK"); } else { print("[S6] FAIL"); }
+
+// S7: escapes
+var s7 = "a\nb\tc\rd";
+if len(s7) == 7 { print("[S7] OK"); } else { print("[S7] FAIL len=" + (len(s7) as string)); }
+
+// S8: literal backslash
+var s8 = "back\\slash";
+if len(s8) == 10 { print("[S8] OK"); } else { print("[S8] FAIL " + s8); }
+
+// S9: containing the other style of quote
+var s9 = "it's \"ok\"";
+if str_contains(s9, "ok") { print("[S9] OK"); } else { print("[S9] FAIL"); }
+
+// S10
+var s10 = "123";
+if type_of(s10) == "string" { print("[S10] OK"); } else { print("[S10] FAIL " + type_of(s10)); }
+
+print("=== done ===");

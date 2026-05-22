@@ -1,0 +1,68 @@
+// Ra Language - types: built-in Result<T, E> and Option<T>.
+//
+// Cases:
+//   R1   Result.Ok wraps a value
+//   R2   Result.Err carries an error
+//   R3   `?` operator unwraps Ok, propagates Err
+//   R4   match on Result
+//   R5   Option.Some / None
+//   R6   match on Option
+
+print("=== types/result_option ===");
+
+fn parse_pos(s: string): Result<int, string> {
+    let n = s as int;
+    if n <= 0 { ret Result.Err("not positive"); }
+    ret Result.Ok(n);
+}
+
+let ok = parse_pos("7");
+let okVal = match ok {
+    case Ok(v) -> v
+    case Err(_) -> -1
+};
+if okVal == 7 { print("[R1] OK"); } else { print("[R1] FAIL " + (okVal as string)); }
+
+let bad = parse_pos("-3");
+let badIsErr = match bad {
+    case Err(_) -> true
+    case Ok(_) -> false
+};
+if badIsErr { print("[R2] OK"); } else { print("[R2] FAIL"); }
+
+fn double_pos(s: string): Result<int, string> {
+    let v = parse_pos(s)?;
+    ret Result.Ok(v * 2);
+}
+let d = double_pos("21");
+let dVal = match d {
+    case Ok(v) -> v
+    case Err(_) -> -1
+};
+if dVal == 42 { print("[R3] OK"); } else { print("[R3] FAIL " + (dVal as string)); }
+
+let m4 = match Result.Ok(99) {
+    case Ok(n) -> n
+    case Err(_) -> 0
+};
+if m4 == 99 { print("[R4] OK"); } else { print("[R4] FAIL " + (m4 as string)); }
+
+fn head(lst: list<int>): Option<int> {
+    if len(lst) == 0 { ret Option.None; }
+    ret Option.Some(lst[0]);
+}
+let s5 = head([1, 2, 3]);
+let s5val = match s5 {
+    case Some(v) -> v
+    case None -> -1
+};
+if s5val == 1 { print("[R5] OK"); } else { print("[R5] FAIL " + (s5val as string)); }
+
+let n6 = head([]);
+let n6val = match n6 {
+    case Some(_) -> -1
+    case None -> 0
+};
+if n6val == 0 { print("[R6] OK"); } else { print("[R6] FAIL"); }
+
+print("=== done ===");

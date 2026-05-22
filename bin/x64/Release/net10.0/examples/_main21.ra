@@ -1,8 +1,0 @@
-var total: number = 0;
-
-for (var i = 0, j = 0; i < 5, j < 10; i++, j += 2) {
-    print($"Single unit: ${i}, double unit: ${j}");
-    total += (i + j);
-}
-
-print("Total: " + total);

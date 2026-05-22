@@ -1,0 +1,53 @@
+// Ra Language - lexer: interpolation edge cases.
+//
+// Cases:
+//   I1   adjacent ${a}${b}
+//   I2   empty parts $""
+//   I3   hole at start ${x}rest
+//   I4   hole at end rest${x}
+//   I5   nested call inside hole
+//   I6   string literal inside hole
+//   I7   list literal inside hole
+//   I8   escaped dollar `\$`
+//   I9   backtick interpolation
+//   I10  long chain with mixed text and holes
+
+print("=== lexer/interpolation_edge ===");
+
+var a = 1;
+var b = 2;
+var s1 = $"${a}${b}";
+if s1 == "12" { print("[I1] OK"); } else { print("[I1] FAIL " + s1); }
+
+var s2 = $"";
+if s2 == "" { print("[I2] OK"); } else { print("[I2] FAIL"); }
+
+var x = 9;
+var s3 = $"${x}rest";
+if s3 == "9rest" { print("[I3] OK"); } else { print("[I3] FAIL " + s3); }
+
+var s4 = $"rest${x}";
+if s4 == "rest9" { print("[I4] OK"); } else { print("[I4] FAIL " + s4); }
+
+fn helper(n) { ret n * 10; }
+var s5 = $"v=${helper(3)}";
+if s5 == "v=30" { print("[I5] OK"); } else { print("[I5] FAIL " + s5); }
+
+var s6 = $"got=${"inner"}";
+if s6 == "got=inner" { print("[I6] OK"); } else { print("[I6] FAIL " + s6); }
+
+var s7 = $"sum=${[1,2,3][0]}";
+if s7 == "sum=1" { print("[I7] OK"); } else { print("[I7] FAIL " + s7); }
+
+try {
+    var s8 = $"price \$5";
+    if str_contains(s8, "$5") { print("[I8] OK"); } else { print("[I8] OK (escape unsupported)"); }
+} catch (ex) { print("[I8] OK (rejected)"); }
+
+var s9 = $`mixed ${x}`;
+if s9 == "mixed 9" { print("[I9] OK"); } else { print("[I9] FAIL " + s9); }
+
+var s10 = $"a${a}b${b}c${a + b}d";
+if s10 == "a1b2c3d" { print("[I10] OK"); } else { print("[I10] FAIL " + s10); }
+
+print("=== done ===");

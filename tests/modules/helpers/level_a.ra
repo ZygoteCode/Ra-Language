@@ -1,0 +1,5 @@
+// level_a — calls into level_b
+import "level_b.ra";
+
+pub fn level_a_call() { ret level_b_call() + 1; }
+pub fn level_a_const() { ret 100; }

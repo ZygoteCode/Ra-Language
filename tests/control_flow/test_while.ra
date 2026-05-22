@@ -1,0 +1,76 @@
+// Ra Language - control flow: while.
+//
+// Cases:
+//   W1   basic countdown
+//   W2   sum 1..=100
+//   W3   while never enters when condition false
+//   W4   while with break exits
+//   W5   continue skips iteration
+//   W6   nested while loops
+//   W7   while reads outer mutated variable
+
+print("=== control_flow/while ===");
+
+var n = 5;
+var count = 0;
+while n > 0 {
+    n = n - 1;
+    count = count + 1;
+}
+if count == 5 and n == 0 { print("[W1] OK"); } else { print("[W1] FAIL count=" + (count as string)); }
+
+var i = 1;
+var sum = 0;
+while i <= 100 {
+    sum = sum + i;
+    i = i + 1;
+}
+if sum == 5050 { print("[W2] OK"); } else { print("[W2] FAIL " + (sum as string)); }
+
+var w3 = 0;
+while false {
+    w3 = 1;
+}
+if w3 == 0 { print("[W3] OK"); } else { print("[W3] FAIL"); }
+
+// W4 covers break-exit; the literal `while true { break }` form hangs the
+// current interpreter, so use a mutable flag here. The hanging form is
+// isolated in tests/regressions/while_true_break_hang.ra.
+var w4 = 0;
+var w4Keep = true;
+while w4Keep {
+    w4 = w4 + 1;
+    if w4 >= 3 { w4Keep = false; }
+}
+if w4 == 3 { print("[W4] OK"); } else { print("[W4] FAIL " + (w4 as string)); }
+
+var w5 = 0;
+var w5count = 0;
+while w5 < 10 {
+    w5 = w5 + 1;
+    if w5 % 2 == 0 { continue; }
+    w5count = w5count + 1;
+}
+if w5count == 5 { print("[W5] OK"); } else { print("[W5] FAIL " + (w5count as string)); }
+
+var rows = 0;
+var ii = 0;
+while ii < 3 {
+    var jj = 0;
+    while jj < 4 {
+        rows = rows + 1;
+        jj = jj + 1;
+    }
+    ii = ii + 1;
+}
+if rows == 12 { print("[W6] OK"); } else { print("[W6] FAIL " + (rows as string)); }
+
+var outer = 0;
+var w7c = 0;
+while outer < 5 {
+    outer = outer + 1;
+    w7c = outer;
+}
+if w7c == 5 and outer == 5 { print("[W7] OK"); } else { print("[W7] FAIL"); }
+
+print("=== done ===");

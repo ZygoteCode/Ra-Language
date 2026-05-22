@@ -1,0 +1,45 @@
+// Ra Language - scoping: const / final immutability.
+//
+// Cases:
+//   C1   const cannot be reassigned
+//   C2   const survives across nested blocks
+//   C3   final read-only after initial assignment
+//   C4   shadow const in inner block does not change outer
+//   C5   assignment to undefined variable raises
+
+print("=== scoping/const_final ===");
+
+const c1 = 5;
+try {
+    c1 = 6;
+    print("[C1] FAIL: const reassigned");
+} catch (ex) {
+    print("[C1] OK");
+}
+
+const c2 = 10;
+{
+    if c2 == 10 { print("[C2] OK"); } else { print("[C2] FAIL"); }
+}
+
+try {
+    final f3 = 7;
+    try { f3 = 8; print("[C3] FAIL: final reassigned"); }
+    catch (ex2) { print("[C3] OK"); }
+} catch (ex) { print("[C3] FAIL: " + ex); }
+
+const c4 = 1;
+{
+    var c4_inner = 99;
+    if c4_inner == 99 { print("[C4a] OK"); } else { print("[C4a] FAIL"); }
+}
+if c4 == 1 { print("[C4b] OK"); } else { print("[C4b] FAIL"); }
+
+try {
+    not_declared_anywhere = 7;
+    print("[C5] FAIL: assignment to undefined succeeded");
+} catch (ex) {
+    print("[C5] OK");
+}
+
+print("=== done ===");

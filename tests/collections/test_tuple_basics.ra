@@ -1,0 +1,31 @@
+// Ra Language - collections: tuple basics.
+//
+// Cases:
+//   T1   tuple literal
+//   T2   index read 0-based
+//   T3   heterogeneous tuple
+//   T4   single-element tuple (if supported)
+//   T5   tuple equality
+//   T6   tuple concatenation +
+
+print("=== collections/tuple_basics ===");
+
+var t1 = (1, 2, 3);
+if t1[0] == 1 and t1[2] == 3 { print("[T1] OK"); } else { print("[T1] FAIL"); }
+
+var t2 = ("a", 5, true);
+if t2[0] == "a" and t2[1] == 5 and t2[2] == true { print("[T2-T3] OK"); } else { print("[T2-T3] FAIL"); }
+
+try {
+    var t4 = (42,);
+    if t4[0] == 42 { print("[T4] OK"); } else { print("[T4] FAIL"); }
+} catch (ex) { print("[T4] OK (single-elem syntax rejected): " + ex); }
+
+if (1, 2, 3) == (1, 2, 3) { print("[T5] OK"); } else { print("[T5] FAIL"); }
+
+try {
+    var c = (1, 2) + (3, 4);
+    if len(c) == 4 { print("[T6] OK"); } else { print("[T6] FAIL"); }
+} catch (ex) { print("[T6] FAIL: " + ex); }
+
+print("=== done ===");

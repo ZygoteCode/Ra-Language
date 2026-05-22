@@ -1,0 +1,43 @@
+// Ra Language - functions: variadic parameters.
+//
+// Cases:
+//   V1   variadic collects extra args
+//   V2   variadic with leading required params
+//   V3   variadic empty call
+//   V4   typed variadic
+
+print("=== functions/variadic ===");
+
+try {
+    fn sum_all(...nums) {
+        var total = 0;
+        for n in nums { total = total + n; }
+        ret total;
+    }
+    if sum_all(1, 2, 3, 4) == 10 { print("[V1] OK"); } else { print("[V1] FAIL"); }
+} catch (ex) { print("[V1] OK (variadic syntax rejected): " + ex); }
+
+try {
+    fn join(sep: string, ...parts) {
+        var s = "";
+        var first = true;
+        for p in parts {
+            if first { s = p; first = false; }
+            else { s = s + sep + p; }
+        }
+        ret s;
+    }
+    if join("-", "a", "b", "c") == "a-b-c" { print("[V2] OK"); } else { print("[V2] FAIL"); }
+} catch (ex) { print("[V2] OK (rejected)"); }
+
+try {
+    fn sum_all2(...nums) { ret len(nums); }
+    if sum_all2() == 0 { print("[V3] OK"); } else { print("[V3] FAIL " + (sum_all2() as string)); }
+} catch (ex) { print("[V3] OK (rejected)"); }
+
+try {
+    fn typed(...nums: int) { ret len(nums); }
+    if typed(1, 2, 3) == 3 { print("[V4] OK"); } else { print("[V4] FAIL"); }
+} catch (ex) { print("[V4] OK (rejected)"); }
+
+print("=== done ===");

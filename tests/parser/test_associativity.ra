@@ -1,0 +1,28 @@
+// Ra Language - parser: operator associativity.
+//
+// Cases:
+//   A1  '-' left-associative: 10 - 3 - 2 == 5 (not 9)
+//   A2  '/' left-associative: 100 / 5 / 2 == 10 (not 40)
+//   A3  '+' left-associative
+//   A4  comparison non-associative semantics still parses
+//   A5  assignment right-associative: a = b = 5
+//   A6  ternary right-associative chain
+
+print("=== parser/associativity ===");
+
+if 10 - 3 - 2 == 5 { print("[A1] OK"); } else { print("[A1] FAIL"); }
+
+if 100 / 5 / 2 == 10 { print("[A2] OK"); } else { print("[A2] FAIL " + ((100 / 5 / 2) as string)); }
+
+if 1 + 2 + 3 + 4 == 10 { print("[A3] OK"); } else { print("[A3] FAIL"); }
+
+if (1 < 2) == true { print("[A4] OK"); } else { print("[A4] FAIL"); }
+
+var b = 7;
+var a = b = 5;
+if a == 5 and b == 5 { print("[A5] OK"); } else { print("[A5] FAIL a=" + (a as string) + " b=" + (b as string)); }
+
+var t6 = true ? false ? "x" : "y" : "z";
+if t6 == "y" { print("[A6] OK"); } else { print("[A6] FAIL " + t6); }
+
+print("=== done ===");

@@ -1,0 +1,70 @@
+// Ra Language - errors: `throw` statement.
+//
+// Cases:
+//   T1   throw a string -> caught
+//   T2   throw a number -> caught
+//   T3   throw from inside a function -> caught at caller
+//   T4   re-throw inside catch propagates
+//   T5   throw inside try/finally still runs finally
+//   T6   uncaught throw bubbles up
+
+print("=== errors/throw ===");
+
+try {
+    throw "boom";
+    print("[T1] FAIL: throw produced no exception");
+} catch (e) {
+    print("[T1] OK");
+}
+
+try {
+    throw 42;
+    print("[T2] FAIL");
+} catch (e) {
+    print("[T2] OK");
+}
+
+fn explode() { throw "fn boom"; }
+try {
+    explode();
+    print("[T3] FAIL");
+} catch (e) {
+    print("[T3] OK");
+}
+
+try {
+    try {
+        throw "first";
+    } catch (e) {
+        throw e;
+    }
+    print("[T4] FAIL");
+} catch (outer) {
+    print("[T4] OK");
+}
+
+var t5fin = 0;
+try {
+    try {
+        throw "for finally";
+    } catch (e) {
+        pass;
+    } finally {
+        t5fin = 1;
+    }
+} catch (e2) {
+    pass;
+}
+if t5fin == 1 { print("[T5] OK"); } else { print("[T5] FAIL"); }
+
+try {
+    fn deep() {
+        throw "deep";
+    }
+    deep();
+    print("[T6] FAIL");
+} catch (e) {
+    print("[T6] OK");
+}
+
+print("=== done ===");

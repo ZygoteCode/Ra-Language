@@ -1,0 +1,23 @@
+// Ra Language - scoping: `del` removes a binding.
+//
+// Cases:
+//   D1   `del x` removes the binding (subsequent read errors)
+//   D2   `del` on undefined name raises
+
+print("=== scoping/delete ===");
+
+try {
+    var d1 = 5;
+    if d1 == 5 { print("[D1a] OK"); } else { print("[D1a] FAIL"); }
+    del d1;
+    try { var p = d1; print("[D1b] FAIL still readable"); } catch (ex2) { print("[D1b] OK"); }
+} catch (ex) { print("[D1] FAIL: " + ex); }
+
+try {
+    del totally_undefined_name;
+    print("[D2] FAIL: del accepted undefined name");
+} catch (ex) {
+    print("[D2] OK");
+}
+
+print("=== done ===");

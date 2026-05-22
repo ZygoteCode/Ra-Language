@@ -1,0 +1,29 @@
+// Ra Language - integration: namespaces + imports + functions.
+//
+// Cases:
+//   I1   namespace defined, helper imported, used together
+//   I2   alias import does not collide with namespace
+//   I3   namespace call returns module-imported value
+
+print("=== integration/modules_namespaces ===");
+
+import "helpers/math_helper.ra";
+
+namespace Calc {
+    pub fn area_of_circle(r) { ret PI * r * r; }
+}
+
+if Calc.area_of_circle(2) > 12 { print("[I1] OK"); } else { print("[I1] FAIL " + (Calc.area_of_circle(2) as string)); }
+
+import "helpers/strings_helper.ra" as strs;
+namespace Layout {
+    pub fn header(s: string) { ret strs.shout(s); }
+}
+if Layout.header("hi") == "HI!" { print("[I2] OK"); } else { print("[I2] FAIL " + Layout.header("hi")); }
+
+namespace Mixed {
+    pub fn double_pi(): number { ret 2 * PI; }
+}
+if Mixed.double_pi() > 6 { print("[I3] OK"); } else { print("[I3] FAIL"); }
+
+print("=== done ===");

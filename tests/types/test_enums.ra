@@ -1,0 +1,67 @@
+// Ra Language - types: enums including ADT variants with payloads.
+//
+// Cases:
+//   E1   classic integer enum
+//   E2   explicit values
+//   E3   auto-increment after explicit value
+//   E4   enum cast to int
+//   E5   variant with single payload
+//   E6   variant with multi payload
+//   E7   zero-arity variant
+//   E8   variant equality
+//   E9   nested ADT (Tree sum)
+//   E10  too-many-args raises
+
+print("=== types/enums ===");
+
+enum Color { Red, Green, Blue }
+let c = Color.Green;
+if (c as string) == "Color.Green" { print("[E1] OK"); } else { print("[E1] FAIL " + (c as string)); }
+
+enum Status { Active = 1, Banned = 100, Vip }
+if (Status.Vip as int) == 101 { print("[E2-E3] OK"); } else { print("[E2-E3] FAIL " + (Status.Vip as int as string)); }
+
+if (Status.Banned as int) == 100 { print("[E4] OK"); } else { print("[E4] FAIL"); }
+
+enum Token {
+    Identifier(string),
+    Number(int),
+    Symbol(string, int),
+    Eof
+}
+let tok = Token.Identifier("hi");
+if (tok as string) == "Token.Identifier(hi)" { print("[E5] OK"); } else { print("[E5] FAIL " + (tok as string)); }
+
+let sym = Token.Symbol("+", 7);
+if (sym as string) == "Token.Symbol(+, 7)" { print("[E6] OK"); } else { print("[E6] FAIL " + (sym as string)); }
+
+let eof = Token.Eof;
+if (eof as string) == "Token.Eof" { print("[E7] OK"); } else { print("[E7] FAIL " + (eof as string)); }
+
+let a = Token.Number(10);
+let b = Token.Number(10);
+let cc = Token.Number(11);
+if a == b and a != cc { print("[E8] OK"); } else { print("[E8] FAIL"); }
+
+enum Tree {
+    Leaf(int),
+    Node(Tree, Tree)
+}
+fn sum_tree(t: Tree): int {
+    let s = match t {
+        case Leaf(v) -> v
+        case Node(l, r) -> sum_tree(l) + sum_tree(r)
+    };
+    ret s;
+}
+let tree = Tree.Node(Tree.Leaf(1), Tree.Node(Tree.Leaf(2), Tree.Leaf(3)));
+if sum_tree(tree) == 6 { print("[E9] OK"); } else { print("[E9] FAIL"); }
+
+try {
+    let bad = Token.Number(1, 2);
+    print("[E10] FAIL: extra arg accepted");
+} catch (ex) {
+    print("[E10] OK");
+}
+
+print("=== done ===");

@@ -439,7 +439,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return (new StringValue(Strings.StrReverse(Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
         }
 
-        public sealed override bool IsTrue() => Value.Length > 0 && (Value == "true" || Value == "1");
+        public sealed override bool IsTrue() => Value.Length > 0;
 
         public sealed override RuntimeValue Copy()
         {
