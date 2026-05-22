@@ -1,0 +1,82 @@
+print("=== NATIVE INTEROP + DEBUG TESTS ===");
+
+print("--- native alloc/read/write ---");
+var mem = native_zero_alloc(64);
+print(native_is_null(mem));
+print(native_size(mem));
+print(native_address(mem) != 0);
+
+native_write_i32(mem, 0, 42);
+native_write_i32(mem, 4, 1337);
+native_write_f64(mem, 8, 3.14);
+native_write_u8(mem, 16, 255);
+
+print(native_read_i32(mem, 0));
+print(native_read_i32(mem, 4));
+print(native_read_f64(mem, 8));
+print(native_read_u8(mem, 16));
+
+print("--- native cstring ---");
+var sbuf = native_zero_alloc(32);
+native_write_cstr(sbuf, 0, "hello world");
+print(native_read_cstr(sbuf, 0));
+native_free(sbuf);
+
+print("--- native memcpy/memset ---");
+var src = native_zero_alloc(8);
+var dst = native_zero_alloc(8);
+native_write_i32(src, 0, 1234);
+native_write_i32(src, 4, 5678);
+native_memcpy(dst, src, 8);
+print(native_read_i32(dst, 0));
+print(native_read_i32(dst, 4));
+
+native_memset(dst, 255, 8);
+print(native_read_u8(dst, 0));
+print(native_read_u8(dst, 7));
+
+native_free(src);
+native_free(dst);
+
+print("--- native bytes ---");
+var bbuf = native_zero_alloc(4);
+native_write_bytes(bbuf, 0, [10, 20, 30, 40]);
+print(native_read_bytes(bbuf, 0, 4));
+native_free(bbuf);
+
+print("--- native sizeof ---");
+print(native_sizeof("i32"));
+print(native_sizeof("f64"));
+print(native_sizeof("ptr"));
+print(native_pointer_size());
+
+print("--- native null ptr ---");
+var n = native_null_ptr();
+print(native_is_null(n));
+print(native_address(n));
+
+print("--- final cleanup ---");
+native_free(mem);
+
+print("--- debug ---");
+print(gc_max_generation());
+print(gc_memory() > 0);
+print(gc_total_allocated() > 0);
+
+gc_collect();
+print("gc ran");
+
+dump([1, 2, {"a": 1}]);
+
+assert(true, "ok");
+assert_eq(2+2, 4);
+
+print("--- dump ---");
+var dumped = dump_str({"x": 1, "y": [1, 2, 3]});
+print(len(dumped) > 0);
+
+print("--- process ---");
+print(process_pid() > 0);
+print(thread_id() > 0);
+
+print("--- native+debug passed ---");

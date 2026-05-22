@@ -1,0 +1,53 @@
+print("=== BUILTINS SMOKE TEST ===");
+
+print("--- reflection ---");
+print(type_of(5));
+print(type_of("abc"));
+print(type_kind([1,2,3]));
+print(is_int(5));
+print(is_float(3.14));
+print(is_string("x"));
+print(is_list([1]));
+
+print("--- collections ---");
+print(len([1,2,3,4,5]));
+print(len("hello"));
+print(list_reverse([1,2,3]));
+print(list_sort([3,1,2]));
+print(list_sum([1,2,3,4]));
+print(list_max([5,3,9,1]));
+print(list_min([5,3,9,1]));
+print(list_range(0, 5));
+
+print("--- strings ---");
+print(str_upper("hello"));
+print(str_lower("HELLO"));
+print(str_reverse("abc"));
+print(str_split("a,b,c", ","));
+print(str_join(["a","b","c"], "-"));
+print(str_contains("hello world", "world"));
+print(str_repeat("ab", 3));
+
+print("--- math ---");
+print(abs(-7));
+print(sqrt(16));
+print(pi());
+print(math_min(3, 7, 1));
+print(math_max(3, 7, 1));
+print(floor(3.7));
+print(ceil(3.2));
+
+print("--- conversion ---");
+print(to_int("42"));
+print(to_string(123));
+print(parse_int("ff", 16));
+print(format_hex(255));
+
+print("--- time/os ---");
+print(os_name());
+print(os_arch());
+print(os_processor_count());
+
+print("--- debug ---");
+assert_eq(2 + 2, 4, "math broke");
+print("smoke passed");

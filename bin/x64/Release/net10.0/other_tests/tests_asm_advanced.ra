@@ -1,0 +1,285 @@
+print("=== ASM ADVANCED TESTS ===");
+
+print("--- typed return: asm -> i32 ---");
+let r_typed = asm -> i32 {
+    mov eax, 0xCAFE
+    ret
+};
+print(r_typed);
+assert_eq(r_typed, 51966, "asm -> i32 returns int");
+
+print("--- tuple return: asm -> (i64, i64) ---");
+let pair = asm -> (i64, i64) {
+    mov rax, 42
+    mov rdx, 100
+    ret
+};
+print(pair);
+assert_eq(pair[0], 42, "tuple [0] = rax");
+assert_eq(pair[1], 100, "tuple [1] = rdx");
+
+print("--- anonymous labels @@: with @b ---");
+let r_anon = asm {
+    mov rcx, 5
+    xor rax, rax
+@@:
+    add rax, rcx
+    dec rcx
+    jnz @b
+    ret
+};
+assert_eq(r_anon, 15, "anonymous loop sum 1..5");
+
+print("--- numeric labels 1: with 1b ---");
+let r_num = asm {
+    mov rcx, 4
+    xor rax, rax
+1:
+    add rax, rcx
+    dec rcx
+    jnz 1b
+    ret
+};
+assert_eq(r_num, 10, "numeric loop sum 1..4");
+
+print("--- peephole: mov reg, 0 -> xor ---");
+let bytes_mov0 = asm_assemble("mov rax, 0\nret");
+print(len(bytes_mov0));
+assert_eq(len(bytes_mov0), 3, "after peephole: xor eax, eax + ret = 3 bytes (was 7)");
+
+print("--- peephole: add 1 -> inc ---");
+let bytes_add1 = asm_assemble("add rax, 1\nret");
+assert_eq(len(bytes_add1), 4, "REX.W + inc rax + ret = 4 bytes (REX + FF /0 modrm + C3)");
+
+print("--- macro preprocessor: %define ---");
+let r_def = asm_compile("i64()", "
+%define MAGIC 0xBEEF
+    mov rax, MAGIC
+    ret
+");
+print(r_def());
+assert_eq(r_def(), 48879, "0xBEEF via %define");
+
+print("--- macro preprocessor: %macro/%endmacro ---");
+let r_mac = asm_compile("i64()", "
+%macro load_const 1
+    mov rax, %1
+%endmacro
+    load_const 7
+    ret
+");
+assert_eq(r_mac(), 7, "macro expanded");
+
+print("--- macro: %rep ---");
+let r_rep = asm_compile("i64()", "
+    xor rax, rax
+%rep 5
+    inc rax
+%endrep
+    ret
+");
+assert_eq(r_rep(), 5, "5 increments");
+
+print("--- macro: %if conditional ---");
+let r_cond = asm_compile("i64()", "
+%define WANT 1
+%if WANT == 1
+    mov rax, 100
+%else
+    mov rax, 200
+%endif
+    ret
+");
+assert_eq(r_cond(), 100, "%if WANT == 1 path");
+
+print("--- data: db with string + ret address through rip-relative ---");
+let r_data_call = asm_compile("i64()", "
+    lea rax, [rip + msg]
+    mov rax, [rax]
+    ret
+msg:
+    dq 0xDEADBEEF
+");
+let v = r_data_call();
+print(format_hex(v));
+
+print("--- align ---");
+let bytes_aligned = asm_assemble("
+    nop
+    align 16
+    ret
+");
+print(len(bytes_aligned));
+
+print("--- times directive ---");
+let r_times = asm_compile("i64()", "
+    xor rax, rax
+times 3 inc rax
+    ret
+");
+assert_eq(r_times(), 3, "times 3 inc rax");
+
+print("--- ISA: cmovne ---");
+let asm_cond = asm_compile("i64(i64,i64)", "
+    mov rax, rcx
+    test rcx, rcx
+    cmovz rax, rdx
+    ret
+");
+assert_eq(asm_cond(0, 99), 99, "cmovz when rcx=0");
+assert_eq(asm_cond(7, 99), 7, "cmovz when rcx!=0");
+
+print("--- ISA: popcnt ---");
+let asm_pop_arg = asm_compile("i64(i64)", "
+    popcnt rax, rcx
+    ret
+");
+assert_eq(asm_pop_arg(255), 8, "popcnt 255 = 8");
+assert_eq(asm_pop_arg(0), 0, "popcnt 0 = 0");
+assert_eq(asm_pop_arg(7), 3, "popcnt 7 = 3");
+
+print("--- ISA: tzcnt / lzcnt ---");
+let asm_tz = asm_compile("i64(i64)", "
+    tzcnt rax, rcx
+    ret
+");
+assert_eq(asm_tz(8), 3, "tzcnt 8 = 3");
+
+print("--- ISA: bswap ---");
+let asm_bs = asm_compile("u64(u64)", "
+    mov rax, rcx
+    bswap rax
+    ret
+");
+print(format_hex(asm_bs(0x0102030405060708)));
+
+print("--- ISA: rdtsc available ---");
+let asm_tsc = asm_compile("i64()", "
+    rdtsc
+    shl rdx, 32
+    or rax, rdx
+    ret
+");
+let tsc1 = asm_tsc();
+let tsc2 = asm_tsc();
+print(tsc2 > tsc1);
+assert_eq(tsc2 > tsc1, true, "tsc moves forward");
+
+print("--- ISA: SSE2 paddd packed integer ---");
+let asm_paddd = asm_compile("i32(ptr,ptr)", "
+    movdqu xmm0, [rcx]
+    movdqu xmm1, [rdx]
+    paddd xmm0, xmm1
+    movd eax, xmm0
+    ret
+");
+let buf_a = native_alloc(16);
+let buf_b = native_alloc(16);
+native_write_i32(buf_a, 0, 100);
+native_write_i32(buf_a, 4, 200);
+native_write_i32(buf_a, 8, 300);
+native_write_i32(buf_a, 12, 400);
+native_write_i32(buf_b, 0, 7);
+native_write_i32(buf_b, 4, 8);
+native_write_i32(buf_b, 8, 9);
+native_write_i32(buf_b, 12, 10);
+let sum_lane0 = asm_paddd(buf_a, buf_b);
+assert_eq(sum_lane0, 107, "paddd lane[0] = 107");
+native_free(buf_a);
+native_free(buf_b);
+
+print("--- ISA: shld ---");
+let asm_shld = asm_compile("i64(i64,i64)", "
+    mov rax, rcx
+    shld rax, rdx, 4
+    ret
+");
+let s_shld = asm_shld(0x100, 0xF0000000_00000000);
+print(format_hex(s_shld));
+
+print("--- disassembler: round-trip ---");
+let disasm_lines = asm_disasm("
+    mov rax, 42
+    add rax, 8
+    ret
+");
+print(len(disasm_lines));
+for line in disasm_lines {
+    print(line);
+}
+
+print("--- explain ---");
+print(asm_explain("xor"));
+print(asm_explain("syscall"));
+print(asm_explain("totally_made_up"));
+
+print("--- did-you-mean ---");
+try {
+    let bad = asm_compile("i64()", "mvo rax, 5\nret");
+    print("UNEXPECTED OK");
+} catch (e) {
+    print("got expected did-you-mean error");
+}
+
+print("--- sandbox: blocks syscall ---");
+try {
+    let evil = asm_compile_sandboxed("i64()", "syscall\nret");
+    print("UNEXPECTED OK");
+} catch (e) {
+    print("sandbox correctly blocked syscall");
+}
+
+print("--- sandbox: allows safe code ---");
+let safe = asm_compile_sandboxed("i64()", "mov rax, 99\nret");
+assert_eq(safe(), 99, "sandbox-safe asm");
+
+print("--- analyzer: warnings present ---");
+let findings = asm_analyze("
+mov rax, 5
+mov rbx, 7
+mov rsi, 9
+");
+print(len(findings));
+print(findings);
+
+print("--- pool stats ---");
+let stats = asm_pool_stats();
+print(stats);
+
+print("--- asm_with_defines ---");
+let fn_with = asm_with_defines("i64()", { "CONST_VAL": "0x77" }, "
+    mov rax, CONST_VAL
+    ret
+");
+assert_eq(fn_with(), 119, "0x77 via with_defines");
+
+print("--- hash dedup ---");
+let h1 = asm_hash("mov rax, 1\nret");
+let h2 = asm_hash("mov rax, 1\nret");
+let h3 = asm_hash("mov rax, 1\n  ret  \n");
+assert_eq(h1, h2, "exact same source => same hash");
+assert_eq(h1, h3, "whitespace-normalized => same hash");
+
+print("--- bench ---");
+let asm_inc = asm_compile("i64()", "
+    mov rax, 42
+    add rax, 1
+    ret
+");
+let bench = asm_bench(asm_inc, 100000);
+print(bench);
+
+print("--- interpolation type hints ---");
+let xv = 255;
+let r_hex = asm {
+    mov rax, %{xv:hex}
+    ret
+};
+assert_eq(r_hex, 255, "interp hex hint");
+
+print("--- mnemonic catalog ---");
+let mnems = asm_mnemonics();
+print(len(mnems));
+assert_eq(len(mnems) > 100, true, "rich mnemonic catalog");
+
+print("=== ASM ADVANCED TESTS PASSED ===");

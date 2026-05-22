@@ -1,0 +1,11 @@
+// Negative-path companion to tests_sync.ra. Running this file is expected to
+// terminate with `RA0407: cannot spawn: ... borrow crosses fiber boundary
+// into non-Sync target`. Used as documentation/regression: if the spawn
+// safety check ever regresses to a silent pass, this file will run to
+// completion instead of erroring, and CI can flag the missing guard.
+
+let mut data = [1, 2, 3];
+async fn read_data(f) => f();
+let closure_bad = fn[&data]() => *data;
+let task = spawn read_data(closure_bad);
+print("FAIL: spawn safety guard missed a non-Sync borrow capture");

@@ -1,0 +1,54 @@
+print("=== Ra Explicit Closure Capture Tests ===");
+
+// [C1] by-value snapshot — capture freezes the value at definition time.
+//      Outer mutation of the source must NOT alter what the closure sees.
+let mut a = 10;
+let snap = fn[a]() => a;
+a = 99;
+let r1 = snap();
+if r1 == 10: print("[C1] OK") else: print("[C1] FAIL got " + r1);
+
+// [C2] by-ref — closure reads current value through borrow. The outer
+//      binding is locked while the borrow lives so we cannot mutate it,
+//      but we *can* observe the value through the closure.
+let b = 7;
+let live = fn[&b]() => *b;
+let r2 = live();
+if r2 == 7: print("[C2] OK") else: print("[C2] FAIL got " + r2);
+
+// [C3] by-move — closure takes ownership; outer name is unusable after.
+let box = [1, 2, 3];
+let owner = fn[move box]() => box;
+let r3 = owner();
+if r3[0] == 1 && r3[1] == 2 && r3[2] == 3: print("[C3] OK") else: print("[C3] FAIL got " + r3);
+
+// [C4] mixed list — by-value + by-ref in one closure.
+let xv = 5;
+let yv = 100;
+let mix = fn[xv, &yv]() => xv + *yv;
+let r4 = mix();
+if r4 == 105: print("[C4] OK") else: print("[C4] FAIL got " + r4);
+
+// [C5] empty capture list — closure sees only the args + globals.
+let pure = fn[](n) => n * 2;
+let r5 = pure(7);
+if r5 == 14: print("[C5] OK") else: print("[C5] FAIL got " + r5);
+
+// [C6] implicit (no capture clause) keeps legacy lexical behaviour.
+//      Without explicit captures, `z` is looked up through the parent chain
+//      at call time, so the closure observes the current value.
+let mut z = 50;
+let leg = fn() => z;
+z = 51;
+let r6 = leg();
+if r6 == 51: print("[C6] OK") else: print("[C6] FAIL got " + r6);
+
+// [C7] capture of a list by value — Aliased() containers share, so the
+//      snapshot's contents track the source list. This is the documented
+//      memory-model behaviour for containers (use `clone()` to detach).
+let mut bag = [10, 20];
+let peek = fn[bag]() => bag[0];
+let r7a = peek();
+if r7a == 10: print("[C7a] OK") else: print("[C7a] FAIL got " + r7a);
+
+print("=== Done ===");

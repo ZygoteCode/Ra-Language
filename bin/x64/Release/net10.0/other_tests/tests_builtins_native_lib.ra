@@ -1,0 +1,46 @@
+print("=== NATIVE LIBRARY LOADING ===");
+
+if (os_name() == "windows") {
+    print("Windows: loading kernel32.dll");
+    var k32 = native_load("kernel32.dll");
+    print(is_native_handle(k32));
+
+    var sym = native_symbol(k32, "GetTickCount");
+    print(sym != null);
+
+    var t1 = native_invoke(sym, "int()");
+    print(t1 > 0);
+
+    sleep_ms_blocking(15);
+
+    var t2 = native_invoke(sym, "int()");
+    print(t2 >= t1);
+
+    native_unload(k32);
+} elif (os_name() == "linux") {
+    print("Linux: loading libc.so.6");
+    try {
+        var libc = native_load("libc.so.6");
+        var getpid = native_symbol(libc, "getpid");
+        var pid = native_invoke(getpid, "int()");
+        print(pid > 0);
+        native_unload(libc);
+    } catch (e) {
+        print("libc load failed (ok in some envs)");
+    }
+} elif (os_name() == "macos") {
+    print("macOS: loading libc.dylib");
+    try {
+        var libc = native_load("libc.dylib");
+        var getpid = native_symbol(libc, "getpid");
+        var pid = native_invoke(getpid, "int()");
+        print(pid > 0);
+        native_unload(libc);
+    } catch (e) {
+        print("libc load failed (ok in some envs)");
+    }
+} else {
+    print("OS not handled");
+}
+
+print("--- native lib test done ---");
