@@ -15,6 +15,13 @@ namespace RaLanguage.Interpreter.Values.Functions
     public class FunctionValue : BaseFunctionValue
     {
         public AstNode BodyNode { get; }
+        // M16: optional pre-compiled body. When non-null, ExecuteBodySync
+        // dispatches through VmExecutor instead of recursing back into the
+        // AST visitor pipeline. Populated by FunctionDefinitionHelper for
+        // non-async, non-arrow-form functions whose body the IR compiler
+        // accepted in full (no IrCompileException). Left null for functions
+        // the IR can't yet lower; those keep the AST fallback path verbatim.
+        public IR.RaFunction? CompiledBody;
         public List<string> ArgNames { get; }
         public List<TypeDescriptor?> ArgTypes { get; }
         public List<bool> IsRefParams { get; }
@@ -260,7 +267,27 @@ namespace RaLanguage.Interpreter.Values.Functions
             }
 
             var interpreter = new Interpreter();
-            var bodyRes = await interpreter.Visit(BodyNode, execCtx!);
+            RuntimeResult bodyRes;
+            // M19: IR is the only execution path. The function-definition
+            // helper has either populated CompiledBody at creation time or
+            // surfaced an IrCompileException for the operator — there is no
+            // AST-walk fallback. Bodies that are genuinely null (forward
+            // declarations / DLL stubs) get rejected here as a runtime
+            // error: they have nothing to execute.
+            if (CompiledBody == null)
+            {
+                return res.Failure(new RuntimeError(PositionStart, PositionEnd,
+                    $"function '{Name}' has no executable body", Context));
+            }
+            {
+                // M79: rent from per-function pool. Only return on the
+                // success path — error escape captures `Parent` for
+                // the traceback chain and must not pool the frame.
+                var vm = new Vm.VmExecutor(interpreter);
+                var frame = Vm.VmFrame.Rent(CompiledBody);
+                bodyRes = await vm.Execute(frame, execCtx!);
+                if (bodyRes.Error == null) Vm.VmFrame.Return(frame);
+            }
             if (bodyRes.Error != null) return res.Failure(bodyRes.Error);
 
             if (bodyRes.FuncReturnValue != null)

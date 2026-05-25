@@ -39,9 +39,20 @@ namespace RaLanguage.Interpreter.Runtime.Async
     //     Read by `RaTaskCore.BlockingWaitCount` for diagnostics — a high value
     //     under fan-out indicates the cooperative scheduler is not yet in use and
     //     the program is paying the sync-over-async tax described in the audit.
+    //
+    // M70 pooling:
+    //
+    //   `Rent` factories return a Pending core. `_taskValueRefs` is bumped by every
+    //   `TaskValue` wrapper holding this core; the wrapper's finalizer decrements.
+    //   When the count hits zero AND the core has completed, ownership returns to
+    //   the process-wide pool via `Return`. `Return` resets the per-instance state
+    //   (fresh `TaskCompletionSource`, `MRES.Reset`, cleared body/ctx/timer/error)
+    //   and the next `Rent` reuses without re-allocating the `MRES` or the C# object
+    //   header.
     public sealed class RaTaskCore : IThreadPoolWorkItem
     {
-        private readonly TaskCompletionSource<RuntimeValue?> _tcs = new TaskCompletionSource<RuntimeValue?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        private TaskCompletionSource<RuntimeValue?> _tcs
+            = new TaskCompletionSource<RuntimeValue?>(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly ManualResetEventSlim _doneEvent = new ManualResetEventSlim(initialState: false);
         private long _id;
         private static long s_nextId;
@@ -51,8 +62,29 @@ namespace RaLanguage.Interpreter.Runtime.Async
         // Diagnostic-only — use to detect fiber-pool starvation patterns.
         public static long BlockingWaitCount => Interlocked.Read(ref s_blockingWaits);
 
-        public CancellationScope CancellationScope { get; }
-        public RaTaskCore? Parent { get; }
+        // -------- M70 pool ----------------------------------------
+        //
+        // Bounded process-wide free list. Cap protects against
+        // pathological growth (fan-out spikes that never drain).
+        // Overflow returns drop the core; GC reclaims as usual.
+        private static readonly System.Collections.Concurrent.ConcurrentQueue<RaTaskCore> s_pool
+            = new System.Collections.Concurrent.ConcurrentQueue<RaTaskCore>();
+        private const int PoolCapacity = 256;
+        private static int s_poolCount;
+
+        // Diagnostic: how many pool hits served `Rent` so far.
+        private static long s_poolHits;
+        public static long PoolHitCount => Interlocked.Read(ref s_poolHits);
+        public static int PoolFreeCount => Volatile.Read(ref s_poolCount);
+
+        // Owners-by-TaskValue refcount. Bumped in `TaskValue` ctor,
+        // decremented in `TaskValue` finalizer (or explicit Release).
+        // When the count returns to zero on a completed core, the core
+        // is recycled.
+        private int _taskValueRefs;
+
+        public CancellationScope CancellationScope { get; private set; }
+        public RaTaskCore? Parent { get; private set; }
         public string DebugName { get; set; }
         public RaTaskStatus Status { get; private set; } = RaTaskStatus.Pending;
         public RuntimeValue? Result { get; private set; }
@@ -77,6 +109,32 @@ namespace RaLanguage.Interpreter.Runtime.Async
             _id = Interlocked.Increment(ref s_nextId);
         }
 
+        // M70: factory that prefers a recycled core when one is
+        // available. Initial state matches the constructor — caller
+        // sees a Pending task ready for `TrySetRunning` /
+        // `AttachBody` / scheduler enqueue.
+        public static RaTaskCore Rent(CancellationScope scope, RaTaskCore? parent, string debugName)
+        {
+            if (s_pool.TryDequeue(out var t))
+            {
+                Interlocked.Decrement(ref s_poolCount);
+                Interlocked.Increment(ref s_poolHits);
+                t.InitialiseRented(scope, parent, debugName);
+                return t;
+            }
+            return new RaTaskCore(scope, parent, debugName);
+        }
+
+        private void InitialiseRented(CancellationScope scope, RaTaskCore? parent, string debugName)
+        {
+            CancellationScope = scope;
+            Parent = parent;
+            DebugName = debugName;
+            _id = Interlocked.Increment(ref s_nextId);
+            // Status, _tcs, _doneEvent, body/ctx, Result/Error, ElementType,
+            // timer, ctReg, refcount were cleared by Return(); leave them.
+        }
+
         public bool TrySetRunning()
         {
             if (Status != RaTaskStatus.Pending) return false;
@@ -91,6 +149,7 @@ namespace RaLanguage.Interpreter.Runtime.Async
             Status = RaTaskStatus.Completed;
             _tcs.TrySetResult(value);
             _doneEvent.Set();
+            TryAutoRecycle();
         }
 
         public void Fault(Error error)
@@ -100,6 +159,7 @@ namespace RaLanguage.Interpreter.Runtime.Async
             Status = RaTaskStatus.Faulted;
             _tcs.TrySetResult(null);
             _doneEvent.Set();
+            TryAutoRecycle();
         }
 
         public void CancelObserved()
@@ -108,6 +168,7 @@ namespace RaLanguage.Interpreter.Runtime.Async
             Status = RaTaskStatus.Cancelled;
             _tcs.TrySetResult(null);
             _doneEvent.Set();
+            TryAutoRecycle();
         }
 
         public void RequestCancel()
@@ -293,7 +354,7 @@ namespace RaLanguage.Interpreter.Runtime.Async
 
         public static RaTaskCore FromCompletedValue(RuntimeValue? value)
         {
-            var t = new RaTaskCore(new CancellationScope(), null, "<completed>");
+            var t = Rent(new CancellationScope(), null, "<completed>");
             t.TrySetRunning();
             t.Complete(value);
             return t;
@@ -301,10 +362,91 @@ namespace RaLanguage.Interpreter.Runtime.Async
 
         public static RaTaskCore FromError(Error error)
         {
-            var t = new RaTaskCore(new CancellationScope(), null, "<faulted>");
+            var t = Rent(new CancellationScope(), null, "<faulted>");
             t.TrySetRunning();
             t.Fault(error);
             return t;
+        }
+
+        // ---------------- M70 ref counting --------------------------
+        //
+        // `AcquireOwner` / `ReleaseOwner` are paired by every
+        // `TaskValue` wrapper holding this core. The constructor
+        // calls Acquire; the finalizer (or explicit dispose) calls
+        // Release. When the count returns to zero AND the task has
+        // already completed, the core enters the recycle path. A
+        // task that completes BEFORE any `TaskValue` is observed
+        // (rare — internal-only cores) auto-recycles inside the
+        // completion path through `TryAutoRecycle`.
+        internal void AcquireOwner()
+        {
+            Interlocked.Increment(ref _taskValueRefs);
+        }
+
+        internal void ReleaseOwner()
+        {
+            int after = Interlocked.Decrement(ref _taskValueRefs);
+            if (after == 0 && IsCompleted) Recycle();
+        }
+
+        // Optional explicit return entry-point for callers that
+        // bypass `TaskValue` wrapping (e.g. internal join helpers
+        // that consume the result then drop the core). No-op if the
+        // task is still live or has TaskValue owners.
+        public static void Return(RaTaskCore t)
+        {
+            if (t == null) return;
+            if (!t.IsCompleted) return;
+            if (Volatile.Read(ref t._taskValueRefs) != 0) return;
+            t.Recycle();
+        }
+
+        // Inside completion paths a task that nobody wraps in a
+        // `TaskValue` is otherwise GC-bound. Pull it back into the
+        // pool right after completion so the next `Rent` reuses it.
+        private void TryAutoRecycle()
+        {
+            if (Volatile.Read(ref _taskValueRefs) != 0) return;
+            Recycle();
+        }
+
+        // Reset the core to a Pending state and enqueue it for reuse.
+        // Caller is responsible for ensuring no concurrent observers
+        // remain — `ReleaseOwner` at refcount zero + `IsCompleted`
+        // provides that guarantee; `Return` re-checks defensively.
+        private void Recycle()
+        {
+            // Bounded pool. Drop on overflow.
+            int next = Interlocked.Increment(ref s_poolCount);
+            if (next > PoolCapacity)
+            {
+                Interlocked.Decrement(ref s_poolCount);
+                return;
+            }
+            ResetForPool();
+            s_pool.Enqueue(this);
+        }
+
+        private void ResetForPool()
+        {
+            Status = RaTaskStatus.Pending;
+            Result = null;
+            Error = null;
+            _body = null;
+            _bodyCtx = null;
+            ElementType = null;
+            // Old TCS is one-shot; the next renter needs a fresh
+            // continuation source.
+            _tcs = new TaskCompletionSource<RuntimeValue?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _doneEvent.Reset();
+            // Drop any lingering timer / cancellation registration so
+            // a stale callback doesn't fire against the recycled core.
+            var oldTimer = Interlocked.Exchange(ref _completionTimer, null);
+            oldTimer?.Dispose();
+            try { _completionCtReg.Dispose(); } catch { }
+            _completionCtReg = default;
+            // CancellationScope / Parent / DebugName / _id are
+            // re-assigned in `InitialiseRented`.
         }
     }
 }

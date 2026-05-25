@@ -6,6 +6,12 @@ namespace RaLanguage.Parser.Nodes.Traits
 {
     public sealed class TraitMethodDefinitionNode : AstNode, ICallableMethodDefinition
     {
+        // M18: resolver-populated metadata for IR compilation.
+        public int FrameId = -1;
+        public RaLanguage.Interpreter.Pipeline.BindingId[]? ParamBindings;
+        public RaLanguage.Interpreter.IR.RaFunction? CompiledBody;
+        public bool IrCompileTried;
+
         public Token? NameTok { get; }
         public List<Token> ArgNameToks { get; }
         public List<TypeDescriptor?> ArgTypes { get; }

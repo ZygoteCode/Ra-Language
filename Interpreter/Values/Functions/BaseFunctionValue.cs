@@ -299,7 +299,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                     AstNode? defAst = i < paramDefaults.Count ? paramDefaults[i] : null;
                     if (defAst != null)
                     {
-                        var innerRes = await interpreter.Visit(defAst, execCtx);
+                        var innerRes = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(defAst, execCtx, interpreter);
                         if (innerRes.Error != null) return (null, innerRes.Error);
                         var val = innerRes.Value;
                         if (val == null) val = new RaLanguage.Interpreter.Values.Primitives.NullValue().SetContext(execCtx).SetPos(defAst.PositionStart, defAst.PositionEnd);

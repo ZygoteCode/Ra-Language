@@ -71,7 +71,7 @@ namespace RaLanguage.Interpreter.Runtime.Calls
                 }
                 else
                 {
-                    evaluated = res.Register(await interpreter.Visit(argNode.Expr, context))!;
+                    evaluated = res.Register(await IrExpressionEvaluator.Evaluate(argNode.Expr, context, interpreter))!;
                     if (res.ShouldReturn()) return new EvaluatedArguments(res, positionalArgs, namedArgs);
                 }
 
@@ -205,7 +205,7 @@ namespace RaLanguage.Interpreter.Runtime.Calls
 
             if (node is MemberAccessNode memberAccess)
             {
-                var owner = res.Register(await interpreter.Visit(memberAccess.TargetNode, context));
+                var owner = res.Register(await IrExpressionEvaluator.Evaluate(memberAccess.TargetNode, context, interpreter));
                 if (res.ShouldReturn()) return res;
 
                 var memberName = memberAccess.MemberTok.Value?.ToString();
@@ -244,10 +244,10 @@ namespace RaLanguage.Interpreter.Runtime.Calls
 
             if (node is ListAccessNode listAccess)
             {
-                var listVal = res.Register(await interpreter.Visit(listAccess.Target, context));
+                var listVal = res.Register(await IrExpressionEvaluator.Evaluate(listAccess.Target, context, interpreter));
                 if (res.ShouldReturn()) return res;
 
-                var indexVal = res.Register(await interpreter.Visit(listAccess.Index, context));
+                var indexVal = res.Register(await IrExpressionEvaluator.Evaluate(listAccess.Index, context, interpreter));
                 if (res.ShouldReturn()) return res;
 
                 if (listVal!.Type == RuntimeValueType.List)

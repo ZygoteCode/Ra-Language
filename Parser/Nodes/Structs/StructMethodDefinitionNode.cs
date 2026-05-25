@@ -5,6 +5,14 @@ namespace RaLanguage.Parser.Nodes.Structs
 {
     public class StructMethodDefinitionNode : AstNode
     {
+        // M18: Resolver populates these so the IR compiler can lower the
+        // method body just like a regular FunctionDefinitionNode (slot
+        // opcodes for params + locals declared inside the body).
+        public int FrameId = -1;
+        public RaLanguage.Interpreter.Pipeline.BindingId[]? ParamBindings;
+        public RaLanguage.Interpreter.IR.RaFunction? CompiledBody;
+        public bool IrCompileTried;
+
         public bool IsPublic { get; }
         public bool IsConstructor { get; }
         public Token NameTok { get; }

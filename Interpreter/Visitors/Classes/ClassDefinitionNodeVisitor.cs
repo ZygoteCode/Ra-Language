@@ -1,4 +1,4 @@
-﻿using RaLanguage.Errors;
+using RaLanguage.Errors;
 using System.Threading.Tasks;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
@@ -19,6 +19,9 @@ namespace RaLanguage.Interpreter.Visitors.Classes
     public class ClassDefinitionNodeVisitor : NodeVisitor<ClassDefinitionNode>
     {
         protected override async ValueTask<RuntimeResult> VisitNode(ClassDefinitionNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(ClassDefinitionNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var className = node.NameTok.Value?.ToString() ?? "";
@@ -140,7 +143,7 @@ namespace RaLanguage.Interpreter.Visitors.Classes
 
                 if (field.DefaultValueNode != null)
                 {
-                    var initRes = await interpreter.Visit(field.DefaultValueNode, context);
+                    var initRes = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(field.DefaultValueNode, context, interpreter);
                     if (initRes.Error != null) return res.Failure(initRes.Error);
                     value = initRes.Value ?? value;
                 }
@@ -264,7 +267,7 @@ namespace RaLanguage.Interpreter.Visitors.Classes
                     if (annErr != null) return res.Failure(annErr);
                 }
 
-                var paramErr = FunctionDefinitionNodeVisitor.RegisterParameterAnnotations(method, $"{className}.{name}", context, interpreter);
+                var paramErr = RaLanguage.Interpreter.Runtime.FunctionDefinitionHelper.RegisterParameterAnnotations(method, $"{className}.{name}", context, interpreter);
                 if (paramErr != null) return res.Failure(paramErr);
             }
 
@@ -279,7 +282,7 @@ namespace RaLanguage.Interpreter.Visitors.Classes
             return res.Success(classValue);
         }
 
-        private Error? ValidateInheritanceContract(ClassDefinitionNode node, ClassTypeValue classValue, Context context)
+        private static Error? ValidateInheritanceContract(ClassDefinitionNode node, ClassTypeValue classValue, Context context)
         {
             var className = classValue.ClassName;
 
@@ -456,7 +459,7 @@ namespace RaLanguage.Interpreter.Visitors.Classes
             return "an inherited member";
         }
 
-        private void ValidateToStringMethod(ClassDefinitionNode node, ClassTypeValue classValue, Context context, ref RuntimeResult res)
+        private static void ValidateToStringMethod(ClassDefinitionNode node, ClassTypeValue classValue, Context context, ref RuntimeResult res)
         {
             var toStringMethod = node.Methods.FirstOrDefault(m => 
                 string.Equals(m.VarNameTok?.Value?.ToString(), "to_string", StringComparison.Ordinal));

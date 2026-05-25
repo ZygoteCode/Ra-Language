@@ -1,4 +1,4 @@
-﻿using RaLanguage.Errors;
+using RaLanguage.Errors;
 using System.Threading.Tasks;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
@@ -16,6 +16,9 @@ namespace RaLanguage.Interpreter.Visitors.Variables
     public class VariableDeclarationNodeVisitor : NodeVisitor<VariableDeclarationNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(VariableDeclarationNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(VariableDeclarationNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var values = new List<RuntimeValue>();
@@ -40,7 +43,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                     // AreCallsBlocked flag is reused for `let const` for symmetry.
                     context.AreCallsBlocked = node.DeclarationType == VariableDeclarationType.CONST
                                            || node.DeclarationType == VariableDeclarationType.LET_CONST;
-                    value = res.Register(await interpreter.Visit(declaration.Item2, context))!;
+                    value = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(declaration.Item2, context, interpreter))!;
                     context.AreCallsBlocked = false;
                     if (res.Error != null) return res;
                     if (res.ShouldReturn()) continue;

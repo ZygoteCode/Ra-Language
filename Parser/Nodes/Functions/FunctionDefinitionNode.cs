@@ -16,6 +16,25 @@ namespace RaLanguage.Parser.Nodes.Functions
         public int FrameId = -1;
         public BindingId[]? ParamBindings;
         public List<ResolvedCapture>? ResolvedCaptures;
+
+        // M17: cached IR compile of the body. Populated lazily by any caller
+        // that wants to dispatch the body through VmExecutor (top-level
+        // functions via FunctionDefinitionHelper, class methods via
+        // BoundClassMethodValue / MethodCallBinder, struct methods via
+        // BoundStructMethodValue, etc.). Sentinel `IrCompileTried = true`
+        // distinguishes "not yet attempted" from "attempted and failed".
+        public Interpreter.IR.RaFunction? CompiledBody;
+        public bool IrCompileTried;
+
+        // M31 (A5): cached metadata-target key computed by
+        // AnnotationInterceptors.ResolveCalleeMetadataKey on the first
+        // invocation. `MetadataTarget.BuildKey(kind, className, methodName)`
+        // builds a fresh string per call — eliminating it on the dispatch hot
+        // path eliminates the allocation. Tuple of (className lookup result,
+        // cached key): className is captured at the BoundClassMethodValue
+        // construction site so storing only the resolved key here is safe.
+        // Set lazily; null = not yet computed.
+        public string? CachedMetadataKey;
         public Token? VarNameTok { get; }
         public List<Token> ArgNameToks { get; }
 

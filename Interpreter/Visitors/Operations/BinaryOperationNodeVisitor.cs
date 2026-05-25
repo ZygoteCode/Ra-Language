@@ -14,9 +14,12 @@ namespace RaLanguage.Interpreter.Visitors.Operations
     public class BinaryOperationNodeVisitor : NodeVisitor<BinaryOperationNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(BinaryOperationNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(BinaryOperationNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
-            var left = res.Register(await interpreter.Visit(node.LeftNode, context));
+            var left = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.LeftNode, context, interpreter));
             if (res.ShouldReturn()) return res;
 
             // Short-circuit `and` / `or` before evaluating the right-hand side.
@@ -32,7 +35,7 @@ namespace RaLanguage.Interpreter.Visitors.Operations
                     {
                         return res.Success(BooleanValue.Of(false).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                     }
-                    var rightSc = res.Register(await interpreter.Visit(node.RightNode, context));
+                    var rightSc = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.RightNode, context, interpreter));
                     if (res.ShouldReturn()) return res;
                     return res.Success(BooleanValue.Of(rightSc!.IsTrue()).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
@@ -43,13 +46,13 @@ namespace RaLanguage.Interpreter.Visitors.Operations
                     {
                         return res.Success(BooleanValue.Of(true).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                     }
-                    var rightSc = res.Register(await interpreter.Visit(node.RightNode, context));
+                    var rightSc = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.RightNode, context, interpreter));
                     if (res.ShouldReturn()) return res;
                     return res.Success(BooleanValue.Of(rightSc!.IsTrue()).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
             }
 
-            var right = res.Register(await interpreter.Visit(node.RightNode, context));
+            var right = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.RightNode, context, interpreter));
             if (res.ShouldReturn()) return res;
 
             var op = node.OpTok.Type;

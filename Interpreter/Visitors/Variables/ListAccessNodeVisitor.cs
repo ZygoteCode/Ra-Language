@@ -12,10 +12,10 @@ namespace RaLanguage.Interpreter.Visitors.Variables
         protected sealed override async ValueTask<RuntimeResult> VisitNode(ListAccessNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
-            var target = res.Register(await interpreter.Visit(node.Target, context));
+            var target = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.Target, context, interpreter));
             if (res.ShouldReturn()) return res;
 
-            var index = res.Register(await interpreter.Visit(node.Index, context));
+            var index = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.Index, context, interpreter));
             if (res.ShouldReturn()) return res;
 
             ValueResult result = target.ListAccess(index);

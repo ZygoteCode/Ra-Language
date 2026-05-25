@@ -16,12 +16,15 @@ namespace RaLanguage.Interpreter.Visitors.Async
     public class SpawnNodeVisitor : NodeVisitor<SpawnNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(SpawnNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(SpawnNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
             if (node.Expression is FunctionCallNode call)
             {
-                var callee = await interpreter.Visit(call.NodeToCall, context);
+                var callee = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(call.NodeToCall, context, interpreter);
                 if (callee.Error != null) return res.Failure(callee.Error);
 
                 var calleeValue = callee.Value;
@@ -34,7 +37,7 @@ namespace RaLanguage.Interpreter.Visitors.Async
                 var namedArgs = new System.Collections.Generic.Dictionary<string, RuntimeValue>(System.StringComparer.Ordinal);
                 foreach (var argNode in call.ArgNodes)
                 {
-                    var argRes = await interpreter.Visit(argNode.Expr, context);
+                    var argRes = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(argNode.Expr, context, interpreter);
                     if (argRes.Error != null) return res.Failure(argRes.Error);
                     if (argNode.NameTok != null)
                     {
@@ -95,7 +98,7 @@ namespace RaLanguage.Interpreter.Visitors.Async
                 return res.Success(new TaskValue(task).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
             }
 
-            var inner = await interpreter.Visit(node.Expression, context);
+            var inner = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.Expression, context, interpreter);
             if (inner.Error != null) return res.Failure(inner.Error);
             if (inner.Value is TaskValue alreadyTask)
             {

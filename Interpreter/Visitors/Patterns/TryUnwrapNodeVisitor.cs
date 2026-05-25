@@ -21,10 +21,13 @@ namespace RaLanguage.Interpreter.Visitors.Patterns
     public class TryUnwrapNodeVisitor : NodeVisitor<TryUnwrapNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(TryUnwrapNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(TryUnwrapNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
-            var value = res.Register(await interpreter.Visit(node.Target, context));
+            var value = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.Target, context, interpreter));
             if (res.ShouldReturn()) return res;
 
             if (value is not EnumValue ev || !string.Equals(ev.EnumName, "Result", System.StringComparison.Ordinal))

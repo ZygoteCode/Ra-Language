@@ -1,4 +1,4 @@
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
@@ -14,19 +14,22 @@ namespace RaLanguage.Interpreter.Visitors.Operations
     // Runtime arm of the borrow grammar (`&place` / `&mut place`).
     //
     // Place resolution: the target must be a variable. Fields / indexed elements
-    // are intentionally rejected at this layer — the existing IReferenceValue
+    // are intentionally rejected at this layer â€” the existing IReferenceValue
     // family (ClassFieldReferenceValue, ListElementReferenceValue, ...) already
     // covers those cases for the var/auto/final/const interface. The borrow
     // interface is variable-scoped; future work can extend it.
     //
     // Rules enforced here (matched by the static BorrowChecker pass):
-    //   * &mut a const binding (let const / const)        — rejected
-    //   * &mut while any other borrow is live              — rejected
-    //   * & while a &mut is live                           — rejected
-    //   * & or &mut a moved binding                        — rejected
+    //   * &mut a const binding (let const / const)        â€” rejected
+    //   * &mut while any other borrow is live              â€” rejected
+    //   * & while a &mut is live                           â€” rejected
+    //   * & or &mut a moved binding                        â€” rejected
     public class BorrowNodeVisitor : NodeVisitor<BorrowNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(BorrowNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(BorrowNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

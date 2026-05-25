@@ -9,10 +9,13 @@ namespace RaLanguage.Interpreter.Visitors.Statements
     public class ThrowNodeVisitor : NodeVisitor<ThrowNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(ThrowNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(ThrowNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
-            var value = res.Register(await interpreter.Visit(node.Expression, context));
+            var value = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.Expression, context, interpreter));
             if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
 

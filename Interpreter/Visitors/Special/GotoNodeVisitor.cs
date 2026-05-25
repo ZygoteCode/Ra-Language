@@ -1,4 +1,4 @@
-﻿using RaLanguage.Errors.Types;
+using RaLanguage.Errors.Types;
 using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
@@ -10,6 +10,9 @@ namespace RaLanguage.Interpreter.Visitors.Special
     public class GotoNodeVisitor : NodeVisitor<GotoNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(GotoNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(GotoNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             string varName = node.VarName.Value.ToString();
@@ -20,7 +23,7 @@ namespace RaLanguage.Interpreter.Visitors.Special
 
                 if (label.Item1.Equals(varName))
                 {
-                    res.Register(await interpreter.Visit(label.Item2, context));
+                    res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(label.Item2, context, interpreter));
                     if (res.ShouldReturn()) return res;
                     return res.Success(NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }

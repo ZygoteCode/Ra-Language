@@ -33,6 +33,9 @@ namespace RaLanguage.Interpreter.Visitors.Operations
     public class PipelineNodeVisitor : NodeVisitor<PipelineNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(PipelineNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(PipelineNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
@@ -49,7 +52,7 @@ namespace RaLanguage.Interpreter.Visitors.Operations
             // Evaluate LHS exactly once. The pipeline guarantees side-effect
             // ordering: LHS runs to completion before any callee resolution
             // or RHS argument evaluation begins.
-            var leftValue = res.Register(await interpreter.Visit(node.LeftNode, context));
+            var leftValue = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.LeftNode, context, interpreter));
             if (res.ShouldReturn()) return res;
             if (leftValue == null)
             {
@@ -63,7 +66,7 @@ namespace RaLanguage.Interpreter.Visitors.Operations
 
             if (node.RightNode is FunctionCallNode call)
             {
-                var calleeVal = res.Register(await interpreter.Visit(call.NodeToCall, context));
+                var calleeVal = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(call.NodeToCall, context, interpreter));
                 if (res.ShouldReturn()) return res;
 
                 EnsureCallable(calleeVal, node, context, ref res);
@@ -91,7 +94,7 @@ namespace RaLanguage.Interpreter.Visitors.Operations
             // access, parenthesised call expression that returns a callable,
             // etc. Evaluate it once, validate, and invoke with the single
             // piped argument.
-            var rhsCallee = res.Register(await interpreter.Visit(node.RightNode, context));
+            var rhsCallee = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.RightNode, context, interpreter));
             if (res.ShouldReturn()) return res;
 
             EnsureCallable(rhsCallee, node, context, ref res);

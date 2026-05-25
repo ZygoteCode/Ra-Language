@@ -1,0 +1,62 @@
+// M6 smoke test: compound assign, list/map/tuple/set literals, range,
+// list access, ternary, null-coalesce, string interpolation, throw.
+
+print("=== M6 smoke ===");
+
+// Compound assignment
+var x = 10;
+x += 5;
+x -= 2;
+x *= 2;
+x /= 2;
+if x == 13 { print("[compound] OK"); } else { print("[compound] FAIL " + (x as string)); }
+
+// List literal + access
+var l = [1, 2, 3, 4, 5];
+if l[2] == 3 { print("[list lit] OK"); } else { print("[list lit] FAIL"); }
+
+// Tuple
+var t = (10, "hello", true);
+if t[1] == "hello" { print("[tuple] OK"); } else { print("[tuple] FAIL"); }
+
+// Map
+var m = {"a": 1, "b": 2, "c": 3};
+if m["b"] == 2 { print("[map] OK"); } else { print("[map] FAIL"); }
+
+// Range (exclusive)
+var r = 0..5;
+var sumr = 0;
+for v in r { sumr = sumr + v; }
+// 0+1+2+3+4 = 10
+if sumr == 10 { print("[range excl] OK"); } else { print("[range excl] FAIL " + (sumr as string)); }
+
+// Range (inclusive)
+var ri = 1..=5;
+var sumi = 0;
+for v in ri { sumi = sumi + v; }
+// 1+2+3+4+5 = 15
+if sumi == 15 { print("[range incl] OK"); } else { print("[range incl] FAIL " + (sumi as string)); }
+
+// Ternary
+var z = 5 > 3 ? "yes" : "no";
+if z == "yes" { print("[ternary] OK"); } else { print("[ternary] FAIL"); }
+
+// Null coalescing
+var nullable = null;
+var safe = nullable ?? "default";
+if safe == "default" { print("[null coal] OK"); } else { print("[null coal] FAIL"); }
+
+// String interpolation
+var name = "world";
+var greeting = "hello, ${name}!";
+if greeting == "hello, world!" { print("[interp] OK"); } else { print("[interp] FAIL: " + greeting); }
+
+// Throw + catch
+try {
+    throw "bang";
+    print("[throw] FAIL (no catch)");
+} catch (ex) {
+    if ex == "bang" { print("[throw] OK"); } else { print("[throw] FAIL: " + ex); }
+}
+
+print("[M6] OK");

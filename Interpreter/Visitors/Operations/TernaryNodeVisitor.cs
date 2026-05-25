@@ -1,4 +1,4 @@
-﻿using RaLanguage.Interpreter.Architecture;
+using RaLanguage.Interpreter.Architecture;
 using System.Threading.Tasks;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
@@ -13,7 +13,7 @@ namespace RaLanguage.Interpreter.Visitors.Operations
         {
             var res = new RuntimeResult();
 
-            var condVal = res.Register(await interpreter.Visit(node.Condition, context));
+            var condVal = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.Condition, context, interpreter));
             if (res.ShouldReturn()) return res;
 
             bool condIsTrue;
@@ -24,13 +24,13 @@ namespace RaLanguage.Interpreter.Visitors.Operations
 
             if (condIsTrue)
             {
-                var trueVal = res.Register(await interpreter.Visit(node.TrueExpression, context));
+                var trueVal = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.TrueExpression, context, interpreter));
                 if (res.ShouldReturn()) return res;
                 return res.Success(trueVal);
             }
             else
             {
-                var falseVal = res.Register(await interpreter.Visit(node.FalseExpression, context));
+                var falseVal = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.FalseExpression, context, interpreter));
                 if (res.ShouldReturn()) return res;
                 return res.Success(falseVal);
             }

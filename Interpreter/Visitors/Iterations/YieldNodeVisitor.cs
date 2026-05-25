@@ -1,4 +1,4 @@
-﻿using RaLanguage.Interpreter.Architecture;
+using RaLanguage.Interpreter.Architecture;
 using System.Threading.Tasks;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
@@ -9,10 +9,13 @@ namespace RaLanguage.Interpreter.Visitors.Iterations
     public class YieldNodeVisitor : NodeVisitor<YieldNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(YieldNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(YieldNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
-            var childRes = await interpreter.Visit(node.Expression, context);
+            var childRes = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.Expression, context, interpreter);
             var val = res.Register(childRes, propagateLoopControl: false);
             if (childRes.Error != null) return res.Failure(childRes.Error);
             if (childRes.FuncReturnValue != null) return res.SuccessReturn(childRes.FuncReturnValue);

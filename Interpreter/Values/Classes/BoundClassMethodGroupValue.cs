@@ -34,16 +34,36 @@ namespace RaLanguage.Interpreter.Values.Classes
         public override async ValueTask<RuntimeResult> Execute(List<RuntimeValue> args)
             => await ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
 
+        // M28.2 exposes the overload-selection step so OP_CALL can prime its
+        // per-PC inline cache with the resolved FunctionDefinitionNode. Returns
+        // null when no candidate matches; callers fall through to the normal
+        // `ExecuteWithNamedArgs` failure path. Pure read — does not execute
+        // any body, does not mutate Context or SelfInstance.
+        public FunctionDefinitionNode? PickOverload(
+            List<RuntimeValue> positionalArgs,
+            Dictionary<string, RuntimeValue> namedArgs)
+        {
+            // Single-candidate fast path. Skip the LINQ FirstOrDefault and the
+            // per-call HashSet allocation inside CanBindSignature.
+            if (Candidates.Count == 1)
+            {
+                var only = Candidates[0];
+                if (only == null || only.IsAbstract || only.BodyNode == null) return null;
+                return CanBindSignature(only, positionalArgs, namedArgs, Context) ? only : null;
+            }
+            return Candidates.FirstOrDefault(c =>
+                c != null &&
+                !c.IsAbstract &&
+                c.BodyNode != null &&
+                CanBindSignature(c, positionalArgs, namedArgs, Context));
+        }
+
         public override async ValueTask<RuntimeResult> ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
         {
             var res = new RuntimeResult();
             var interpreter = new Interpreter();
 
-            var selected = Candidates.FirstOrDefault(c =>
-                c != null &&
-                !c.IsAbstract &&
-                c.BodyNode != null &&
-                CanBindSignature(c, positionalArgs, namedArgs, Context));
+            var selected = PickOverload(positionalArgs, namedArgs);
 
             if (selected == null)
             {
@@ -91,7 +111,20 @@ namespace RaLanguage.Interpreter.Values.Classes
 
             // NullValue.SetContext is a sealed no-op (NullValue is a true singleton),
             // so execCtx would always be null. Pass execCtx directly.
-            var bodyRes = await interpreter.Visit(selected.BodyNode!, execCtx);
+            RuntimeResult bodyRes;
+            var compiled = selected is RaLanguage.Parser.Nodes.Functions.FunctionDefinitionNode fdn
+                ? Runtime.FunctionDefinitionHelper.GetOrCompileBody(fdn)
+                : null;
+            if (compiled == null)
+                return res.Failure(new RuntimeError(PositionStart, PositionEnd,
+                    $"overloaded method '{Name}' has no IR-compiled body", Context));
+            {
+                // M79: pool rent + return on success only.
+                var vm = new Vm.VmExecutor(interpreter);
+                var frame = Vm.VmFrame.Rent(compiled);
+                bodyRes = await vm.Execute(frame, execCtx);
+                if (bodyRes.Error == null) Vm.VmFrame.Return(frame);
+            }
             if (bodyRes.Error != null)
             {
                 return res.Failure(bodyRes.Error);
@@ -333,7 +366,7 @@ namespace RaLanguage.Interpreter.Values.Classes
                         Context);
                 }
 
-                var defRes = await interpreter.Visit(defAst, execCtx);
+                var defRes = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(defAst, execCtx, interpreter);
                 if (defRes.Error != null)
                     return (RuntimeError) defRes.Error;
 

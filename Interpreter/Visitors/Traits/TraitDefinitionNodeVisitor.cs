@@ -13,6 +13,9 @@ namespace RaLanguage.Interpreter.Visitors.Traits
     public class TraitDefinitionNodeVisitor : NodeVisitor<TraitDefinitionNode>
     {
         protected override async ValueTask<RuntimeResult> VisitNode(TraitDefinitionNode node, Context context, IInterpreter interpreter)
+            => Apply(node, context, interpreter);
+
+        public static RuntimeResult Apply(TraitDefinitionNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var traitName = node.NameTok.Value?.ToString() ?? "";

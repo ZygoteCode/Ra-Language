@@ -1,4 +1,4 @@
-﻿using RaLanguage.Errors;
+using RaLanguage.Errors;
 using System.Threading.Tasks;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
@@ -13,6 +13,9 @@ namespace RaLanguage.Interpreter.Visitors.Variables
     public class ListAssignmentNodeVisitor : NodeVisitor<ListAssignmentNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(ListAssignmentNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(ListAssignmentNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
@@ -25,13 +28,13 @@ namespace RaLanguage.Interpreter.Visitors.Variables
             }
 
             ListAccessNode listAccessNode = (ListAccessNode)node.Target;
-            var targetList = res.Register(await interpreter.Visit(listAccessNode.Target, context));
+            var targetList = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(listAccessNode.Target, context, interpreter));
             if (res.ShouldReturn()) return res;
 
-            var indexValue = res.Register(await interpreter.Visit(listAccessNode.Index, context));
+            var indexValue = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(listAccessNode.Index, context, interpreter));
             if (res.ShouldReturn()) return res;
 
-            var valueToAssign = res.Register(await interpreter.Visit(node.Value, context));
+            var valueToAssign = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.Value, context, interpreter));
             if (res.ShouldReturn()) return res;
 
             RuntimeValue finalValue = valueToAssign;

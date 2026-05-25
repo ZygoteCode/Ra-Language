@@ -21,7 +21,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 
             var loopContext = context.Copy();
             var loopSymbols = loopContext.SymbolTable!;
-            var collection = res.Register(await interpreter.Visit(node.CollectionNode, loopContext));
+            var collection = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.CollectionNode, loopContext, interpreter));
             if (res.Error != null) return res;
 
             if (collection.Type != RuntimeValueType.List && collection.Type != RuntimeValueType.Set && collection.Type != RuntimeValueType.Map && collection.Type != RuntimeValueType.Tuple)
@@ -55,7 +55,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                     iterEntry!.Value = elements[idx];
                     bodySymbols.Clear();
                     bodyContext.ScopeSkipCopy = true;
-                    res.Register(await interpreter.Visit(node.BodyNode, bodyContext));
+                    res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.BodyNode, bodyContext, interpreter));
                     if (res.Error != null) return res;
                     if (res.FuncReturnValue != null) return res;
                     if (res.LoopShouldBreak) { res.LoopShouldBreak = false; shouldBreak = true; continue; }
@@ -70,7 +70,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                     iterEntry!.Value = element;
                     bodySymbols.Clear();
                     bodyContext.ScopeSkipCopy = true;
-                    res.Register(await interpreter.Visit(node.BodyNode, bodyContext));
+                    res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.BodyNode, bodyContext, interpreter));
                     if (res.Error != null) return res;
                     if (res.FuncReturnValue != null) return res;
                     if (res.LoopShouldBreak) { res.LoopShouldBreak = false; shouldBreak = true; continue; }
@@ -85,7 +85,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                     iterEntry!.Value = elements[idx];
                     bodySymbols.Clear();
                     bodyContext.ScopeSkipCopy = true;
-                    res.Register(await interpreter.Visit(node.BodyNode, bodyContext));
+                    res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.BodyNode, bodyContext, interpreter));
                     if (res.Error != null) return res;
                     if (res.FuncReturnValue != null) return res;
                     if (res.LoopShouldBreak) { res.LoopShouldBreak = false; shouldBreak = true; continue; }
@@ -101,7 +101,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                     iterEntry!.Value = new TupleValue(new System.Collections.Generic.List<RuntimeValue> { pair.Key, pair.Value });
                     bodySymbols.Clear();
                     bodyContext.ScopeSkipCopy = true;
-                    res.Register(await interpreter.Visit(node.BodyNode, bodyContext));
+                    res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.BodyNode, bodyContext, interpreter));
                     if (res.Error != null) return res;
                     if (res.FuncReturnValue != null) return res;
                     if (res.LoopShouldBreak) { res.LoopShouldBreak = false; shouldBreak = true; continue; }

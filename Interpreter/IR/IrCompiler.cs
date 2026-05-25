@@ -1,0 +1,2630 @@
+using System;
+using System.Collections.Generic;
+using RaLanguage.Interpreter.Pipeline;
+using RaLanguage.Interpreter.Values;
+using RaLanguage.Interpreter.Values.Primitives;
+using RaLanguage.Interpreter.Visitors.Primitives;
+using RaLanguage.Lexer.Tokens;
+using RaLanguage.Parser.Nodes;
+using RaLanguage.Parser.Nodes.Functions;
+using RaLanguage.Parser.Nodes.Iterations;
+using RaLanguage.Parser.Nodes.Operations;
+using RaLanguage.Parser.Nodes.Primitives;
+using RaLanguage.Parser.Nodes.Special;
+using RaLanguage.Parser.Nodes.Statements;
+using RaLanguage.Parser.Nodes.Variables;
+
+namespace RaLanguage.Interpreter.IR
+{
+    // Lowers an AST to bytecode. Per RA_VM_MIGRATION.md §4, IR coverage
+    // grows by milestone:
+    //
+    //   M1 — single OP_VISIT_AST pass-through.
+    //   M2 — primitives, variable reads, arithmetic, comparisons, unary.
+    //   M3 — if / while / do-while, break / continue / return / pass /
+    //        retry, short-circuit and/or, unary minus, variable assignment,
+    //        single-target variable declaration.
+    //   M4 — scope-wrapped bodies (`if` / `while` / `do-while` now accept
+    //        bodies with nested `var x = ...`), `for` (numeric range with
+    //        optional step), shared scope opcodes (PushScope / PopScope /
+    //        ClearScope / SetLocalDirect / AssignBinding) — this file.
+    //   M5+ — function calls/definitions, OOP, async, ...
+    //
+    // The unit of fallback is the statement. Mid-statement IrCompileException
+    // rolls back the tentative bytecode and emits OP_VISIT_AST for that
+    // statement.
+    public static class IrCompiler
+    {
+        private sealed class State
+        {
+            public readonly InstructionBuilder Code = new();
+            public readonly ConstantPool Consts = new();
+            public readonly NamePool Names = new();
+            public readonly List<AstNode> AstRefs = new();
+            public readonly List<Parser.Nodes.Operations.CastNode> CastRefs = new();
+            public readonly List<Parser.Nodes.Structs.MemberAccessNode> MemberAccessRefs = new();
+            public readonly List<Parser.Nodes.Structs.MemberAssignmentNode> MemberAssignRefs = new();
+            public readonly List<Parser.Nodes.Variables.ListAssignmentNode> ListAssignRefs = new();
+            public readonly List<Parser.Nodes.Enums.EnumAccessNode> EnumAccessRefs = new();
+            public readonly List<Parser.Nodes.Special.TypeofNode> TypeofRefs = new();
+            public readonly List<Parser.Nodes.Special.NameofNode> NameofRefs = new();
+            public readonly List<Parser.Nodes.Operations.DereferenceNode> DerefRefs = new();
+            public readonly List<Parser.Nodes.Classes.SuperNode> SuperRefs = new();
+            public readonly List<Parser.Nodes.Functions.FunctionDefinitionNode> FuncDefRefs = new();
+            public readonly List<AstNode> DefineRefs = new();
+            public readonly List<ExceptionHandler> EhTable = new();
+            public readonly Stack<LoopContext> Loops = new();
+            public int MaxTempUsed = 1;
+
+            // Tracks the *static* nesting depth of OP_PUSH_SCOPE emissions.
+            // Incremented before emitting PushScope, decremented after
+            // emitting PopScope. break / continue use this to compute the
+            // number of pops they must emit before their jump (since the JMP
+            // unconditionally moves PC and the pops never execute via
+            // natural fall-through).
+            public int ScopeDepth = 0;
+
+            // M14: slot index → declared name. Populated every time the IR
+            // emits a slot opcode (LoadLocalS / StoreLocalS) or registers a
+            // declaration in DeclSlotByAstRef. The dispatch loop reads names
+            // from RaFunction.SlotNames only on the cold "slot not yet
+            // populated" lazy-fallback path, so building this from the
+            // emitter side keeps the table accurate without an extra AST
+            // sweep.
+            public readonly Dictionary<int, string> SlotNames = new();
+            public int MaxSlot = -1;
+
+            // M16: the frame this State is compiling for. CompileScript sets 0
+            // (top-level script); CompileFunction sets the FunctionDefinitionNode's
+            // FrameId. IsSlotEligible uses this to admit slot lowering only for
+            // bindings in the current frame — captures / outer-frame accesses
+            // still take the OP_LOAD_GLOBAL path.
+            public int FrameId = 0;
+
+            public void RegisterSlot(int slot, string? name)
+            {
+                if (slot > MaxSlot) MaxSlot = slot;
+                if (!string.IsNullOrEmpty(name) && !SlotNames.ContainsKey(slot))
+                    SlotNames[slot] = name!;
+            }
+
+            // M44: pc → source-span tracking. Populated at statement
+            // / expression compile entry so runtime errors raised inside
+            // the dispatch loop can resolve a real position via binary
+            // search on PcSpansPc. Entries are recorded ONCE per source
+            // node — the spans are coarse-grained (statement-level) but
+            // dramatically better than `DummyPos` 1:1.
+            public readonly List<int> PcSpanPcs = new();
+            public readonly List<Errors.SourceSpan> PcSpanSpans = new();
+            public void RecordPcSpan(AstNode node)
+            {
+                int pc = Code.Pc;
+                if (PcSpanPcs.Count > 0 && PcSpanPcs[^1] == pc) return;
+                PcSpanPcs.Add(pc);
+                PcSpanSpans.Add(new Errors.SourceSpan(node.PositionStart, node.PositionEnd));
+            }
+        }
+
+        public static RaFunction CompileScript(AstNode root, string sourceName)
+        {
+            var fn = new RaFunction(sourceName ?? "<script>");
+            fn.FrameId = 0;
+
+            var st = new State();
+            st.FrameId = 0;
+            const byte ScratchSlot = 0;
+            var statements = FlattenStatements(root);
+
+            foreach (var stmt in statements)
+            {
+                CompileStatementWithFallback(stmt, st, ScratchSlot);
+            }
+
+            st.Code.Emit3(Opcode.Halt, ScratchSlot, 0, 0);
+
+            FinalizeFn(fn, st);
+            return fn;
+        }
+
+        // M16: compile a user function body into a RaFunction. Mirrors the
+        // CompileScript shape but uses the function's own frame id so slot
+        // lowering admits parameters / locals declared inside the function,
+        // not the enclosing script. The body is wrapped in a default
+        // OP_RET_NULL terminator so functions that fall off the end implicitly
+        // return null (matches AST visitor semantics).
+        //
+        // Failure mode: any IrCompileException raised mid-body propagates to
+        // the caller, which lets FunctionValue cache "null" and keep
+        // dispatching through the AST fallback. Once IR coverage extends to
+        // every supported construct, that fallback path simply never runs.
+        public static RaFunction CompileFunction(Parser.Nodes.Functions.FunctionDefinitionNode fnNode)
+        {
+            return CompileMethodShape(
+                name: fnNode.VarNameTok?.Value?.ToString() ?? "<fn>",
+                frameId: fnNode.FrameId,
+                arity: fnNode.ArgNameToks.Count,
+                paramBindings: fnNode.ParamBindings,
+                argNameToks: fnNode.ArgNameToks,
+                body: fnNode.BodyNode,
+                shouldAutoReturn: fnNode.ShouldAutoReturn);
+        }
+
+        // M24: compile a single AstNode as an expression-shape RaFunction.
+        // Terminator is `OP_HALT scratch` so the result lands in
+        // RuntimeResult.Value (NOT FuncReturnValue). On compile failure the
+        // wrapper emits OP_NATIVE_DEFINE so the dispatch loop still produces
+        // a Value via the corresponding static Apply helper — no
+        // `interpreter.Visit` fallback. Used by IrExpressionEvaluator for
+        // sub-expressions invoked from runtime helpers and from visitor
+        // static Apply chains.
+        public static RaFunction CompileAsExpression(AstNode node, string name)
+        {
+            var fn = new RaFunction(name);
+            fn.FrameId = -1;
+            fn.Arity = 0;
+
+            var st = new State();
+            st.FrameId = -1;
+            const byte ScratchSlot = 0;
+            byte topSlot = 1;
+            byte retSlot = AllocTemp(ref topSlot);
+
+            int savedPc = st.Code.Pc;
+            int savedAstRefs = st.AstRefs.Count;
+            int savedScopeDepth = st.ScopeDepth;
+            bool emitted = false;
+            try
+            {
+                CompileExpression(node, retSlot, st, ref topSlot);
+                if (topSlot > st.MaxTempUsed) st.MaxTempUsed = topSlot;
+                emitted = true;
+            }
+            catch (IrCompileException)
+            {
+                // Roll back partial emit and route via OP_NATIVE_DEFINE.
+                st.Code.Truncate(savedPc);
+                if (st.AstRefs.Count > savedAstRefs)
+                    st.AstRefs.RemoveRange(savedAstRefs, st.AstRefs.Count - savedAstRefs);
+                st.ScopeDepth = savedScopeDepth;
+            }
+
+            if (!emitted)
+            {
+                if (st.DefineRefs.Count > ushort.MaxValue)
+                    throw new IrCompileException("DefineRefs overflow during CompileAsExpression");
+                ushort refIdx = (ushort)st.DefineRefs.Count;
+                st.DefineRefs.Add(node);
+                st.Code.Emit2(Opcode.NativeDefine, retSlot, refIdx);
+                if (topSlot > st.MaxTempUsed) st.MaxTempUsed = topSlot;
+            }
+
+            st.Code.Emit3(Opcode.Halt, retSlot, 0, 0);
+            FinalizeFn(fn, st);
+            return fn;
+        }
+
+        // M24: compile an AstNode as a statement-shape RaFunction. Body
+        // dispatch preserves FlowState (FuncReturnValue / Break / Continue
+        // propagate through to the caller). Used by visitor.Apply helpers
+        // that need to evaluate sub-statements while preserving control-flow
+        // signals.
+        public static RaFunction CompileAsStatement(AstNode node, string name)
+        {
+            var fn = new RaFunction(name);
+            fn.FrameId = -1;
+            fn.Arity = 0;
+
+            var st = new State();
+            st.FrameId = -1;
+            const byte ScratchSlot = 0;
+
+            CompileStatementWithFallback(node, st, ScratchSlot);
+
+            // Trailing terminator: load null + halt (Value=null, no
+            // FuncReturnValue set). Explicit `ret X` inside the body emits
+            // OP_RET that short-circuits before reaching this terminator.
+            st.Code.Emit3(Opcode.LoadNull, ScratchSlot, 0, 0);
+            st.Code.Emit3(Opcode.Halt, ScratchSlot, 0, 0);
+
+            FinalizeFn(fn, st);
+            return fn;
+        }
+
+        // M18: generic IR compile entry shared by FunctionDefinitionNode,
+        // StructMethodDefinitionNode, TraitMethodDefinitionNode, and
+        // OperatorDefinitionNode. Each caller adapts its own field shape to
+        // this signature.
+        public static RaFunction CompileMethodShape(
+            string name,
+            int frameId,
+            int arity,
+            Pipeline.BindingId[]? paramBindings,
+            IReadOnlyList<Lexer.Tokens.Token>? argNameToks,
+            AstNode? body,
+            bool shouldAutoReturn)
+        {
+            var fn = new RaFunction(name);
+            fn.FrameId = frameId;
+            fn.Arity = arity;
+
+            var st = new State();
+            st.FrameId = frameId;
+            const byte ScratchSlot = 0;
+
+            // Pre-register parameter slots so SlotCount accounts for them even
+            // when the body never reads a parameter. The dispatch loop relies
+            // on f.SlotLocals[paramSlot] being populated by the call-time
+            // SymbolTable setup; FunctionValue.PrepareExecutionContextForCall
+            // already runs SetLocal for each parameter, so the lazy-fallback
+            // path will materialise the slot on first read.
+            if (paramBindings != null)
+            {
+                for (int i = 0; i < paramBindings.Length; i++)
+                {
+                    var pb = paramBindings[i];
+                    if (!pb.IsResolved || pb.FrameId != st.FrameId) continue;
+                    string? pname = null;
+                    if (argNameToks != null && i < argNameToks.Count)
+                        pname = argNameToks[i].Value?.ToString();
+                    st.RegisterSlot(pb.Offset, pname);
+                }
+            }
+
+            // M17: arrow-form (ShouldAutoReturn) functions must return the
+            // body expression's value. Compile body as an expression into a
+            // dedicated slot and emit Ret instead of falling off into
+            // RetNull. If the body turns out to be a statement the IR can't
+            // express as a value (rare — Resolver lets `=>` accept any
+            // statement, but the AST visitor's auto-return is only
+            // meaningful for value-producing forms), fall back to the
+            // block-form path so we don't lose the function semantically.
+            if (shouldAutoReturn && body != null)
+            {
+                int savedPc = st.Code.Pc;
+                int savedAstRefs = st.AstRefs.Count;
+                int savedScopeDepth = st.ScopeDepth;
+                byte retTopSlot = 1;
+                byte retSlot = AllocTemp(ref retTopSlot);
+                try
+                {
+                    // M28.3: tail-call detection on arrow-form auto-return.
+                    // `fn x => other(x)` rewrites to OP_TAIL_CALL when the
+                    // body is a natively-compilable positional FunctionCall.
+                    if (body is FunctionCallNode fcArrow
+                        && IsCallNativelyCompilable(fcArrow)
+                        && fcArrow.ArgNodes.Count <= byte.MaxValue
+                        && TryEmitTailCall(fcArrow, st, ref retTopSlot))
+                    {
+                        if (retTopSlot > st.MaxTempUsed) st.MaxTempUsed = retTopSlot;
+                        FinalizeFn(fn, st);
+                        return fn;
+                    }
+                    CompileExpression(body, retSlot, st, ref retTopSlot);
+                    if (retTopSlot > st.MaxTempUsed) st.MaxTempUsed = retTopSlot;
+                    st.Code.Emit3(Opcode.Ret, retSlot, 0, 0);
+                    FinalizeFn(fn, st);
+                    return fn;
+                }
+                catch (IrCompileException)
+                {
+                    // Roll back any partial emit before falling through to the
+                    // block-form path (which uses CompileStatementWithFallback
+                    // — strictly more permissive at the cost of losing the
+                    // auto-return value).
+                    st.Code.Truncate(savedPc);
+                    if (st.AstRefs.Count > savedAstRefs)
+                        st.AstRefs.RemoveRange(savedAstRefs, st.AstRefs.Count - savedAstRefs);
+                    st.ScopeDepth = savedScopeDepth;
+                }
+            }
+
+            if (body is ScopeNode sc)
+            {
+                foreach (var stmt in sc.Nodes)
+                    CompileStatementWithFallback(stmt, st, ScratchSlot);
+            }
+            else if (body != null)
+            {
+                CompileStatementWithFallback(body, st, ScratchSlot);
+            }
+
+            // Default trailing terminator: load null into the scratch slot
+            // and Halt. This produces RuntimeResult.Success(null) with NO
+            // FuncReturnValue set — matching the AST visitor which returns
+            // bodyRes.Value (null) without flagging FlowState.Return. A real
+            // `ret` opcode would have set FuncReturnValue and short-circuited
+            // before reaching this. Distinction matters for constructors:
+            // explicit `ret X` from a constructor is an error, but falling
+            // off the end is fine; OP_RET_NULL would incorrectly trip the
+            // constructor check.
+            st.Code.Emit3(Opcode.LoadNull, ScratchSlot, 0, 0);
+            st.Code.Emit3(Opcode.Halt, ScratchSlot, 0, 0);
+
+            FinalizeFn(fn, st);
+            return fn;
+        }
+
+        private static void FinalizeFn(RaFunction fn, State st)
+        {
+            fn.Code = st.Code.ToArray();
+            fn.Consts = st.Consts.ToArray();
+            fn.Names = st.Names.ToArray();
+            fn.AstRefs = st.AstRefs.ToArray();
+            fn.CastRefs = st.CastRefs.ToArray();
+            fn.MemberAccessRefs = st.MemberAccessRefs.ToArray();
+            fn.MemberAssignRefs = st.MemberAssignRefs.ToArray();
+            fn.ListAssignRefs = st.ListAssignRefs.ToArray();
+            fn.EnumAccessRefs = st.EnumAccessRefs.ToArray();
+            fn.TypeofRefs = st.TypeofRefs.ToArray();
+            fn.NameofRefs = st.NameofRefs.ToArray();
+            fn.DerefRefs = st.DerefRefs.ToArray();
+            fn.SuperRefs = st.SuperRefs.ToArray();
+            fn.FuncDefRefs = st.FuncDefRefs.ToArray();
+            fn.DefineRefs = st.DefineRefs.ToArray();
+            fn.EhTable = st.EhTable.ToArray();
+            fn.LocalCount = st.MaxTempUsed;
+
+            if (st.MaxSlot < 0)
+            {
+                fn.SlotCount = 0;
+                fn.SlotNames = System.Array.Empty<string?>();
+            }
+            else
+            {
+                int count = st.MaxSlot + 1;
+                var arr = new string?[count];
+                var nameToSlot = new Dictionary<string, int>(st.SlotNames.Count);
+                foreach (var kvp in st.SlotNames)
+                {
+                    arr[kvp.Key] = kvp.Value;
+                    nameToSlot[kvp.Value] = kvp.Key;
+                }
+                fn.SlotCount = count;
+                fn.SlotNames = arr;
+                fn.NameToSlot = nameToSlot;
+            }
+            // M44: pin PC-span arrays onto the finalised function so the
+            // VM dispatch loop can resolve real source positions for
+            // runtime errors via binary search.
+            if (st.PcSpanPcs.Count > 0)
+            {
+                fn.PcSpansPc = st.PcSpanPcs.ToArray();
+                fn.PcSpansSpan = st.PcSpanSpans.ToArray();
+            }
+            BuildDeclSlotByAstRef(fn);
+            // M23.1: allocate per-PC inline cache table sized to code length.
+            // Slots stay zero-initialised until the first OP_LOAD_GLOBAL at
+            // that PC resolves a SymbolEntry and writes the cache snapshot.
+            if (fn.Code.Length > 0)
+            {
+                fn.LoadGlobalIc = new LoadGlobalIcSlot[fn.Code.Length];
+                // M27.3 / M28: per-PC IC backing arrays. Each table is gated
+                // on whether the corresponding opcode actually appears in
+                // Code. Skips a zero-initialised Code.Length array for
+                // arithmetic-only / numeric-only scripts that never emit
+                // GetMember, Cast, EnumAccess, or Call. Sized to Code.Length
+                // so PC indexing remains bounds-free in the hot path.
+                bool needEnumIc = false, needCastIc = false, needMemberIc = false, needCallIc = false;
+                for (int ip = 0; ip < fn.Code.Length; ip++)
+                {
+                    var op = Encoding.DecodeOp(fn.Code[ip]);
+                    switch (op)
+                    {
+                        case Opcode.EnumAccess: needEnumIc = true; break;
+                        case Opcode.Cast: needCastIc = true; break;
+                        case Opcode.GetMember: needMemberIc = true; break;
+                        case Opcode.Call:
+                        case Opcode.TailCall: needCallIc = true; break;
+                    }
+                }
+                if (needEnumIc)   fn.EnumAccessIc   = new EnumAccessIcSlot[fn.Code.Length];
+                if (needCastIc)   fn.CastIc         = new CastIcSlot[fn.Code.Length];
+                if (needMemberIc) fn.MemberAccessIc = new MemberAccessIcSlot[fn.Code.Length];
+                if (needCallIc)   fn.CallMethodIc   = new CallMethodIcSlot[fn.Code.Length];
+                // M40: infer per-slot type hints via a single forward
+                // pass over the opcode stream. Cheap (linear in Code.Length)
+                // and the result lives on the RaFunction for the future
+                // tier-up compiler.
+                InferSlotTypes(fn);
+                // M45: rewrite Add/Sub/Mul → AddNN/SubNN/MulNN when both
+                // operand slots are statically proven Number by the M40
+                // lattice. Runs in-place; preserves all other opcode
+                // semantics. Saves 2 type-tag checks + 2 null-checks per
+                // arith op on hot loops.
+                SpecializeNumericOps(fn);
+                // M64: build the CFG / Dominator / SSA / SCCP / GVN /
+                // LICM / DCE bundle, then apply `IrRewriter` to rewrite
+                // the linear Code[] in place. All rewrites are 1:1
+                // opcode substitutions — PC layout, branch offsets,
+                // EhTable, PcSpans, and every IC table stay valid.
+                // Bundle stays attached to the function for diagnostic
+                // dumps (`--dump-cfg`).
+                try
+                {
+                    fn.Analysis = Analysis.IrAnalysisBundle.Build(fn);
+                    Analysis.IrRewriter.Apply(fn, fn.Analysis);
+                    // M45 specialisation may now apply to ops the
+                    // rewriter changed (e.g. an Add folded to LoadConst
+                    // doesn't need the AddNN path). Re-run cheaply.
+                    SpecializeNumericOps(fn);
+                }
+                catch
+                {
+                    // Defensive: analysis failure must not break the
+                    // compile. Drop the bundle; the function still runs
+                    // through the un-rewritten dispatch loop.
+                    fn.Analysis = null;
+                }
+            }
+        }
+
+        // M40: single-pass type-hint inference. Walk the opcode stream
+        // forwards; on each write to a local slot, record the inferred
+        // RuntimeValueType. Subsequent writes to the same slot collapse
+        // the hint to RuntimeValueType.Null (top of the lattice) when
+        // the new type disagrees. The result is a coarse "this slot
+        // holds T at every reachable PC" predicate the JIT can rely on
+        // for type-specialised codegen.
+        //
+        // Conservative: any slot we don't recognise is left at
+        // RuntimeValueType.Null. This is correct (the JIT will fall
+        // back to the boxed dispatch path) at the cost of missed
+        // specialisation opportunities. Refinement to SSA-based
+        // per-PC inference is a separate milestone.
+        private static void InferSlotTypes(RaFunction fn)
+        {
+            int total = fn.LocalCount;
+            if (total <= 0) return;
+            var hints = new Values.RuntimeValueType[total];
+            // Initialise to "unknown" / top. RuntimeValueType.Null is
+            // overloaded as the sentinel "no inferred type" since it
+            // already encodes the null-valued case and gets overwritten
+            // by the first concrete observation.
+            for (int i = 0; i < hints.Length; i++) hints[i] = Values.RuntimeValueType.Null;
+            bool[] seen = new bool[total];
+
+            for (int pc = 0; pc < fn.Code.Length; pc++)
+            {
+                uint instr = fn.Code[pc];
+                var op = Encoding.DecodeOp(instr);
+                byte a = Encoding.A(instr);
+                ushort imm = Encoding.Imm16(instr);
+                Values.RuntimeValueType inferred = Values.RuntimeValueType.Null;
+                bool writes = false;
+                switch (op)
+                {
+                    case Opcode.LoadConst:
+                        if (imm < fn.Consts.Length && fn.Consts[imm] != null)
+                            inferred = fn.Consts[imm]!.Type;
+                        writes = true;
+                        break;
+                    case Opcode.LoadNull: inferred = Values.RuntimeValueType.Null; writes = true; break;
+                    case Opcode.LoadTrue:
+                    case Opcode.LoadFalse: inferred = Values.RuntimeValueType.Boolean; writes = true; break;
+                    case Opcode.LoadIntS: inferred = Values.RuntimeValueType.Number; writes = true; break;
+                    // Arithmetic results stay in the Number lattice when
+                    // both inputs are numeric. Without per-PC SSA we
+                    // conservatively assume Number for the unboxed
+                    // int64 fast path; the slow path may yield a
+                    // different concrete type but the JIT's guarded
+                    // specialisation can branch on it.
+                    case Opcode.Add:
+                    case Opcode.Sub:
+                    case Opcode.Mul:
+                    case Opcode.Div:
+                    case Opcode.Mod:
+                    case Opcode.Pow:
+                    case Opcode.Shl:
+                    case Opcode.Shr:
+                    case Opcode.BAnd:
+                    case Opcode.BOr:
+                    case Opcode.BXor:
+                    case Opcode.Neg:
+                    case Opcode.BNot:
+                        inferred = Values.RuntimeValueType.Number; writes = true; break;
+                    case Opcode.Not:
+                    case Opcode.Eq:
+                    case Opcode.Ne:
+                    case Opcode.SEq:
+                    case Opcode.SNe:
+                    case Opcode.Lt:
+                    case Opcode.Le:
+                    case Opcode.Gt:
+                    case Opcode.Ge:
+                        inferred = Values.RuntimeValueType.Boolean; writes = true; break;
+                    case Opcode.NewList:
+                        inferred = Values.RuntimeValueType.List; writes = true; break;
+                    case Opcode.NewMap:
+                        inferred = Values.RuntimeValueType.Map; writes = true; break;
+                    case Opcode.NewSet:
+                        inferred = Values.RuntimeValueType.Set; writes = true; break;
+                    case Opcode.NewTuple:
+                        inferred = Values.RuntimeValueType.Tuple; writes = true; break;
+                    case Opcode.StrConcat:
+                    case Opcode.Interp:
+                    case Opcode.Fmt:
+                        inferred = Values.RuntimeValueType.String; writes = true; break;
+                    // Writers we cannot statically type. Mark as a write so
+                    // any pre-existing hint on this slot is killed (joined
+                    // to top = Null), preventing M45's
+                    // SpecializeNumericOps from picking a stale hint for a
+                    // slot now holding a non-Number value (e.g. an IntegerValue
+                    // returned via LoadLocalS from a typed `var a: int`
+                    // binding that the constructor coerced post-LoadConst).
+                    case Opcode.LoadLocalS:
+                    case Opcode.LoadGlobal:
+                    case Opcode.LoadBuiltin:
+                    case Opcode.LoadUpval:
+                    case Opcode.Move:
+                    case Opcode.Alias:
+                    case Opcode.MoveLet:
+                    case Opcode.Borrow:
+                    case Opcode.Deref:
+                    case Opcode.Range:
+                    case Opcode.ListGet:
+                    case Opcode.MapGet:
+                    case Opcode.GetMember:
+                    case Opcode.EnumAccess:
+                    case Opcode.ForEachIterable:
+                    case Opcode.ListLen:
+                    case Opcode.Cast:
+                    case Opcode.Closure:
+                    case Opcode.Call:
+                    case Opcode.CallKw:
+                    case Opcode.CallMethod:
+                    case Opcode.NewInstance:
+                    case Opcode.GetSelf:
+                    case Opcode.GetSuper:
+                    case Opcode.Typeof:
+                    case Opcode.Nameof:
+                    case Opcode.DefineFunction:
+                    case Opcode.NativeDefine:
+                    case Opcode.Await:
+                    case Opcode.Spawn:
+                    case Opcode.NullCoal:
+                        inferred = Values.RuntimeValueType.Null; writes = true; break;
+                }
+                if (writes && a < total)
+                {
+                    if (!seen[a])
+                    {
+                        hints[a] = inferred;
+                        seen[a] = true;
+                    }
+                    else if (hints[a] != inferred)
+                    {
+                        // Conflicting writes → top of lattice.
+                        hints[a] = Values.RuntimeValueType.Null;
+                    }
+                }
+            }
+            fn.SlotTypeHints = hints;
+        }
+
+        // M45: rewrite Add/Sub/Mul into their type-specialised variants
+        // (AddNN/SubNN/MulNN) when the static SlotTypeHints lattice proves
+        // both source operands hold RuntimeValueType.Number at every
+        // reachable PC. Preserves the 3-byte ABC encoding — only the
+        // opcode byte changes.
+        private static void SpecializeNumericOps(RaFunction fn)
+        {
+            var hints = fn.SlotTypeHints;
+            if (hints == null) return;
+            for (int pc = 0; pc < fn.Code.Length; pc++)
+            {
+                uint instr = fn.Code[pc];
+                var op = Encoding.DecodeOp(instr);
+                Opcode? spec = op switch
+                {
+                    Opcode.Add => Opcode.AddNN,
+                    Opcode.Sub => Opcode.SubNN,
+                    Opcode.Mul => Opcode.MulNN,
+                    _ => null,
+                };
+                if (spec == null) continue;
+                byte b = Encoding.B(instr);
+                byte c = Encoding.C(instr);
+                if (b >= hints.Length || c >= hints.Length) continue;
+                if (hints[b] != Values.RuntimeValueType.Number) continue;
+                if (hints[c] != Values.RuntimeValueType.Number) continue;
+                // Swap only the opcode byte. ABC operands unchanged.
+                fn.Code[pc] = (instr & 0xFFFFFF00u) | (uint)spec.Value;
+            }
+        }
+
+        private static void BuildDeclSlotByAstRef(RaFunction fn)
+        {
+            var arr = new int[fn.AstRefs.Length];
+            for (int i = 0; i < arr.Length; i++)
+            {
+                arr[i] = -1;
+                if (fn.AstRefs[i] is VariableDeclarationNode vd
+                    && vd.Bindings != null
+                    && vd.Bindings.Length > 0
+                    && vd.Bindings[0].IsResolved
+                    && vd.Bindings[0].FrameId == fn.FrameId)
+                {
+                    arr[i] = vd.Bindings[0].Offset;
+                }
+            }
+            fn.DeclSlotByAstRef = arr;
+        }
+
+        // Slot eligibility predicate for hot read/write lowering. Kept tight:
+        // only frame-0 (script-frame) bindings of kinds that name a real
+        // slot at runtime. Captured / Builtin / Unresolved fall back to
+        // OP_LOAD_GLOBAL by-name.
+        private static bool IsSlotEligible(BindingId b, BindingKind k, State st)
+        {
+            if (!b.IsResolved) return false;
+            if (b.FrameId != st.FrameId) return false;
+            return k == BindingKind.Local
+                || k == BindingKind.Global
+                || k == BindingKind.Parameter
+                || k == BindingKind.SelfRef;
+        }
+
+        // M27.2 — Peephole: collapse `slot = slot + <safe-rhs>` (and `-`) into
+        // a single AddIntoSlot/SubIntoSlot. The fused opcode reads the slot's
+        // current value at execution time, so RHS sub-trees that could mutate
+        // the same slot or otherwise observe ordering (function calls, nested
+        // assignments) are forbidden. Caller has already verified the target
+        // binding is slot-eligible.
+        private static bool TryEmitSelfAdditiveSlot(VariableAssignmentNode va, State st, ref byte topSlot)
+        {
+            if (va.ValueNode is not BinaryOperationNode bo) return false;
+            var opType = bo.OpTok.Type;
+            if (opType != TokenType.PLUS && opType != TokenType.MINUS) return false;
+            if (bo.LeftNode is not VariableAccessNode lvn) return false;
+            // Self-additive: LHS of the binary op must reference the same
+            // resolved binding as the assignment target. BindingId comparison
+            // is sufficient — frame_id+offset uniquely identifies a slot.
+            if (!lvn.Binding.IsResolved) return false;
+            if (lvn.Binding != va.Binding) return false;
+            if (lvn.BindingKind != va.BindingKind) return false;
+            if (!IsSlotEligible(lvn.Binding, lvn.BindingKind, st)) return false;
+            if (!IsSafeRhsForSelfFuse(bo.RightNode)) return false;
+
+            // M27.5: when the slot fits in a u8 AND the RHS is a constant
+            // expression that folds to an int16-range integer, emit the
+            // immediate variant. Skips both the LoadConst dispatch and the
+            // temp-slot consumption for the RHS.
+            if (va.Binding.Offset <= byte.MaxValue
+                && TryConstEvalNumber(bo.RightNode, out var rhsConst)
+                && TryGetInt16FromNumberValue(rhsConst, out short rhsImm))
+            {
+                st.RegisterSlot(va.Binding.Offset, va.Name);
+                var immOp = opType == TokenType.PLUS ? Opcode.AddIntoSlotImm : Opcode.SubIntoSlotImm;
+                st.Code.Emit2(immOp, (byte)va.Binding.Offset, unchecked((ushort)rhsImm));
+                return true;
+            }
+
+            byte rhsSlot = AllocTemp(ref topSlot);
+            CompileExpression(bo.RightNode, rhsSlot, st, ref topSlot);
+            st.RegisterSlot(va.Binding.Offset, va.Name);
+            var op = opType == TokenType.PLUS ? Opcode.AddIntoSlot : Opcode.SubIntoSlot;
+            st.Code.Emit2(op, rhsSlot, (ushort)va.Binding.Offset);
+            return true;
+        }
+
+        // Narrow a foldable constant down to an int16 immediate, if it sits in
+        // [-32768..32767] and has scale 0. Used by M27.5 to gate emission of
+        // the inline-immediate AddIntoSlotImm/SubIntoSlotImm variants.
+        private static bool TryGetInt16FromNumberValue(RuntimeValue value, out short result)
+        {
+            result = 0;
+            if (value is not NumberValue nv) return false;
+            var bn = nv.Value;
+            if (!bn.Scale.IsZero) return false;
+            var u = bn.Unscaled;
+            if (u < short.MinValue || u > short.MaxValue) return false;
+            result = (short)(int)u;
+            return true;
+        }
+
+        // Returns true iff compiling `node` cannot mutate the surrounding
+        // frame / produce a side effect observable by the fused opcode. The
+        // whitelist matches the dominant `+= literal` / `+= other_local`
+        // patterns at loop-counter sites without dragging in nested writes,
+        // function-call dispatches, member assignments, etc.
+        private static bool IsSafeRhsForSelfFuse(AstNode node)
+        {
+            switch (node.NodeType)
+            {
+                case AstNodeType.Number:
+                case AstNodeType.Boolean:
+                case AstNodeType.String:
+                case AstNodeType.Null:
+                case AstNodeType.VariableAccess:
+                    return true;
+                case AstNodeType.UnaryOperation:
+                {
+                    var un = (UnaryOperationNode)node;
+                    return IsSafeRhsForSelfFuse(un.Node);
+                }
+                case AstNodeType.BinaryOperation:
+                {
+                    var inner = (BinaryOperationNode)node;
+                    // Allow constant arithmetic sub-trees so `i = i + (1 + 2)`
+                    // still folds; constant folding earlier may already have
+                    // collapsed it, but be defensive.
+                    return IsSafeRhsForSelfFuse(inner.LeftNode)
+                        && IsSafeRhsForSelfFuse(inner.RightNode);
+                }
+                default:
+                    return false;
+            }
+        }
+
+        private static void CompileStatementWithFallback(AstNode stmt, State st, byte scratchSlot)
+        {
+            int savedPc = st.Code.Pc;
+            int savedAstRefs = st.AstRefs.Count;
+            int savedScopeDepth = st.ScopeDepth;
+            byte topSlot = 1;
+
+            try
+            {
+                if (TryCompileStatement(stmt, st, ref topSlot, scratchSlot, strict: false))
+                {
+                    if (topSlot > st.MaxTempUsed) st.MaxTempUsed = topSlot;
+                    return;
+                }
+            }
+            catch (IrCompileException)
+            {
+                // intentional: fall through and fallback
+            }
+
+            // rollback tentative state
+            st.Code.Truncate(savedPc);
+            if (st.AstRefs.Count > savedAstRefs)
+                st.AstRefs.RemoveRange(savedAstRefs, st.AstRefs.Count - savedAstRefs);
+            st.ScopeDepth = savedScopeDepth;
+            EmitFallback(stmt, st, scratchSlot);
+        }
+
+        // Rollback emits OP_NATIVE_DEFINE for every node kind that has a
+        // registered Apply dispatch in VmExecutor. Anything else is a hard
+        // failure: there is no AST-walker fallback any more.
+        private static void EmitFallback(AstNode node, State st, byte scratchSlot)
+        {
+            if (!HasNativeDefineRoute(node.NodeType))
+                throw new IrCompileException(
+                    $"no NATIVE_DEFINE route for node {node.NodeType}; wire VmExecutor.OP_NATIVE_DEFINE first");
+            if (st.DefineRefs.Count > ushort.MaxValue)
+                throw new IrCompileException("DefineRefs overflow (>65535)");
+            ushort refIdx = (ushort)st.DefineRefs.Count;
+            st.DefineRefs.Add(node);
+            st.Code.Emit2(Opcode.NativeDefine, scratchSlot, refIdx);
+        }
+
+        // Mirrors VmExecutor's OP_NATIVE_DEFINE switch. Keep in sync when
+        // adding a new dispatch case there.
+        private static bool HasNativeDefineRoute(AstNodeType t)
+        {
+            switch (t)
+            {
+                case AstNodeType.ExtensionDefinition:
+                case AstNodeType.TraitDefinition:
+                case AstNodeType.StructDefinition:
+                case AstNodeType.InterfaceDefinition:
+                case AstNodeType.EnumDefinition:
+                case AstNodeType.UsingNamespace:
+                case AstNodeType.ClassDefinition:
+                case AstNodeType.AnnotationDefinition:
+                case AstNodeType.NamespaceDeclaration:
+                case AstNodeType.ImportAll:
+                case AstNodeType.ImportSelective:
+                case AstNodeType.ImportAlias:
+                case AstNodeType.Match:
+                case AstNodeType.TryUnwrap:
+                case AstNodeType.Await:
+                case AstNodeType.Spawn:
+                case AstNodeType.Emit:
+                case AstNodeType.ForAwait:
+                case AstNodeType.Pipeline:
+                case AstNodeType.Borrow:
+                case AstNodeType.DereferenceAssignment:
+                case AstNodeType.Goto:
+                case AstNodeType.Label:
+                case AstNodeType.SuperFor:
+                case AstNodeType.AsmBlock:
+                case AstNodeType.RegexLiteral:
+                case AstNodeType.FormattedInterpolation:
+                case AstNodeType.Yield:
+                case AstNodeType.AnnotationApplication:
+                case AstNodeType.Switch:
+                case AstNodeType.Try:
+                case AstNodeType.Scope:
+                case AstNodeType.If:
+                case AstNodeType.VariableDeclaration:
+                case AstNodeType.VariableAssignment:
+                case AstNodeType.Break:
+                case AstNodeType.Continue:
+                case AstNodeType.Pass:
+                case AstNodeType.Return:
+                case AstNodeType.Throw:
+                case AstNodeType.Retry:
+                case AstNodeType.BinaryOperation:
+                case AstNodeType.UnaryOperation:
+                case AstNodeType.List:
+                case AstNodeType.Set:
+                case AstNodeType.Tuple:
+                case AstNodeType.Map:
+                case AstNodeType.FunctionCall:
+                case AstNodeType.VariableDelete:
+                case AstNodeType.MemberAssignment:
+                case AstNodeType.ListAssignment:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool TryCompileStatement(
+            AstNode stmt, State st, ref byte topSlot, byte scratchSlot, bool strict)
+        {
+            // M44: anchor a (PC → source span) entry at the start of every
+            // top-level statement. Coarse but enough for the VM to surface
+            // a real source position when an opcode raises a runtime
+            // error mid-statement.
+            st.RecordPcSpan(stmt);
+            switch (stmt.NodeType)
+            {
+                // ---- pure expression statements (M2) ----
+                case AstNodeType.Number:
+                case AstNodeType.Boolean:
+                case AstNodeType.Null:
+                case AstNodeType.String:
+                case AstNodeType.VariableAccess:
+                case AstNodeType.BinaryOperation:
+                case AstNodeType.UnaryOperation:
+                case AstNodeType.FunctionCall:
+                case AstNodeType.FunctionDefinition:
+                case AstNodeType.MemberAccess:
+                case AstNodeType.ListAccess:
+                case AstNodeType.EnumAccess:
+                case AstNodeType.Self:
+                case AstNodeType.Super:
+                case AstNodeType.Typeof:
+                case AstNodeType.Nameof:
+                case AstNodeType.Dereference:
+                case AstNodeType.Cast:
+                case AstNodeType.Ternary:
+                case AstNodeType.NullCoalescing:
+                case AstNodeType.Range:
+                case AstNodeType.List:
+                case AstNodeType.Set:
+                case AstNodeType.Map:
+                case AstNodeType.Tuple:
+                {
+                    byte topAtEntry = topSlot;
+                    CompileExpression(stmt, scratchSlot, st, ref topSlot);
+                    if (topSlot < topAtEntry) topSlot = topAtEntry;
+                    return true;
+                }
+
+                // ---- control flow (M3) ----
+                case AstNodeType.Pass:
+                    st.Code.Emit3(Opcode.Pass, 0, 0, 0);
+                    return true;
+
+                case AstNodeType.Scope:
+                {
+                    // Top-level `{ ... }` bare blocks need their own scope so
+                    // local declarations die at block end. We now have scope
+                    // opcodes so we can compile them natively.
+                    var sc = (ScopeNode)stmt;
+                    if (!strict)
+                    {
+                        EmitPushScope(st);
+                        foreach (var child in sc.Nodes)
+                            CompileStatementWithFallback(child, st, scratchSlot);
+                        EmitPopScope(st);
+                        return true;
+                    }
+                    return CompileScopeStrict(sc, st, ref topSlot, scratchSlot);
+                }
+
+                case AstNodeType.If:
+                    CompileIf((IfNode)stmt, st, ref topSlot, scratchSlot);
+                    return true;
+
+                case AstNodeType.While:
+                    CompileWhile((WhileNode)stmt, st, ref topSlot, scratchSlot);
+                    return true;
+
+                case AstNodeType.DoWhile:
+                    CompileDoWhile((DoWhileNode)stmt, st, ref topSlot, scratchSlot);
+                    return true;
+
+                case AstNodeType.For:
+                    CompileFor((ForNode)stmt, st, ref topSlot, scratchSlot);
+                    return true;
+
+                case AstNodeType.ForEach:
+                    CompileForEach((ForEachNode)stmt, st, ref topSlot, scratchSlot);
+                    return true;
+
+                case AstNodeType.Try:
+                    CompileTry((Parser.Nodes.Special.TryNode)stmt, st, ref topSlot, scratchSlot);
+                    return true;
+
+                case AstNodeType.Break:
+                {
+                    if (st.Loops.Count == 0)
+                        throw new IrCompileException("`break` outside loop");
+                    var loop = st.Loops.Peek();
+                    EmitPopsDownTo(st, loop.BaselineScopeDepth);
+                    int pc = st.Code.EmitForwardJump(Opcode.Jmp);
+                    loop.BreakFixups.Add(pc);
+                    return true;
+                }
+
+                case AstNodeType.Continue:
+                {
+                    if (st.Loops.Count == 0)
+                        throw new IrCompileException("`continue` outside loop");
+                    var loop = st.Loops.Peek();
+                    EmitPopsDownTo(st, loop.BaselineScopeDepth);
+                    int pc = st.Code.EmitForwardJump(Opcode.Jmp);
+                    loop.ContinueFixups.Add(pc);
+                    return true;
+                }
+
+                case AstNodeType.Retry:
+                {
+                    if (st.Loops.Count == 0)
+                        throw new IrCompileException("`retry` outside loop");
+                    var loop = st.Loops.Peek();
+                    EmitPopsDownTo(st, loop.BaselineScopeDepth);
+                    st.Code.EmitBackwardJump(Opcode.Jmp, 0, loop.RetryTargetPc);
+                    return true;
+                }
+
+                case AstNodeType.Return:
+                {
+                    // OP_RET exits the dispatch loop immediately. Any open
+                    // scopes go out of C# scope along with the VmFrame, so
+                    // no PopScopes need to be emitted before the RET.
+                    var rn = (ReturnNode)stmt;
+                    if (rn.NodeToReturn == null)
+                    {
+                        st.Code.Emit3(Opcode.RetNull, 0, 0, 0);
+                    }
+                    else
+                    {
+                        // M28.3: tail-call detection. When the returned
+                        // expression is a positional-only FunctionCall the IR
+                        // can natively compile, emit OP_TAIL_CALL instead of
+                        // the OP_CALL + OP_RET pair — saves the OP_RET
+                        // dispatch and prepares the ground for true
+                        // stack-trampolined TCO if/when the dispatch loop is
+                        // refactored to a thunk-return discipline.
+                        if (rn.NodeToReturn is FunctionCallNode fcRet
+                            && IsCallNativelyCompilable(fcRet)
+                            && fcRet.ArgNodes.Count <= byte.MaxValue
+                            && TryEmitTailCall(fcRet, st, ref topSlot))
+                        {
+                            return true;
+                        }
+                        byte slot = scratchSlot;
+                        CompileExpression(rn.NodeToReturn, slot, st, ref topSlot);
+                        st.Code.Emit3(Opcode.Ret, slot, 0, 0);
+                    }
+                    return true;
+                }
+
+                case AstNodeType.Throw:
+                {
+                    var thr = (ThrowNode)stmt;
+                    byte slot = AllocTemp(ref topSlot);
+                    CompileExpression(thr.Expression, slot, st, ref topSlot);
+                    st.Code.Emit3(Opcode.Throw, slot, 0, 0);
+                    return true;
+                }
+
+                // Native registrations + long-tail expressions / statements.
+                // The VM dispatches to the visitor's static Apply method
+                // directly, bypassing interpreter._visitors[].
+                case AstNodeType.ExtensionDefinition:
+                case AstNodeType.TraitDefinition:
+                case AstNodeType.StructDefinition:
+                case AstNodeType.InterfaceDefinition:
+                case AstNodeType.EnumDefinition:
+                case AstNodeType.UsingNamespace:
+                case AstNodeType.ClassDefinition:
+                case AstNodeType.AnnotationDefinition:
+                case AstNodeType.NamespaceDeclaration:
+                case AstNodeType.ImportAll:
+                case AstNodeType.ImportSelective:
+                case AstNodeType.ImportAlias:
+                case AstNodeType.Match:
+                case AstNodeType.TryUnwrap:
+                case AstNodeType.Await:
+                case AstNodeType.Spawn:
+                case AstNodeType.Emit:
+                case AstNodeType.ForAwait:
+                case AstNodeType.Pipeline:
+                case AstNodeType.Borrow:
+                case AstNodeType.DereferenceAssignment:
+                case AstNodeType.Goto:
+                case AstNodeType.Label:
+                case AstNodeType.SuperFor:
+                case AstNodeType.AsmBlock:
+                case AstNodeType.RegexLiteral:
+                case AstNodeType.FormattedInterpolation:
+                case AstNodeType.Yield:
+                case AstNodeType.AnnotationApplication:
+                case AstNodeType.Switch:
+                {
+                    if (st.DefineRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("DefineRefs overflow (>65535)");
+                    ushort refIdx = (ushort)st.DefineRefs.Count;
+                    st.DefineRefs.Add(stmt);
+                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, refIdx);
+                    return true;
+                }
+
+                case AstNodeType.VariableAssignment:
+                {
+                    // M6: handle compound assignments (+=, -=, *=, /=, %=, **=,
+                    // &=, |=, <<=, >>=, and=, or=, ??=). AssignmentHelper.ApplyPrechecked
+                    // encodes the operator selection via node.AssignmentToken.Type,
+                    // so OP_STORE_GLOBAL covers every form.
+                    // M14: plain `=` to a slot-eligible binding bypasses
+                    // AssignmentHelper and routes through OP_STORE_LOCAL_S.
+                    var va = (VariableAssignmentNode)stmt;
+                    // M27.2: try the LoadLocalS+Add+StoreLocalS fused
+                    // superinstruction first (`i = i + 1` ⇒ AddIntoSlot). Must
+                    // run before we compile the RHS expression because the
+                    // fused opcode reads the slot directly — emitting the
+                    // unfused LoadLocalS would waste a temp slot.
+                    if (va.AssignmentToken.Type == TokenType.EQ
+                        && IsSlotEligible(va.Binding, va.BindingKind, st)
+                        && TryEmitSelfAdditiveSlot(va, st, ref topSlot))
+                    {
+                        return true;
+                    }
+                    byte src = AllocTemp(ref topSlot);
+                    CompileExpression(va.ValueNode, src, st, ref topSlot);
+                    if (va.AssignmentToken.Type == TokenType.EQ
+                        && IsSlotEligible(va.Binding, va.BindingKind, st))
+                    {
+                        st.RegisterSlot(va.Binding.Offset, va.Name);
+                        st.Code.Emit2(Opcode.StoreLocalS, src, (ushort)va.Binding.Offset);
+                        return true;
+                    }
+                    if (st.AstRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("AstRefs overflow");
+                    ushort refIdx = (ushort)st.AstRefs.Count;
+                    st.AstRefs.Add(va);
+                    st.Code.Emit2(Opcode.StoreGlobal, src, refIdx);
+                    return true;
+                }
+
+                case AstNodeType.MemberAssignment:
+                {
+                    // `obj.member = value`. Use OP_SET_MEMBER.
+                    var ma = (Parser.Nodes.Structs.MemberAssignmentNode)stmt;
+                    if (st.MemberAssignRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("MemberAssignRefs overflow (>65535)");
+                    byte ownerSlot = AllocTemp(ref topSlot);
+                    CompileExpression(ma.TargetNode.TargetNode, ownerSlot, st, ref topSlot);
+                    byte valSlot = AllocTemp(ref topSlot);
+                    CompileExpression(ma.ValueNode, valSlot, st, ref topSlot);
+                    int refIdx = st.MemberAssignRefs.Count;
+                    st.MemberAssignRefs.Add(ma);
+                    // M82 — Wide prefix when refIdx > 255.
+                    st.Code.Emit3WideC(Opcode.SetMember, ownerSlot, valSlot, refIdx);
+                    return true;
+                }
+
+                case AstNodeType.ListAssignment:
+                {
+                    // `arr[i] = v` (or compound). Use OP_SET_INDEX with the
+                    // contract that idxSlot is followed by valSlot.
+                    var la = (Parser.Nodes.Variables.ListAssignmentNode)stmt;
+                    if (la.Target.NodeType != AstNodeType.ListAccess)
+                    {
+                        if (strict) throw new IrCompileException("list-assignment target not ListAccess");
+                        return false;
+                    }
+                    if (st.ListAssignRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("ListAssignRefs overflow (>65535)");
+                    var lan = (Parser.Nodes.Variables.ListAccessNode)la.Target;
+                    byte tgtSlot = AllocTemp(ref topSlot);
+                    CompileExpression(lan.Target, tgtSlot, st, ref topSlot);
+                    // M24: reserve idxSlot + valSlot as a consecutive pair
+                    // BEFORE compiling the index expression. The encoded
+                    // OP_SET_INDEX expects valSlot == idxSlot + 1; if we
+                    // alloc them after the index compile, an expression
+                    // like `m[(i as string)] = i` whose index sub-tree
+                    // bumps topSlot internally would push valSlot to
+                    // idxSlot + 2 and fail the contract. Pre-reserving the
+                    // pair keeps internal index temps allocating after the
+                    // value slot.
+                    byte idxSlot = AllocTemp(ref topSlot);
+                    byte valSlot = AllocTemp(ref topSlot); // = idxSlot + 1 (guaranteed)
+                    if (valSlot != idxSlot + 1)
+                        throw new IrCompileException("VM SetIndex layout requires idxSlot+1 = valSlot");
+                    CompileExpression(lan.Index, idxSlot, st, ref topSlot);
+                    CompileExpression(la.Value, valSlot, st, ref topSlot);
+                    int refIdx = st.ListAssignRefs.Count;
+                    st.ListAssignRefs.Add(la);
+                    // M82 — Wide prefix when refIdx > 255.
+                    st.Code.Emit3WideC(Opcode.SetIndex, tgtSlot, idxSlot, refIdx);
+                    return true;
+                }
+
+                case AstNodeType.VariableDeclaration:
+                {
+                    var vd = (VariableDeclarationNode)stmt;
+                    if (!Runtime.DeclarationHelper.IsNativelyCompilable(vd))
+                    {
+                        if (strict)
+                            throw new IrCompileException("declaration not natively compilable in strict body");
+                        return false;
+                    }
+                    var initExpr = vd.Declarations[0].Item2!;
+                    byte src = AllocTemp(ref topSlot);
+                    CompileExpression(initExpr, src, st, ref topSlot);
+                    if (st.AstRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("AstRefs overflow");
+                    ushort refIdx = (ushort)st.AstRefs.Count;
+                    st.AstRefs.Add(vd);
+                    if (vd.Bindings != null && vd.Bindings.Length > 0
+                        && vd.Bindings[0].IsResolved && vd.Bindings[0].FrameId == st.FrameId)
+                    {
+                        var declName = vd.Declarations[0].Item1.Value?.ToString();
+                        st.RegisterSlot(vd.Bindings[0].Offset, declName);
+                    }
+                    st.Code.Emit2(Opcode.DeclareLocal, src, refIdx);
+                    return true;
+                }
+
+                default:
+                    if (strict)
+                        throw new IrCompileException($"unsupported statement in compiled body: {stmt.NodeType}");
+                    return false;
+            }
+        }
+
+        private static bool CompileScopeStrict(
+            ScopeNode scope, State st, ref byte topSlot, byte scratchSlot)
+        {
+            EmitPushScope(st);
+            foreach (var child in scope.Nodes)
+            {
+                if (!TryCompileStatement(child, st, ref topSlot, scratchSlot, strict: true))
+                    throw new IrCompileException($"strict scope child not compilable: {child.NodeType}");
+            }
+            EmitPopScope(st);
+            return true;
+        }
+
+        // Compile `if cond { body } elif … else …`. Each branch body runs
+        // inside a fresh scope so nested `var x = ...` declarations die at
+        // branch exit.
+        //
+        // M21.1: dropped the BodyContainsUnsupported pre-checks. Strict-mode
+        // TryCompileStatement already emits OP_NATIVE_DEFINE for the long
+        // tail (Match, Switch, Try, Await, AnnotationApplication, etc.), so
+        // pre-rejecting them throws away native lowering of the if scaffold
+        // for no gain. Anything strict-mode genuinely can't express still
+        // throws IrCompileException, which the outer
+        // CompileStatementWithFallback catches and routes the whole If
+        // through OP_NATIVE_DEFINE → IfNodeVisitor.Apply.
+        private static void CompileIf(IfNode node, State st, ref byte topSlot, byte scratchSlot)
+        {
+            var endJumps = new List<int>();
+
+            for (int i = 0; i < node.Cases.Count; i++)
+            {
+                var (cond, body, _shouldReturnNull) = node.Cases[i];
+
+                // M22.1: constant-fold a literal True / False / Null
+                // condition. `if true { X } else { Y }` → emit X only.
+                // `if false { X } else { Y }` → skip X. Eliminates the
+                // condition slot allocation + JmpIfNot + extra jump.
+                bool? folded = TryFoldCondition(cond);
+                if (folded == true)
+                {
+                    CompileBodyScoped(body, st, ref topSlot, scratchSlot);
+                    // remaining elif / else branches statically dead — drop.
+                    foreach (var j in endJumps) st.Code.PatchJumpToHere(j);
+                    return;
+                }
+                if (folded == false)
+                {
+                    // skip this branch entirely; continue to next elif/else.
+                    continue;
+                }
+
+                byte condSlot = AllocTemp(ref topSlot);
+                CompileExpression(cond, condSlot, st, ref topSlot);
+
+                int skipJmp = st.Code.EmitForwardJump(Opcode.JmpIfNot, condSlot);
+
+                CompileBodyScoped(body, st, ref topSlot, scratchSlot);
+
+                int endJmp = st.Code.EmitForwardJump(Opcode.Jmp);
+                endJumps.Add(endJmp);
+
+                st.Code.PatchJumpToHere(skipJmp);
+            }
+
+            if (node.ElseCase.HasValue)
+            {
+                var (elseBody, _shouldReturnNull) = node.ElseCase.Value;
+                CompileBodyScoped(elseBody, st, ref topSlot, scratchSlot);
+            }
+
+            foreach (var j in endJumps) st.Code.PatchJumpToHere(j);
+        }
+
+        // Returns true / false when the node is a compile-time constant
+        // condition that evaluates trivially. Returns null otherwise (caller
+        // must emit runtime evaluation).
+        //   - `true` / `false` literal → boolean truthiness
+        //   - `null` literal → falsy
+        //   - bare integer literal → truthy if non-zero, falsy if zero
+        // Everything else (variable reads, function calls, complex
+        // expressions) returns null because side effects + dynamic typing
+        // forbid the elision.
+        private static bool? TryFoldCondition(AstNode node)
+        {
+            switch (node.NodeType)
+            {
+                case AstNodeType.Boolean:
+                {
+                    var bn = (Parser.Nodes.Primitives.BooleanNode)node;
+                    if (bn.Token.Value is Keyword k)
+                    {
+                        if (k == Keyword.True) return true;
+                        if (k == Keyword.False) return false;
+                    }
+                    return null;
+                }
+                case AstNodeType.Null:
+                    return false;
+                case AstNodeType.Number:
+                {
+                    var nn = (NumberNode)node;
+                    var raw = nn.Tok.Value?.ToString() ?? "";
+                    if (raw.Length == 0) return null;
+                    // Reject suffixed / base-prefixed literals; only plain
+                    // decimal int / float is safe to fold here.
+                    if (raw[0] == '0' && raw.Length >= 2
+                        && (raw[1] == 'x' || raw[1] == 'X' || raw[1] == 'b' || raw[1] == 'B'
+                            || raw[1] == 'o' || raw[1] == 'O'))
+                        return null;
+                    char last = raw[raw.Length - 1];
+                    if ((last >= 'a' && last <= 'z') || (last >= 'A' && last <= 'Z')) return null;
+                    foreach (char c in raw)
+                        if (c != '0' && c != '.' && c != '-' && c != '+') return true;
+                    return false;
+                }
+                default:
+                    return null;
+            }
+        }
+
+        // While: PushScope ; loop_top: ClearScope ; cond ; JmpIfNot exit ;
+        // body strict ; Jmp loop_top ; exit: PopScope.
+        // Continue → jump to loop_top (after the body's pops). Break → jump
+        // to exit (loop's pop runs naturally).
+        private static void CompileWhile(WhileNode node, State st, ref byte topSlot, byte scratchSlot)
+        {
+            // M21.1: pre-check dropped — strict-mode CompileBodyStrictInline
+            // raises IrCompileException directly when a body child genuinely
+            // cannot lower, and the outer CompileStatementWithFallback rolls
+            // back and routes the whole While through OP_NATIVE_DEFINE.
+            // M22.1: constant-fold a literal condition. `while false {}`
+            // emits nothing; `while true {}` drops the cond + exit jump.
+            bool? whileFolded = TryFoldCondition(node.ConditionNode);
+            if (whileFolded == false) return;
+
+            EmitPushScope(st);
+            int baselineDepth = st.ScopeDepth;
+            int loopTopPc = st.Code.Pc;
+
+            // ClearScope at the top of each iter mirrors bodySymbols.Clear()
+            // in WhileNodeVisitor — drops any locals declared in the
+            // previous iteration before re-evaluating the condition.
+            st.Code.Emit3(Opcode.ClearScope, 0, 0, 0);
+
+            int exitJmp = -1;
+            if (whileFolded != true)
+            {
+                byte condSlot = AllocTemp(ref topSlot);
+                CompileExpression(node.ConditionNode, condSlot, st, ref topSlot);
+                exitJmp = st.Code.EmitForwardJump(Opcode.JmpIfNot, condSlot);
+            }
+
+            var loop = new LoopContext(loopTopPc, baselineDepth);
+            st.Loops.Push(loop);
+            try
+            {
+                CompileBodyStrictInline(node.BodyNode, st, ref topSlot, scratchSlot);
+                st.Code.EmitBackwardJump(Opcode.Jmp, 0, loopTopPc);
+            }
+            finally
+            {
+                st.Loops.Pop();
+            }
+
+            if (exitJmp >= 0) st.Code.PatchJumpToHere(exitJmp);
+            foreach (var p in loop.BreakFixups) st.Code.PatchJumpToHere(p);
+            PatchJumpsBackward(st, loop.ContinueFixups, loopTopPc);
+
+            EmitPopScope(st);
+        }
+
+        // DoWhile: PushScope ; loop_top: ClearScope ; body ; continue_target:
+        // cond ; JmpIf loop_top ; exit: PopScope.
+        // Break → exit. Continue → continue_target.
+        private static void CompileDoWhile(DoWhileNode node, State st, ref byte topSlot, byte scratchSlot)
+        {
+            // M21.1: pre-check dropped — see CompileWhile rationale.
+            EmitPushScope(st);
+            int baselineDepth = st.ScopeDepth;
+            int loopTopPc = st.Code.Pc;
+            st.Code.Emit3(Opcode.ClearScope, 0, 0, 0);
+
+            var loop = new LoopContext(loopTopPc, baselineDepth);
+            st.Loops.Push(loop);
+            try
+            {
+                CompileBodyStrictInline(node.BodyNode, st, ref topSlot, scratchSlot);
+            }
+            finally
+            {
+                st.Loops.Pop();
+            }
+
+            int continueTargetPc = st.Code.Pc;
+
+            byte condSlot = AllocTemp(ref topSlot);
+            CompileExpression(node.ConditionNode, condSlot, st, ref topSlot);
+            st.Code.EmitBackwardJump(Opcode.JmpIf, condSlot, loopTopPc);
+
+            foreach (var p in loop.BreakFixups) st.Code.PatchJumpToHere(p);
+            PatchJumpsBackward(st, loop.ContinueFixups, continueTargetPc);
+
+            EmitPopScope(st);
+        }
+
+        // For loop: iter scope (holds iter var) + body scope (cleared each
+        // iter). Mirrors ForNodeVisitor.cs lines 13-78.
+        //
+        //   <compute start, end, step into temp slots>
+        //   PushScope (iter scope)
+        //   SetLocalDirect iterName, iterSlot    # initialize iter var = start
+        //   <copy start into iterValSlot>        # VM-side counter (avoids body mutating iter sequence)
+        //   PushScope (body scope)
+        //   loop_top:
+        //     ClearScope                          # drop body locals
+        //     <test step >= 0 ? iter < end : iter > end>
+        //     JmpIfNot exit_outer
+        //     AssignBinding iterName, iterValSlot # publish current iter value
+        //     <body strict>
+        //     iterValSlot = iterValSlot + step
+        //     Jmp loop_top
+        //   exit_outer:
+        //   PopScope (body)
+        //   PopScope (iter)
+        private static void CompileFor(ForNode node, State st, ref byte topSlot, byte scratchSlot)
+        {
+            // M21.1: pre-checks dropped — see CompileWhile rationale.
+            string iterName = node.VarNameTok.Value!.ToString()!;
+            ushort iterNameIdx = st.Names.Add(iterName);
+
+            // Compute bounds into temp slots BEFORE pushing scopes (so the
+            // expressions execute in the outer scope, matching the AST
+            // visitor where bounds are evaluated in loopContext after Copy
+            // but BEFORE the body context is allocated).
+            //
+            // Allocate temps in a way that survives the body's own temp
+            // bumping — bump topSlot now and pin these.
+            byte startSlot = AllocTemp(ref topSlot);
+            CompileExpression(node.StartValueNode, startSlot, st, ref topSlot);
+
+            byte endSlot = AllocTemp(ref topSlot);
+            CompileExpression(node.EndValueNode, endSlot, st, ref topSlot);
+
+            byte stepSlot = AllocTemp(ref topSlot);
+            if (node.StepValueNode != null)
+            {
+                CompileExpression(node.StepValueNode, stepSlot, st, ref topSlot);
+            }
+            else
+            {
+                // Step defaults to NumberValue.One.
+                ushort oneIdx = st.Consts.Add(NumberValue.One);
+                st.Code.Emit2(Opcode.LoadConst, stepSlot, oneIdx);
+            }
+
+            // VM-side iterator counter — body mutations to the iter binding
+            // do not affect this slot.
+            byte iterValSlot = AllocTemp(ref topSlot);
+            st.Code.Emit3(Opcode.Move, iterValSlot, startSlot, 0);
+
+            EmitPushScope(st); // iter scope
+            st.Code.Emit2(Opcode.SetLocalDirect, startSlot, iterNameIdx);
+
+            EmitPushScope(st); // body scope
+            int baselineDepth = st.ScopeDepth;
+
+            int loopTopPc = st.Code.Pc;
+            st.Code.Emit3(Opcode.ClearScope, 0, 0, 0);
+
+            // Test: step >= 0 ? iter < end : iter > end.
+            // Implemented as two paths via a conditional jump on the step
+            // sign. Cheap and correct.
+            ushort zeroIdx = st.Consts.Add(NumberValue.Zero);
+            byte zeroSlot = AllocTemp(ref topSlot);
+            st.Code.Emit2(Opcode.LoadConst, zeroSlot, zeroIdx);
+            byte stepNonNeg = AllocTemp(ref topSlot);
+            st.Code.Emit3(Opcode.Ge, stepNonNeg, stepSlot, zeroSlot);
+
+            // If stepNonNeg (ascending), do iter < end. Else iter > end.
+            int jmpToDescTest = st.Code.EmitForwardJump(Opcode.JmpIfNot, stepNonNeg);
+
+            // ascending branch:
+            byte cmpAsc = AllocTemp(ref topSlot);
+            st.Code.Emit3(Opcode.Lt, cmpAsc, iterValSlot, endSlot);
+            int jmpAfterAsc = st.Code.EmitForwardJump(Opcode.Jmp);
+            // descending branch:
+            st.Code.PatchJumpToHere(jmpToDescTest);
+            st.Code.Emit3(Opcode.Gt, cmpAsc, iterValSlot, endSlot);
+            st.Code.PatchJumpToHere(jmpAfterAsc);
+
+            int exitJmp = st.Code.EmitForwardJump(Opcode.JmpIfNot, cmpAsc);
+
+            // Publish iter value into the iter scope binding (so body sees
+            // the current i), then advance iterValSlot for the next test.
+            // The AST visitor does:
+            //     iterEntry.Value = NumberValue.OfBigNumber(i);
+            //     i += step;
+            //     <body>
+            // Doing the increment BEFORE the body is essential because
+            // `continue` jumps back to loop_top; if we incremented after
+            // body, continue would skip the increment and the loop would
+            // never make progress.
+            st.Code.Emit2(Opcode.AssignBinding, iterValSlot, iterNameIdx);
+            st.Code.Emit3(Opcode.Add, iterValSlot, iterValSlot, stepSlot);
+
+            var loop = new LoopContext(loopTopPc, baselineDepth);
+            st.Loops.Push(loop);
+            try
+            {
+                CompileBodyStrictInline(node.BodyNode, st, ref topSlot, scratchSlot);
+            }
+            finally
+            {
+                st.Loops.Pop();
+            }
+
+            st.Code.EmitBackwardJump(Opcode.Jmp, 0, loopTopPc);
+
+            st.Code.PatchJumpToHere(exitJmp);
+            foreach (var p in loop.BreakFixups) st.Code.PatchJumpToHere(p);
+            PatchJumpsBackward(st, loop.ContinueFixups, loopTopPc);
+
+            EmitPopScope(st); // body
+            EmitPopScope(st); // iter
+        }
+
+        // ForEach: canonicalises the iteration source to a ListValue via
+        // OP_FOREACH_ITERABLE, then index-iterates it. Two scopes (iter +
+        // body) mirror ForEachNodeVisitor's loopContext + bodyContext.
+        private static void CompileForEach(ForEachNode node, State st, ref byte topSlot, byte scratchSlot)
+        {
+            // M21.1: pre-checks dropped — see CompileWhile rationale.
+            string iterName = node.VarNameToken.Value!.ToString()!;
+            ushort iterNameIdx = st.Names.Add(iterName);
+
+            // M66.6: lazy-Range fast path. `for v in lit..lit` (or `..=lit`)
+            // without an explicit step iterates as a long counter in
+            // `LongLocals` so the loop never materialises a million-element
+            // `ListValue`. The boxed Range opcode is bypassed entirely.
+            //
+            // Restricted to compile-time literal int bounds so the
+            // semantic equivalence (including the "start > end →
+            // RuntimeError" throw) is decided statically: when the
+            // literals satisfy `start <= end`, the lazy form is exact;
+            // otherwise control falls through to the materialised
+            // boxed path which surfaces the original error.
+            if (node.CollectionNode is RangeNode rn
+                && rn.Step == null
+                && TryGetLiteralLong(rn.Start, out long startLit)
+                && TryGetLiteralLong(rn.End, out long endLit)
+                && startLit <= endLit)
+            {
+                bool inclusive = rn.Operator.Type == TokenType.DOUBLE_DOT_EQ;
+                CompileForEachLazyIntRange(node, iterName, iterNameIdx,
+                    startLit, endLit, inclusive, st, ref topSlot, scratchSlot);
+                return;
+            }
+
+            byte collSlot = AllocTemp(ref topSlot);
+            CompileExpression(node.CollectionNode, collSlot, st, ref topSlot);
+
+            EmitPushScope(st); // iter scope
+
+            byte iterListSlot = AllocTemp(ref topSlot);
+            st.Code.Emit3(Opcode.ForEachIterable, iterListSlot, collSlot, 0);
+
+            byte lenSlot = AllocTemp(ref topSlot);
+            st.Code.Emit3(Opcode.ListLen, lenSlot, iterListSlot, 0);
+
+            byte idxSlot = AllocTemp(ref topSlot);
+            ushort zeroIdx = st.Consts.Add(NumberValue.Zero);
+            st.Code.Emit2(Opcode.LoadConst, idxSlot, zeroIdx);
+
+            // Bind the iteration variable in the iter scope with a null
+            // placeholder so the body's AssignBinding writes survive
+            // ClearScope. Mirrors loopSymbols.SetLocal(varName, NullValue.Null)
+            // in ForEachNodeVisitor.
+            byte nullSlot = AllocTemp(ref topSlot);
+            st.Code.Emit3(Opcode.LoadNull, nullSlot, 0, 0);
+            st.Code.Emit2(Opcode.SetLocalDirect, nullSlot, iterNameIdx);
+
+            byte oneSlot = AllocTemp(ref topSlot);
+            ushort oneIdx = st.Consts.Add(NumberValue.One);
+            st.Code.Emit2(Opcode.LoadConst, oneSlot, oneIdx);
+
+            EmitPushScope(st); // body scope
+            int baselineDepth = st.ScopeDepth;
+            int loopTopPc = st.Code.Pc;
+            st.Code.Emit3(Opcode.ClearScope, 0, 0, 0);
+
+            byte cmpSlot = AllocTemp(ref topSlot);
+            st.Code.Emit3(Opcode.Lt, cmpSlot, idxSlot, lenSlot);
+            int exitJmp = st.Code.EmitForwardJump(Opcode.JmpIfNot, cmpSlot);
+
+            byte itemSlot = AllocTemp(ref topSlot);
+            st.Code.Emit3(Opcode.ListGet, itemSlot, iterListSlot, idxSlot);
+            st.Code.Emit2(Opcode.AssignBinding, itemSlot, iterNameIdx);
+
+            // Increment BEFORE the body runs so `continue` (which jumps back
+            // to loop_top) doesn't skip the iteration step. Mirrors the
+            // For-loop fix that landed in M4.
+            st.Code.Emit3(Opcode.Add, idxSlot, idxSlot, oneSlot);
+
+            var loop = new LoopContext(loopTopPc, baselineDepth);
+            st.Loops.Push(loop);
+            try
+            {
+                CompileBodyStrictInline(node.BodyNode, st, ref topSlot, scratchSlot);
+            }
+            finally
+            {
+                st.Loops.Pop();
+            }
+
+            st.Code.EmitBackwardJump(Opcode.Jmp, 0, loopTopPc);
+
+            st.Code.PatchJumpToHere(exitJmp);
+            foreach (var p in loop.BreakFixups) st.Code.PatchJumpToHere(p);
+            PatchJumpsBackward(st, loop.ContinueFixups, loopTopPc);
+
+            EmitPopScope(st); // body
+            EmitPopScope(st); // iter
+        }
+
+        // M66.6 helpers ----------------------------------------------------
+        //
+        // `TryGetLiteralLong` extracts the int64 value of a numeric literal
+        // when it is unsuffixed (a `NumberValue`) and integer-valued. Used
+        // by the lazy-Range fast path; non-literal or non-int bounds fall
+        // back to the boxed Range materialisation.
+        private static bool TryGetLiteralLong(AstNode node, out long value)
+        {
+            value = 0;
+            if (node is not NumberNode nn) return false;
+            if (nn.CachedValue == null)
+                nn.CachedValue = ParseNumberLiteralForIr(nn);
+            if (nn.CachedValue is not NumberValue nv) return false;
+            if (!nv.Value.Scale.IsZero) return false;
+            if (nv.Value.Unscaled < (System.Numerics.BigInteger)long.MinValue
+                || nv.Value.Unscaled > (System.Numerics.BigInteger)long.MaxValue) return false;
+            value = (long)nv.Value.Unscaled;
+            return true;
+        }
+
+        // Pushes either a `LoadIntS64` (slot-sized immediate fits int16)
+        // or a boxed `LoadConst` followed by an `UnboxI` into the given
+        // long slot. The boxed-then-unbox path lets the chain analyzer
+        // promote the LoadConst itself when the wider int still fits the
+        // M66.5 LoadIntS64 promotion criteria, and otherwise leaves the
+        // `NumberValue` allocation as a one-shot cost paid before the
+        // loop body runs.
+        private static void EmitLiteralLongLoad(long value, byte longSlot, State st, ref byte topSlot)
+        {
+            if (value >= short.MinValue && value <= short.MaxValue)
+            {
+                st.Code.Emit2(Opcode.LoadIntS64, longSlot, unchecked((ushort)(short)value));
+                return;
+            }
+            byte boxedSlot = AllocTemp(ref topSlot);
+            var bn = new BigNumber(new System.Numerics.BigInteger(value), System.Numerics.BigInteger.Zero);
+            ushort idx = st.Consts.Add(new NumberValue(bn));
+            st.Code.Emit2(Opcode.LoadConst, boxedSlot, idx);
+            st.Code.Emit3(Opcode.UnboxI, longSlot, boxedSlot, 0);
+        }
+
+        // Lazy lowering of `for v in start_lit..end_lit` (or `..=`). The
+        // iterator counter stays in `LongLocals` and walks the range
+        // without materialising any intermediate collection. Per-iter the
+        // counter is boxed once (BoxI → AssignBinding) so the body's
+        // user-level `v` reads still resolve through the SymbolEntry.
+        //
+        //   <load start, end, one as longs>
+        //   PushScope (iter)
+        //   LoadNull placeholder; SetLocalDirect placeholder, iterName
+        //   PushScope (body)
+        //   loop_top:
+        //     ClearScope
+        //     LtII/LeII cmp, iter_long, end_long
+        //     JmpIfNot exit
+        //     BoxI iter_box, iter_long
+        //     AssignBinding iter_box, iterName
+        //     AddII iter_long, iter_long, one_long
+        //     <body>
+        //     Jmp loop_top
+        //   exit:
+        //   PopScope (body); PopScope (iter)
+        private static void CompileForEachLazyIntRange(
+            ForEachNode node, string iterName, ushort iterNameIdx,
+            long startLit, long endLit, bool inclusive,
+            State st, ref byte topSlot, byte scratchSlot)
+        {
+            // M84 — tiny-trip-count unroll deferred. First-pass
+            // implementation revealed a subtle interaction with
+            // top-level statement boundaries (a second unrolled
+            // for-loop following the first one in the same script
+            // body left the "i" SymbolEntry slot cache pointing at
+            // an orphaned entry from the first loop's iter scope,
+            // surfacing as "VM:NullOperand" at runtime). The
+            // diagnostic walker `BodyHasBreakOrContinueAtThisLevel`
+            // is kept in place for future re-enablement, but the
+            // unroll emission path stays gated off until a clean
+            // slot-cache invalidation strategy lands. Tier 9
+            // analyses (escape analysis / IPCP / PRE / SROA /
+            // DSE-across-phi / loop unrolling) are tracked as
+            // separate future milestones.
+            byte iterLongSlot = AllocTemp(ref topSlot);
+            EmitLiteralLongLoad(startLit, iterLongSlot, st, ref topSlot);
+
+            byte endLongSlot = AllocTemp(ref topSlot);
+            EmitLiteralLongLoad(endLit, endLongSlot, st, ref topSlot);
+
+            byte oneLongSlot = AllocTemp(ref topSlot);
+            EmitLiteralLongLoad(1, oneLongSlot, st, ref topSlot);
+
+            EmitPushScope(st); // iter scope
+
+            // Placeholder binding so the body's `AssignBinding` survives
+            // `ClearScope` at every iteration top.
+            byte nullSlot = AllocTemp(ref topSlot);
+            st.Code.Emit3(Opcode.LoadNull, nullSlot, 0, 0);
+            st.Code.Emit2(Opcode.SetLocalDirect, nullSlot, iterNameIdx);
+
+            EmitPushScope(st); // body scope
+            int baselineDepth = st.ScopeDepth;
+            int loopTopPc = st.Code.Pc;
+            st.Code.Emit3(Opcode.ClearScope, 0, 0, 0);
+
+            byte cmpSlot = AllocTemp(ref topSlot);
+            Opcode testOp = inclusive ? Opcode.LeII : Opcode.LtII;
+            st.Code.Emit3(testOp, cmpSlot, iterLongSlot, endLongSlot);
+            int exitJmp = st.Code.EmitForwardJump(Opcode.JmpIfNot, cmpSlot);
+
+            byte iterBoxSlot = AllocTemp(ref topSlot);
+            st.Code.Emit3(Opcode.BoxI, iterBoxSlot, iterLongSlot, 0);
+            st.Code.Emit2(Opcode.AssignBinding, iterBoxSlot, iterNameIdx);
+
+            // Increment BEFORE the body so `continue` (which jumps to
+            // `loop_top`) does not skip the step. Matches the boxed
+            // `CompileForEach` ordering.
+            st.Code.Emit3(Opcode.AddII, iterLongSlot, iterLongSlot, oneLongSlot);
+
+            var loop = new LoopContext(loopTopPc, baselineDepth);
+            st.Loops.Push(loop);
+            try
+            {
+                CompileBodyStrictInline(node.BodyNode, st, ref topSlot, scratchSlot);
+            }
+            finally
+            {
+                st.Loops.Pop();
+            }
+
+            st.Code.EmitBackwardJump(Opcode.Jmp, 0, loopTopPc);
+
+            st.Code.PatchJumpToHere(exitJmp);
+            foreach (var p in loop.BreakFixups) st.Code.PatchJumpToHere(p);
+            PatchJumpsBackward(st, loop.ContinueFixups, loopTopPc);
+
+            EmitPopScope(st); // body
+            EmitPopScope(st); // iter
+        }
+
+        // Try / Catch lowering (no Finally support yet — Finally falls back).
+        //
+        //   pre_try_depth = state.ScopeDepth captured
+        //   try_start_pc:
+        //     <try body>
+        //   try_end_pc:
+        //     Jmp after_catch
+        //   catch_pc:
+        //     PushScope                              [new scope for catch var]
+        //     SetLocalDirect catchVar, catchSlot     [TryRaise pre-populated catchSlot]
+        //     <catch body>
+        //     PopScope
+        //   after_catch:
+        //
+        // EhTable entry: {StartPc=try_start, EndPc=try_end, CatchPc=catch_pc,
+        // FinallyPc=-1, CatchSlot, ScopeDepth=pre_try_depth}.
+        //
+        // The dispatch loop's try/catch RaUserError handler scans EhTable on
+        // any opcode raise, pops the runtime Context down to ScopeDepth, and
+        // jumps to CatchPc with the error-message string in CatchSlot.
+        private static void CompileTry(Parser.Nodes.Special.TryNode node, State st, ref byte topSlot, byte scratchSlot)
+        {
+            // Finally needs the full TryNodeVisitor state machine (which
+            // runs finally on every exit path including return/break/
+            // continue/throw). Route via OP_NATIVE_DEFINE → TryNodeVisitor.Apply
+            // so the dispatch loop calls the visitor's static helper
+            // directly (no interpreter._visitors[] indexing).
+            if (node.FinallyBody != null)
+            {
+                if (st.DefineRefs.Count > ushort.MaxValue)
+                    throw new IrCompileException("DefineRefs overflow");
+                ushort refIdx = (ushort)st.DefineRefs.Count;
+                st.DefineRefs.Add(node);
+                st.Code.Emit2(Opcode.NativeDefine, scratchSlot, refIdx);
+                return;
+            }
+            // M21.1: pre-checks dropped — strict-mode body compile raises
+            // IrCompileException directly when needed.
+            byte catchSlot = AllocTemp(ref topSlot);
+            int scopeDepthAtTry = st.ScopeDepth;
+
+            // Wrap try body in its own scope so `var` declarations inside
+            // the try block die at try-end (matching ScopeNodeVisitor's
+            // context.Copy()). On raise the dispatch loop pops ctx back to
+            // scopeDepthAtTry — *before* this push — so the catch sees the
+            // outer-scope state.
+            EmitPushScope(st);
+            int tryStartPc = st.Code.Pc;
+            CompileBodyStrictInline(node.TryBody, st, ref topSlot, scratchSlot);
+            int tryEndPc = st.Code.Pc;
+            EmitPopScope(st);
+
+            int afterCatchJmp = st.Code.EmitForwardJump(Opcode.Jmp);
+
+            int catchPc = st.Code.Pc;
+            if (node.CatchBody != null)
+            {
+                EmitPushScope(st);
+                if (node.CatchVarTok != null)
+                {
+                    string varName = node.CatchVarTok.Value!.ToString()!;
+                    ushort nameIdx = st.Names.Add(varName);
+                    st.Code.Emit2(Opcode.SetLocalDirect, catchSlot, nameIdx);
+                }
+                CompileBodyStrictInline(node.CatchBody, st, ref topSlot, scratchSlot);
+                EmitPopScope(st);
+            }
+
+            st.Code.PatchJumpToHere(afterCatchJmp);
+
+            st.EhTable.Add(new ExceptionHandler(
+                start: tryStartPc, end: tryEndPc,
+                catchPc: catchPc, finallyPc: -1,
+                catchSlot: catchSlot, scopeDepth: scopeDepthAtTry));
+        }
+
+        // Compile a body inside a fresh PushScope/PopScope pair. The strict
+        // mode TryCompileStatement is used for the body children so any
+        // unsupported construct aborts the whole enclosing statement.
+        private static void CompileBodyScoped(AstNode body, State st, ref byte topSlot, byte scratchSlot)
+        {
+            EmitPushScope(st);
+            if (body is ScopeNode sc)
+            {
+                foreach (var child in sc.Nodes)
+                {
+                    if (!TryCompileStatement(child, st, ref topSlot, scratchSlot, strict: true))
+                        throw new IrCompileException($"body child not compilable: {child.NodeType}");
+                }
+            }
+            else
+            {
+                if (!TryCompileStatement(body, st, ref topSlot, scratchSlot, strict: true))
+                    throw new IrCompileException($"body not compilable: {body.NodeType}");
+            }
+            EmitPopScope(st);
+        }
+
+        // Compile a body without an additional scope push (the caller has
+        // already pushed). Used by While / DoWhile / For where the loop has
+        // already established a body scope.
+        private static void CompileBodyStrictInline(AstNode body, State st, ref byte topSlot, byte scratchSlot)
+        {
+            if (body is ScopeNode sc)
+            {
+                foreach (var child in sc.Nodes)
+                {
+                    if (!TryCompileStatement(child, st, ref topSlot, scratchSlot, strict: true))
+                        throw new IrCompileException($"body child not compilable: {child.NodeType}");
+                }
+            }
+            else
+            {
+                if (!TryCompileStatement(body, st, ref topSlot, scratchSlot, strict: true))
+                    throw new IrCompileException($"body not compilable: {body.NodeType}");
+            }
+        }
+
+        // Emit OP_POP_SCOPE opcodes to bring the *static* scope depth down
+        // to `targetDepth`. Does NOT mutate st.ScopeDepth — the caller is
+        // about to emit an unconditional jump, so the surrounding
+        // compilation continues with the original ScopeDepth.
+        private static void EmitPopsDownTo(State st, int targetDepth)
+        {
+            int n = st.ScopeDepth - targetDepth;
+            for (int i = 0; i < n; i++) st.Code.Emit3(Opcode.PopScope, 0, 0, 0);
+        }
+
+        private static void EmitPushScope(State st)
+        {
+            st.Code.Emit3(Opcode.PushScope, 0, 0, 0);
+            st.ScopeDepth++;
+        }
+
+        private static void EmitPopScope(State st)
+        {
+            st.Code.Emit3(Opcode.PopScope, 0, 0, 0);
+            st.ScopeDepth--;
+        }
+
+
+        // Emits opcodes that evaluate `expr` and leave the result in
+        // `destSlot`. Throws IrCompileException for any unsupported subtree.
+        private static void CompileExpression(
+            AstNode expr, byte destSlot, State st, ref byte topSlot)
+        {
+            switch (expr.NodeType)
+            {
+                case AstNodeType.Number:
+                    EmitNumberLoad((NumberNode)expr, destSlot, st);
+                    return;
+
+                case AstNodeType.Boolean:
+                {
+                    var bn = (BooleanNode)expr;
+                    bool truthy = bn.Token.Value is Keyword kw && kw == Keyword.True;
+                    st.Code.Emit3(truthy ? Opcode.LoadTrue : Opcode.LoadFalse, destSlot, 0, 0);
+                    return;
+                }
+
+                case AstNodeType.Null:
+                    st.Code.Emit3(Opcode.LoadNull, destSlot, 0, 0);
+                    return;
+
+                case AstNodeType.VariableAccess:
+                {
+                    var va = (Parser.Nodes.Variables.VariableAccessNode)expr;
+                    if (string.IsNullOrEmpty(va.Name))
+                        throw new IrCompileException("variable access with empty name");
+                    if (IsSlotEligible(va.Binding, va.BindingKind, st))
+                    {
+                        st.RegisterSlot(va.Binding.Offset, va.Name);
+                        st.Code.Emit2(Opcode.LoadLocalS, destSlot, (ushort)va.Binding.Offset);
+                        return;
+                    }
+                    ushort nameIdx = st.Names.Add(va.Name);
+                    st.Code.Emit2(Opcode.LoadGlobal, destSlot, nameIdx);
+                    return;
+                }
+
+                case AstNodeType.UnaryOperation:
+                {
+                    var un = (UnaryOperationNode)expr;
+                    // M27.1 — Fold `-<constexpr>` at compile time when the subtree is
+                    // a pure-arithmetic literal expression. Mirrors the BinaryOperation
+                    // folder so `-(2*3)` collapses to LoadConst(-6).
+                    if (un.OpTok.Type == TokenType.MINUS && TryConstEvalNumber(un, out var foldedUn))
+                    {
+                        ushort cidx = st.Consts.Add(foldedUn);
+                        st.Code.Emit2(Opcode.LoadConst, destSlot, cidx);
+                        return;
+                    }
+                    byte src = AllocTemp(ref topSlot);
+                    CompileExpression(un.Node, src, st, ref topSlot);
+                    if (un.OpTok.Type == TokenType.MINUS)
+                    {
+                        st.Code.Emit3(Opcode.Neg, destSlot, src, 0);
+                        return;
+                    }
+                    var unop = MapUnary(un.OpTok);
+                    st.Code.Emit3(unop, destSlot, src, 0);
+                    return;
+                }
+
+                case AstNodeType.BinaryOperation:
+                {
+                    var bo = (BinaryOperationNode)expr;
+                    if (bo.OpTok.Type == TokenType.KEYWORD && bo.OpTok.Value is Keyword kw)
+                    {
+                        if (kw == Keyword.And)
+                        {
+                            CompileShortCircuitAnd(bo, destSlot, st, ref topSlot);
+                            return;
+                        }
+                        if (kw == Keyword.Or)
+                        {
+                            CompileShortCircuitOr(bo, destSlot, st, ref topSlot);
+                            return;
+                        }
+                    }
+                    // M27.1 — Compile-time constant folding for literal arithmetic.
+                    // Pure `+`, `-`, `*` over two suffix-free NumberValue literals
+                    // is value-equivalent at compile time; pre-compute and emit a
+                    // single LoadConst so the interpreter doesn't allocate two temp
+                    // slots + perform a runtime arithmetic dispatch per execution.
+                    // Conservatively skipped for `/`, `%`, `**` (runtime errors must
+                    // still trigger at the original source position) and for typed
+                    // primitive literals (mixed-type promotion rules differ).
+                    if (TryFoldBinaryArith(bo, out var foldedConst))
+                    {
+                        ushort cidx = st.Consts.Add(foldedConst);
+                        st.Code.Emit2(Opcode.LoadConst, destSlot, cidx);
+                        return;
+                    }
+                    var binop = MapBinary(bo.OpTok);
+                    byte lhs = AllocTemp(ref topSlot);
+                    CompileExpression(bo.LeftNode, lhs, st, ref topSlot);
+                    byte rhs = AllocTemp(ref topSlot);
+                    CompileExpression(bo.RightNode, rhs, st, ref topSlot);
+                    st.Code.Emit3(binop, destSlot, lhs, rhs);
+                    return;
+                }
+
+                case AstNodeType.Cast:
+                {
+                    var cast = (CastNode)expr;
+                    if (st.CastRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("CastRefs pool exhausted (>65535 cast sites)");
+                    int refIdx = st.CastRefs.Count;
+                    st.CastRefs.Add(cast);
+                    byte src = AllocTemp(ref topSlot);
+                    CompileExpression(cast.Expression, src, st, ref topSlot);
+                    // M82 — Wide prefix when refIdx > 255.
+                    st.Code.Emit3WideC(Opcode.Cast, destSlot, src, refIdx);
+                    return;
+                }
+
+                case AstNodeType.List:
+                {
+                    var ln = (Parser.Nodes.Primitives.ListNode)expr;
+                    CompileCollectionLiteral(ln.ElementNodes, destSlot, Opcode.NewList, st, ref topSlot);
+                    return;
+                }
+                case AstNodeType.Set:
+                {
+                    var sn = (Parser.Nodes.Primitives.SetNode)expr;
+                    CompileCollectionLiteral(sn.ElementNodes, destSlot, Opcode.NewSet, st, ref topSlot);
+                    return;
+                }
+                case AstNodeType.Tuple:
+                {
+                    var tn = (Parser.Nodes.Primitives.TupleNode)expr;
+                    CompileCollectionLiteral(tn.ElementNodes, destSlot, Opcode.NewTuple, st, ref topSlot);
+                    return;
+                }
+                case AstNodeType.Map:
+                {
+                    var mn = (Parser.Nodes.Primitives.MapNode)expr;
+                    int pairCount = mn.Pairs.Count;
+                    if (pairCount > byte.MaxValue)
+                        throw new IrCompileException("map literal has too many pairs (>255)");
+                    byte baseSlot = topSlot;
+                    for (int i = 0; i < pairCount * 2; i++) AllocTemp(ref topSlot);
+                    for (int i = 0; i < pairCount; i++)
+                    {
+                        CompileExpression(mn.Pairs[i].Item1, (byte)(baseSlot + 2 * i), st, ref topSlot);
+                        CompileExpression(mn.Pairs[i].Item2, (byte)(baseSlot + 2 * i + 1), st, ref topSlot);
+                    }
+                    st.Code.Emit3(Opcode.NewMap, destSlot, baseSlot, (byte)pairCount);
+                    return;
+                }
+                case AstNodeType.Range:
+                {
+                    var rn = (RangeNode)expr;
+                    bool inclusive = rn.Operator.Type == TokenType.DOUBLE_DOT_EQ;
+                    byte baseSlot = topSlot;
+                    AllocTemp(ref topSlot); // start
+                    AllocTemp(ref topSlot); // end
+                    AllocTemp(ref topSlot); // step
+                    CompileExpression(rn.Start, baseSlot, st, ref topSlot);
+                    CompileExpression(rn.End, (byte)(baseSlot + 1), st, ref topSlot);
+                    if (rn.Step != null)
+                        CompileExpression(rn.Step, (byte)(baseSlot + 2), st, ref topSlot);
+                    else
+                    {
+                        ushort oneIdx = st.Consts.Add(NumberValue.One);
+                        st.Code.Emit2(Opcode.LoadConst, (byte)(baseSlot + 2), oneIdx);
+                    }
+                    st.Code.Emit3(Opcode.Range, destSlot, baseSlot, inclusive ? (byte)1 : (byte)0);
+                    return;
+                }
+                case AstNodeType.ListAccess:
+                {
+                    var la = (Parser.Nodes.Variables.ListAccessNode)expr;
+                    byte tgtSlot = AllocTemp(ref topSlot);
+                    CompileExpression(la.Target, tgtSlot, st, ref topSlot);
+                    byte idxSlot = AllocTemp(ref topSlot);
+                    CompileExpression(la.Index, idxSlot, st, ref topSlot);
+                    st.Code.Emit3(Opcode.ListGet, destSlot, tgtSlot, idxSlot);
+                    return;
+                }
+                case AstNodeType.Ternary:
+                {
+                    var tn = (TernaryNode)expr;
+                    // M22.1: constant-fold a literal ternary condition.
+                    bool? tnFold = TryFoldCondition(tn.Condition);
+                    if (tnFold == true)
+                    {
+                        CompileExpression(tn.TrueExpression, destSlot, st, ref topSlot);
+                        return;
+                    }
+                    if (tnFold == false)
+                    {
+                        CompileExpression(tn.FalseExpression, destSlot, st, ref topSlot);
+                        return;
+                    }
+                    byte condSlot = AllocTemp(ref topSlot);
+                    CompileExpression(tn.Condition, condSlot, st, ref topSlot);
+                    int jmpElse = st.Code.EmitForwardJump(Opcode.JmpIfNot, condSlot);
+                    CompileExpression(tn.TrueExpression, destSlot, st, ref topSlot);
+                    int jmpEnd = st.Code.EmitForwardJump(Opcode.Jmp);
+                    st.Code.PatchJumpToHere(jmpElse);
+                    CompileExpression(tn.FalseExpression, destSlot, st, ref topSlot);
+                    st.Code.PatchJumpToHere(jmpEnd);
+                    return;
+                }
+                case AstNodeType.NullCoalescing:
+                {
+                    var nc = (NullCoalescingNode)expr;
+                    byte lhsSlot = AllocTemp(ref topSlot);
+                    CompileExpression(nc.Left, lhsSlot, st, ref topSlot);
+                    byte rhsSlot = AllocTemp(ref topSlot);
+                    CompileExpression(nc.Right, rhsSlot, st, ref topSlot);
+                    st.Code.Emit3(Opcode.NullCoal, destSlot, lhsSlot, rhsSlot);
+                    return;
+                }
+                case AstNodeType.String:
+                {
+                    var sn = (StringNode)expr;
+                    if (sn.CachedValue != null)
+                    {
+                        ushort idx = st.Consts.Add(sn.CachedValue);
+                        st.Code.Emit2(Opcode.LoadConst, destSlot, idx);
+                        return;
+                    }
+                    // Determine if all parts are literal (cacheable as StringValue).
+                    var parts = sn.Parts;
+                    bool allLit = true;
+                    for (int i = 0; i < parts.Count; i++)
+                    {
+                        if (parts[i].NodeType != AstNodeType.StringPart) { allLit = false; break; }
+                    }
+                    if (allLit)
+                    {
+                        string text;
+                        if (parts.Count == 1)
+                            text = ((Parser.Nodes.Primitives.StringTextNode)parts[0]).Text;
+                        else
+                        {
+                            var sb = new System.Text.StringBuilder();
+                            for (int i = 0; i < parts.Count; i++)
+                                sb.Append(((Parser.Nodes.Primitives.StringTextNode)parts[i]).Text);
+                            text = sb.ToString();
+                        }
+                        sn.CachedValue = new StringValue(text);
+                        ushort idx = st.Consts.Add(sn.CachedValue);
+                        st.Code.Emit2(Opcode.LoadConst, destSlot, idx);
+                        return;
+                    }
+
+                    // Interpolated: lay each part into consecutive slots,
+                    // then OP_INTERP builds the final string.
+                    int count = parts.Count;
+                    if (count > byte.MaxValue)
+                        throw new IrCompileException("string interpolation has too many parts (>255)");
+                    byte baseSlot = topSlot;
+                    for (int i = 0; i < count; i++) AllocTemp(ref topSlot);
+                    for (int i = 0; i < count; i++)
+                    {
+                        if (parts[i].NodeType == AstNodeType.StringPart)
+                        {
+                            var sv = new StringValue(((Parser.Nodes.Primitives.StringTextNode)parts[i]).Text);
+                            ushort cidx = st.Consts.Add(sv);
+                            st.Code.Emit2(Opcode.LoadConst, (byte)(baseSlot + i), cidx);
+                        }
+                        else
+                        {
+                            CompileExpression(parts[i], (byte)(baseSlot + i), st, ref topSlot);
+                        }
+                    }
+                    st.Code.Emit3(Opcode.Interp, destSlot, baseSlot, (byte)count);
+                    return;
+                }
+
+                case AstNodeType.Self:
+                {
+                    // `self` is just LoadGlobal "self" — the method-call
+                    // machinery (FunctionCallExecutor / BoundMethodValue)
+                    // binds self in the method scope via SetLocal before
+                    // body execution, so the VM read finds it via parent
+                    // walk.
+                    ushort nameIdx = st.Names.Add("self");
+                    st.Code.Emit2(Opcode.LoadGlobal, destSlot, nameIdx);
+                    return;
+                }
+
+                case AstNodeType.MemberAccess:
+                {
+                    var ma = (Parser.Nodes.Structs.MemberAccessNode)expr;
+                    if (st.MemberAccessRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("MemberAccessRefs overflow (>65535)");
+                    byte src = AllocTemp(ref topSlot);
+                    CompileExpression(ma.TargetNode, src, st, ref topSlot);
+                    int refIdx = st.MemberAccessRefs.Count;
+                    st.MemberAccessRefs.Add(ma);
+                    // M82 — Wide prefix when refIdx > 255.
+                    st.Code.Emit3WideC(Opcode.GetMember, destSlot, src, refIdx);
+                    return;
+                }
+
+                case AstNodeType.EnumAccess:
+                {
+                    var ea = (Parser.Nodes.Enums.EnumAccessNode)expr;
+                    if (st.EnumAccessRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("EnumAccessRefs overflow (>65535)");
+                    byte src = AllocTemp(ref topSlot);
+                    CompileExpression(ea.EnumNode, src, st, ref topSlot);
+                    int refIdx = st.EnumAccessRefs.Count;
+                    st.EnumAccessRefs.Add(ea);
+                    st.Code.Emit3WideC(Opcode.EnumAccess, destSlot, src, refIdx);
+                    return;
+                }
+
+                case AstNodeType.Typeof:
+                {
+                    var tn = (Parser.Nodes.Special.TypeofNode)expr;
+                    if (st.TypeofRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("TypeofRefs overflow (>65535)");
+                    byte src = AllocTemp(ref topSlot);
+                    CompileExpression(tn.Node, src, st, ref topSlot);
+                    int refIdx = st.TypeofRefs.Count;
+                    st.TypeofRefs.Add(tn);
+                    st.Code.Emit3WideC(Opcode.Typeof, destSlot, src, refIdx);
+                    return;
+                }
+                case AstNodeType.Nameof:
+                {
+                    var nn = (Parser.Nodes.Special.NameofNode)expr;
+                    if (st.NameofRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("NameofRefs overflow (>65535)");
+                    ushort refIdx = (ushort)st.NameofRefs.Count;
+                    st.NameofRefs.Add(nn);
+                    st.Code.Emit2(Opcode.Nameof, destSlot, refIdx);
+                    return;
+                }
+                case AstNodeType.Dereference:
+                {
+                    var dn = (Parser.Nodes.Operations.DereferenceNode)expr;
+                    if (st.DerefRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("DerefRefs overflow (>65535)");
+                    byte src = AllocTemp(ref topSlot);
+                    CompileExpression(dn.Target, src, st, ref topSlot);
+                    int refIdx = st.DerefRefs.Count;
+                    st.DerefRefs.Add(dn);
+                    // M82 — Wide prefix when refIdx > 255.
+                    st.Code.Emit3WideC(Opcode.Deref, destSlot, src, refIdx);
+                    return;
+                }
+                case AstNodeType.Super:
+                {
+                    var sn = (Parser.Nodes.Classes.SuperNode)expr;
+                    if (st.SuperRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("SuperRefs overflow (>65535)");
+                    ushort refIdx = (ushort)st.SuperRefs.Count;
+                    st.SuperRefs.Add(sn);
+                    st.Code.Emit2(Opcode.GetSuper, destSlot, refIdx);
+                    return;
+                }
+                case AstNodeType.FunctionDefinition:
+                {
+                    var fd = (Parser.Nodes.Functions.FunctionDefinitionNode)expr;
+                    if (st.FuncDefRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("FuncDefRefs overflow (>65535)");
+                    ushort refIdx = (ushort)st.FuncDefRefs.Count;
+                    st.FuncDefRefs.Add(fd);
+                    st.Code.Emit2(Opcode.DefineFunction, destSlot, refIdx);
+                    return;
+                }
+
+                // Long-tail expressions routed via OP_NATIVE_DEFINE — the
+                // VM calls the visitor's static Apply directly, never
+                // hitting interpreter._visitors[].
+                case AstNodeType.Match:
+                case AstNodeType.TryUnwrap:
+                case AstNodeType.Await:
+                case AstNodeType.Spawn:
+                case AstNodeType.Emit:
+                case AstNodeType.ForAwait:
+                case AstNodeType.Pipeline:
+                case AstNodeType.Borrow:
+                case AstNodeType.DereferenceAssignment:
+                case AstNodeType.SuperFor:
+                case AstNodeType.AsmBlock:
+                case AstNodeType.RegexLiteral:
+                case AstNodeType.FormattedInterpolation:
+                case AstNodeType.Yield:
+                case AstNodeType.AnnotationApplication:
+                {
+                    if (st.DefineRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("DefineRefs overflow (>65535)");
+                    ushort refIdx = (ushort)st.DefineRefs.Count;
+                    st.DefineRefs.Add(expr);
+                    st.Code.Emit2(Opcode.NativeDefine, destSlot, refIdx);
+                    return;
+                }
+
+                case AstNodeType.FunctionCall:
+                {
+                    var fc = (FunctionCallNode)expr;
+                    if (!IsCallNativelyCompilable(fc))
+                        throw new IrCompileException("call has named/ref/spread/generic args -> fallback");
+                    int argCount = fc.ArgNodes.Count;
+                    if (argCount > byte.MaxValue)
+                        throw new IrCompileException("call has too many args (>255)");
+
+                    // Reserve consecutive slots: fnSlot, then argCount slots
+                    // for positional args. Any sub-expression temps allocate
+                    // ABOVE this band so the contiguous layout the VM's
+                    // OP_CALL relies on is preserved.
+                    byte fnSlot = AllocTemp(ref topSlot);
+                    byte argsBase = (byte)(fnSlot + 1);
+                    for (int i = 0; i < argCount; i++) AllocTemp(ref topSlot);
+
+                    CompileExpression(fc.NodeToCall, fnSlot, st, ref topSlot);
+                    for (int i = 0; i < argCount; i++)
+                    {
+                        CompileExpression(fc.ArgNodes[i].Expr, (byte)(argsBase + i), st, ref topSlot);
+                    }
+                    st.Code.Emit3(Opcode.Call, destSlot, fnSlot, (byte)argCount);
+                    return;
+                }
+
+                default:
+                    throw new IrCompileException($"unsupported expression node: {expr.NodeType}");
+            }
+        }
+
+        private static void CompileShortCircuitAnd(
+            BinaryOperationNode bo, byte destSlot, State st, ref byte topSlot)
+        {
+            CompileExpression(bo.LeftNode, destSlot, st, ref topSlot);
+            int j1 = st.Code.EmitForwardJump(Opcode.AndJz, destSlot);
+            CompileExpression(bo.RightNode, destSlot, st, ref topSlot);
+            int j2 = st.Code.EmitForwardJump(Opcode.AndJz, destSlot);
+            st.Code.Emit3(Opcode.LoadTrue, destSlot, 0, 0);
+            int jEnd = st.Code.EmitForwardJump(Opcode.Jmp);
+            st.Code.PatchJumpToHere(j1);
+            st.Code.PatchJumpToHere(j2);
+            st.Code.Emit3(Opcode.LoadFalse, destSlot, 0, 0);
+            st.Code.PatchJumpToHere(jEnd);
+        }
+
+        private static void CompileShortCircuitOr(
+            BinaryOperationNode bo, byte destSlot, State st, ref byte topSlot)
+        {
+            CompileExpression(bo.LeftNode, destSlot, st, ref topSlot);
+            int j1 = st.Code.EmitForwardJump(Opcode.OrJnz, destSlot);
+            CompileExpression(bo.RightNode, destSlot, st, ref topSlot);
+            int j2 = st.Code.EmitForwardJump(Opcode.OrJnz, destSlot);
+            st.Code.Emit3(Opcode.LoadFalse, destSlot, 0, 0);
+            int jEnd = st.Code.EmitForwardJump(Opcode.Jmp);
+            st.Code.PatchJumpToHere(j1);
+            st.Code.PatchJumpToHere(j2);
+            st.Code.Emit3(Opcode.LoadTrue, destSlot, 0, 0);
+            st.Code.PatchJumpToHere(jEnd);
+        }
+
+        private static void EmitNumberLoad(NumberNode node, byte destSlot, State st)
+        {
+            if (node.CachedValue == null)
+                node.CachedValue = ParseNumberLiteralForIr(node);
+            ushort idx = st.Consts.Add(node.CachedValue);
+            st.Code.Emit2(Opcode.LoadConst, destSlot, idx);
+        }
+
+        private static RuntimeValue ParseNumberLiteralForIr(NumberNode node)
+        {
+            var raw = node.Tok.Value?.ToString() ?? "";
+            if (raw.Length == 0) throw new IrCompileException("empty number literal");
+
+            // M24: delegate to the canonical NumberNodeVisitor.ParseLiteral
+            // so suffix / base-prefix handling stays in one place. Earlier
+            // path rejected suffixed numerics so the IrExpressionEvaluator
+            // wrapper fell back to OP_NATIVE_DEFINE — but the dispatch
+            // switch has no case for plain Number nodes, so we'd hit
+            // "VM: NativeDefine unsupported NodeType Number" at runtime.
+            return Visitors.Primitives.NumberNodeVisitor.ParseLiteral(node);
+        }
+
+        // M27.1 — Compile-time folder for `literal + literal`, `literal - literal`,
+        // `literal * literal` over suffix-free numeric literals that resolve to
+        // `NumberValue`. Recurses through nested arithmetic + unary-minus subtrees
+        // so multi-term constant expressions (`2 + 3 * 4`, `-5 + 1`) collapse to a
+        // single LoadConst. Typed primitives (`1.5f`, `10us`) are left alone — their
+        // promotion rules differ from the pure-NumberValue path. Division/modulo/
+        // power and bitwise ops are excluded because runtime errors must surface at
+        // the original source position; only purely-total arithmetic is folded.
+        private static bool TryFoldBinaryArith(BinaryOperationNode bo, out RuntimeValue folded)
+        {
+            folded = null!;
+            if (!TryConstEvalNumber(bo, out var nv)) return false;
+            folded = nv;
+            return true;
+        }
+
+        private static bool TryConstEvalNumber(AstNode node, out NumberValue value)
+        {
+            switch (node)
+            {
+                case NumberNode nn:
+                {
+                    var v = nn.CachedValue ?? NumberNodeVisitor.ParseLiteral(nn);
+                    nn.CachedValue = v;
+                    if (v is NumberValue nv) { value = nv; return true; }
+                    value = null!;
+                    return false;
+                }
+                case BinaryOperationNode bo:
+                {
+                    var t = bo.OpTok.Type;
+                    if (t != TokenType.PLUS && t != TokenType.MINUS && t != TokenType.MUL) { value = null!; return false; }
+                    if (!TryConstEvalNumber(bo.LeftNode, out var l) || !TryConstEvalNumber(bo.RightNode, out var r))
+                    { value = null!; return false; }
+                    BigNumber result = t switch
+                    {
+                        TokenType.PLUS  => l.Value + r.Value,
+                        TokenType.MINUS => l.Value - r.Value,
+                        TokenType.MUL   => l.Value * r.Value,
+                        _ => default,
+                    };
+                    value = NumberValue.OfBigNumber(result);
+                    return true;
+                }
+                case UnaryOperationNode un when un.OpTok.Type == TokenType.MINUS:
+                {
+                    if (!TryConstEvalNumber(un.Node, out var inner)) { value = null!; return false; }
+                    value = NumberValue.OfBigNumber(BigNumber.Zero - inner.Value);
+                    return true;
+                }
+                default:
+                    value = null!;
+                    return false;
+            }
+        }
+
+        // M28.3 — Emit OP_TAIL_CALL for a FunctionCallNode in tail position.
+        // The opcode layout `[op][a:fn][b:argBase][c:argCount]` requires the
+        // callee + positional args to occupy a contiguous slot band, matching
+        // the OP_CALL convention. Compile the callee into fnSlot, the args
+        // into the next argCount slots, then emit. Returns false if any
+        // sub-compilation throws — caller falls back to OP_CALL + OP_RET.
+        private static bool TryEmitTailCall(FunctionCallNode fc, State st, ref byte topSlot)
+        {
+            int argCount = fc.ArgNodes.Count;
+            int savedPc = st.Code.Pc;
+            byte savedTop = topSlot;
+            try
+            {
+                byte fnSlot = AllocTemp(ref topSlot);
+                byte argsBase = (byte)(fnSlot + 1);
+                for (int i = 0; i < argCount; i++) AllocTemp(ref topSlot);
+                CompileExpression(fc.NodeToCall, fnSlot, st, ref topSlot);
+                for (int i = 0; i < argCount; i++)
+                {
+                    CompileExpression(fc.ArgNodes[i].Expr, (byte)(argsBase + i), st, ref topSlot);
+                }
+                st.Code.Emit3(Opcode.TailCall, fnSlot, argsBase, (byte)argCount);
+                return true;
+            }
+            catch (IrCompileException)
+            {
+                st.Code.Truncate(savedPc);
+                topSlot = savedTop;
+                return false;
+            }
+        }
+
+        private static Opcode MapBinary(Token op)
+        {
+            return op.Type switch
+            {
+                TokenType.PLUS              => Opcode.Add,
+                TokenType.MINUS             => Opcode.Sub,
+                TokenType.MUL               => Opcode.Mul,
+                TokenType.DIV               => Opcode.Div,
+                TokenType.MODULO            => Opcode.Mod,
+                TokenType.POW               => Opcode.Pow,
+                TokenType.BITWISE_LEFT_SHIFT  => Opcode.Shl,
+                TokenType.BITWISE_RIGHT_SHIFT => Opcode.Shr,
+                TokenType.BITWISE_AND       => Opcode.BAnd,
+                TokenType.BITWISE_OR        => Opcode.BOr,
+                TokenType.EE                => Opcode.Eq,
+                TokenType.NE                => Opcode.Ne,
+                TokenType.STRICT_EE         => Opcode.SEq,
+                TokenType.STRICT_NE         => Opcode.SNe,
+                TokenType.LT                => Opcode.Lt,
+                TokenType.LTE               => Opcode.Le,
+                TokenType.GT                => Opcode.Gt,
+                TokenType.GTE               => Opcode.Ge,
+                _ => throw new IrCompileException($"binary op {op.Type} not yet lowered"),
+            };
+        }
+
+        private static Opcode MapUnary(Token op)
+        {
+            return op.Type switch
+            {
+                TokenType.BITWISE_NOT => Opcode.BNot,
+                TokenType.KEYWORD when op.Value is Keyword kw && kw == Keyword.Not => Opcode.Not,
+                _ => throw new IrCompileException($"unary op {op.Type} not yet lowered"),
+            };
+        }
+
+        private static byte AllocTemp(ref byte topSlot)
+        {
+            if (topSlot == byte.MaxValue)
+                throw new IrCompileException("temp-slot allocator exhausted (>255 in a single expression)");
+            return topSlot++;
+        }
+
+        // M84 — conservative scan for break/continue at THIS loop's
+        // level. Returns true if either keyword would target the
+        // enclosing loop (rejecting unroll). Nested loops and
+        // function bodies absorb their own break/continue and stop
+        // recursion. Unknown node types return TRUE (conservative —
+        // we'd rather skip unroll than miscompile a body that uses
+        // break/continue through a shape we don't recognise).
+        private static bool BodyHasBreakOrContinueAtThisLevel(AstNode? node)
+        {
+            if (node == null) return false;
+            switch (node.NodeType)
+            {
+                case AstNodeType.Break:
+                case AstNodeType.Continue:
+                    return true;
+                // Nested loops absorb their own break/continue —
+                // safe to skip.
+                case AstNodeType.For:
+                case AstNodeType.ForEach:
+                case AstNodeType.While:
+                case AstNodeType.DoWhile:
+                case AstNodeType.SuperFor:
+                case AstNodeType.ForAwait:
+                // Function / closure bodies introduce their own
+                // loop context — break/continue inside them refers
+                // to inner loops only.
+                case AstNodeType.FunctionDefinition:
+                // Match has its own case-switching control flow.
+                case AstNodeType.Match:
+                    return false;
+                case AstNodeType.Scope:
+                {
+                    var sn = (Parser.Nodes.Special.ScopeNode)node;
+                    foreach (var n in sn.Nodes)
+                    {
+                        if (BodyHasBreakOrContinueAtThisLevel(n)) return true;
+                    }
+                    return false;
+                }
+                // Leaf statements with no nested break/continue
+                // possibility.
+                case AstNodeType.Number:
+                case AstNodeType.String:
+                case AstNodeType.Null:
+                case AstNodeType.Boolean:
+                case AstNodeType.VariableAccess:
+                case AstNodeType.Pass:
+                case AstNodeType.Return:
+                case AstNodeType.Throw:
+                case AstNodeType.RegexLiteral:
+                    return false;
+                // Conservative for everything else — assume
+                // break/continue might be reachable via a sub-tree
+                // we don't statically know how to walk.
+                default:
+                    return true;
+            }
+        }
+
+        // Compile a List/Set/Tuple literal: lay each element in a
+        // consecutive slot, then emit the corresponding NewX opcode. Spread
+        // expansion (`...x`) is not yet supported — the eligibility check
+        // above rejects literals that contain it.
+        private static void CompileCollectionLiteral(
+            List<AstNode> elements, byte destSlot, Opcode newOp,
+            State st, ref byte topSlot)
+        {
+            int count = elements.Count;
+            if (count > byte.MaxValue)
+                throw new IrCompileException($"{newOp} literal has too many elements (>255)");
+            foreach (var e in elements)
+                if (e.NodeType == AstNodeType.Spread)
+                    throw new IrCompileException("collection literal with spread not yet lowered");
+            byte baseSlot = topSlot;
+            for (int i = 0; i < count; i++) AllocTemp(ref topSlot);
+            for (int i = 0; i < count; i++)
+                CompileExpression(elements[i], (byte)(baseSlot + i), st, ref topSlot);
+            st.Code.Emit3(newOp, destSlot, baseSlot, (byte)count);
+        }
+
+        // M5 eligibility for native FunctionCall: only the simple positional
+        // form. Named args, ref args, spread expansion, and explicit
+        // generic-type arguments all bail to OP_VISIT_AST; they require
+        // dedicated argument-list infrastructure that lands in later
+        // milestones.
+        private static bool IsCallNativelyCompilable(FunctionCallNode node)
+        {
+            if (node.GenericTypeArgs != null && node.GenericTypeArgs.Count > 0) return false;
+            foreach (var arg in node.ArgNodes)
+            {
+                if (arg.IsRef) return false;
+                if (arg.NameTok != null) return false;
+                if (arg.Expr.NodeType == AstNodeType.Spread) return false;
+            }
+            return true;
+        }
+
+        private static List<AstNode> FlattenStatements(AstNode root)
+        {
+            if (root is ScopeNode sc) return sc.Nodes;
+            return new List<AstNode> { root };
+        }
+
+        // Backward-jump patcher (continue fixups in while/dowhile/for). The
+        // current InstructionBuilder only patches forward jumps to the
+        // current Pc; backward patches need a custom helper that rewrites
+        // the imm16 in-place via the snapshot-and-rebuild path.
+        private static void PatchJumpsBackward(State st, List<int> jumpPcs, int targetPc)
+        {
+            foreach (var jpc in jumpPcs)
+            {
+                int offset = targetPc - (jpc + 1);
+                if (offset < short.MinValue || offset > short.MaxValue)
+                    throw new IrCompileException($"backward jump out of 16-bit range ({offset})");
+                var snapshot = st.Code.ToArray();
+                uint instr = snapshot[jpc];
+                uint patched = (instr & 0x0000FFFFu) | ((uint)(ushort)(short)offset << 16);
+                int total = snapshot.Length;
+                st.Code.Truncate(jpc);
+                st.Code.Emit(patched);
+                for (int k = jpc + 1; k < total; k++) st.Code.Emit(snapshot[k]);
+            }
+        }
+    }
+}

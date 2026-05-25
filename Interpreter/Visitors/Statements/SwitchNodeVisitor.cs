@@ -1,4 +1,4 @@
-﻿using RaLanguage.Interpreter.Architecture;
+using RaLanguage.Interpreter.Architecture;
 using System.Linq;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -13,10 +13,13 @@ namespace RaLanguage.Interpreter.Visitors.Statements
     public class SwitchNodeVisitor : NodeVisitor<SwitchNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(SwitchNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(SwitchNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
-            var ctrlRes = await interpreter.Visit(node.Expression, context);
+            var ctrlRes = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.Expression, context, interpreter);
             var switchVal = res.Register(ctrlRes, propagateLoopControl: false);
             if (ctrlRes.Error != null) return res.Failure(ctrlRes.Error);
             if (ctrlRes.FuncReturnValue != null) return res.SuccessReturn(ctrlRes.FuncReturnValue);
@@ -38,7 +41,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                 {
                     foreach (var labelExpr in c.Labels)
                     {
-                        var labelRes = await interpreter.Visit(labelExpr, context);
+                        var labelRes = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(labelExpr, context, interpreter);
                         var labelVal = res.Register(labelRes, propagateLoopControl: false);
                         if (labelRes.Error != null) return res.Failure(labelRes.Error);
                         if (labelRes.FuncReturnValue != null) return res.SuccessReturn(labelRes.FuncReturnValue);
@@ -72,7 +75,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 
                         foreach (var stmt in arrowBlock.ElementNodes)
                         {
-                            var childRes = await interpreter.Visit(stmt, context);
+                            var childRes = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(stmt, context, interpreter);
                             res.Register(childRes, propagateLoopControl: false);
 
                             if (childRes.Error != null) return res.Failure(childRes.Error);
@@ -101,7 +104,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                     }
                     else
                     {
-                        var exprRes = await interpreter.Visit(c.Body, context);
+                        var exprRes = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(c.Body, context, interpreter);
                         var exprVal = res.Register(exprRes, propagateLoopControl: false);
 
                         if (exprRes.Error != null) return res.Failure(exprRes.Error);
@@ -127,7 +130,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 
                                 foreach (var stmt in arrowBlock2.ElementNodes)
                                 {
-                                    var childRes = await interpreter.Visit(stmt, context);
+                                    var childRes = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(stmt, context, interpreter);
                                     res.Register(childRes, propagateLoopControl: false);
 
                                     if (childRes.Error != null) return res.Failure(childRes.Error);
@@ -148,7 +151,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                             }
                             else if (caseToExec.Body != null)
                             {
-                                var exprRes = await interpreter.Visit(caseToExec.Body, context);
+                                var exprRes = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(caseToExec.Body, context, interpreter);
                                 var exprVal = res.Register(exprRes, propagateLoopControl: false);
 
                                 if (exprRes.Error != null) return res.Failure(exprRes.Error);
@@ -184,7 +187,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                             {
                                 foreach (var stmt in bodyStmts)
                                 {
-                                    var childRes = await interpreter.Visit(stmt, context);
+                                    var childRes = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(stmt, context, interpreter);
                                     res.Register(childRes, propagateLoopControl: false);
 
                                     if (childRes.Error != null) return res.Failure(childRes.Error);

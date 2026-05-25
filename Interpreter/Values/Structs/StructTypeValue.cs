@@ -56,6 +56,46 @@ namespace RaLanguage.Interpreter.Values.Structs
             return false;
         }
 
+        // M41: hidden-class shape parity with ClassTypeValue (M38). Structs
+        // declare their full field set at parse time (no inheritance, no
+        // dynamic addition) so the name → dense-index map is computed once
+        // and shared by every instance. Enables O(1) field reads through
+        // the StructInstance.FieldSlots array, replacing the per-call
+        // Dictionary<string, RuntimeValue>.TryGetValue walk on the IC hot
+        // path.
+        private Dictionary<string, int>? _fieldNameToIndex;
+        private int _fieldSlotCount = -1;
+
+        public int FieldSlotCount
+        {
+            get
+            {
+                if (_fieldNameToIndex == null) BuildFieldShape();
+                return _fieldSlotCount;
+            }
+        }
+
+        public int GetFieldSlotIndex(string name)
+        {
+            var map = _fieldNameToIndex;
+            if (map == null) { BuildFieldShape(); map = _fieldNameToIndex!; }
+            return map.TryGetValue(name, out var idx) ? idx : -1;
+        }
+
+        private void BuildFieldShape()
+        {
+            var map = new Dictionary<string, int>(StringComparer.Ordinal);
+            int next = 0;
+            foreach (var f in Fields)
+            {
+                var n = f.NameTok.Value?.ToString();
+                if (string.IsNullOrEmpty(n)) continue;
+                if (!map.ContainsKey(n)) map[n] = next++;
+            }
+            _fieldNameToIndex = map;
+            _fieldSlotCount = next;
+        }
+
         public bool IsFieldPublic(string name)
         {
             foreach (StructFieldDefinitionNode field in Fields)

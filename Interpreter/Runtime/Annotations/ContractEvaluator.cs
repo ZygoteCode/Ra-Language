@@ -76,7 +76,7 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
             }
 
             var interpreter = new Interpreter();
-            var res = SyncAwait.Get(interpreter.Visit(exprNode!, ctx));
+            var res = IrExpressionEvaluator.EvaluateBlocking(exprNode!, ctx, interpreter);
             if (res.Error != null)
             {
                 return new RuntimeError(ann.ApplicationStart, ann.ApplicationEnd,

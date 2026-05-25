@@ -18,9 +18,12 @@ namespace RaLanguage.Interpreter.Visitors.Operations
     public class DereferenceAssignmentNodeVisitor : NodeVisitor<DereferenceAssignmentNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(DereferenceAssignmentNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(DereferenceAssignmentNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
-            var refValue = res.Register(await interpreter.Visit(node.RefTarget, context));
+            var refValue = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.RefTarget, context, interpreter));
             if (res.ShouldReturn()) return res;
 
             if (refValue is not IReferenceValue refTarget)
@@ -31,7 +34,7 @@ namespace RaLanguage.Interpreter.Visitors.Operations
                     primaryLabel: "operand of '*' is not a borrow / reference",
                     help: "to write through an alias, take '&mut x' first, then assign through that borrow"));
 
-            var newValue = res.Register(await interpreter.Visit(node.ValueNode, context));
+            var newValue = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.ValueNode, context, interpreter));
             if (res.ShouldReturn()) return res;
 
             // Compute the resulting value taking compound-assignment operators into

@@ -87,12 +87,25 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
                 case FunctionValue fv:
                     return fv.MetadataKey;
                 case BoundClassMethodValue bcm:
+                {
+                    // M31 (A5): cache the BuildKey result on the
+                    // FunctionDefinitionNode. The (kind, className,
+                    // methodName) triple is constant for a given method
+                    // definition, so the string only needs computing once.
+                    // Every subsequent call returns the cached pointer.
+                    var node = bcm.MethodNode;
+                    if (node == null) return null;
+                    var cached = node.CachedMetadataKey;
+                    if (cached != null) return cached;
                     var className = bcm.Definition?.ClassName;
-                    var methodName = bcm.MethodNode?.VarNameTok?.Value?.ToString() ?? className ?? "";
-                    var kind = bcm.MethodNode?.IsConstructor == true
+                    var methodName = node.VarNameTok?.Value?.ToString() ?? className ?? "";
+                    var kind = node.IsConstructor
                         ? AnnotationTargetKind.Constructor
                         : AnnotationTargetKind.Method;
-                    return MetadataTarget.BuildKey(kind, className, methodName);
+                    var built = MetadataTarget.BuildKey(kind, className, methodName);
+                    node.CachedMetadataKey = built;
+                    return built;
+                }
             }
             return null;
         }

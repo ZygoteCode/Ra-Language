@@ -21,7 +21,11 @@ namespace RaLanguage.Interpreter.Runtime.Async
         public static RaTaskCore Schedule(string name, AsyncContext? parentAsync, Func<AsyncContext, ValueTask<ValueResult>> body)
         {
             var childScope = new CancellationScope(parentAsync?.CancellationScope);
-            var task = new RaTaskCore(childScope, parentAsync?.CurrentTask, name);
+            // M70: pull from the RaTaskCore pool when one is free.
+            // First-time fan-out still allocates; subsequent waves
+            // reuse the recycled cores returned via TaskValue's
+            // finalizer + the auto-recycle path on completion.
+            var task = RaTaskCore.Rent(childScope, parentAsync?.CurrentTask, name);
             var childCtx = new AsyncContext(childScope)
             {
                 CurrentTask = task,
@@ -53,7 +57,9 @@ namespace RaLanguage.Interpreter.Runtime.Async
         public static RaTaskCore ScheduleTimer(string name, AsyncContext? parentAsync, int delayMs)
         {
             var childScope = new CancellationScope(parentAsync?.CancellationScope);
-            var task = new RaTaskCore(childScope, parentAsync?.CurrentTask, name);
+            // M70: pooled path. Sleep tasks are the highest-volume
+            // throwaway core in typical workloads.
+            var task = RaTaskCore.Rent(childScope, parentAsync?.CurrentTask, name);
             task.TrySetRunning();
             task.ArmCompletionTimer(delayMs);
             return task;

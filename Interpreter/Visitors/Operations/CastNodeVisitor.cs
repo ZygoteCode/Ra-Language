@@ -1,4 +1,4 @@
-﻿using RaLanguage.Errors;
+using RaLanguage.Errors;
 using System.Threading.Tasks;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
@@ -14,7 +14,7 @@ namespace RaLanguage.Interpreter.Visitors.Operations
         protected sealed override async ValueTask<RuntimeResult> VisitNode(CastNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
-            var val = res.Register(await interpreter.Visit(node.Expression, context));
+            var val = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.Expression, context, interpreter));
             if (res.ShouldReturn()) return res;
 
             if (val == null) return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot cast null value", context));

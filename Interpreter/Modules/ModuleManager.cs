@@ -125,6 +125,27 @@ namespace RaLanguage.Interpreter.Modules
                 }
             }
 
+            // M83 — depth-based safety net beyond the state-based
+            // cycle detection above. State-based detection catches
+            // A→B→A loops because A's cache entry is in `Loading`
+            // when B re-imports it. But adversarial / generated
+            // module graphs that AREN'T cyclic but explode in
+            // depth (a chain of 10000 unique imports) could blow
+            // the C# stack since each Load call recurses through
+            // the parser → interpreter → ImportNodeVisitor →
+            // ModuleManager.Load chain. Cap the loading chain at
+            // a defensive depth so runaway chains surface as a
+            // clean RuntimeError instead of a StackOverflow that
+            // AppDomain cannot catch.
+            const int MaxImportChainDepth = 512;
+            if (_loadingChain.Count >= MaxImportChainDepth)
+            {
+                string chain = string.Join(" -> ", _loadingChain) + " -> " + absolute;
+                return ModuleLoadResult.Failure(
+                    new ModuleLoadError(posStart, posEnd,
+                        $"Import chain too deep ({_loadingChain.Count} levels) when loading '{spec.Display}':\n  {chain}"));
+            }
+
             string source;
             try
             {
@@ -188,6 +209,12 @@ namespace RaLanguage.Interpreter.Modules
                 moduleContext.SymbolTable = moduleSymbolTable;
 
                 DeriveTransformer.Apply(parseResult.Node);
+                // M19: imported modules need Resolver too so their function
+                // bodies get FrameId / ParamBindings populated. Without this
+                // every FunctionValue created from a module compiles with
+                // FrameId<0 → CompiledBody=null → "no executable body" at
+                // call time, since the AST fallback is gone.
+                Pipeline.Resolver.Resolve(parseResult.Node);
 
                 Error? executionError = ExecuteModule(parseResult.Node, moduleContext, interpreter);
                 if (executionError != null)
@@ -238,18 +265,22 @@ namespace RaLanguage.Interpreter.Modules
             // `await` can fire. We collapse the ValueTask synchronously here:
             // top-level module statements should not themselves suspend, and
             // bottling them off through GetAwaiter().GetResult() keeps the
-            // import API sync without infecting every caller.
+            // import API sync without infecting every caller. M24: drive each
+            // statement through IrExpressionEvaluator (compile-once VM run)
+            // instead of the AST visitor dispatch.
             if (root is ScopeNode scope)
             {
                 foreach (var stmt in scope.Nodes)
                 {
-                    var result = AwaitSync(interpreter.Visit(stmt, ctx));
+                    var result = RaLanguage.Interpreter.Runtime.IrExpressionEvaluator
+                        .EvaluateStatementBlocking(stmt, ctx, interpreter);
                     if (result.Error != null) return result.Error;
                 }
                 return null;
             }
 
-            var single = AwaitSync(interpreter.Visit(root, ctx));
+            var single = RaLanguage.Interpreter.Runtime.IrExpressionEvaluator
+                .EvaluateStatementBlocking(root, ctx, interpreter);
             return single.Error;
         }
 

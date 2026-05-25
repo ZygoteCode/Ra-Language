@@ -1,4 +1,4 @@
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
@@ -12,6 +12,9 @@ namespace RaLanguage.Interpreter.Visitors.Annotations
     public sealed class AnnotationApplicationNodeVisitor : NodeVisitor<AnnotationApplicationNode>
     {
         protected override async ValueTask<RuntimeResult> VisitNode(AnnotationApplicationNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(AnnotationApplicationNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

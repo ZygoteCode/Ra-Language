@@ -12,6 +12,9 @@ namespace RaLanguage.Interpreter.Visitors.Async
     public class EmitNodeVisitor : NodeVisitor<EmitNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(EmitNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(EmitNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
@@ -21,7 +24,7 @@ namespace RaLanguage.Interpreter.Visitors.Async
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "'emit' is only valid inside an 'async stream fn' body", context));
             }
 
-            var inner = await interpreter.Visit(node.Expression, context);
+            var inner = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.Expression, context, interpreter);
             if (inner.Error != null) return res.Failure(inner.Error);
 
             var value = inner.Value ?? new RaLanguage.Interpreter.Values.Primitives.NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);

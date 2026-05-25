@@ -130,7 +130,7 @@ namespace RaLanguage.Interpreter.Values.Traits
                 if (def == null)
                     return (null, new RuntimeError(method.NameTok.Value.PositionStart, method.NameTok.Value.PositionEnd, $"Missing required argument '{argName}'", execCtx));
 
-                var defRes = await interpreter.Visit(def, execCtx);
+                var defRes = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(def, execCtx, interpreter);
                 if (defRes.Error != null) return (null, defRes.Error);
                 finalAssigned[argName] = defRes.Value ?? NullValue.Null.SetContext(execCtx).SetPos(def.PositionStart, def.PositionEnd);
             }
@@ -216,7 +216,25 @@ namespace RaLanguage.Interpreter.Values.Traits
             if (bindRes.error != null)
                 return res.Failure(bindRes.error);
 
-            var bodyRes = await interpreter.Visit(selected.BodyNode!, bindRes.execCtx!);
+            RuntimeResult bodyRes;
+            RaLanguage.Interpreter.IR.RaFunction? compiledMethod = selected switch
+            {
+                RaLanguage.Parser.Nodes.Functions.FunctionDefinitionNode fdn
+                    => RaLanguage.Interpreter.Runtime.FunctionDefinitionHelper.GetOrCompileBody(fdn),
+                RaLanguage.Parser.Nodes.Traits.TraitMethodDefinitionNode tmd
+                    => RaLanguage.Interpreter.Runtime.FunctionDefinitionHelper.GetOrCompileTraitMethod(tmd),
+                _ => null
+            };
+            if (compiledMethod == null)
+                return res.Failure(new RuntimeError(PositionStart, PositionEnd,
+                    $"trait method '{Name}' has no IR-compiled body", Context));
+            {
+                // M79: pool rent + return on success only.
+                var vm = new RaLanguage.Interpreter.Vm.VmExecutor(interpreter);
+                var frame = RaLanguage.Interpreter.Vm.VmFrame.Rent(compiledMethod);
+                bodyRes = await vm.Execute(frame, bindRes.execCtx!);
+                if (bodyRes.Error == null) RaLanguage.Interpreter.Vm.VmFrame.Return(frame);
+            }
             if (bodyRes.Error != null) return res.Failure(bodyRes.Error);
 
             if (bodyRes.FuncReturnValue != null)

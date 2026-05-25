@@ -1,4 +1,4 @@
-﻿using RaLanguage.Errors;
+using RaLanguage.Errors;
 using System.Threading.Tasks;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
@@ -15,9 +15,12 @@ namespace RaLanguage.Interpreter.Visitors.Operations
     public class UnaryOperationNodeVisitor : NodeVisitor<UnaryOperationNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(UnaryOperationNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(UnaryOperationNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
-            var value = res.Register(await interpreter.Visit(node.Node, context));
+            var value = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.Node, context, interpreter));
             if (res.ShouldReturn()) return res;
 
             Error? error = null;

@@ -1,4 +1,4 @@
-﻿using RaLanguage.Errors;
+using RaLanguage.Errors;
 using System.Threading.Tasks;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
@@ -13,6 +13,9 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
     public class RetryNodeVisitor : NodeVisitor<RetryNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(RetryNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(RetryNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
@@ -117,7 +120,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
                 }
             }
 
-            RuntimeValue countValue = res.Register(await interpreter.Visit(node.CountNode, context));
+            RuntimeValue countValue = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.CountNode, context, interpreter));
             if (res.ShouldReturn()) return res;
 
             int retries = -1;
@@ -135,7 +138,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
             int delayMs = 0;
             if (node.DelayNode != null)
             {
-                RuntimeValue delayValue = res.Register(await interpreter.Visit(node.DelayNode, context));
+                RuntimeValue delayValue = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.DelayNode, context, interpreter));
                 if (res.ShouldReturn()) return res;
 
                 var _delayMs = ExtractRetryInt(delayValue, node.DelayNode, "delay");
@@ -156,7 +159,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
             {
                 if (node.ElseNode != null)
                 {
-                    var elseRes = res.Register(await interpreter.Visit(node.ElseNode, context));
+                    var elseRes = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.ElseNode, context, interpreter));
                     if (res.Error != null) return res;
                     return res.Success(elseRes ?? NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
@@ -167,7 +170,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
             for (int attempt = 0; attempt < retries; attempt++)
             {
                 var attemptContext = context.Copy();
-                var bodyRes = await interpreter.Visit(node.BodyNode, attemptContext);
+                var bodyRes = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.BodyNode, attemptContext, interpreter);
 
                 if (bodyRes.Error == null)
                 {
@@ -209,7 +212,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
 
             if (node.ElseNode != null)
             {
-                var elseRes = res.Register(await interpreter.Visit(node.ElseNode, context));
+                var elseRes = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.ElseNode, context, interpreter));
                 if (res.ShouldReturn()) return res;
 
                 return res.Success(elseRes ?? NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));

@@ -74,6 +74,77 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public bool HasStaticField(string name) => StaticFields.ContainsKey(name);
 
+        // M38: hidden class / shape information. Field set on a class
+        // definition is static — fields are declared at parse time and
+        // never added dynamically (Ra has no runtime property-add like
+        // JavaScript), so we can pre-compute a name→slot mapping shared
+        // across every instance of the class. Inherited fields stack on
+        // top of the base class's mapping in declaration order so a
+        // subclass keeps its parent's slot indices stable. The result is
+        // O(1) field access via an integer-indexed array on
+        // ClassInstanceValue, replacing the per-call
+        // `Dictionary<string,RuntimeValue>.TryGetValue` walk.
+        //
+        // Computed lazily on first request; cached for the lifetime of the
+        // ClassTypeValue. Single-threaded interpreter so no lock needed.
+        private Dictionary<string, int>? _fieldNameToIndex;
+        private int _fieldSlotCount = -1;
+
+        public int FieldSlotCount
+        {
+            get
+            {
+                if (_fieldNameToIndex == null) BuildFieldShape();
+                return _fieldSlotCount;
+            }
+        }
+
+        // Returns the canonical slot index for the named field, or -1 if
+        // the field is not declared on this class or any ancestor. The
+        // index is dense (0..FieldSlotCount-1) and stable across all
+        // instances of this class type.
+        public int GetFieldSlotIndex(string name)
+        {
+            var map = _fieldNameToIndex;
+            if (map == null)
+            {
+                BuildFieldShape();
+                map = _fieldNameToIndex!;
+            }
+            return map.TryGetValue(name, out var idx) ? idx : -1;
+        }
+
+        private void BuildFieldShape()
+        {
+            var map = new Dictionary<string, int>(StringComparer.Ordinal);
+            int next = 0;
+            // Base-class fields first so inherited slot indices stay
+            // stable when the subclass adds its own.
+            if (BaseClass != null)
+            {
+                _ = BaseClass.FieldSlotCount; // force-build the parent shape
+                if (BaseClass._fieldNameToIndex != null)
+                {
+                    foreach (var kv in BaseClass._fieldNameToIndex)
+                    {
+                        map[kv.Key] = kv.Value;
+                        if (kv.Value >= next) next = kv.Value + 1;
+                    }
+                }
+            }
+            foreach (var f in Fields)
+            {
+                var n = f.NameTok.Value?.ToString();
+                if (string.IsNullOrEmpty(n)) continue;
+                if (!map.ContainsKey(n))
+                {
+                    map[n] = next++;
+                }
+            }
+            _fieldNameToIndex = map;
+            _fieldSlotCount = next;
+        }
+
         public bool IsFieldPublic(string name)
         {
             foreach (StructFieldDefinitionNode field in Fields)

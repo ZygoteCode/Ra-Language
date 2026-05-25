@@ -1361,7 +1361,8 @@ namespace RaLanguage.Interpreter.Values
                             parameterTypeName,
                             op.ReturnType,
                             op.BodyNode,
-                            op.ShouldAutoReturn)
+                            op.ShouldAutoReturn,
+                            op)
                             .SetContext(Context)
                             .SetPos(PositionStart, PositionEnd);
 
@@ -1420,7 +1421,8 @@ namespace RaLanguage.Interpreter.Values
                             parameterTypeName,
                             op.ReturnType,
                             op.BodyNode,
-                            op.ShouldAutoReturn)
+                            op.ShouldAutoReturn,
+                            op)
                             .SetContext(Context)
                             .SetPos(PositionStart, PositionEnd);
 

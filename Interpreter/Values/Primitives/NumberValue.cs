@@ -19,8 +19,21 @@ namespace RaLanguage.Interpreter.Values.Primitives
         // _Py_GetGlobalObject small-int cache. Most loop counters (`for i in 0..N`)
         // sit inside this range, so reads of the loop variable hit a cached instance
         // instead of allocating per iteration.
-        private const int SmallIntMin = -128;
-        private const int SmallIntMax = 1024;
+        //
+        // M27.4 widened the upper bound to 8192. Static cost: ~290 KB of NumberValue
+        // refs eagerly allocated once at startup (cheap in .NET 10's compacting GC
+        // — class instances + their inline BigNumber struct). Runtime benefit:
+        // hot loops that range up to ~8 K no longer allocate per iteration in the
+        // OP_ADD_INTO_SLOT / Binary fast paths — they hit the intern cache.
+        //
+        // We cannot safely mutate-in-place a NumberValue's BigNumber field even
+        // when the slot owning it has refcount 1: NumberValue is freely aliased
+        // by `let b = a` and by closure capture, neither of which is statically
+        // tractable from the IR compiler. Widening the cache is the
+        // semantics-preserving compromise the doc's "escape analysis" entry
+        // gestured at.
+        private const int SmallIntMin = -1024;
+        private const int SmallIntMax = 8192;
         private static readonly NumberValue[] s_smallInts = BuildSmallIntCache();
 
         private static NumberValue[] BuildSmallIntCache()

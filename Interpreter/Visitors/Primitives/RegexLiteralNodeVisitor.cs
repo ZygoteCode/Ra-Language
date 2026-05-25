@@ -1,4 +1,4 @@
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using System.Text.RegularExpressions;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
@@ -17,6 +17,9 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
     public class RegexLiteralNodeVisitor : NodeVisitor<RegexLiteralNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(RegexLiteralNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(RegexLiteralNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
