@@ -13,27 +13,41 @@ namespace RaLanguage.Interpreter.Visitors.Async
     public class AwaitNodeVisitor : NodeVisitor<AwaitNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(AwaitNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(AwaitNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
-            var inner = await interpreter.Visit(node.Expression, context);
+            var inner = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.Expression, context, interpreter);
             if (inner.Error != null) return res.Failure(inner.Error);
-            var value = inner.Value;
-            if (value == null) return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Cannot await null", context));
+
+            return await AwaitValueCore(inner.Value, context, node.PositionStart, node.PositionEnd);
+        }
+
+        // M85 — reusable core. Takes an already-evaluated value (the
+        // expression that the `await` keyword fronts) and produces the
+        // task's resolved result. Used by both the AST visitor path
+        // (above) and the dedicated `Opcode.Await` dispatch added in
+        // M85 — the dedicated opcode resolves the expression itself via
+        // IR + the dispatch loop, then calls into this helper instead
+        // of routing through NativeDefine + the visitor's full Apply.
+        // Keeps the cancellation / type-check / non-TaskValue passthrough
+        // semantics centralised in one place.
+        public static async ValueTask<RuntimeResult> AwaitValueCore(
+            RuntimeValue? value,
+            Context context,
+            Lexer.Position posStart,
+            Lexer.Position posEnd)
+        {
+            var res = new RuntimeResult();
+            if (value == null) return res.Failure(new RuntimeError(posStart, posEnd, "Cannot await null", context));
 
             if (value is TaskValue tv)
             {
                 var core = tv.Core;
                 if (!core.IsCompleted)
                 {
-                    // True async wait. The visitor pipeline now propagates
-                    // ValueTask end-to-end, so awaiting `core.WaitAsync()`
-                    // releases the host worker instead of pinning it via
-                    // sync-over-async `GetAwaiter().GetResult()`. The audit
-                    // (item 5.7) called this out as the core blocker for
-                    // high-fan-out fiber programs; with the pipeline async
-                    // and this site honestly awaiting, the worker is free
-                    // to pick up other queued work while this fiber sleeps.
                     var token = context.AsyncCtx?.Token ?? System.Threading.CancellationToken.None;
                     try
                     {
@@ -49,25 +63,25 @@ namespace RaLanguage.Interpreter.Visitors.Async
                     }
                     catch (System.OperationCanceledException)
                     {
-                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Await cancelled", context));
+                        return res.Failure(new RuntimeError(posStart, posEnd, "Await cancelled", context));
                     }
                 }
 
-                if (core.IsCancelled) return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Awaited task '{core.DebugName}' was cancelled", context));
+                if (core.IsCancelled) return res.Failure(new RuntimeError(posStart, posEnd, $"Awaited task '{core.DebugName}' was cancelled", context));
                 if (core.IsFaulted && core.Error != null) return res.Failure(core.Error);
 
-                var result = core.Result ?? new RaLanguage.Interpreter.Values.Primitives.NullValue().SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                var result = core.Result ?? new RaLanguage.Interpreter.Values.Primitives.NullValue().SetContext(context).SetPos(posStart, posEnd);
 
                 if (tv.ElementType != null && !tv.ElementType.IsTypeParameter
                     && result.Type != RaLanguage.Interpreter.Values.RuntimeValueType.Null
                     && !RaLanguage.Types.TypeSystem.IsAssignable(context, tv.ElementType, result))
                 {
-                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Awaited task produced a value of type '{result.Type}' but task<{tv.ElementType}> was expected", context));
+                    return res.Failure(new RuntimeError(posStart, posEnd, $"Awaited task produced a value of type '{result.Type}' but task<{tv.ElementType}> was expected", context));
                 }
-                return res.Success(result.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                return res.Success(result.SetContext(context).SetPos(posStart, posEnd));
             }
 
-            return res.Success(value.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+            return res.Success(value.SetContext(context).SetPos(posStart, posEnd));
         }
     }
 }

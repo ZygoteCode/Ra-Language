@@ -1,4 +1,4 @@
-ï»¿using System;
+using System;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Globalization;
@@ -22,14 +22,17 @@ namespace RaLanguage.Interpreter.Visitors.Asm
     /// Executes inline `asm { ... }` and `asm -> T { ... }` blocks.
     ///
     /// Interpolation modes:
-    ///   %{expr}             â€” integer / pointer value, decimal literal
-    ///   %{expr:i32|i64|u8â€¦} â€” explicit width; floats encoded as 64-bit hex bits
-    ///   %{expr:hex}         â€” hex literal
-    ///   %{expr:f64}         â€” emit float bits as integer (no FP literal)
+    ///   %{expr}             — integer / pointer value, decimal literal
+    ///   %{expr:i32|i64|u8…} — explicit width; floats encoded as 64-bit hex bits
+    ///   %{expr:hex}         — hex literal
+    ///   %{expr:f64}         — emit float bits as integer (no FP literal)
     /// </summary>
     public sealed class AsmBlockNodeVisitor : NodeVisitor<AsmBlockNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(AsmBlockNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(AsmBlockNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
@@ -58,7 +61,7 @@ namespace RaLanguage.Interpreter.Visitors.Asm
                     evalPart = ip.Expr;
                 }
 
-                var val = res.Register(await interpreter.Visit(evalPart, context));
+                var val = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(evalPart, context, interpreter));
                 if (res.ShouldReturn()) return res;
                 if (val == null)
                 {

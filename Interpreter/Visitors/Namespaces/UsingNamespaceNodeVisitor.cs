@@ -15,6 +15,9 @@ namespace RaLanguage.Interpreter.Visitors.Namespaces
             UsingNamespaceNode node,
             Context context,
             IInterpreter interpreter)
+            => Apply(node, context);
+
+        public static RuntimeResult Apply(UsingNamespaceNode node, Context context)
         {
             var res = new RuntimeResult();
 

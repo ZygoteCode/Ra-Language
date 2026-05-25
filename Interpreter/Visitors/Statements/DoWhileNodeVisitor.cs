@@ -20,7 +20,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 
             while (true)
             {
-                var condition = res.Register(await interpreter.Visit(node.ConditionNode, loopContext));
+                var condition = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.ConditionNode, loopContext, interpreter));
                 if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
 
@@ -29,7 +29,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 
                 bodySymbols.Clear();
                 bodyContext.ScopeSkipCopy = true;
-                res.Register(await interpreter.Visit(node.BodyNode, bodyContext));
+                res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.BodyNode, bodyContext, interpreter));
                 if (res.Error != null) return res;
 
                 if (res.LoopShouldContinue) continue;

@@ -16,6 +16,9 @@ namespace RaLanguage.Interpreter.Visitors.Enums
     public class EnumDefinitionNodeVisitor : NodeVisitor<EnumDefinitionNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(EnumDefinitionNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(EnumDefinitionNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
@@ -43,7 +46,7 @@ namespace RaLanguage.Interpreter.Visitors.Enums
                 Int128 value;
                 if (spec.ValueNode != null)
                 {
-                    var val = res.Register(await interpreter.Visit(spec.ValueNode, context));
+                    var val = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(spec.ValueNode, context, interpreter));
                     if (res.ShouldReturn()) return res;
                     var (parsed, err) = ExtractEnumInt128(val!, spec.ValueNode, context);
                     if (err != null) return res.Failure(err);
@@ -76,7 +79,7 @@ namespace RaLanguage.Interpreter.Visitors.Enums
             return res.Success(enumTypeValue);
         }
 
-        private (Int128?, Error?) ExtractEnumInt128(RuntimeValue value, AstNode sourceNode, Context context)
+        private static (Int128?, Error?) ExtractEnumInt128(RuntimeValue value, AstNode sourceNode, Context context)
         {
             switch (value.Type)
             {

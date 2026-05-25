@@ -7,6 +7,12 @@ namespace RaLanguage.Parser.Nodes.Classes
 {
     public sealed class OperatorDefinitionNode : AstNode
     {
+        // M18: resolver-populated metadata for IR compilation.
+        public int FrameId = -1;
+        public RaLanguage.Interpreter.Pipeline.BindingId[]? ParamBindings;
+        public RaLanguage.Interpreter.IR.RaFunction? CompiledBody;
+        public bool IrCompileTried;
+
         public bool IsPublic { get; }
         public bool IsOverride { get; }
         public bool IsStatic { get; }

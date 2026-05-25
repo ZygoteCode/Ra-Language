@@ -64,7 +64,20 @@ namespace RaLanguage.Interpreter.Values.Classes
             if (bind.error != null)
                 return res.Failure(bind.error);
 
-            var bodyRes = await interpreter.Visit(selected.BodyNode!, bind.execCtx!);
+            RuntimeResult bodyRes;
+            var compiled = selected is RaLanguage.Parser.Nodes.Functions.FunctionDefinitionNode fdn
+                ? Runtime.FunctionDefinitionHelper.GetOrCompileBody(fdn)
+                : null;
+            if (compiled == null)
+                return res.Failure(new RuntimeError(PositionStart, PositionEnd,
+                    $"extension method '{Name}' has no IR-compiled body", Context));
+            {
+                // M79: pool rent + return on success only.
+                var vm = new Vm.VmExecutor(interpreter);
+                var frame = Vm.VmFrame.Rent(compiled);
+                bodyRes = await vm.Execute(frame, bind.execCtx!);
+                if (bodyRes.Error == null) Vm.VmFrame.Return(frame);
+            }
             if (bodyRes.Error != null) return res.Failure(bodyRes.Error);
 
             if (bodyRes.FuncReturnValue != null)

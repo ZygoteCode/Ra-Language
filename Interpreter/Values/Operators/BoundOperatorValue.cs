@@ -20,6 +20,11 @@ namespace RaLanguage.Interpreter.Values.Operators
         public TypeDescriptor? ReturnType { get; }
         public AstNode BodyNode { get; }
         public bool ShouldAutoReturn { get; }
+        // M18: optional reference to the AST OperatorDefinitionNode so we can
+        // route through the cached IR compile (CompiledBody) when available.
+        // Older callers that don't have the node still work — they just take
+        // the AST visit path.
+        public OperatorDefinitionNode? OpNode { get; }
 
         public override RuntimeValueType Type => RuntimeValueType.Function;
         public override bool IsCopy => false;
@@ -31,7 +36,8 @@ namespace RaLanguage.Interpreter.Values.Operators
             string parameterTypeName,
             TypeDescriptor? returnType,
             AstNode bodyNode,
-            bool shouldAutoReturn) : base($"operator_{operatorType}")
+            bool shouldAutoReturn,
+            OperatorDefinitionNode? opNode = null) : base($"operator_{operatorType}")
         {
             Instance = instance;
             OperatorType = operatorType;
@@ -39,6 +45,7 @@ namespace RaLanguage.Interpreter.Values.Operators
             ReturnType = returnType;
             BodyNode = bodyNode;
             ShouldAutoReturn = shouldAutoReturn;
+            OpNode = opNode;
         }
 
         public override async ValueTask<RuntimeResult> Execute(List<RuntimeValue> args)
@@ -72,28 +79,27 @@ namespace RaLanguage.Interpreter.Values.Operators
                 }
             }
 
-            if (ShouldAutoReturn)
+            // M20.2: arrow-form (`=> expr`) and block-form (`{ ret expr; }`)
+            // operators share the same dispatch: compile once, run via VM,
+            // accept either explicit return or expression value.
+            // ShouldAutoReturn affected the old AST path (block returns
+            // bodyRes.Value, arrow returns bodyRes.FuncReturnValue) but now
+            // the IR compiler routes arrow-form to OP_RET and block-form to
+            // OP_HALT, so both surface through the same FuncReturnValue ??
+            // Value fallback.
             {
-                var exprRes = await new Interpreter().Visit(BodyNode, operatorContext);
-                if (exprRes.Error != null) return res.Failure(exprRes.Error);
-
-                var returnValue = exprRes.FuncReturnValue ?? exprRes.Value;
-
-                if (returnValue == null)
-                {
-                    return res.Failure(new RuntimeError(
-                        PositionStart,
-                        PositionEnd,
-                        $"Operator {OperatorType} body returned null value",
-                        Context!));
-                }
-
-                return res.Success(returnValue);
-            }
-            else
-            {
-                var bodyRes = await new Interpreter().Visit(BodyNode, operatorContext);
+                var interp = new Interpreter();
+                RuntimeResult bodyRes;
+                var compiledOp = OpNode != null ? Runtime.FunctionDefinitionHelper.GetOrCompileOperator(OpNode) : null;
+                if (compiledOp == null)
+                    return res.Failure(new RuntimeError(PositionStart, PositionEnd,
+                        $"operator {OperatorType} body has no IR-compiled body", Context!));
+                // M79: pool rent + return on success only.
+                var vm = new Vm.VmExecutor(interp);
+                var frame = Vm.VmFrame.Rent(compiledOp);
+                bodyRes = await vm.Execute(frame, operatorContext);
                 if (bodyRes.Error != null) return res.Failure(bodyRes.Error);
+                Vm.VmFrame.Return(frame);
 
                 var returnValue = bodyRes.FuncReturnValue ?? bodyRes.Value;
 

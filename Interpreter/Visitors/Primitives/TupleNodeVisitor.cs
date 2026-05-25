@@ -1,4 +1,4 @@
-﻿using RaLanguage.Interpreter.Architecture;
+using RaLanguage.Interpreter.Architecture;
 using System.Threading.Tasks;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
@@ -10,13 +10,16 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
     public class TupleNodeVisitor : NodeVisitor<TupleNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(TupleNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(TupleNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var elements = new List<RuntimeValue>();
 
             foreach (var elementNode in node.ElementNodes)
             {
-                var val = res.Register(await interpreter.Visit(elementNode, context));
+                var val = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(elementNode, context, interpreter));
                 if (res.ShouldReturn()) return res;
                 elements.Add(val);
             }

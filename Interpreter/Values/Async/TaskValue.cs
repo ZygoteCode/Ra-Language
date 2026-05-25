@@ -6,6 +6,13 @@ using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Async
 {
+    // M70: every TaskValue acquires an owner reference on its
+    // backing `RaTaskCore`. The finalizer releases the reference; if
+    // it was the last owner AND the task completed, the core
+    // recycles into the M70 pool for the next `RaTaskCore.Rent`.
+    // `Copy` constructs a new wrapper which itself bumps the count,
+    // so multiple in-flight wrappers keep the core alive until the
+    // last one is collected.
     public sealed class TaskValue : RuntimeValue
     {
         public RaTaskCore Core { get; }
@@ -20,6 +27,12 @@ namespace RaLanguage.Interpreter.Values.Async
         public TaskValue(RaTaskCore core)
         {
             Core = core;
+            core.AcquireOwner();
+        }
+
+        ~TaskValue()
+        {
+            try { Core?.ReleaseOwner(); } catch { /* finalizer must not throw */ }
         }
 
         public static TaskValue Completed(RuntimeValue? value) => new TaskValue(RaTaskCore.FromCompletedValue(value));

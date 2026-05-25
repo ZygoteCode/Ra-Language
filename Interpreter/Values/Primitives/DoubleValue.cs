@@ -18,16 +18,58 @@ namespace RaLanguage.Interpreter.Values.Primitives
             Value = value;
         }
 
+        // M74: small-double intern cache mirroring NumberValue's
+        // small-int pool. Covers whole numbers in [-1024, 1024] —
+        // the dominant range produced by the FF dispatch family
+        // (`BoxF` materialisation of LtFF/AddFF results that
+        // happened to land on an integer-valued double, plus
+        // arithmetic results that round to small whole numbers).
+        // Lookup is a single bounds check + cast + array index;
+        // misses fall through to `new DoubleValue` so non-integer
+        // doubles never hit the cache table.
+        private const int SmallDoubleMin = -1024;
+        private const int SmallDoubleMax = 1024;
+        private static readonly DoubleValue[] s_smallDoubles = BuildSmallDoubleCache();
+        private static DoubleValue[] BuildSmallDoubleCache()
+        {
+            int length = SmallDoubleMax - SmallDoubleMin + 1;
+            var arr = new DoubleValue[length];
+            for (int v = SmallDoubleMin; v <= SmallDoubleMax; v++)
+                arr[v - SmallDoubleMin] = new DoubleValue(v);
+            return arr;
+        }
+
+        // Public factory. Use everywhere a freshly-computed double
+        // crosses into the boxed RuntimeValue domain — e.g. the
+        // M71 `EnsureBoxed`, the M72 `BoxF` opcode, the
+        // `ValueSlot.ToRuntimeValue` bridge, and any arith result
+        // that needs to be wrapped for the legacy operator
+        // virtuals.
+        public static DoubleValue OfDouble(double value)
+        {
+            // Whole-number fast path: integral doubles in
+            // [-1024, 1024] return the cached instance. The
+            // `value == (double)(long)value` check is the cheapest
+            // way to detect "the double represents a small integer
+            // exactly". NaN / Inf fail the cast.
+            long iv = (long)value;
+            if (iv >= SmallDoubleMin && iv <= SmallDoubleMax && value == (double)iv)
+            {
+                return s_smallDoubles[(int)iv - SmallDoubleMin];
+            }
+            return new DoubleValue(value);
+        }
+
         public static DoubleValue FromLiteral(string literal)
         {
-            return new DoubleValue(ParseLiteralToDouble(literal));
+            return OfDouble(ParseLiteralToDouble(literal));
         }
 
         public static DoubleValue? TryParseLiteral(string literal)
         {
             try
             {
-                return new DoubleValue(ParseLiteralToDouble(literal));
+                return OfDouble(ParseLiteralToDouble(literal));
             }
             catch
             {

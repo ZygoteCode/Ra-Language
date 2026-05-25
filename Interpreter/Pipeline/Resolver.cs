@@ -97,6 +97,10 @@ namespace RaLanguage.Interpreter.Pipeline
                 case FunctionDefinitionNode fn: WalkFunction(fn, s); return;
                 case ClassDefinitionNode cls: WalkClass(cls, s); return;
                 case StructDefinitionNode str: WalkStruct(str, s); return;
+                case TraitDefinitionNode trait: WalkTrait(trait, s); return;
+                case ExtensionDefinitionNode ext: WalkExtension(ext, s); return;
+                case Parser.Nodes.Namespaces.NamespaceDeclarationNode nd:
+                    Walk(nd.Body, s); return;
 
                 // Loops / conditionals.
                 case ForNode fr: WalkFor(fr, s); return;
@@ -211,8 +215,6 @@ namespace RaLanguage.Interpreter.Pipeline
                 case SuperNode:
                 case EnumDefinitionNode:
                 case InterfaceDefinitionNode:
-                case TraitDefinitionNode:
-                case ExtensionDefinitionNode:
                     return;
             }
         }
@@ -407,7 +409,34 @@ namespace RaLanguage.Interpreter.Pipeline
             foreach (var m in cls.Methods) OpenFrameForFunction(m, s, isMethodFrame: true);
 
             foreach (var op in cls.Operators)
-                WalkMethodLikeBody(op.BodyNode, new[] { op.ArgNameTok }, s);
+            {
+                var paramBindings = WalkMethodLikeBody(op.BodyNode, new[] { op.ArgNameTok }, s, out int frameId);
+                op.FrameId = frameId;
+                op.ParamBindings = paramBindings;
+            }
+        }
+
+        // M18: walk a trait body so each method's frame + param slots are
+        // pinned by the Resolver, enabling IR compilation downstream.
+        private static void WalkTrait(TraitDefinitionNode trait, State s)
+        {
+            var name = trait.NameTok.Value?.ToString();
+            if (!string.IsNullOrEmpty(name)) s.AllocateLocalIfAbsent(name!);
+            foreach (var m in trait.Methods)
+            {
+                if (m.BodyNode == null) continue; // abstract methods
+                var paramBindings = WalkMethodLikeBody(m.BodyNode, m.ArgNameToks, s, out int frameId);
+                m.FrameId = frameId;
+                m.ParamBindings = paramBindings;
+            }
+        }
+
+        // Extension methods are FunctionDefinitionNodes; reuse WalkFunction so
+        // their FrameId / ParamBindings / capture analysis happens normally.
+        private static void WalkExtension(ExtensionDefinitionNode ext, State s)
+        {
+            foreach (var m in ext.Methods)
+                WalkFunction(m, s);
         }
 
         private static void WalkStruct(StructDefinitionNode str, State s)
@@ -419,33 +448,49 @@ namespace RaLanguage.Interpreter.Pipeline
                 if (field.DefaultValueNode != null) Walk(field.DefaultValueNode, s);
 
             foreach (var m in str.Methods)
-                WalkMethodLikeBody(m.BodyNode, m.ArgNameToks, s);
+            {
+                var paramBindings = WalkMethodLikeBody(m.BodyNode, m.ArgNameToks, s, out int frameId);
+                m.FrameId = frameId;
+                m.ParamBindings = paramBindings;
+            }
 
             foreach (var op in str.Operators)
-                WalkMethodLikeBody(op.BodyNode, new[] { op.ArgNameTok }, s);
+            {
+                var paramBindings = WalkMethodLikeBody(op.BodyNode, new[] { op.ArgNameTok }, s, out int frameId);
+                op.FrameId = frameId;
+                op.ParamBindings = paramBindings;
+            }
         }
 
         // Helper for struct/operator method bodies which carry args+body but
         // aren't FunctionDefinitionNodes. They get a fresh method frame with
         // self at slot 0 followed by their args; only the body is walked.
-        private static void WalkMethodLikeBody(AstNode? body, IReadOnlyList<RaLanguage.Lexer.Tokens.Token> argToks, State s)
+        // M18: returns the param BindingId[] + frame id so the IR compiler can
+        // lower the body just like a function. Callers attach to the AST node.
+        private static BindingId[]? WalkMethodLikeBody(AstNode? body, IReadOnlyList<RaLanguage.Lexer.Tokens.Token> argToks, State s, out int frameIdOut)
         {
-            if (body == null) return;
+            frameIdOut = -1;
+            if (body == null) return null;
             var frame = s.PushFrame("<method>", isFunctionRoot: true, isScript: false, isMethodFrame: true);
-            if (frame == null) { Walk(body, s); return; }
+            if (frame == null) { Walk(body, s); return null; }
             var savedScope = s.CurrentScope;
             s.CurrentScope = new ScopeRecord(frame, parent: null);
+            frameIdOut = frame.FrameId;
 
             frame.AllocateSlot(); // self
-            foreach (var t in argToks)
+            var paramBindings = new BindingId[argToks.Count];
+            for (int i = 0; i < argToks.Count; i++)
             {
-                var n = t.Value?.ToString() ?? string.Empty;
-                if (!string.IsNullOrEmpty(n)) s.AllocateLocal(n, kindOverride: BindingKind.Parameter);
+                var n = argToks[i].Value?.ToString() ?? string.Empty;
+                paramBindings[i] = string.IsNullOrEmpty(n)
+                    ? BindingId.Unresolved
+                    : s.AllocateLocal(n!, kindOverride: BindingKind.Parameter);
             }
             Walk(body, s);
 
             s.CurrentScope = savedScope;
             s.PopFrame();
+            return paramBindings;
         }
 
         // ---------------------------------------------------------------------

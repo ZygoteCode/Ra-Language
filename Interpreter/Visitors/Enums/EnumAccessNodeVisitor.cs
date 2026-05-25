@@ -1,4 +1,4 @@
-﻿using RaLanguage.Errors.Types;
+using RaLanguage.Errors.Types;
 using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
@@ -14,7 +14,7 @@ namespace RaLanguage.Interpreter.Visitors.Enums
         {
             var res = new RuntimeResult();
 
-            var enumValue = res.Register(await interpreter.Visit(node.EnumNode, context));
+            var enumValue = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.EnumNode, context, interpreter));
             if (res.ShouldReturn()) return res;
 
             if (enumValue.Type != RuntimeValueType.EnumType)

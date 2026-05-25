@@ -10,6 +10,12 @@ namespace RaLanguage.Interpreter.Visitors.Extensions
     public class ExtensionDefinitionNodeVisitor : NodeVisitor<ExtensionDefinitionNode>
     {
         protected override async ValueTask<RuntimeResult> VisitNode(ExtensionDefinitionNode node, Context context, IInterpreter interpreter)
+            => Apply(node, context);
+
+        // Public static entry-point — shared by the AST visitor and the
+        // VM's OP_DEFINE_EXTENSION opcode. Avoids interpreter._visitors[]
+        // dispatch when running via the VM dispatch loop.
+        public static RuntimeResult Apply(ExtensionDefinitionNode node, Context context)
         {
             var res = new RuntimeResult();
 

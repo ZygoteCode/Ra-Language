@@ -1,0 +1,28 @@
+// M5 smoke test: function call native (builtins).
+
+print("=== M5 smoke ===");
+
+// Simple builtin call (no result).
+print("[direct] OK");
+
+// Call with arithmetic argument.
+print("sum=" + ((1 + 2) as string));
+
+// Call inside if.
+if 5 > 3 {
+    print("[in-if] OK");
+}
+
+// Call inside loop body.
+var s = 0;
+for i = 0 to 3 {
+    s = s + i;
+}
+print("for-sum=" + (s as string));
+
+// Multiple statements.
+print("a");
+print("b");
+print("c");
+
+print("[M5] OK");

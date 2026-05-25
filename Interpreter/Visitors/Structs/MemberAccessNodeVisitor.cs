@@ -1,4 +1,4 @@
-﻿using RaLanguage.Errors;
+using RaLanguage.Errors;
 using System.Threading.Tasks;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
@@ -20,7 +20,7 @@ namespace RaLanguage.Interpreter.Visitors.Members
         {
             var res = new RuntimeResult();
 
-            var target = res.Register(await interpreter.Visit(node.TargetNode, context));
+            var target = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.TargetNode, context, interpreter));
             if (res.ShouldReturn()) return res;
 
             string memberName = node.MemberTok.Value?.ToString() ?? "";

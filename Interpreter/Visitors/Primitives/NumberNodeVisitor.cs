@@ -27,7 +27,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
             return res.Success(cached.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
 
-        private static RuntimeValue ParseLiteral(NumberNode node)
+        public static RuntimeValue ParseLiteral(NumberNode node)
         {
             var raw = node.Tok.Value!.ToString()!;
             string s = raw;

@@ -1,0 +1,33 @@
+// M2 smoke test: pure-expression statements should compile to native
+// opcodes (LoadConst / Add / Sub / Mul / Div / Lt / Eq / ...). Each
+// statement here is a bare expression whose result is discarded — the
+// IrCompiler is allowed to compile these natively without disturbing
+// side effects.
+//
+// Run with --ir and RA_VM_STATS=1 to see the counters split.
+
+print("=== M2 smoke ===");
+
+// Bare expressions (no side effect). These should compile to native ops
+// and run on the VM dispatch loop, not via OP_VISIT_AST.
+5 + 3;
+10 * 4;
+20 / 5;
+17 % 4;
+1 == 1;
+2 < 3;
+4 > 5;
+6 != 7;
+
+// Mixed precedence — the IR compiler walks the binop tree.
+((1 + 2) * 3 - 1) == 8;
+
+// Each `var` declaration goes through OP_VISIT_AST (M2 does not compile
+// declarations yet) but the subsequent bare expression compiles natively.
+var a = 5;
+var b = 10;
+a + b;          // VariableAccess + Add at the VM level
+a * b - 3;
+a < b;
+
+print("[M2] OK");

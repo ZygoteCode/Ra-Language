@@ -15,6 +15,9 @@ namespace RaLanguage.Interpreter.Visitors.Annotations
     public sealed class AnnotationDefinitionNodeVisitor : NodeVisitor<AnnotationDefinitionNode>
     {
         protected override async ValueTask<RuntimeResult> VisitNode(AnnotationDefinitionNode node, Context context, IInterpreter interpreter)
+            => Apply(node, context, interpreter);
+
+        public static RuntimeResult Apply(AnnotationDefinitionNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var name = node.Name;
@@ -45,7 +48,7 @@ namespace RaLanguage.Interpreter.Visitors.Annotations
             return res.Success(typeValue);
         }
 
-        private RaLanguage.Errors.Error? ApplyMetaAnnotation(
+        private static RaLanguage.Errors.Error? ApplyMetaAnnotation(
             AnnotationApplicationNode app,
             AnnotationTypeValue typeValue,
             Context context,

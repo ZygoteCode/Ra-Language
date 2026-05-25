@@ -18,7 +18,7 @@ namespace RaLanguage.Interpreter.Visitors.Operations
         protected sealed override async ValueTask<RuntimeResult> VisitNode(DereferenceNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
-            var target = res.Register(await interpreter.Visit(node.Target, context));
+            var target = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.Target, context, interpreter));
             if (res.ShouldReturn()) return res;
             if (target == null)
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,

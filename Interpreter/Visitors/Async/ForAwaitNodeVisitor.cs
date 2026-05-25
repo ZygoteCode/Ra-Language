@@ -1,4 +1,4 @@
-﻿using RaLanguage.Errors;
+using RaLanguage.Errors;
 using System.Threading.Tasks;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
@@ -14,10 +14,13 @@ namespace RaLanguage.Interpreter.Visitors.Async
     public class ForAwaitNodeVisitor : NodeVisitor<ForAwaitNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(ForAwaitNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(ForAwaitNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
-            var src = await interpreter.Visit(node.StreamNode, context);
+            var src = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.StreamNode, context, interpreter);
             if (src.Error != null) return res.Failure(src.Error);
 
             if (src.Value is not AsyncStreamValue streamValue)
@@ -45,7 +48,7 @@ namespace RaLanguage.Interpreter.Visitors.Async
 
                 context.SymbolTable.Set(varName, value ?? NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
 
-                var bodyRes = await interpreter.Visit(node.BodyNode, context);
+                var bodyRes = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.BodyNode, context, interpreter);
                 if (bodyRes.Error != null)
                 {
                     stream.Cancel();

@@ -70,7 +70,7 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
                 }
                 else
                 {
-                    var v = res.Register(await interpreter.Visit(part, context));
+                    var v = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(part, context, interpreter));
                     if (res.ShouldReturn()) return res;
 
                     if (v == null)

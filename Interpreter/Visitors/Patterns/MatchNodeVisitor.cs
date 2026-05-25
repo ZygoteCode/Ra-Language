@@ -29,10 +29,13 @@ namespace RaLanguage.Interpreter.Visitors.Patterns
     public class MatchNodeVisitor : NodeVisitor<MatchNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(MatchNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(MatchNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
-            var scrutinee = res.Register(await interpreter.Visit(node.Scrutinee, context));
+            var scrutinee = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.Scrutinee, context, interpreter));
             if (res.ShouldReturn()) return res;
             if (scrutinee == null)
             {
@@ -59,7 +62,7 @@ namespace RaLanguage.Interpreter.Visitors.Patterns
 
                 if (arm.Guard != null)
                 {
-                    var guardRes = await interpreter.Visit(arm.Guard, armCtx);
+                    var guardRes = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(arm.Guard, armCtx, interpreter);
                     if (guardRes.Error != null) return res.Failure(guardRes.Error);
                     if (guardRes.FuncReturnValue != null || guardRes.LoopShouldBreak || guardRes.LoopShouldContinue)
                     {
@@ -77,7 +80,7 @@ namespace RaLanguage.Interpreter.Visitors.Patterns
                         continue;
                 }
 
-                var bodyRes = await interpreter.Visit(arm.Body, armCtx);
+                var bodyRes = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(arm.Body, armCtx, interpreter);
                 // Propagate everything (return / break / continue / yield).
                 if (bodyRes.Error != null) return res.Failure(bodyRes.Error);
                 if (bodyRes.FuncReturnValue != null) return res.SuccessReturn(bodyRes.FuncReturnValue);

@@ -18,18 +18,18 @@ namespace RaLanguage.Interpreter.Visitors.Statements
             var loopContext = context.Copy();
             var loopSymbols = loopContext.SymbolTable!;
 
-            var startValue = res.Register(await interpreter.Visit(node.StartValueNode, loopContext));
+            var startValue = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.StartValueNode, loopContext, interpreter));
             if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
 
-            var endValue = res.Register(await interpreter.Visit(node.EndValueNode, loopContext));
+            var endValue = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.EndValueNode, loopContext, interpreter));
             if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
 
             RuntimeValue stepValue;
             if (node.StepValueNode != null)
             {
-                stepValue = res.Register(await interpreter.Visit(node.StepValueNode, loopContext));
+                stepValue = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.StepValueNode, loopContext, interpreter));
                 if (res.Error != null) return res;
                 if (res.ShouldReturn()) return res;
             }
@@ -63,7 +63,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
 
                 bodySymbols.Clear();
                 bodyContext.ScopeSkipCopy = true;
-                res.Register(await interpreter.Visit(node.BodyNode, bodyContext));
+                res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.BodyNode, bodyContext, interpreter));
                 if (res.Error != null) return res;
 
                 if (res.LoopShouldContinue) { res.LoopShouldContinue = false; continue; }

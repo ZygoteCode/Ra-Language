@@ -17,6 +17,15 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public Dictionary<string, VariableDeclarationType> FieldDeclarationTypes { get; }
         public Dictionary<string, TypeDescriptor> GenericBindings { get; }
 
+        // M38: shape-indexed slot array. Indexed by
+        // Definition.GetFieldSlotIndex(name). Lazily resized when a field is
+        // first assigned. The Dictionary above remains the ground truth for
+        // code paths that need to iterate by name (reflection builtins,
+        // annotations_of, ToString); the slot array is a parallel store
+        // optimised for O(1) field reads from the IC-driven hot path. Both
+        // stores are kept in sync by SetField / SetMember.
+        public RuntimeValue?[] FieldSlots;
+
         public override RuntimeValueType Type => RuntimeValueType.ClassInstance;
         public override bool IsCopy => false;
 
@@ -56,14 +65,35 @@ namespace RaLanguage.Interpreter.Values.Primitives
             FieldTypes = types;
             FieldDeclarationTypes = declarationTypes;
             GenericBindings = genericBindings ?? new Dictionary<string, TypeDescriptor>(StringComparer.Ordinal);
+            // M38: size the slot array to the class's static shape. Empty
+            // array when the class declares no fields (avoids array
+            // allocation for tag-only classes). On Copy, we rebuild the
+            // slot array from the source dict so the new instance shares
+            // a shape but not the underlying values reference.
+            int slotCount = definition.FieldSlotCount;
+            FieldSlots = slotCount > 0 ? new RuntimeValue?[slotCount] : System.Array.Empty<RuntimeValue?>();
+            if (slotCount > 0 && fields.Count > 0)
+            {
+                foreach (var kv in fields)
+                {
+                    int idx = definition.GetFieldSlotIndex(kv.Key);
+                    if ((uint)idx < (uint)FieldSlots.Length)
+                        FieldSlots[idx] = kv.Value;
+                }
+            }
         }
 
         public void SetField(string name, RuntimeValue value, bool isPublic, TypeDescriptor? fieldType = null, VariableDeclarationType declarationType = VariableDeclarationType.VARIABLE)
         {
-            Fields[name] = value.IsCopy ? value.Copy() : value;
+            var stored = value.IsCopy ? value.Copy() : value;
+            Fields[name] = stored;
             FieldPublicity[name] = isPublic;
             FieldTypes[name] = fieldType;
             FieldDeclarationTypes[name] = declarationType;
+            // M38: mirror into shape-indexed slot array.
+            int idx = Definition.GetFieldSlotIndex(name);
+            if ((uint)idx < (uint)FieldSlots.Length)
+                FieldSlots[idx] = stored;
         }
 
         public bool HasField(string name) => Fields.ContainsKey(name);
@@ -86,7 +116,14 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (!Fields.ContainsKey(name))
                 throw new KeyNotFoundException(name);
 
-            Fields[name] = value.IsCopy ? value.Copy() : value;
+            var stored = value.IsCopy ? value.Copy() : value;
+            Fields[name] = stored;
+            // M38: mirror into the slot array. The KeyNotFoundException
+            // above ensures `name` is a declared field so the slot index
+            // is always valid for this class's shape.
+            int idx = Definition.GetFieldSlotIndex(name);
+            if ((uint)idx < (uint)FieldSlots.Length)
+                FieldSlots[idx] = stored;
         }
 
         public sealed override ValueResult AddedTo(RuntimeValue other) =>

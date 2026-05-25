@@ -14,6 +14,9 @@ namespace RaLanguage.Interpreter.Visitors.Interfaces
     public class InterfaceDefinitionNodeVisitor : NodeVisitor<InterfaceDefinitionNode>
     {
         protected override async ValueTask<RuntimeResult> VisitNode(InterfaceDefinitionNode node, Context context, IInterpreter interpreter)
+            => Apply(node, context, interpreter);
+
+        public static RuntimeResult Apply(InterfaceDefinitionNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var name = node.NameTok.Value?.ToString() ?? "";

@@ -1,0 +1,69 @@
+// M4 smoke test: for-loop + var-in-body + nested scopes.
+
+print("=== M4 smoke ===");
+
+// for with ascending range
+var s = 0;
+for i = 0 to 10 {
+    s = s + i;
+}
+if s == 45 { print("[for asc] OK"); } else { print("[for asc] FAIL " + (s as string)); }
+
+// for with step
+var t = 0;
+for i = 0 to 10 step 2 {
+    t = t + i;
+}
+if t == 20 { print("[for step] OK"); } else { print("[for step] FAIL " + (t as string)); }
+
+// for descending
+var u = 0;
+for i = 10 to 0 step -1 {
+    u = u + i;
+}
+if u == 55 { print("[for desc] OK"); } else { print("[for desc] FAIL " + (u as string)); }
+
+// for with break
+var b = 0;
+for i = 0 to 100 {
+    if i == 5 { break; }
+    b = b + 1;
+}
+if b == 5 { print("[for break] OK"); } else { print("[for break] FAIL " + (b as string)); }
+
+// for with continue
+var c = 0;
+for i = 0 to 10 {
+    if i % 2 == 0 { continue; }
+    c = c + 1;
+}
+if c == 5 { print("[for continue] OK"); } else { print("[for continue] FAIL " + (c as string)); }
+
+// nested for
+var n = 0;
+for i = 0 to 3 {
+    for j = 0 to 3 {
+        n = n + 1;
+    }
+}
+if n == 9 { print("[for nested] OK"); } else { print("[for nested] FAIL " + (n as string)); }
+
+// var inside while body
+var x = 0;
+var k = 0;
+while k < 5 {
+    var inside = k * 2;
+    x = x + inside;
+    k = k + 1;
+}
+if x == 20 { print("[var-in-while] OK"); } else { print("[var-in-while] FAIL " + (x as string)); }
+
+// var inside if body
+var y = 0;
+if true {
+    var inner = 7;
+    y = inner;
+}
+if y == 7 { print("[var-in-if] OK"); } else { print("[var-in-if] FAIL " + (y as string)); }
+
+print("[M4] OK");

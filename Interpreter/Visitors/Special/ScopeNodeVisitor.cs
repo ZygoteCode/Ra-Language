@@ -1,4 +1,4 @@
-﻿using RaLanguage.Interpreter.Architecture;
+using RaLanguage.Interpreter.Architecture;
 using System.Threading.Tasks;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values.Primitives;
@@ -9,6 +9,9 @@ namespace RaLanguage.Interpreter.Visitors.Special
     public class ScopeNodeVisitor : NodeVisitor<ScopeNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(ScopeNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(ScopeNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
@@ -31,7 +34,7 @@ namespace RaLanguage.Interpreter.Visitors.Special
             RaLanguage.Interpreter.Values.RuntimeValue? lastValue = null;
             for (int i = 0; i < nodes.Count; i++)
             {
-                var child = res.Register(await interpreter.Visit(nodes[i], newContext));
+                var child = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(nodes[i], newContext, interpreter));
                 if (child != null) lastValue = child;
 
                 if (res.FuncReturnValue != null)

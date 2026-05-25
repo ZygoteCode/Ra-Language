@@ -17,10 +17,13 @@ namespace RaLanguage.Interpreter.Visitors.Primitives
     public class FormattedInterpolationNodeVisitor : NodeVisitor<FormattedInterpolationNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(FormattedInterpolationNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(FormattedInterpolationNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
-            var inner = res.Register(await interpreter.Visit(node.Expression, context));
+            var inner = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.Expression, context, interpreter));
             if (res.ShouldReturn()) return res;
 
             var (text, error) = FormatEngine.Format(inner!, node.FormatSpec, node.PositionStart, node.PositionEnd, context);

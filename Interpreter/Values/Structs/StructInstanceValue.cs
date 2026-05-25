@@ -16,19 +16,29 @@ namespace RaLanguage.Interpreter.Values.Structs
         public Dictionary<string, bool> FieldPublicity { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, VariableDeclarationType> FieldDeclarationTypes { get; } = new(StringComparer.Ordinal);
 
+        // M41: shape-indexed slot array, parity with ClassInstanceValue (M38).
+        // Dictionary above remains ground truth for reflection / iteration;
+        // slot array is the O(1) read path consulted by the M28.1 IC.
+        public RuntimeValue?[] FieldSlots;
+
         public sealed override RuntimeValueType Type => RuntimeValueType.StructInstance;
         public sealed override bool IsCopy => true;
 
         public StructInstanceValue(StructTypeValue definition)
         {
             Definition = definition;
+            int slotCount = definition.FieldSlotCount;
+            FieldSlots = slotCount > 0 ? new RuntimeValue?[slotCount] : System.Array.Empty<RuntimeValue?>();
         }
 
         public void SetField(string name, RuntimeValue value, bool isPublic, VariableDeclarationType declarationType = VariableDeclarationType.VARIABLE)
         {
-            Fields[name] = value.IsCopy ? value.Copy() : value;
+            var stored = value.IsCopy ? value.Copy() : value;
+            Fields[name] = stored;
             FieldPublicity[name] = isPublic;
             FieldDeclarationTypes[name] = declarationType;
+            int idx = Definition.GetFieldSlotIndex(name);
+            if ((uint)idx < (uint)FieldSlots.Length) FieldSlots[idx] = stored;
         }
 
         public bool HasField(string name) => Fields.ContainsKey(name);
@@ -49,7 +59,10 @@ namespace RaLanguage.Interpreter.Values.Structs
             if (!Fields.ContainsKey(name))
                 throw new KeyNotFoundException(name);
 
-            Fields[name] = value.IsCopy ? value.Copy() : value;
+            var stored = value.IsCopy ? value.Copy() : value;
+            Fields[name] = stored;
+            int idx = Definition.GetFieldSlotIndex(name);
+            if ((uint)idx < (uint)FieldSlots.Length) FieldSlots[idx] = stored;
         }
 
         public sealed override ValueResult AddedTo(RuntimeValue other) =>

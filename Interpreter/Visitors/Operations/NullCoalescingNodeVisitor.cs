@@ -1,4 +1,4 @@
-﻿using RaLanguage.Errors.Types;
+using RaLanguage.Errors.Types;
 using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
@@ -19,10 +19,10 @@ namespace RaLanguage.Interpreter.Visitors.Operations
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Expected '??' operator", context));
             }
 
-            var left = res.Register(await interpreter.Visit(node.Left, context));
+            var left = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.Left, context, interpreter));
             if (res.ShouldReturn()) return res;
 
-            var right = res.Register(await interpreter.Visit(node.Right, context));
+            var right = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.Right, context, interpreter));
             if (res.ShouldReturn()) return res;
 
             if (left.Type == RuntimeValueType.Null)

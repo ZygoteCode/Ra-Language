@@ -11,6 +11,9 @@ namespace RaLanguage.Interpreter.Visitors.Functions
     public class FunctionCallNodeVisitor : NodeVisitor<FunctionCallNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(FunctionCallNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(FunctionCallNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 
@@ -24,7 +27,7 @@ namespace RaLanguage.Interpreter.Visitors.Functions
                     help: "this expression runs in a context (e.g. an annotation argument) where calls are forbidden"));
             }
 
-            var calleeVal = res.Register(await interpreter.Visit(node.NodeToCall, context));
+            var calleeVal = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.NodeToCall, context, interpreter));
             if (res.ShouldReturn()) return res;
 
             var argEval = await FunctionCallExecutor.EvaluateArguments(

@@ -11,6 +11,9 @@ namespace RaLanguage.Interpreter.Visitors.Variables
     public class VariableDeleteNodeVisitor : NodeVisitor<VariableDeleteNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(VariableDeleteNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(VariableDeleteNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
 

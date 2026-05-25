@@ -180,7 +180,18 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 bindRes.execCtx!.AsyncCtx = asyncCtxOverride;
             }
 
-            var bodyRes = await interpreter.Visit(MethodNode.BodyNode, bindRes.execCtx!);
+            RuntimeResult bodyRes;
+            var compiled = Runtime.FunctionDefinitionHelper.GetOrCompileBody(MethodNode);
+            if (compiled == null)
+                return res.Failure(new RuntimeError(PositionStart, PositionEnd,
+                    $"class method '{Name}' has no executable body", Context));
+            {
+                // M79: pool rent + return on success only.
+                var vm = new Vm.VmExecutor(interpreter);
+                var frame = Vm.VmFrame.Rent(compiled);
+                bodyRes = await vm.Execute(frame, bindRes.execCtx!);
+                if (bodyRes.Error == null) Vm.VmFrame.Return(frame);
+            }
             if (bodyRes.Error != null)
                 return res.Failure(bodyRes.Error);
 

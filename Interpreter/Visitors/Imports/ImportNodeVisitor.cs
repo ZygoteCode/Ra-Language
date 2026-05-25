@@ -42,15 +42,20 @@ namespace RaLanguage.Interpreter.Visitors.Imports
         }
 
         public ValueTask<RuntimeResult> Visit(AstNode node, Context context, IInterpreter interpreter)
+            => new ValueTask<RuntimeResult>(Apply(node, context, interpreter));
+
+        // Public static entry-point — shared by the AST visitor and the
+        // VM's OP_NATIVE_DEFINE opcode. Avoids interpreter._visitors[]
+        // dispatch when running via the VM dispatch loop.
+        public static RuntimeResult Apply(AstNode node, Context context, IInterpreter interpreter)
         {
-            RuntimeResult result = node.NodeType switch
+            return node.NodeType switch
             {
                 AstNodeType.ImportAll => VisitImportAll((ImportAllNode)node, context, interpreter),
                 AstNodeType.ImportSelective => VisitImportSelective((ImportSelectiveNode)node, context, interpreter),
                 AstNodeType.ImportAlias => VisitImportAlias((ImportAliasNode)node, context, interpreter),
                 _ => throw new InvalidOperationException($"Unknown import node type: {node.NodeType}")
             };
-            return new ValueTask<RuntimeResult>(result);
         }
 
         private static LoadedModule? LoadOrFail(
@@ -77,7 +82,7 @@ namespace RaLanguage.Interpreter.Visitors.Imports
             return loadResult.Module;
         }
 
-        private RuntimeResult VisitImportAll(ImportAllNode node, Context context, IInterpreter interpreter)
+        private static RuntimeResult VisitImportAll(ImportAllNode node, Context context, IInterpreter interpreter)
         {
             var result = new RuntimeResult();
 
@@ -108,7 +113,7 @@ namespace RaLanguage.Interpreter.Visitors.Imports
                 .SetContext(context));
         }
 
-        private RuntimeResult VisitImportSelective(ImportSelectiveNode node, Context context, IInterpreter interpreter)
+        private static RuntimeResult VisitImportSelective(ImportSelectiveNode node, Context context, IInterpreter interpreter)
         {
             var result = new RuntimeResult();
 
@@ -147,7 +152,7 @@ namespace RaLanguage.Interpreter.Visitors.Imports
                 .SetContext(context));
         }
 
-        private RuntimeResult VisitImportAlias(ImportAliasNode node, Context context, IInterpreter interpreter)
+        private static RuntimeResult VisitImportAlias(ImportAliasNode node, Context context, IInterpreter interpreter)
         {
             var result = new RuntimeResult();
 

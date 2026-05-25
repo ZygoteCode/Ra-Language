@@ -81,7 +81,18 @@ namespace RaLanguage.Interpreter.Values.Structs
             if (res.Error != null) return res;
             if (res.ShouldReturn()) return res;
 
-            var bodyRes = await interpreter.Visit(MethodNode.BodyNode, execCtx);
+            RuntimeResult bodyRes;
+            var compiledM = Runtime.FunctionDefinitionHelper.GetOrCompileStructMethod(MethodNode);
+            if (compiledM == null)
+                return res.Failure(new RuntimeError(PositionStart, PositionEnd,
+                    $"struct method '{Name}' has no IR-compiled body", Context));
+            {
+                // M79: pool rent + return on success only.
+                var vm = new Vm.VmExecutor(interpreter);
+                var frame = Vm.VmFrame.Rent(compiledM);
+                bodyRes = await vm.Execute(frame, execCtx);
+                if (bodyRes.Error == null) Vm.VmFrame.Return(frame);
+            }
             if (bodyRes.Error != null) return res.Failure(bodyRes.Error);
 
             if (bodyRes.FuncReturnValue != null)

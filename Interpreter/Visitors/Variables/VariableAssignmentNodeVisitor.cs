@@ -1,4 +1,4 @@
-﻿using RaLanguage.Errors;
+using RaLanguage.Errors;
 using System.Threading.Tasks;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
@@ -15,6 +15,9 @@ namespace RaLanguage.Interpreter.Visitors.Variables
     public class VariableAssignmentNodeVisitor : NodeVisitor<VariableAssignmentNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(VariableAssignmentNode node, Context context, IInterpreter interpreter)
+            => await Apply(node, context, interpreter);
+
+        public static async ValueTask<RuntimeResult> Apply(VariableAssignmentNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var varName = node.Name;
@@ -93,7 +96,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
 
             // Borrow safety: assigning to a binding that is currently borrowed would
             // change the value out from under existing &/&mut aliases. Block unless we
-            // are rebinding a borrow-holding entry to a new borrow (rebind path —
+            // are rebinding a borrow-holding entry to a new borrow (rebind path �
             // released and reissued below).
             bool rebindingBorrow = currentValue is RaLanguage.Interpreter.Values.Primitives.BorrowValue;
             if (entry.IsBorrowed && !rebindingBorrow)
@@ -119,7 +122,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
             }
             else
             {
-                value = res.Register(await interpreter.Visit(node.ValueNode, context));
+                value = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.ValueNode, context, interpreter));
                 if (res.ShouldReturn()) return res;
             }
 

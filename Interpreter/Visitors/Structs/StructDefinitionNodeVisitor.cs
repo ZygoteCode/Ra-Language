@@ -13,6 +13,9 @@ namespace RaLanguage.Interpreter.Visitors.Structs
     public class StructDefinitionNodeVisitor : NodeVisitor<StructDefinitionNode>
     {
         protected sealed override async ValueTask<RuntimeResult> VisitNode(StructDefinitionNode node, Context context, IInterpreter interpreter)
+            => Apply(node, context, interpreter);
+
+        public static RuntimeResult Apply(StructDefinitionNode node, Context context, IInterpreter interpreter)
         {
             var res = new RuntimeResult();
             var name = node.NameTok.Value?.ToString() ?? "";
@@ -78,7 +81,7 @@ namespace RaLanguage.Interpreter.Visitors.Structs
             return res.Success(value);
         }
 
-        private void ValidateToStringMethod(StructDefinitionNode node, Context context, ref RuntimeResult res)
+        private static void ValidateToStringMethod(StructDefinitionNode node, Context context, ref RuntimeResult res)
         {
             var toStringMethod = node.Methods.FirstOrDefault(m => 
                 string.Equals(m.NameTok.Value?.ToString(), "to_string", StringComparison.Ordinal));

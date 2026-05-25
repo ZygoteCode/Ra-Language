@@ -202,7 +202,7 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
 
             foreach (var argNode in application.PositionalArgs)
             {
-                var argRes = SyncAwait.Get(interpreter.Visit(argNode, context));
+                var argRes = IrExpressionEvaluator.EvaluateBlocking(argNode, context, interpreter);
                 if (argRes.Error != null) return (positional, named, argRes.Error);
                 positional.Add(argRes.Value!);
             }
@@ -213,7 +213,7 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
                 if (named.ContainsKey(keyName))
                     return (positional, named, new RuntimeError(key.PositionStart, key.PositionEnd, $"Duplicate named argument '{keyName}' in annotation '@{typeValue.AnnotationName}'", context));
 
-                var argRes = SyncAwait.Get(interpreter.Visit(valNode, context));
+                var argRes = IrExpressionEvaluator.EvaluateBlocking(valNode, context, interpreter);
                 if (argRes.Error != null) return (positional, named, argRes.Error);
                 named[keyName] = argRes.Value!;
             }
@@ -238,7 +238,7 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
                 if (named.ContainsKey(param.Name)) { paramIndex++; continue; }
                 if (param.DefaultValueNode != null)
                 {
-                    var defRes = SyncAwait.Get(interpreter.Visit(param.DefaultValueNode, context));
+                    var defRes = IrExpressionEvaluator.EvaluateBlocking(param.DefaultValueNode, context, interpreter);
                     if (defRes.Error != null) return (positional, named, defRes.Error);
                     named[param.Name] = defRes.Value!;
                     paramIndex++;
