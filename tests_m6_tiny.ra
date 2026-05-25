@@ -1,5 +1,0 @@
-print("step 1");
-var l = [1, 2, 3];
-print("step 2");
-print(l[1]);
-print("step 3");

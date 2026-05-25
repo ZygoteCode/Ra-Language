@@ -352,12 +352,6 @@ namespace RaLanguage
             }
 
             Console.WriteLine("[Ra Language] Support the project on GitHub: https://github.com/ZygoteCode/RaLanguage/");
-            Console.WriteLine("[Ra Language] Warming up JIT...");
-
-            for (int i = 0; i < 1000; i++)
-            {
-                Run("<stdin>", "var a = 5; var b = [5, 3, 2]; fn c() => var eee = 7; var d = c; d(); if 5 == 5 && 6 == 6 or 7 == 7: var bbb = 5 else: var bbb = 7; typeof null; nameof a; var aaa = \"testing\"; const nevertouch = 7; final bbbbbbb;");
-            }
 
             bool exitProgram = false;
             while (!exitProgram)

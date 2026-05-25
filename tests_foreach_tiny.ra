@@ -1,7 +1,0 @@
-print("step 1");
-var s = 0;
-print("step 2");
-for v in [10, 20, 30] {
-    s = s + v;
-}
-print("step 3, s=" + (s as string));
