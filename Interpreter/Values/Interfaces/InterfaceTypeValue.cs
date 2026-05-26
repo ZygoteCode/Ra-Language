@@ -1,6 +1,7 @@
 using System.Threading.Tasks;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
+using RaLanguage.Interpreter.Runtime.Properties;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Parser.Nodes.Interfaces;
 using RaLanguage.Parser.Nodes.Special;
@@ -13,6 +14,8 @@ namespace RaLanguage.Interpreter.Values.Interfaces
         public string InterfaceName { get; }
         public List<InterfaceMethodSignatureNode> Methods { get; }
         public List<StructFieldDefinitionNode> Fields { get; }
+        public List<PropertyDescriptor> Properties { get; } = new();
+        public Dictionary<string, PropertyDescriptor> PropertyByName { get; } = new(StringComparer.Ordinal);
         public List<string> GenericTypeParams { get; }
         public List<WhereConstraintNode> WhereConstraints { get; }
 
@@ -32,6 +35,15 @@ namespace RaLanguage.Interpreter.Values.Interfaces
             GenericTypeParams = genericTypeParams ?? new List<string>();
             WhereConstraints = whereConstraints ?? new List<WhereConstraintNode>();
         }
+
+        public void AddProperty(PropertyDescriptor desc)
+        {
+            Properties.Add(desc);
+            PropertyByName[desc.Name] = desc;
+        }
+
+        public PropertyDescriptor? GetProperty(string name)
+            => PropertyByName.TryGetValue(name, out var d) ? d : null;
 
         public InterfaceMethodSignatureNode? GetMethod(string name)
             => Methods.FirstOrDefault(m => string.Equals(m.NameTok.Value?.ToString(), name, StringComparison.Ordinal));

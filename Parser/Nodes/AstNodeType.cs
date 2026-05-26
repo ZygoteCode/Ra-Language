@@ -90,6 +90,8 @@
         Throw,
         RecordDefinition,
         RecordPrimaryField,
-        WithExpression
+        WithExpression,
+        PropertyDefinition,
+        PropertyAccessor
     }
 }

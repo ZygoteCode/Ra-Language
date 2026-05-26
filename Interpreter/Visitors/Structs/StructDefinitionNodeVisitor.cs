@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
+using RaLanguage.Interpreter.Runtime.Properties;
 using RaLanguage.Interpreter.Values.Structs;
 using RaLanguage.Parser.Nodes.Structs;
 using RaLanguage.Parser.Nodes.Variables;
@@ -26,7 +27,7 @@ namespace RaLanguage.Interpreter.Visitors.Structs
             if (context.SymbolTable.Get(name) != null)
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{name}' is already defined", context));
 
-            var value = new StructTypeValue(name, node.IsPublic, node.Fields, node.Methods, node.Operators, node.GenericTypeParams, node.WhereConstraints)
+            var value = (StructTypeValue)new StructTypeValue(name, node.IsPublic, node.Fields, node.Methods, node.Operators, node.GenericTypeParams, node.WhereConstraints)
                 .SetContext(context)
                 .SetPos(node.PositionStart, node.PositionEnd);
 
@@ -42,6 +43,19 @@ namespace RaLanguage.Interpreter.Visitors.Structs
                         $"Const field '{fieldName}' must be initialized with a value",
                         context));
                 }
+            }
+
+            foreach (var p in node.Properties)
+            {
+                var pname = p.NameTok.Value?.ToString() ?? "";
+                if (string.IsNullOrEmpty(pname)) continue;
+                if (value.HasField(pname))
+                    return res.Failure(new RuntimeError(p.PositionStart, p.PositionEnd,
+                        $"property '{pname}' on struct '{name}' collides with a field of the same name", context));
+                if (value.PropertyByName.ContainsKey(pname))
+                    return res.Failure(new RuntimeError(p.PositionStart, p.PositionEnd,
+                        $"duplicate property '{pname}' in struct '{name}'", context));
+                value.AddProperty(PropertyBuilder.Build(p, name));
             }
 
             context.SymbolTable.Set(

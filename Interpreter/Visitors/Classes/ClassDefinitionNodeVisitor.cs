@@ -4,6 +4,7 @@ using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
+using RaLanguage.Interpreter.Runtime.Properties;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Interfaces;
 using RaLanguage.Interpreter.Values.Primitives;
@@ -70,6 +71,41 @@ namespace RaLanguage.Interpreter.Visitors.Classes
 
             classValue.Traits = traits;
             classValue.BaseClass = baseClass;
+
+            // Register property descriptors *before* trait/interface
+            // satisfaction checks — the conformance test needs to see
+            // the concrete property set on this class.
+            foreach (var p in node.Properties)
+            {
+                var pname = p.NameTok.Value?.ToString() ?? "";
+                if (string.IsNullOrEmpty(pname)) continue;
+
+                if (classValue.HasField(pname))
+                {
+                    return res.Failure(new RuntimeError(
+                        p.PositionStart, p.PositionEnd,
+                        $"property '{pname}' on class '{className}' collides with a field of the same name",
+                        context));
+                }
+
+                if (classValue.PropertyByName.ContainsKey(pname))
+                {
+                    return res.Failure(new RuntimeError(
+                        p.PositionStart, p.PositionEnd,
+                        $"duplicate property '{pname}' in class '{className}'",
+                        context));
+                }
+
+                if (p.IsAbstract && !node.IsAbstract)
+                {
+                    return res.Failure(new RuntimeError(
+                        p.PositionStart, p.PositionEnd,
+                        $"abstract property '{pname}' can only appear inside an abstract class",
+                        context));
+                }
+
+                classValue.AddProperty(PropertyBuilder.Build(p, className));
+            }
 
             foreach (var trait in traits)
             {
@@ -179,6 +215,19 @@ namespace RaLanguage.Interpreter.Visitors.Classes
                         node.PositionStart,
                         node.PositionEnd,
                         $"Class '{className}' does not implement abstract fields: {string.Join(", ", unresolvedFields.Select(f => f.NameTok.Value?.ToString() ?? ""))}",
+                        context));
+                }
+
+                var unresolvedProps = classValue.GetAbstractPropertiesInHierarchy()
+                    .Where(p => !classValue.HasConcretePropertyOverride(p.Name))
+                    .ToList();
+
+                if (unresolvedProps.Count > 0)
+                {
+                    return res.Failure(new RuntimeError(
+                        node.PositionStart,
+                        node.PositionEnd,
+                        $"Class '{className}' does not implement abstract properties: {string.Join(", ", unresolvedProps.Select(p => p.Name))}",
                         context));
                 }
             }

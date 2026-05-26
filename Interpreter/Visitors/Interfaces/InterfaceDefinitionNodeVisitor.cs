@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
+using RaLanguage.Interpreter.Runtime.Properties;
 using RaLanguage.Interpreter.Values.Interfaces;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Parser.Nodes.Interfaces;
@@ -68,9 +69,19 @@ namespace RaLanguage.Interpreter.Visitors.Interfaces
                 }
             }
 
-            var iface = new InterfaceTypeValue(name, node.Methods, node.Fields, node.GenericTypeParams, node.WhereConstraints)
+            var iface = (InterfaceTypeValue)new InterfaceTypeValue(name, node.Methods, node.Fields, node.GenericTypeParams, node.WhereConstraints)
                 .SetContext(context)
                 .SetPos(node.PositionStart, node.PositionEnd);
+
+            foreach (var p in node.Properties)
+            {
+                var pname = p.NameTok.Value?.ToString() ?? "";
+                if (string.IsNullOrEmpty(pname)) continue;
+                if (iface.PropertyByName.ContainsKey(pname))
+                    return res.Failure(new RuntimeError(p.PositionStart, p.PositionEnd,
+                        $"duplicate property contract '{pname}' in interface '{name}'", context));
+                iface.AddProperty(PropertyBuilder.Build(p, name));
+            }
 
             context.SymbolTable.Set(
                 name,

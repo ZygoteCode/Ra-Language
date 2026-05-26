@@ -23,6 +23,7 @@ using RaLanguage.Interpreter.Visitors.Variables;
 using RaLanguage.Interpreter.Visitors.Imports;
 using RaLanguage.Interpreter.Visitors.Async;
 using RaLanguage.Interpreter.Visitors.Namespaces;
+using RaLanguage.Interpreter.Visitors.Properties;
 using RaLanguage.Interpreter.Visitors.Asm;
 using RaLanguage.Lexer;
 using RaLanguage.Parser.Nodes;
@@ -131,6 +132,8 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.Throw] = new ThrowNodeVisitor().Visit;
             _visitors[(int)AstNodeType.RecordDefinition] = new RecordDefinitionNodeVisitor().Visit;
             _visitors[(int)AstNodeType.WithExpression] = new WithExpressionNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.PropertyDefinition] = new PropertyDefinitionNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.PropertyAccessor] = new PropertyAccessorNodeVisitor().Visit;
         }
 
         public ValueTask<RuntimeResult> Visit(AstNode node, Context context)

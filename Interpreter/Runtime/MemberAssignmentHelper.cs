@@ -1,6 +1,8 @@
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime.Annotations;
+using RaLanguage.Interpreter.Runtime.Async;
+using RaLanguage.Interpreter.Runtime.Properties;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Classes;
 using RaLanguage.Interpreter.Values.Primitives;
@@ -27,6 +29,16 @@ namespace RaLanguage.Interpreter.Runtime
             if (owner.Type == RuntimeValueType.StructInstance || owner.Type == RuntimeValueType.RecordInstance)
             {
                 var instance = (StructInstanceValue)owner;
+
+                var propDesc = instance.Definition.GetProperty(memberName);
+                if (propDesc != null)
+                {
+                    bool isInside = IsInsideSameType(context, instance.Definition.StructName);
+                    var setTask = PropertyAccessOps.Set(instance, propDesc, value, context,
+                        node.PositionStart, node.PositionEnd, isInside, context.IsInConstructor);
+                    return setTask.IsCompletedSuccessfully ? setTask.Result : SyncAwait.Get(setTask);
+                }
+
                 if (!instance.HasField(memberName))
                     return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
                         $"{(owner.Type == RuntimeValueType.RecordInstance ? "Record" : "Struct")} '{instance.Definition.StructName}' has no field '{memberName}'", context));
@@ -53,6 +65,15 @@ namespace RaLanguage.Interpreter.Runtime
             if (owner.Type == RuntimeValueType.ClassInstance)
             {
                 var instance = (ClassInstanceValue)owner;
+
+                var propDesc = instance.Definition.GetProperty(memberName);
+                if (propDesc != null)
+                {
+                    bool isInside = IsInsideClassHierarchyFor(context, instance.Definition);
+                    var setTask = PropertyAccessOps.Set(instance, propDesc, value, context,
+                        node.PositionStart, node.PositionEnd, isInside, context.IsInConstructor);
+                    return setTask.IsCompletedSuccessfully ? setTask.Result : SyncAwait.Get(setTask);
+                }
 
                 if (instance.HasField(memberName))
                 {
@@ -148,6 +169,26 @@ namespace RaLanguage.Interpreter.Runtime
 
             return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
                 "Left side of assignment must be a struct/class field", context));
+        }
+
+        private static bool IsInsideSameType(Context context, string typeName)
+        {
+            var selfEntry = context.SymbolTable!.GetEntry("self");
+            if (selfEntry == null) return false;
+            if (selfEntry.Value.Type == RuntimeValueType.StructInstance)
+                return string.Equals(((StructInstanceValue)selfEntry.Value).Definition.StructName, typeName, System.StringComparison.Ordinal);
+            if (selfEntry.Value.Type == RuntimeValueType.ClassInstance)
+                return string.Equals(((ClassInstanceValue)selfEntry.Value).Definition.ClassName, typeName, System.StringComparison.Ordinal);
+            return false;
+        }
+
+        private static bool IsInsideClassHierarchyFor(Context context, ClassTypeValue decl)
+        {
+            var selfEntry = context.SymbolTable!.GetEntry("self");
+            if (selfEntry == null) return false;
+            if (selfEntry.Value.Type != RuntimeValueType.ClassInstance) return false;
+            var inst = (ClassInstanceValue)selfEntry.Value;
+            return inst.Definition.InheritsFrom(decl.ClassName);
         }
     }
 }

@@ -26,6 +26,17 @@ namespace RaLanguage.Interpreter.Values.Primitives
         // stores are kept in sync by SetField / SetMember.
         public RuntimeValue?[] FieldSlots;
 
+        // Tracks which lazy properties on this instance have already
+        // been initialised. Allocated lazily on first lazy access so
+        // instances of classes with no lazy properties pay zero
+        // overhead.
+        public HashSet<string>? LazyInitialized;
+
+        // Names currently being initialised. Used to detect re-entrant
+        // lazy access ("read inside its own initializer"). Same lazy-
+        // allocation pattern as LazyInitialized.
+        public HashSet<string>? LazyInitializing;
+
         public override RuntimeValueType Type => RuntimeValueType.ClassInstance;
         public override bool IsCopy => false;
 
