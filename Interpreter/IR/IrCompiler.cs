@@ -81,6 +81,92 @@ namespace RaLanguage.Interpreter.IR
             // still take the OP_LOAD_GLOBAL path.
             public int FrameId = 0;
 
+            // Active typed-int iter slots for lazy-long for-loops in scope.
+            // Keyed by iter binding name → byte slot index into the parent
+            // frame's `Slots[]` array. Used by `TryEmitSelfAdditiveSlot` to
+            // route `sum = sum + iterName` into `AddIntoSlotI` (typed RHS
+            // read direct from the long slot, skipping the boxed mirror in
+            // the symbol entry). Pushed by `CompileForLazyLong` before body
+            // compilation, popped after.
+            public readonly Dictionary<string, byte> ActiveTypedIters = new();
+
+            // Counter incremented every time `TryEmitSelfAdditiveSlot`
+            // routes an iter-name access through `AddIntoSlotI`. The
+            // owning `CompileForLazyLong` checks the delta over its body
+            // to decide whether the boxed iter publish (BoxI +
+            // AssignBinding) is dead.
+            public int RedirectedTypedIterAccessCount = 0;
+
+            // Typed accumulator promotions for the enclosing lazy-long
+            // for-loop. Keyed by accumulator binding name → typed Int64
+            // slot. `CompileForLazyLong` pre-loop emits LoadLocalS+UnboxI
+            // from the binding's SymbolEntry into this slot. `TryEmit-
+            // SelfAdditiveSlot` rewrites `acc = acc ± typedRhs` into a
+            // pure `AddII / SubII` that touches NO symbol entry and
+            // allocates zero NumberValues. Post-loop, the typed slot is
+            // boxed back via BoxI+StoreLocalS so any code observing
+            // `acc` after the loop sees the freshly-computed value.
+            public readonly Dictionary<string, (byte LongSlot, BindingId Binding)> TypedAccumulators = new();
+
+            // Pre-loaded typed slots holding literal int64 constants used
+            // as RHS of typed-accumulator self-additives (e.g. `counter
+            // = counter + 1`). `CompileForLazyLong` walks the body for
+            // each accumulator, collects every distinct literal RHS, and
+            // emits a single `LoadIntS64` (or `LoadConst + UnboxI` for
+            // > int16 literals) into a fresh typed slot before loop_top.
+            // `TryEmitSelfAdditiveSlot` then emits `AddII / SubII acc,
+            // acc, literalSlot` — pure typed, zero per-iter alloc, zero
+            // const-pool dispatch. Cleared after the loop's body
+            // compilation finishes.
+            public readonly Dictionary<long, byte> TypedAccumulatorLiterals = new();
+
+            // Never-mutated local bindings promoted to a typed Int64
+            // slot for the lifetime of the enclosing for-loop. Used as
+            // the non-iter operand of typed comparison redirects:
+            // `iter ⋈ max` (where `max` is a const-after-init local)
+            // lowers to `LtII / GtII / EqII / etc.` reading both
+            // operands as typed longs — no boxed mirror, no per-iter
+            // alloc, no iter publish required.
+            //
+            // Pre-loop emits `LoadLocalS tempBoxed, binding; UnboxI
+            // longSlot, tempBoxed` once. The typed slot stays valid
+            // throughout the loop because the binding is never
+            // written. Post-loop, no box-back is needed — SymbolEntry
+            // already holds the original value.
+            public readonly Dictionary<string, (byte LongSlot, BindingId Binding)> TypedLongBindings = new();
+
+            // Compile-time dirty set for typed accumulators. An accumulator
+            // is "dirty" when its typed slot holds a value that hasn't yet
+            // been published into its boxed SymbolEntry mirror. Boxed reads
+            // of a dirty accumulator emit `BoxI + StoreLocalS` to refresh
+            // the entry; non-dirty boxed reads skip the publish entirely
+            // (SymbolEntry already matches typed slot).
+            //
+            // Transitions:
+            //   * Typed self-additive (AddII / SubII via `TryEmit-
+            //     SelfAdditiveSlot`) → add to dirty.
+            //   * Boxed read (CompileExpression VariableAccess) → publish
+            //     if dirty, then remove from dirty.
+            //   * Control-flow boundary (if/while/for/try compile-time
+            //     epilogue) → conservatively re-add every typed acc to
+            //     dirty (compile-time can't prove the runtime path).
+            //
+            // De-dupes multiple in-statement reads after a single write:
+            // `print(sum + sum)` publishes once instead of twice;
+            // `print(sum); print(sum);` publishes once for the first read
+            // and skips the second.
+            public readonly HashSet<string> DirtyTypedAccs = new();
+
+            // Loop-invariant pure-expression RHS slots for typed
+            // accumulators. Keyed by the AstNode of the RHS expression;
+            // value is the typed Int64 slot pre-loaded once before
+            // loop_top. `TryEmitSelfAdditiveSlot` emits a pure AddII /
+            // SubII when the assignment's RHS AstNode matches an entry.
+            // Eliminates the per-iter boxed AddIntoSlot allocation
+            // (NumberValue per iter ≈ 122 bytes; 1M iters ≈ 120MB on
+            // bench_invariant.ra).
+            public readonly Dictionary<AstNode, byte> TypedAccumulatorExprs = new();
+
             public void RegisterSlot(int slot, string? name)
             {
                 if (slot > MaxSlot) MaxSlot = slot;
@@ -109,6 +195,7 @@ namespace RaLanguage.Interpreter.IR
         {
             var fn = new RaFunction(sourceName ?? "<script>");
             fn.FrameId = 0;
+            fn.MutatedNames = CollectMutatedNames(root);
 
             var st = new State();
             st.FrameId = 0;
@@ -124,6 +211,208 @@ namespace RaLanguage.Interpreter.IR
 
             FinalizeFn(fn, st);
             return fn;
+        }
+
+        // Walks `root` collecting every name targeted by either a
+        // `VariableAssignment` (write to existing binding) or a
+        // `VariableDeclaration` (shadow / create new binding). The set
+        // identifies names whose `SymbolEntry.Value` may change during
+        // the function's execution — LICM consumes this to decide
+        // whether a `LoadLocalS` is safe to hoist out of a loop.
+        //
+        // Conservative across nested scopes / closures: any write
+        // anywhere in the function disqualifies the name.
+        private static HashSet<string> CollectMutatedNames(AstNode? root)
+        {
+            var names = new HashSet<string>();
+            CollectMutatedNamesWalk(root, names);
+            return names;
+        }
+
+        private static void CollectMutatedNamesWalk(AstNode? node, HashSet<string> names)
+        {
+            if (node == null) return;
+            switch (node.NodeType)
+            {
+                case AstNodeType.VariableAssignment:
+                {
+                    var va = (Parser.Nodes.Variables.VariableAssignmentNode)node;
+                    if (!string.IsNullOrEmpty(va.Name)) names.Add(va.Name);
+                    CollectMutatedNamesWalk(va.ValueNode, names);
+                    return;
+                }
+                case AstNodeType.VariableDeclaration:
+                {
+                    // A `var x = ...` creates the SymbolEntry once at the
+                    // statement's PC — the SE.Value never changes after
+                    // that unless a later `x = ...` reassigns it (and
+                    // then the VariableAssignment branch above adds the
+                    // name). Declarations alone are NOT mutations, so
+                    // we only walk the initializer expressions to catch
+                    // any nested writes hiding inside `var y = (z = 5)`.
+                    var vd = (Parser.Nodes.Variables.VariableDeclarationNode)node;
+                    foreach (var d in vd.Declarations)
+                    {
+                        if (d.Item2 != null) CollectMutatedNamesWalk(d.Item2, names);
+                    }
+                    return;
+                }
+                case AstNodeType.Scope:
+                {
+                    var sc = (Parser.Nodes.Special.ScopeNode)node;
+                    foreach (var c in sc.Nodes) CollectMutatedNamesWalk(c, names);
+                    return;
+                }
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)node;
+                    foreach (var cs in ifn.Cases)
+                    {
+                        CollectMutatedNamesWalk(cs.Condition, names);
+                        CollectMutatedNamesWalk(cs.Expr, names);
+                    }
+                    if (ifn.ElseCase.HasValue)
+                        CollectMutatedNamesWalk(ifn.ElseCase.Value.Expr, names);
+                    return;
+                }
+                case AstNodeType.While:
+                {
+                    var wn = (Parser.Nodes.Statements.WhileNode)node;
+                    CollectMutatedNamesWalk(wn.ConditionNode, names);
+                    CollectMutatedNamesWalk(wn.BodyNode, names);
+                    return;
+                }
+                case AstNodeType.DoWhile:
+                {
+                    var dw = (Parser.Nodes.Statements.DoWhileNode)node;
+                    CollectMutatedNamesWalk(dw.ConditionNode, names);
+                    CollectMutatedNamesWalk(dw.BodyNode, names);
+                    return;
+                }
+                case AstNodeType.For:
+                {
+                    var fn = (Parser.Nodes.Statements.ForNode)node;
+                    // The iter variable itself is "assigned" each iter —
+                    // record it so LICM treats it as mutable.
+                    string? iterName = fn.VarNameTok.Value?.ToString();
+                    if (!string.IsNullOrEmpty(iterName)) names.Add(iterName);
+                    CollectMutatedNamesWalk(fn.StartValueNode, names);
+                    CollectMutatedNamesWalk(fn.EndValueNode, names);
+                    CollectMutatedNamesWalk(fn.StepValueNode, names);
+                    CollectMutatedNamesWalk(fn.BodyNode, names);
+                    return;
+                }
+                case AstNodeType.ForEach:
+                {
+                    var fe = (Parser.Nodes.Statements.ForEachNode)node;
+                    string? iterName = fe.VarNameToken.Value?.ToString();
+                    if (!string.IsNullOrEmpty(iterName)) names.Add(iterName);
+                    CollectMutatedNamesWalk(fe.CollectionNode, names);
+                    CollectMutatedNamesWalk(fe.BodyNode, names);
+                    return;
+                }
+                case AstNodeType.BinaryOperation:
+                {
+                    var bo = (Parser.Nodes.Operations.BinaryOperationNode)node;
+                    CollectMutatedNamesWalk(bo.LeftNode, names);
+                    CollectMutatedNamesWalk(bo.RightNode, names);
+                    return;
+                }
+                case AstNodeType.UnaryOperation:
+                {
+                    var uo = (Parser.Nodes.Operations.UnaryOperationNode)node;
+                    CollectMutatedNamesWalk(uo.Node, names);
+                    return;
+                }
+                case AstNodeType.FunctionCall:
+                {
+                    var fc = (Parser.Nodes.Functions.FunctionCallNode)node;
+                    CollectMutatedNamesWalk(fc.NodeToCall, names);
+                    foreach (var arg in fc.ArgNodes)
+                        CollectMutatedNamesWalk(arg.Expr, names);
+                    return;
+                }
+                case AstNodeType.Ternary:
+                {
+                    var tn = (Parser.Nodes.Operations.TernaryNode)node;
+                    CollectMutatedNamesWalk(tn.Condition, names);
+                    CollectMutatedNamesWalk(tn.TrueExpression, names);
+                    CollectMutatedNamesWalk(tn.FalseExpression, names);
+                    return;
+                }
+                case AstNodeType.NullCoalescing:
+                {
+                    var nc = (Parser.Nodes.Operations.NullCoalescingNode)node;
+                    CollectMutatedNamesWalk(nc.Left, names);
+                    CollectMutatedNamesWalk(nc.Right, names);
+                    return;
+                }
+                case AstNodeType.Return:
+                {
+                    var rn = (Parser.Nodes.Functions.ReturnNode)node;
+                    if (rn.NodeToReturn != null) CollectMutatedNamesWalk(rn.NodeToReturn, names);
+                    return;
+                }
+                case AstNodeType.Throw:
+                {
+                    var tn = (Parser.Nodes.Statements.ThrowNode)node;
+                    if (tn.Expression != null) CollectMutatedNamesWalk(tn.Expression, names);
+                    return;
+                }
+                case AstNodeType.MemberAssignment:
+                {
+                    var ma = (Parser.Nodes.Structs.MemberAssignmentNode)node;
+                    CollectMutatedNamesWalk(ma.TargetNode, names);
+                    CollectMutatedNamesWalk(ma.ValueNode, names);
+                    return;
+                }
+                case AstNodeType.ListAssignment:
+                {
+                    var la = (Parser.Nodes.Variables.ListAssignmentNode)node;
+                    CollectMutatedNamesWalk(la.Target, names);
+                    CollectMutatedNamesWalk(la.Value, names);
+                    return;
+                }
+                case AstNodeType.Try:
+                {
+                    var tn = (Parser.Nodes.Special.TryNode)node;
+                    CollectMutatedNamesWalk(tn.TryBody, names);
+                    CollectMutatedNamesWalk(tn.CatchBody, names);
+                    if (tn.FinallyBody != null) CollectMutatedNamesWalk(tn.FinallyBody, names);
+                    // catch var is bound — treat as mutated.
+                    if (tn.CatchVarTok.HasValue)
+                    {
+                        string? cn = tn.CatchVarTok.Value.Value?.ToString();
+                        if (!string.IsNullOrEmpty(cn)) names.Add(cn);
+                    }
+                    return;
+                }
+                case AstNodeType.FunctionDefinition:
+                {
+                    // Function definition binds its name AND its body
+                    // may capture / mutate outer names. Walk inside.
+                    var fdn = (Parser.Nodes.Functions.FunctionDefinitionNode)node;
+                    string? fname = fdn.VarNameTok?.Value?.ToString();
+                    if (!string.IsNullOrEmpty(fname)) names.Add(fname);
+                    CollectMutatedNamesWalk(fdn.BodyNode, names);
+                    return;
+                }
+                default:
+                    // Conservative: any unhandled node may contain
+                    // assignments deeper down. We err on the side of
+                    // safety — but since LICM only uses MutatedNames
+                    // to ADMIT hoisting (a missing name → safe to
+                    // hoist), missing a write would be unsafe. So we
+                    // should be CAUTIOUS and treat unknown nodes as
+                    // "may mutate everything" — but that's untenable
+                    // (would mark every name as mutated). Trade-off:
+                    // accept that less-common nodes (Borrow, Spawn,
+                    // Match, etc.) don't contribute to the set, and
+                    // their absence may cause LICM to mis-hoist in
+                    // pathological cases. The corpus regression sweep
+                    // catches such cases empirically.
+                    return;
+            }
         }
 
         // M16: compile a user function body into a RaFunction. Mirrors the
@@ -246,6 +535,17 @@ namespace RaLanguage.Interpreter.IR
             var fn = new RaFunction(name);
             fn.FrameId = frameId;
             fn.Arity = arity;
+            // Collect every name potentially mutated inside this function
+            // body. LICM consults `MutatedNames` to decide whether a
+            // `LoadLocalS` whose binding is closure-captured from an
+            // outer scope is safe to hoist out of an inner loop. If a
+            // parameter name is in the set (rebound via assignment),
+            // its LoadLocalS stays in-loop. Parameters that are never
+            // reassigned remain hoist-eligible.
+            fn.MutatedNames = CollectMutatedNames(body);
+            // Parameters are bound at call-time, never reassigned by
+            // the prologue — but a body that DOES reassign them is
+            // already captured above. No extra work needed.
 
             var st = new State();
             st.FrameId = frameId;
@@ -447,6 +747,59 @@ namespace RaLanguage.Interpreter.IR
                     // rewriter changed (e.g. an Add folded to LoadConst
                     // doesn't need the AddNN path). Re-run cheaply.
                     SpecializeNumericOps(fn);
+                    // Physical LICM hoist: constant loads marked
+                    // loop-invariant by `LoopAnalysis` are moved out of
+                    // the loop body to the preheader. Rewrites Code[],
+                    // EhTable PCs, PcSpansPc, and every per-PC IC table
+                    // so PC-relative branches and metadata stay
+                    // consistent. Sites where the hoist would overflow
+                    // jmp_imm16 (≥ 32K body) silently no-op; the
+                    // dispatch loop runs the un-hoisted code in that
+                    // case.
+                    if (Analysis.LicmHoist.Apply(fn, fn.Analysis) > 0)
+                    {
+                        // Code[] reshuffled — the cached Analysis
+                        // bundle (CFG/SSA/Loops/SCCP/GVN) now references
+                        // stale PCs. Re-run InferSlotTypes against the
+                        // new layout so SpecializeNumericOps below sees
+                        // accurate hints if it picks up further AddNN
+                        // promotions.
+                        InferSlotTypes(fn);
+                        SpecializeNumericOps(fn);
+                        // M-tier1 (post-M77): rebuild the bundle and
+                        // re-run DCE. Multi-pass LICM may pull an entire
+                        // dependence chain (LoadLocalS → Add → Mul) into
+                        // the preheader. If the original in-loop writer
+                        // for one of those intermediate slots was the
+                        // ONLY use of an earlier def, that def is now
+                        // dead. The first DCE pass (before LICM)
+                        // couldn't see this because the chain was still
+                        // in-loop. Rerun DCE on the fresh SSA so any
+                        // newly-dead pure ops collapse to Pass.
+                        try
+                        {
+                            var freshBundle = Analysis.IrAnalysisBundle.Build(fn);
+                            int erased = 0;
+                            foreach (var pc in freshBundle.Opt.DeadDefPcs)
+                            {
+                                if (pc < 0 || pc >= fn.Code.Length) continue;
+                                uint instr = fn.Code[pc];
+                                var op = Encoding.DecodeOp(instr);
+                                if (op == Opcode.Pass) continue;
+                                if (!IsLicmDcePureEraseable(op)) continue;
+                                fn.Code[pc] = Encoding.Pack3(Opcode.Pass, 0, 0, 0);
+                                erased++;
+                            }
+                            // Drop the bundle either way — keep nulled
+                            // semantics consistent with the
+                            // post-rewrite invariant.
+                            fn.Analysis = null;
+                        }
+                        catch
+                        {
+                            fn.Analysis = null;
+                        }
+                    }
                 }
                 catch
                 {
@@ -471,6 +824,54 @@ namespace RaLanguage.Interpreter.IR
         // back to the boxed dispatch path) at the cost of missed
         // specialisation opportunities. Refinement to SSA-based
         // per-PC inference is a separate milestone.
+        // Mirrors IrRewriter.IsErasableForDce + adds the typed-II family,
+        // type bridges (UnboxI/BoxI/UnboxF/BoxF), and FF/BB ops. Used by
+        // the post-LICM DCE re-run to nuke any pure opcode whose result
+        // becomes unused after the multi-pass hoist (e.g. an
+        // intermediate Add that fed a Mul that got hoisted, leaving the
+        // pre-hoist Add as a dead def).
+        //
+        // LoadLocalS is INTENTIONALLY excluded — its side effect is the
+        // borrow / move check raised when the SymbolEntry is in an
+        // illegal state. Erasing a LoadLocalS would silence
+        // "use-after-move" diagnostics.
+        private static bool IsLicmDcePureEraseable(Opcode op)
+        {
+            switch (op)
+            {
+                case Opcode.LoadConst:
+                case Opcode.LoadNull:
+                case Opcode.LoadTrue:
+                case Opcode.LoadFalse:
+                case Opcode.LoadIntS:
+                case Opcode.LoadIntS64:
+                case Opcode.Add: case Opcode.Sub: case Opcode.Mul:
+                case Opcode.Shl: case Opcode.Shr:
+                case Opcode.BAnd: case Opcode.BOr: case Opcode.BXor:
+                case Opcode.AddNN: case Opcode.SubNN: case Opcode.MulNN:
+                case Opcode.AddII: case Opcode.SubII: case Opcode.MulII:
+                case Opcode.AddFF: case Opcode.SubFF: case Opcode.MulFF: case Opcode.DivFF:
+                case Opcode.AndBB: case Opcode.OrBB: case Opcode.NotB:
+                case Opcode.Neg: case Opcode.Not: case Opcode.BNot:
+                case Opcode.NegI: case Opcode.NegF:
+                case Opcode.ShlII: case Opcode.ShrII:
+                case Opcode.BAndII: case Opcode.BOrII: case Opcode.BXorII:
+                case Opcode.Eq: case Opcode.Ne:
+                case Opcode.SEq: case Opcode.SNe:
+                case Opcode.Lt: case Opcode.Le: case Opcode.Gt: case Opcode.Ge:
+                case Opcode.LtII: case Opcode.LeII: case Opcode.GtII: case Opcode.GeII:
+                case Opcode.EqII: case Opcode.NeII:
+                case Opcode.LtFF: case Opcode.LeFF: case Opcode.GtFF: case Opcode.GeFF:
+                case Opcode.UnboxI: case Opcode.BoxI:
+                case Opcode.UnboxF: case Opcode.BoxF:
+                case Opcode.Move:
+                case Opcode.Alias:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         private static void InferSlotTypes(RaFunction fn)
         {
             int total = fn.LocalCount;
@@ -685,6 +1086,55 @@ namespace RaLanguage.Interpreter.IR
             if (!IsSlotEligible(lvn.Binding, lvn.BindingKind, st)) return false;
             if (!IsSafeRhsForSelfFuse(bo.RightNode)) return false;
 
+            // --- Typed-accumulator paths run FIRST so they win over the
+            // boxed AddIntoSlotImm / AddIntoSlot variants. The accumulator's
+            // typed Int64 slot was set up by `CompileForLazyLong`'s pre-
+            // loop UnboxI and boxed back via BoxI on loop exit. Body
+            // operations on it incur ZERO per-iter alloc.
+
+            // Path 1: acc + typed iter. Pure AddII typed-typed-typed.
+            if (bo.RightNode is VariableAccessNode rvn0
+                && !string.IsNullOrEmpty(rvn0.Name)
+                && st.TypedAccumulators.TryGetValue(va.Name, out var accTyped)
+                && st.ActiveTypedIters.TryGetValue(rvn0.Name, out byte typedIterSlot0))
+            {
+                var opAA = opType == TokenType.PLUS ? Opcode.AddII : Opcode.SubII;
+                st.Code.Emit3(opAA, accTyped.LongSlot, accTyped.LongSlot, typedIterSlot0);
+                st.RedirectedTypedIterAccessCount++;
+                st.DirtyTypedAccs.Add(va.Name);
+                return true;
+            }
+
+            // Path 2: acc + literal int64. RHS literal was pre-loaded into
+            // `TypedAccumulatorLiterals[literalValue]` by `CompileForLazy-
+            // Long`. Emit a pure `AddII / SubII`. This is the `counter =
+            // counter + 1` shape that previously paid `AddIntoSlotImm`
+            // per iter (NumberValue alloc post-8192).
+            if (st.TypedAccumulators.TryGetValue(va.Name, out var accTypedLit)
+                && TryGetLiteralLongFromConstExpr(bo.RightNode, out long litValue)
+                && st.TypedAccumulatorLiterals.TryGetValue(litValue, out byte litRhsSlot))
+            {
+                var opAA2 = opType == TokenType.PLUS ? Opcode.AddII : Opcode.SubII;
+                st.Code.Emit3(opAA2, accTypedLit.LongSlot, accTypedLit.LongSlot, litRhsSlot);
+                st.DirtyTypedAccs.Add(va.Name);
+                return true;
+            }
+
+            // Path 2b: acc + loop-invariant pure expression. The RHS
+            // AstNode was pre-compiled into a typed Int64 slot by
+            // `CompileForLazyLong` and registered in
+            // `TypedAccumulatorExprs`. Emit a pure `AddII / SubII`
+            // reading the cached typed slot — zero per-iter alloc, no
+            // const-pool dispatch, no boxed mirror touch.
+            if (st.TypedAccumulators.TryGetValue(va.Name, out var accTypedExpr)
+                && st.TypedAccumulatorExprs.TryGetValue(bo.RightNode, out byte exprRhsSlot))
+            {
+                var opAA3 = opType == TokenType.PLUS ? Opcode.AddII : Opcode.SubII;
+                st.Code.Emit3(opAA3, accTypedExpr.LongSlot, accTypedExpr.LongSlot, exprRhsSlot);
+                st.DirtyTypedAccs.Add(va.Name);
+                return true;
+            }
+
             // M27.5: when the slot fits in a u8 AND the RHS is a constant
             // expression that folds to an int16-range integer, emit the
             // immediate variant. Skips both the LoadConst dispatch and the
@@ -696,6 +1146,18 @@ namespace RaLanguage.Interpreter.IR
                 st.RegisterSlot(va.Binding.Offset, va.Name);
                 var immOp = opType == TokenType.PLUS ? Opcode.AddIntoSlotImm : Opcode.SubIntoSlotImm;
                 st.Code.Emit2(immOp, (byte)va.Binding.Offset, unchecked((ushort)rhsImm));
+                return true;
+            }
+
+            if (bo.RightNode is VariableAccessNode rvn
+                && !string.IsNullOrEmpty(rvn.Name)
+                && st.ActiveTypedIters.TryGetValue(rvn.Name, out byte typedIterSlot)
+                && va.Binding.Offset <= ushort.MaxValue)
+            {
+                st.RegisterSlot(va.Binding.Offset, va.Name);
+                var opI = opType == TokenType.PLUS ? Opcode.AddIntoSlotI : Opcode.SubIntoSlotI;
+                st.Code.Emit2(opI, typedIterSlot, (ushort)va.Binding.Offset);
+                st.RedirectedTypedIterAccessCount++;
                 return true;
             }
 
@@ -907,7 +1369,9 @@ namespace RaLanguage.Interpreter.IR
 
                 // ---- control flow (M3) ----
                 case AstNodeType.Pass:
-                    st.Code.Emit3(Opcode.Pass, 0, 0, 0);
+                    // `pass` is a pure no-op. Skip the emit entirely so the
+                    // dispatch loop doesn't pay a decode + switch for a NOP
+                    // body inside a hot loop (`for i = 0 to N { pass; }`).
                     return true;
 
                 case AstNodeType.Scope:
@@ -1262,6 +1726,19 @@ namespace RaLanguage.Interpreter.IR
             }
 
             foreach (var j in endJumps) st.Code.PatchJumpToHere(j);
+
+            // Conservative post-branch merge: each `if` arm may have
+            // taken a different path through dirty tracking. The
+            // compile-time set tracks ONE linear path; at runtime any
+            // arm may run. Re-add every typed accumulator to the dirty
+            // set so the next boxed read in this scope re-publishes.
+            MarkAllTypedAccsDirty(st);
+        }
+
+        private static void MarkAllTypedAccsDirty(State st)
+        {
+            foreach (var name in st.TypedAccumulators.Keys)
+                st.DirtyTypedAccs.Add(name);
         }
 
         // Returns true / false when the node is a compile-time constant
@@ -1326,14 +1803,19 @@ namespace RaLanguage.Interpreter.IR
             bool? whileFolded = TryFoldCondition(node.ConditionNode);
             if (whileFolded == false) return;
 
-            EmitPushScope(st);
+            // Skip scope plumbing entirely when the body introduces no
+            // bindings. Saves PushScope + per-iter ClearScope + PopScope.
+            bool whileBodyNeedsScope = Parser.Nodes.AstScopeAnalysis.NeedsFreshScope(node.BodyNode);
+            if (whileBodyNeedsScope)
+                EmitPushScope(st);
             int baselineDepth = st.ScopeDepth;
             int loopTopPc = st.Code.Pc;
 
             // ClearScope at the top of each iter mirrors bodySymbols.Clear()
             // in WhileNodeVisitor — drops any locals declared in the
             // previous iteration before re-evaluating the condition.
-            st.Code.Emit3(Opcode.ClearScope, 0, 0, 0);
+            if (whileBodyNeedsScope)
+                st.Code.Emit3(Opcode.ClearScope, 0, 0, 0);
 
             int exitJmp = -1;
             if (whileFolded != true)
@@ -1359,7 +1841,12 @@ namespace RaLanguage.Interpreter.IR
             foreach (var p in loop.BreakFixups) st.Code.PatchJumpToHere(p);
             PatchJumpsBackward(st, loop.ContinueFixups, loopTopPc);
 
-            EmitPopScope(st);
+            if (whileBodyNeedsScope)
+                EmitPopScope(st);
+            // Body may have mutated typed accumulators through paths
+            // we don't statically model (variable iteration count, break/
+            // continue). Conservative re-dirty.
+            MarkAllTypedAccsDirty(st);
         }
 
         // DoWhile: PushScope ; loop_top: ClearScope ; body ; continue_target:
@@ -1368,10 +1855,13 @@ namespace RaLanguage.Interpreter.IR
         private static void CompileDoWhile(DoWhileNode node, State st, ref byte topSlot, byte scratchSlot)
         {
             // M21.1: pre-check dropped — see CompileWhile rationale.
-            EmitPushScope(st);
+            bool dwBodyNeedsScope = Parser.Nodes.AstScopeAnalysis.NeedsFreshScope(node.BodyNode);
+            if (dwBodyNeedsScope)
+                EmitPushScope(st);
             int baselineDepth = st.ScopeDepth;
             int loopTopPc = st.Code.Pc;
-            st.Code.Emit3(Opcode.ClearScope, 0, 0, 0);
+            if (dwBodyNeedsScope)
+                st.Code.Emit3(Opcode.ClearScope, 0, 0, 0);
 
             var loop = new LoopContext(loopTopPc, baselineDepth);
             st.Loops.Push(loop);
@@ -1393,7 +1883,9 @@ namespace RaLanguage.Interpreter.IR
             foreach (var p in loop.BreakFixups) st.Code.PatchJumpToHere(p);
             PatchJumpsBackward(st, loop.ContinueFixups, continueTargetPc);
 
-            EmitPopScope(st);
+            if (dwBodyNeedsScope)
+                EmitPopScope(st);
+            MarkAllTypedAccsDirty(st);
         }
 
         // For loop: iter scope (holds iter var) + body scope (cleared each
@@ -1421,6 +1913,29 @@ namespace RaLanguage.Interpreter.IR
             string iterName = node.VarNameTok.Value!.ToString()!;
             ushort iterNameIdx = st.Names.Add(iterName);
 
+            // Fast path: literal int bounds with default (or literal) step.
+            // Mirrors `CompileForEachLazyIntRange` — the iter counter stays
+            // in a typed Int64 slot for the whole loop, so the dispatch
+            // hot path becomes LtII + JmpIfNot + AddII + Jmp (zero boxed
+            // allocations per iter). Boxing happens only when the body
+            // actually reads `i` (BoxI + AssignBinding before each
+            // iteration). Catches the overwhelmingly dominant numeric-loop
+            // shape `for i = 0 to N` / `for i = lo to hi step k`.
+            if (TryGetLiteralLong(node.StartValueNode, out long startLit)
+                && TryGetLiteralLong(node.EndValueNode, out long endLit)
+                && (node.StepValueNode == null
+                    || TryGetLiteralLong(node.StepValueNode, out _)))
+            {
+                long stepLit = 1;
+                if (node.StepValueNode != null) TryGetLiteralLong(node.StepValueNode, out stepLit);
+                if (stepLit != 0) // step==0 falls through to the dynamic boxed path so the original error surfaces
+                {
+                    CompileForLazyLong(node, iterName, iterNameIdx,
+                        startLit, endLit, stepLit, st, ref topSlot, scratchSlot);
+                    return;
+                }
+            }
+
             // Compute bounds into temp slots BEFORE pushing scopes (so the
             // expressions execute in the outer scope, matching the AST
             // visitor where bounds are evaluated in loopContext after Copy
@@ -1435,15 +1950,33 @@ namespace RaLanguage.Interpreter.IR
             CompileExpression(node.EndValueNode, endSlot, st, ref topSlot);
 
             byte stepSlot = AllocTemp(ref topSlot);
-            if (node.StepValueNode != null)
+            // Statically classify the step's sign. When the step is null
+            // (default 1) or a literal constant, the asc/desc branch is
+            // dead code — emit a single compare. Saves ~5 opcodes per
+            // iter (LoadConst zero, Ge step≥0, JmpIfNot, dead Gt, trailing
+            // Jmp) in the common `for i = 0 to N` shape, which is the
+            // overwhelmingly dominant numeric-loop form.
+            //   stepStatic:  1 → ascending, -1 → descending, 0 → unknown.
+            int stepStatic = 0;
+            if (node.StepValueNode == null)
             {
-                CompileExpression(node.StepValueNode, stepSlot, st, ref topSlot);
+                // Step defaults to NumberValue.One — always ascending.
+                ushort oneIdx = st.Consts.Add(NumberValue.One);
+                st.Code.Emit2(Opcode.LoadConst, stepSlot, oneIdx);
+                stepStatic = 1;
             }
             else
             {
-                // Step defaults to NumberValue.One.
-                ushort oneIdx = st.Consts.Add(NumberValue.One);
-                st.Code.Emit2(Opcode.LoadConst, stepSlot, oneIdx);
+                CompileExpression(node.StepValueNode, stepSlot, st, ref topSlot);
+                if (TryConstEvalNumber(node.StepValueNode, out var stepNV))
+                {
+                    var u = stepNV.Value.Unscaled;
+                    if (stepNV.Value.Scale.IsZero && u.Sign > 0) stepStatic = 1;
+                    else if (stepNV.Value.Scale.IsZero && u.Sign < 0) stepStatic = -1;
+                    // Sign==0 (literal step=0) keeps stepStatic=0 → falls
+                    // through to dynamic dispatch so the runtime can
+                    // surface the divergence the AST visitor would.
+                }
             }
 
             // VM-side iterator counter — body mutations to the iter binding
@@ -1454,34 +1987,61 @@ namespace RaLanguage.Interpreter.IR
             EmitPushScope(st); // iter scope
             st.Code.Emit2(Opcode.SetLocalDirect, startSlot, iterNameIdx);
 
-            EmitPushScope(st); // body scope
+            // Body scope + per-iter ClearScope only when the body introduces
+            // its own bindings (var/let/const/final, nested fn/class/struct/
+            // enum/trait/interface/extension/annotation, import, namespace,
+            // using). Side-effect-only bodies (`pass`, `print(...)`, plain
+            // arithmetic reads) pay nothing — two PushScope opcodes, one
+            // PopScope pair, and a per-iter ClearScope dictionary walk all
+            // vanish. Common-case loop overhead drops to LtII + JmpIfNot +
+            // Add + Jmp.
+            bool bodyNeedsScope = Parser.Nodes.AstScopeAnalysis.NeedsFreshScope(node.BodyNode);
+            if (bodyNeedsScope)
+                EmitPushScope(st); // body scope
             int baselineDepth = st.ScopeDepth;
 
+            // Hoist loop-invariant compute outside the loop body. The
+            // dynamic-step path needs a `step >= 0` flag computed once
+            // before loop_top.
+            byte stepNonNegOuter = 0;
+            if (stepStatic == 0)
+            {
+                ushort zeroIdxOuter = st.Consts.Add(NumberValue.Zero);
+                byte zeroSlotOuter = AllocTemp(ref topSlot);
+                st.Code.Emit2(Opcode.LoadConst, zeroSlotOuter, zeroIdxOuter);
+                stepNonNegOuter = AllocTemp(ref topSlot);
+                st.Code.Emit3(Opcode.Ge, stepNonNegOuter, stepSlot, zeroSlotOuter);
+            }
+
             int loopTopPc = st.Code.Pc;
-            st.Code.Emit3(Opcode.ClearScope, 0, 0, 0);
+            if (bodyNeedsScope)
+                st.Code.Emit3(Opcode.ClearScope, 0, 0, 0);
 
-            // Test: step >= 0 ? iter < end : iter > end.
-            // Implemented as two paths via a conditional jump on the step
-            // sign. Cheap and correct.
-            ushort zeroIdx = st.Consts.Add(NumberValue.Zero);
-            byte zeroSlot = AllocTemp(ref topSlot);
-            st.Code.Emit2(Opcode.LoadConst, zeroSlot, zeroIdx);
-            byte stepNonNeg = AllocTemp(ref topSlot);
-            st.Code.Emit3(Opcode.Ge, stepNonNeg, stepSlot, zeroSlot);
-
-            // If stepNonNeg (ascending), do iter < end. Else iter > end.
-            int jmpToDescTest = st.Code.EmitForwardJump(Opcode.JmpIfNot, stepNonNeg);
-
-            // ascending branch:
             byte cmpAsc = AllocTemp(ref topSlot);
-            st.Code.Emit3(Opcode.Lt, cmpAsc, iterValSlot, endSlot);
-            int jmpAfterAsc = st.Code.EmitForwardJump(Opcode.Jmp);
-            // descending branch:
-            st.Code.PatchJumpToHere(jmpToDescTest);
-            st.Code.Emit3(Opcode.Gt, cmpAsc, iterValSlot, endSlot);
-            st.Code.PatchJumpToHere(jmpAfterAsc);
-
-            int exitJmp = st.Code.EmitForwardJump(Opcode.JmpIfNot, cmpAsc);
+            int exitJmp;
+            if (stepStatic > 0)
+            {
+                // Ascending only: iter < end.
+                st.Code.Emit3(Opcode.Lt, cmpAsc, iterValSlot, endSlot);
+                exitJmp = st.Code.EmitForwardJump(Opcode.JmpIfNot, cmpAsc);
+            }
+            else if (stepStatic < 0)
+            {
+                // Descending only: iter > end.
+                st.Code.Emit3(Opcode.Gt, cmpAsc, iterValSlot, endSlot);
+                exitJmp = st.Code.EmitForwardJump(Opcode.JmpIfNot, cmpAsc);
+            }
+            else
+            {
+                // Dynamic: if stepNonNegOuter (ascending), iter < end; else iter > end.
+                int jmpToDescTest = st.Code.EmitForwardJump(Opcode.JmpIfNot, stepNonNegOuter);
+                st.Code.Emit3(Opcode.Lt, cmpAsc, iterValSlot, endSlot);
+                int jmpAfterAsc = st.Code.EmitForwardJump(Opcode.Jmp);
+                st.Code.PatchJumpToHere(jmpToDescTest);
+                st.Code.Emit3(Opcode.Gt, cmpAsc, iterValSlot, endSlot);
+                st.Code.PatchJumpToHere(jmpAfterAsc);
+                exitJmp = st.Code.EmitForwardJump(Opcode.JmpIfNot, cmpAsc);
+            }
 
             // Publish iter value into the iter scope binding (so body sees
             // the current i), then advance iterValSlot for the next test.
@@ -1493,7 +2053,19 @@ namespace RaLanguage.Interpreter.IR
             // `continue` jumps back to loop_top; if we incremented after
             // body, continue would skip the increment and the loop would
             // never make progress.
-            st.Code.Emit2(Opcode.AssignBinding, iterValSlot, iterNameIdx);
+            //
+            // Skip the publish entirely when the body never reads the iter
+            // name and does not introduce a nested function/class/closure
+            // that could capture it. The dispatch loop pays a NumberValue
+            // allocation per iter for the boxed publish (auto-boxing from
+            // the typed slot via `LocalsView.ToRuntimeValue`) — eliding it
+            // when nobody sees the binding is a pure win. Loops with `pass`
+            // bodies, side-effect-only bodies (`print("x")`), or external
+            // counters all qualify. The advance via `Add` still runs so the
+            // counter slot makes progress.
+            bool iterPublished = BodyReadsBinding(node.BodyNode, iterName);
+            if (iterPublished)
+                st.Code.Emit2(Opcode.AssignBinding, iterValSlot, iterNameIdx);
             st.Code.Emit3(Opcode.Add, iterValSlot, iterValSlot, stepSlot);
 
             var loop = new LoopContext(loopTopPc, baselineDepth);
@@ -1513,7 +2085,247 @@ namespace RaLanguage.Interpreter.IR
             foreach (var p in loop.BreakFixups) st.Code.PatchJumpToHere(p);
             PatchJumpsBackward(st, loop.ContinueFixups, loopTopPc);
 
-            EmitPopScope(st); // body
+            if (bodyNeedsScope)
+                EmitPopScope(st); // body
+            EmitPopScope(st); // iter
+            MarkAllTypedAccsDirty(st);
+        }
+
+        // Lazy lowering of `for i = lit to lit [step lit] { body }`. The
+        // iterator counter lives in a typed Int64 slot for the whole loop;
+        // per iter, only LtII / JmpIfNot / AddII / Jmp run on the hot path
+        // (plus a body-scope ClearScope when the body introduces bindings,
+        // and a BoxI+AssignBinding pair when the body reads `i`). No
+        // NumberValue allocations in the iter-advance path.
+        //
+        // Sign of `step` decides ascending vs descending compare statically.
+        // step==0 must have been rejected by the caller (would diverge —
+        // the boxed path surfaces the original error).
+        private static void CompileForLazyLong(
+            ForNode node, string iterName, ushort iterNameIdx,
+            long startLit, long endLit, long stepLit,
+            State st, ref byte topSlot, byte scratchSlot)
+        {
+            // Long-typed slots for iter / end / step.
+            byte iterLongSlot = AllocTemp(ref topSlot);
+            EmitLiteralLongLoad(startLit, iterLongSlot, st, ref topSlot);
+            byte endLongSlot = AllocTemp(ref topSlot);
+            EmitLiteralLongLoad(endLit, endLongSlot, st, ref topSlot);
+            byte stepLongSlot = AllocTemp(ref topSlot);
+            EmitLiteralLongLoad(stepLit, stepLongSlot, st, ref topSlot);
+
+            EmitPushScope(st); // iter scope
+
+            // Placeholder binding so the body's AssignBinding survives
+            // ClearScope at every iteration top. Matches CompileForEachLazyIntRange.
+            byte nullSlot = AllocTemp(ref topSlot);
+            st.Code.Emit3(Opcode.LoadNull, nullSlot, 0, 0);
+            st.Code.Emit2(Opcode.SetLocalDirect, nullSlot, iterNameIdx);
+
+            bool bodyNeedsScope = Parser.Nodes.AstScopeAnalysis.NeedsFreshScope(node.BodyNode);
+            if (bodyNeedsScope)
+                EmitPushScope(st); // body scope
+            int baselineDepth = st.ScopeDepth;
+
+            // Decide upfront whether the boxed iter mirror is needed.
+            //
+            // Redirectable iter accesses (skip publish):
+            //   1. Self-additive RHS: `acc = acc ± iter` — handled by
+            //      `TryEmitSelfAdditiveSlot` via AddIntoSlotI or pure
+            //      AddII (typed accumulator).
+            //   2. Comparison vs literal: `iter ⋈ lit` / `lit ⋈ iter`
+            //      where ⋈ ∈ {==, !=, <, <=, >, >=}. Lowered to a
+            //      typed `EqII / NeII / LtII / LeII / GtII / GeII`
+            //      reading the iter long slot directly.
+            //
+            // Any other access requires the per-iter `BoxI +
+            // AssignBinding` publish so `LoadLocalS iter` sees a fresh
+            // boxed mirror in the symbol entry.
+            int totalIterAccess = CountVariableAccess(node.BodyNode, iterName);
+            int redirectableIterAccess = CountRedirectableIterAccess(node.BodyNode, iterName, st);
+            int typedComparableIterAccess = CountTypedIterComparisonAccess(node.BodyNode, iterName);
+            int totalRedirectable = redirectableIterAccess + typedComparableIterAccess;
+            bool iterPublished = totalIterAccess > 0
+                && (totalIterAccess < 0 || totalRedirectable < totalIterAccess);
+            // -1 from CountVariableAccess means "unknown node, conservative" —
+            // in that case publish to be safe.
+            if (totalIterAccess < 0) iterPublished = BodyReadsBinding(node.BodyNode, iterName);
+
+            // Expose the typed iter slot to `TryEmitSelfAdditiveSlot` so
+            // `sum = sum + iterName` redirects to `AddIntoSlotI` (or to
+            // the pure `AddII` typed-accumulator path below).
+            bool addedTyped = false;
+            if (iterLongSlot <= byte.MaxValue && !st.ActiveTypedIters.ContainsKey(iterName))
+            {
+                st.ActiveTypedIters[iterName] = iterLongSlot;
+                addedTyped = true;
+            }
+
+            // Typed-accumulator promotions emitted ONCE before loop_top.
+            // For each accumulator (e.g. `sum`), pre-loop reads its
+            // SymbolEntry value and unboxes into a typed Int64 slot. The
+            // body's self-additive becomes pure `AddII / SubII`. After
+            // the loop, we box the typed slot back to the SymbolEntry.
+            var typedAccs = CollectTypedAccumulatorCandidates(node.BodyNode, iterName, st);
+            foreach (var acc in typedAccs)
+            {
+                if (acc.Binding.Offset > ushort.MaxValue) continue;
+                byte accLong = AllocTemp(ref topSlot);
+                byte accBoxedTmp = AllocTemp(ref topSlot);
+                st.Code.Emit2(Opcode.LoadLocalS, accBoxedTmp, (ushort)acc.Binding.Offset);
+                st.Code.Emit3(Opcode.UnboxI, accLong, accBoxedTmp, 0);
+                st.TypedAccumulators[acc.Name] = (accLong, acc.Binding);
+            }
+
+            // Pre-load every distinct int64 literal value used either as
+            // RHS of a typed-accumulator self-additive, OR as the literal
+            // operand of a typed-iter comparison (`iter ⋈ lit` patterns
+            // — see `CompileExpression`'s BinaryOperation case for the
+            // typed II emission). Each unique value gets a single typed
+            // slot pre-loaded before loop_top.
+            var litValuesAll = new HashSet<long>();
+            if (typedAccs.Count > 0)
+            {
+                var accNames = new HashSet<string>();
+                foreach (var acc in typedAccs) accNames.Add(acc.Name);
+                CollectAccumulatorLiteralRhsValues(node.BodyNode, accNames, litValuesAll);
+            }
+            CollectIterComparisonLiterals(node.BodyNode, iterName, litValuesAll);
+            foreach (var lit in litValuesAll)
+            {
+                byte litSlot = AllocTemp(ref topSlot);
+                EmitLiteralLongLoad(lit, litSlot, st, ref topSlot);
+                st.TypedAccumulatorLiterals[lit] = litSlot;
+            }
+
+            // Loop-invariant pure-expression RHS pre-load. For each
+            // typed accumulator candidate whose RHS is a pure tree of
+            // outer-scope-only never-mutated bindings (admitted by
+            // `IsLoopInvariantPureNumericExpr`), compile the RHS ONCE
+            // before loop_top into a boxed slot, then UnboxI into a
+            // typed Int64 slot. The body's self-additive then emits a
+            // pure `AddII / SubII` reading the typed slot directly —
+            // no per-iter NumberValue allocation. UnboxI deopts to a
+            // Ref tag if the RHS doesn't fit Int64; subsequent
+            // `AddII` still reads correctly via `TryReadAsLong`'s
+            // boxed fallback (slower but correct).
+            if (typedAccs.Count > 0)
+            {
+                var accNameSet = new HashSet<string>();
+                foreach (var acc in typedAccs) accNameSet.Add(acc.Name);
+                CollectAccumulatorLoopInvariantExprs(
+                    node.BodyNode, node.BodyNode, iterName, accNameSet, st, ref topSlot);
+            }
+
+            // Typed-long-binding promotion. Pattern: `iter ⋈ var_name`
+            // where var_name is a slot-eligible local that is NEVER
+            // mutated in the body. Pre-loop reads the binding's boxed
+            // value once and unboxes into a typed Int64 slot. The
+            // comparison redirect below emits a pure typed II compare
+            // reading both operands as longs — no boxed mirror, no
+            // iter publish required for this access.
+            var bindingNames = new HashSet<string>();
+            CollectIterComparisonBindingNames(node.BodyNode, iterName, bindingNames);
+            foreach (var nm in bindingNames)
+            {
+                if (st.ActiveTypedIters.ContainsKey(nm)) continue;
+                if (st.TypedAccumulators.ContainsKey(nm)) continue;
+                if (st.TypedLongBindings.ContainsKey(nm)) continue;
+                if (HasAnyAssignmentTo(node.BodyNode, nm)) continue;
+                var binding = FindFirstBindingOfName(node.BodyNode, nm);
+                if (!binding.IsResolved) continue;
+                if (binding.Offset > ushort.MaxValue) continue;
+                if (!IsSlotEligible(binding, BindingKind.Local, st)
+                    && !IsSlotEligible(binding, BindingKind.Global, st)
+                    && !IsSlotEligible(binding, BindingKind.Parameter, st))
+                    continue;
+                byte bndLong = AllocTemp(ref topSlot);
+                byte bndBoxedTmp = AllocTemp(ref topSlot);
+                st.Code.Emit2(Opcode.LoadLocalS, bndBoxedTmp, (ushort)binding.Offset);
+                st.Code.Emit3(Opcode.UnboxI, bndLong, bndBoxedTmp, 0);
+                st.TypedLongBindings[nm] = (bndLong, binding);
+            }
+
+            int loopTopPc = st.Code.Pc;
+            if (bodyNeedsScope)
+                st.Code.Emit3(Opcode.ClearScope, 0, 0, 0);
+
+            byte cmpSlot = AllocTemp(ref topSlot);
+            Opcode testOp = stepLit > 0 ? Opcode.LtII : Opcode.GtII;
+            st.Code.Emit3(testOp, cmpSlot, iterLongSlot, endLongSlot);
+            int exitJmp = st.Code.EmitForwardJump(Opcode.JmpIfNot, cmpSlot);
+
+            if (iterPublished)
+            {
+                byte iterBoxSlot = AllocTemp(ref topSlot);
+                st.Code.Emit3(Opcode.BoxI, iterBoxSlot, iterLongSlot, 0);
+                st.Code.Emit2(Opcode.AssignBinding, iterBoxSlot, iterNameIdx);
+            }
+
+            // Body runs BEFORE advance so both the boxed publish above and
+            // the typed `AddIntoSlotI` reads inside the body observe the
+            // SAME iteration value (pre-advance). `continue` jumps to
+            // `continueTargetPc` (the advance) so the loop still makes
+            // progress through any early exit. Matches `for i = 0 to N`
+            // semantics: body sees i = 0, 1, …, N-1.
+            //
+            // Initialise dirty-tracking: at body entry the typed slot
+            // matches the SymbolEntry (pre-loop UnboxI synced them).
+            // ACROSS iterations, the previous iter may have left the
+            // SymbolEntry stale though — conservatively mark every
+            // typed acc dirty at body start so the first boxed read in
+            // an iter always publishes.
+            MarkAllTypedAccsDirty(st);
+            var loop = new LoopContext(loopTopPc, baselineDepth);
+            st.Loops.Push(loop);
+            try
+            {
+                CompileBodyStrictInline(node.BodyNode, st, ref topSlot, scratchSlot);
+            }
+            finally
+            {
+                st.Loops.Pop();
+            }
+
+            if (addedTyped) st.ActiveTypedIters.Remove(iterName);
+
+            int continueTargetPc = st.Code.Pc;
+            st.Code.Emit3(Opcode.AddII, iterLongSlot, iterLongSlot, stepLongSlot);
+            st.Code.EmitBackwardJump(Opcode.Jmp, 0, loopTopPc);
+            st.Code.PatchJumpToHere(exitJmp);
+            foreach (var p in loop.BreakFixups) st.Code.PatchJumpToHere(p);
+            PatchJumpsBackward(st, loop.ContinueFixups, continueTargetPc);
+
+            // Box accumulators back to their SymbolEntry after every loop
+            // exit (test failure + break both land here). Subsequent code
+            // observing `acc` sees the freshly-computed value.
+            foreach (var acc in typedAccs)
+            {
+                if (acc.Binding.Offset > ushort.MaxValue) continue;
+                if (!st.TypedAccumulators.ContainsKey(acc.Name)) continue;
+                byte accBoxedTmp = AllocTemp(ref topSlot);
+                st.Code.Emit3(Opcode.BoxI, accBoxedTmp, st.TypedAccumulators[acc.Name].LongSlot, 0);
+                st.Code.Emit2(Opcode.StoreLocalS, accBoxedTmp, (ushort)acc.Binding.Offset);
+                st.TypedAccumulators.Remove(acc.Name);
+            }
+            // Clear literal-pre-load cache so a sibling for-loop later in
+            // the script doesn't accidentally reuse a stale typed slot.
+            st.TypedAccumulatorLiterals.Clear();
+            // Typed-long bindings are scoped to this for-loop only — clear
+            // so a sibling for-loop allocates fresh slots and re-verifies
+            // the never-mutated property for ITS body.
+            st.TypedLongBindings.Clear();
+            // Loop-invariant pure-expression RHS slots are scoped to
+            // this for-loop only — drop the dictionary so a sibling
+            // for-loop re-evaluates and re-allocates fresh typed slots.
+            st.TypedAccumulatorExprs.Clear();
+            // Typed accumulators are out of scope post-loop; clear any
+            // residual dirty flags so an unrelated subsequent for-loop
+            // doesn't see them.
+            st.DirtyTypedAccs.Clear();
+
+            if (bodyNeedsScope)
+                EmitPopScope(st); // body
             EmitPopScope(st); // iter
         }
 
@@ -1613,10 +2425,131 @@ namespace RaLanguage.Interpreter.IR
 
             EmitPopScope(st); // body
             EmitPopScope(st); // iter
+            MarkAllTypedAccsDirty(st);
         }
 
         // M66.6 helpers ----------------------------------------------------
         //
+        // Extracts an int64 value from any constant-foldable arithmetic
+        // sub-tree (literal, literal+literal, -literal, etc.) using
+        // `TryConstEvalNumber`. Returns false for non-foldable or
+        // out-of-int64-range values. Accepts:
+        //   * Scale == 0: trivial integer literal.
+        //   * Scale  > 0 but Unscaled divisible by 10^Scale: math-
+        //     integer "float-like" literals such as `1.0`, `2.000` —
+        //     these are integer-valued NumberValues whose scaled
+        //     representation just happens to carry trailing zeros.
+        // Truly non-integer values (e.g. `1.5`) return false and the
+        // caller falls through to `TryReduceNonIntIterCompareLit` for
+        // the static rewrite path.
+        private static bool TryGetLiteralLongFromConstExpr(AstNode node, out long value)
+        {
+            value = 0;
+            if (!TryConstEvalNumber(node, out var nv)) return false;
+            var bn = nv.Value;
+            var bnMin = (System.Numerics.BigInteger)long.MinValue;
+            var bnMax = (System.Numerics.BigInteger)long.MaxValue;
+            if (bn.Scale.IsZero)
+            {
+                if (bn.Unscaled < bnMin || bn.Unscaled > bnMax) return false;
+                value = (long)bn.Unscaled;
+                return true;
+            }
+            if (bn.Scale.Sign <= 0) return false;
+            if (bn.Scale > 30) return false;
+            int scaleInt = (int)bn.Scale;
+            var divisor = System.Numerics.BigInteger.Pow(10, scaleInt);
+            var rem = bn.Unscaled % divisor;
+            if (!rem.IsZero) return false; // truly non-integer
+            var normalized = bn.Unscaled / divisor;
+            if (normalized < bnMin || normalized > bnMax) return false;
+            value = (long)normalized;
+            return true;
+        }
+
+        // For a constant-foldable NumberValue that is TRULY non-integer
+        // (e.g. `1.5`, `-0.25`), compute the integer-equivalent rewrite
+        // of an `iter ⋈ rhs` comparison. Returns one of:
+        //   * RewriteOk    → emit `iter newOp newLit` (typed II compare).
+        //   * ConstFalse   → emit `LoadFalse` directly (iter is integer,
+        //                    cannot equal a non-integer NumberValue).
+        //   * ConstTrue    → emit `LoadTrue` directly.
+        //   * CantRewrite  → caller falls back to boxed dispatch.
+        // `op` is the original comparison token; `iterOnLeft` records
+        // whether `iter` is on the LHS (so direction-sensitive ops are
+        // adjusted on swap).
+        private enum NonIntCompareResult { CantRewrite, RewriteOk, ConstFalse, ConstTrue }
+
+        private static NonIntCompareResult TryReduceNonIntIterCompareLit(
+            Lexer.Tokens.TokenType op, AstNode rhsConst, bool iterOnLeft,
+            out Lexer.Tokens.TokenType newOp, out long newLit)
+        {
+            newOp = op;
+            newLit = 0;
+            if (!TryConstEvalNumber(rhsConst, out var nv)) return NonIntCompareResult.CantRewrite;
+            var bn = nv.Value;
+            if (bn.Scale.IsZero) return NonIntCompareResult.CantRewrite; // integer — caller uses normal path
+            if (bn.Scale.Sign <= 0) return NonIntCompareResult.CantRewrite;
+            if (bn.Scale > 30) return NonIntCompareResult.CantRewrite;
+            int sc = (int)bn.Scale;
+            var divisor = System.Numerics.BigInteger.Pow(10, sc);
+            var rem = bn.Unscaled % divisor;
+            if (rem.IsZero) return NonIntCompareResult.CantRewrite; // actually math-integer; caller uses normal path
+
+            // Mathematical floor: BigInteger division rounds toward zero;
+            // for negative non-divisible values we subtract 1 to get the
+            // mathematical floor. ceil = floor + 1.
+            var floor = bn.Unscaled / divisor;
+            if (bn.Unscaled.Sign < 0) floor -= 1;
+            var ceil = floor + 1;
+            var bnMin = (System.Numerics.BigInteger)long.MinValue;
+            var bnMax = (System.Numerics.BigInteger)long.MaxValue;
+            if (floor < bnMin || ceil > bnMax) return NonIntCompareResult.CantRewrite;
+            long floorL = (long)floor;
+            long ceilL = (long)ceil;
+
+            // For `iter ⋈ N.M`:
+            //   <    → <= floor
+            //   <=   → <= floor
+            //   >    → >= ceil  (equivalent to > floor; pick >= ceil for
+            //                    a single LE-family opcode reuse)
+            //   >=   → >= ceil
+            //   ==   → false
+            //   !=   → true
+            // When iter is on the RIGHT (e.g. `1.5 < iter`), invert the
+            // comparison direction first.
+            Lexer.Tokens.TokenType effective = op;
+            if (!iterOnLeft)
+            {
+                effective = op switch
+                {
+                    Lexer.Tokens.TokenType.LT  => Lexer.Tokens.TokenType.GT,
+                    Lexer.Tokens.TokenType.LTE => Lexer.Tokens.TokenType.GTE,
+                    Lexer.Tokens.TokenType.GT  => Lexer.Tokens.TokenType.LT,
+                    Lexer.Tokens.TokenType.GTE => Lexer.Tokens.TokenType.LTE,
+                    _ => op,
+                };
+            }
+            switch (effective)
+            {
+                case Lexer.Tokens.TokenType.LT:
+                case Lexer.Tokens.TokenType.LTE:
+                    newOp = Lexer.Tokens.TokenType.LTE;
+                    newLit = floorL;
+                    return NonIntCompareResult.RewriteOk;
+                case Lexer.Tokens.TokenType.GT:
+                case Lexer.Tokens.TokenType.GTE:
+                    newOp = Lexer.Tokens.TokenType.GTE;
+                    newLit = ceilL;
+                    return NonIntCompareResult.RewriteOk;
+                case Lexer.Tokens.TokenType.EE:
+                    return NonIntCompareResult.ConstFalse;
+                case Lexer.Tokens.TokenType.NE:
+                    return NonIntCompareResult.ConstTrue;
+            }
+            return NonIntCompareResult.CantRewrite;
+        }
+
         // `TryGetLiteralLong` extracts the int64 value of a numeric literal
         // when it is unsuffixed (a `NumberValue`) and integer-valued. Used
         // by the lazy-Range fast path; non-literal or non-int bounds fall
@@ -1751,6 +2684,7 @@ namespace RaLanguage.Interpreter.IR
 
             EmitPopScope(st); // body
             EmitPopScope(st); // iter
+            MarkAllTypedAccsDirty(st);
         }
 
         // Try / Catch lowering (no Finally support yet — Finally falls back).
@@ -1827,6 +2761,9 @@ namespace RaLanguage.Interpreter.IR
                 start: tryStartPc, end: tryEndPc,
                 catchPc: catchPc, finallyPc: -1,
                 catchSlot: catchSlot, scopeDepth: scopeDepthAtTry));
+            // Try/catch may have taken either path at runtime; conservatively
+            // re-dirty every typed accumulator.
+            MarkAllTypedAccsDirty(st);
         }
 
         // Compile a body inside a fresh PushScope/PopScope pair. The strict
@@ -1834,7 +2771,13 @@ namespace RaLanguage.Interpreter.IR
         // unsupported construct aborts the whole enclosing statement.
         private static void CompileBodyScoped(AstNode body, State st, ref byte topSlot, byte scratchSlot)
         {
-            EmitPushScope(st);
+            // Skip PushScope/PopScope when body introduces no bindings.
+            // Avoids per-fire Context.Copy allocations for hot `if cond
+            // { body }` shapes inside loops (e.g. `if i < max { sum =
+            // sum + i; }` triggers 500K Context allocations on a 1M-iter
+            // loop with 50% branch true-rate).
+            bool needsScope = Parser.Nodes.AstScopeAnalysis.NeedsFreshScope(body);
+            if (needsScope) EmitPushScope(st);
             if (body is ScopeNode sc)
             {
                 foreach (var child in sc.Nodes)
@@ -1848,7 +2791,7 @@ namespace RaLanguage.Interpreter.IR
                 if (!TryCompileStatement(body, st, ref topSlot, scratchSlot, strict: true))
                     throw new IrCompileException($"body not compilable: {body.NodeType}");
             }
-            EmitPopScope(st);
+            if (needsScope) EmitPopScope(st);
         }
 
         // Compile a body without an additional scope push (the caller has
@@ -1922,6 +2865,22 @@ namespace RaLanguage.Interpreter.IR
                     var va = (Parser.Nodes.Variables.VariableAccessNode)expr;
                     if (string.IsNullOrEmpty(va.Name))
                         throw new IrCompileException("variable access with empty name");
+                    // Hybrid typed accumulator: when a non-redirectable
+                    // boxed read of a typed accumulator emerges, publish
+                    // the typed slot's current value into the SymbolEntry
+                    // — but ONLY when the accumulator is in the compile-
+                    // time dirty set. Already-published reads (multiple
+                    // accesses after a single typed write) skip the
+                    // BoxI + StoreLocalS dispatch + alloc.
+                    if (st.TypedAccumulators.TryGetValue(va.Name, out var accHybrid)
+                        && accHybrid.Binding.Offset <= ushort.MaxValue
+                        && st.DirtyTypedAccs.Contains(va.Name))
+                    {
+                        byte boxedTmpH = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.BoxI, boxedTmpH, accHybrid.LongSlot, 0);
+                        st.Code.Emit2(Opcode.StoreLocalS, boxedTmpH, (ushort)accHybrid.Binding.Offset);
+                        st.DirtyTypedAccs.Remove(va.Name);
+                    }
                     if (IsSlotEligible(va.Binding, va.BindingKind, st))
                     {
                         st.RegisterSlot(va.Binding.Offset, va.Name);
@@ -1986,6 +2945,119 @@ namespace RaLanguage.Interpreter.IR
                         ushort cidx = st.Consts.Add(foldedConst);
                         st.Code.Emit2(Opcode.LoadConst, destSlot, cidx);
                         return;
+                    }
+                    // Typed-iter comparison fast path. Emits a pure typed II
+                    // compare when one operand is `VariableAccess(ActiveTypedIter)`
+                    // and the other is one of:
+                    //   * const-foldable int64 literal (pre-loaded into
+                    //     `TypedAccumulatorLiterals`),
+                    //   * `VariableAccess` of a `TypedLongBinding` (a
+                    //     never-mutated local pre-loaded into a typed slot).
+                    //
+                    // Both operands read directly from their typed slots —
+                    // no boxed mirror, no iter publish, no per-iter alloc.
+                    if (IsTypedComparableOp(bo.OpTok.Type))
+                    {
+                        bool leftIter = bo.LeftNode is VariableAccessNode lvi
+                                        && st.ActiveTypedIters.TryGetValue(lvi.Name, out _);
+                        bool rightIter = bo.RightNode is VariableAccessNode rvi
+                                         && st.ActiveTypedIters.TryGetValue(rvi.Name, out _);
+
+                        // Path A: iter ⋈ literal-int.
+                        if (leftIter && !rightIter
+                            && TryGetLiteralLongFromConstExpr(bo.RightNode, out long litR)
+                            && st.TypedAccumulatorLiterals.TryGetValue(litR, out byte litRSlot))
+                        {
+                            string iterNm = ((VariableAccessNode)bo.LeftNode).Name;
+                            byte iterSlot = st.ActiveTypedIters[iterNm];
+                            var opII = TypedComparisonOpcode(bo.OpTok.Type, swapped: false);
+                            st.Code.Emit3(opII, destSlot, iterSlot, litRSlot);
+                            st.RedirectedTypedIterAccessCount++;
+                            return;
+                        }
+                        if (rightIter && !leftIter
+                            && TryGetLiteralLongFromConstExpr(bo.LeftNode, out long litL)
+                            && st.TypedAccumulatorLiterals.TryGetValue(litL, out byte litLSlot))
+                        {
+                            string iterNm = ((VariableAccessNode)bo.RightNode).Name;
+                            byte iterSlot = st.ActiveTypedIters[iterNm];
+                            var opII = TypedComparisonOpcode(bo.OpTok.Type, swapped: true);
+                            st.Code.Emit3(opII, destSlot, iterSlot, litLSlot);
+                            st.RedirectedTypedIterAccessCount++;
+                            return;
+                        }
+
+                        // Path B: iter ⋈ typed-long binding.
+                        if (leftIter && !rightIter
+                            && bo.RightNode is VariableAccessNode rBinding
+                            && st.TypedLongBindings.TryGetValue(rBinding.Name, out var rTypedBnd))
+                        {
+                            string iterNm = ((VariableAccessNode)bo.LeftNode).Name;
+                            byte iterSlot = st.ActiveTypedIters[iterNm];
+                            var opII = TypedComparisonOpcode(bo.OpTok.Type, swapped: false);
+                            st.Code.Emit3(opII, destSlot, iterSlot, rTypedBnd.LongSlot);
+                            st.RedirectedTypedIterAccessCount++;
+                            return;
+                        }
+                        if (rightIter && !leftIter
+                            && bo.LeftNode is VariableAccessNode lBinding
+                            && st.TypedLongBindings.TryGetValue(lBinding.Name, out var lTypedBnd))
+                        {
+                            string iterNm = ((VariableAccessNode)bo.RightNode).Name;
+                            byte iterSlot = st.ActiveTypedIters[iterNm];
+                            var opII = TypedComparisonOpcode(bo.OpTok.Type, swapped: true);
+                            st.Code.Emit3(opII, destSlot, iterSlot, lTypedBnd.LongSlot);
+                            st.RedirectedTypedIterAccessCount++;
+                            return;
+                        }
+
+                        // Path C: iter ⋈ truly-non-integer constant
+                        // (e.g. `i < 1.5`). Statically rewrite to
+                        // typed integer compare via floor/ceil math.
+                        // ConstFalse / ConstTrue paths (==/!= against
+                        // non-int) are NOT emitted as LoadFalse /
+                        // LoadTrue at this layer because the downstream
+                        // LICM hoist sees them as loop-invariant and
+                        // moves them, after which their slot identity
+                        // can break the surrounding If's JmpIfNot
+                        // offset patching. Such comparisons fall back
+                        // to boxed dispatch — they're rare in hot loops
+                        // and correctness is preserved.
+                        if (leftIter && !rightIter)
+                        {
+                            var r = TryReduceNonIntIterCompareLit(
+                                bo.OpTok.Type, bo.RightNode, iterOnLeft: true,
+                                out var newOp, out long newLit);
+                            if (r == NonIntCompareResult.RewriteOk
+                                && st.TypedAccumulatorLiterals.TryGetValue(newLit, out byte nlSlot))
+                            {
+                                string iterNm = ((VariableAccessNode)bo.LeftNode).Name;
+                                byte iterSlot = st.ActiveTypedIters[iterNm];
+                                var opII = TypedComparisonOpcode(newOp, swapped: false);
+                                st.Code.Emit3(opII, destSlot, iterSlot, nlSlot);
+                                st.RedirectedTypedIterAccessCount++;
+                                return;
+                            }
+                        }
+                        if (rightIter && !leftIter)
+                        {
+                            var r = TryReduceNonIntIterCompareLit(
+                                bo.OpTok.Type, bo.LeftNode, iterOnLeft: false,
+                                out var newOp, out long newLit);
+                            if (r == NonIntCompareResult.RewriteOk
+                                && st.TypedAccumulatorLiterals.TryGetValue(newLit, out byte nlSlot))
+                            {
+                                string iterNm = ((VariableAccessNode)bo.RightNode).Name;
+                                byte iterSlot = st.ActiveTypedIters[iterNm];
+                                // `iterOnLeft=false` already inverted the
+                                // direction in `TryReduceNon...`; emit the
+                                // rewritten op directly (not swapped).
+                                var opII = TypedComparisonOpcode(newOp, swapped: false);
+                                st.Code.Emit3(opII, destSlot, iterSlot, nlSlot);
+                                st.RedirectedTypedIterAccessCount++;
+                                return;
+                            }
+                        }
                     }
                     var binop = MapBinary(bo.OpTok);
                     byte lhs = AllocTemp(ref topSlot);
@@ -2501,6 +3573,1699 @@ namespace RaLanguage.Interpreter.IR
             if (topSlot == byte.MaxValue)
                 throw new IrCompileException("temp-slot allocator exhausted (>255 in a single expression)");
             return topSlot++;
+        }
+
+        // Recursive AST scan: returns true iff `node` contains any
+        // VariableAccess of the given `name`, OR any nested function /
+        // class / closure / try body that could capture/reference it.
+        // Used by CompileFor to elide the per-iter `AssignBinding`
+        // publish when the loop iter name is dead in the body.
+        //
+        // Collects candidate variables in `body` that can be lifted to a
+        // typed Int64 slot for the for-loop's lifetime. A candidate must:
+        //   1. Be the LHS of at least one self-additive assignment whose
+        //      RHS is the active typed iter (so the whole RHS evaluates
+        //      to a known long without any boxed lookup).
+        //   2. Have EVERY other appearance in the body also be inside
+        //      such a redirectable self-additive (i.e. no `print(acc)`,
+        //      no `if acc > 0`, no nested assignment to `acc` outside
+        //      this shape).
+        //   3. Not be redeclared in the body (would shadow the outer
+        //      binding; semantics would diverge).
+        //   4. Have a slot-eligible Resolver binding (frame-local).
+        //
+        // Returns the de-duplicated list of qualifying candidates.
+        private static List<(string Name, BindingId Binding)> CollectTypedAccumulatorCandidates(
+            AstNode body, string iterName, State st)
+        {
+            var result = new List<(string Name, BindingId Binding)>();
+            // Step 1: gather LHS names of self-additive assignments
+            // whose RHS reduces to the active typed iter.
+            var seen = new HashSet<string>();
+            GatherAccumulatorAssignmentNames(body, body, iterName, st, seen);
+            if (seen.Count == 0) return result;
+
+            // Step 2: for each candidate, verify it's safe to promote.
+            // The strict gate (all accesses redirectable) is split into:
+            //   (a) NO non-redirectable WRITE — guarantees the typed
+            //       slot stays the source of truth.
+            //   (b) Non-redirectable READS are allowed; each one gets a
+            //       lazy `BoxI + StoreLocalS` publish emitted before the
+            //       boxed access (see `CompileExpression` VariableAccess
+            //       case). This unlocks bodies like `sum = sum + i;
+            //       print(sum);` and `if cond { print(sum); }`.
+            //   (c) No `var name` declaration in body (shadowing).
+            //   (d) Slot-eligible Resolver binding.
+            foreach (var name in seen)
+            {
+                if (HasNonRedirectableAccumulatorWrite(body, body, name, iterName, st)) continue;
+                if (BodyDeclaresName(body, name)) continue;
+                var binding = FindFirstBindingOfName(body, name);
+                if (!binding.IsResolved) continue;
+                if (!IsSlotEligible(binding, BindingKind.Local, st)
+                    && !IsSlotEligible(binding, BindingKind.Global, st)
+                    && !IsSlotEligible(binding, BindingKind.Parameter, st))
+                    continue;
+                result.Add((name, binding));
+            }
+            return result;
+        }
+
+        // Recursively walks `body`, adding the LHS name to `out` for every
+        // `LHS = LHS ± rhs` assignment whose `rhs` is either:
+        //   1. A `VariableAccessNode` with name == `iterName` (the lazy-
+        //      long for-loop iter binding), OR
+        //   2. A constant-foldable expression that yields an `int64`
+        //      literal value (e.g. `1`, `-1`, `10 - 7`).
+        // Both forms compile to a pure `AddII / SubII` against typed slots
+        // — the iter slot for (1), or a pre-loaded literal slot for (2).
+        private static void GatherAccumulatorAssignmentNames(
+            AstNode? node, AstNode bodyRoot, string iterName, State st, HashSet<string> outNames)
+        {
+            if (node == null) return;
+            switch (node.NodeType)
+            {
+                case AstNodeType.Scope:
+                {
+                    var sc = (Parser.Nodes.Special.ScopeNode)node;
+                    foreach (var c in sc.Nodes) GatherAccumulatorAssignmentNames(c, bodyRoot, iterName, st, outNames);
+                    return;
+                }
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)node;
+                    foreach (var cs in ifn.Cases)
+                        GatherAccumulatorAssignmentNames(cs.Expr, bodyRoot, iterName, st, outNames);
+                    if (ifn.ElseCase.HasValue)
+                        GatherAccumulatorAssignmentNames(ifn.ElseCase.Value.Expr, bodyRoot, iterName, st, outNames);
+                    return;
+                }
+                case AstNodeType.VariableAssignment:
+                {
+                    var va = (Parser.Nodes.Variables.VariableAssignmentNode)node;
+                    if (va.AssignmentToken.Type != Lexer.Tokens.TokenType.EQ) return;
+                    if (va.ValueNode is not Parser.Nodes.Operations.BinaryOperationNode bo) return;
+                    var opT = bo.OpTok.Type;
+                    if (opT != Lexer.Tokens.TokenType.PLUS && opT != Lexer.Tokens.TokenType.MINUS) return;
+                    if (bo.LeftNode is not Parser.Nodes.Variables.VariableAccessNode lvn) return;
+                    if (lvn.Name != va.Name) return;
+                    // RHS: VariableAccess to typed iter, OR constant int64 literal.
+                    if (bo.RightNode is Parser.Nodes.Variables.VariableAccessNode rvn
+                        && rvn.Name == iterName)
+                    {
+                        outNames.Add(va.Name);
+                        return;
+                    }
+                    if (TryGetLiteralLongFromConstExpr(bo.RightNode, out _))
+                    {
+                        outNames.Add(va.Name);
+                        return;
+                    }
+                    // Loop-invariant pure-expression RHS (e.g.
+                    // `(a + b) * c` where a, b, c are never reassigned
+                    // in the loop body). Admits the LHS as a typed
+                    // accumulator candidate; the pre-loop setup
+                    // compiles the RHS once and stashes it in
+                    // `TypedAccumulatorExprs`.
+                    if (IsLoopInvariantPureNumericExpr(bo.RightNode, bodyRoot, iterName, va.Name, st))
+                    {
+                        outNames.Add(va.Name);
+                        return;
+                    }
+                    return;
+                }
+                // Nested loops, sub-blocks, etc. don't contribute candidates
+                // (their bodies handled by their own CompileFor / CompileWhile).
+                default:
+                    return;
+            }
+        }
+
+        // Pure / loop-invariant numeric expression predicate. Used by
+        // typed-accumulator promotion to admit RHS shapes like
+        // `(a + b) * c` where every free name resolves to a binding
+        // that is NEVER reassigned anywhere in the for-loop body.
+        //
+        // Returns true iff `node` is a tree of:
+        //   * Number / Boolean literals (Boolean coerced to int via
+        //     UnboxI's fallback if the runtime semantics expect it).
+        //   * VariableAccess to a name that:
+        //       - is not the loop iter,
+        //       - is not the accumulator itself,
+        //       - has no `VariableAssignment` to it anywhere in
+        //         `bodyRoot`, AND
+        //       - has no `VariableDeclaration` re-shadowing it inside
+        //         `bodyRoot` (would create a per-iter SE replacement).
+        //   * UnaryOperation Neg / BNot of such.
+        //   * BinaryOperation Add / Sub / Mul / Shl / Shr / BAnd /
+        //     BOr / BXor of such (Div / Mod excluded — error edges).
+        private static bool IsLoopInvariantPureNumericExpr(
+            AstNode? node, AstNode bodyRoot, string iterName, string accName, State st)
+        {
+            if (node == null) return false;
+            switch (node.NodeType)
+            {
+                case AstNodeType.Number:
+                case AstNodeType.Boolean:
+                    return true;
+                case AstNodeType.VariableAccess:
+                {
+                    var vn = (Parser.Nodes.Variables.VariableAccessNode)node;
+                    if (string.IsNullOrEmpty(vn.Name)) return false;
+                    if (vn.Name == iterName) return false;
+                    if (vn.Name == accName) return false;
+                    if (HasAnyAssignmentTo(bodyRoot, vn.Name)) return false;
+                    if (BodyDeclaresName(bodyRoot, vn.Name)) return false;
+                    return true;
+                }
+                case AstNodeType.UnaryOperation:
+                {
+                    var un = (Parser.Nodes.Operations.UnaryOperationNode)node;
+                    var opT = un.OpTok.Type;
+                    if (opT != Lexer.Tokens.TokenType.MINUS
+                        && opT != Lexer.Tokens.TokenType.PLUS
+                        && opT != Lexer.Tokens.TokenType.BITWISE_NOT)
+                        return false;
+                    return IsLoopInvariantPureNumericExpr(un.Node, bodyRoot, iterName, accName, st);
+                }
+                case AstNodeType.BinaryOperation:
+                {
+                    var bo = (Parser.Nodes.Operations.BinaryOperationNode)node;
+                    var opT = bo.OpTok.Type;
+                    // Arith / shift / bitwise — no error edges, safe to
+                    // hoist as a single pre-loop evaluation. Div / Mod /
+                    // Pow excluded (error edges); EE / NE / LT / LE /
+                    // GT / GE excluded (Boolean result, not int64).
+                    if (opT != Lexer.Tokens.TokenType.PLUS
+                        && opT != Lexer.Tokens.TokenType.MINUS
+                        && opT != Lexer.Tokens.TokenType.MUL
+                        && opT != Lexer.Tokens.TokenType.BITWISE_LEFT_SHIFT
+                        && opT != Lexer.Tokens.TokenType.BITWISE_RIGHT_SHIFT
+                        && opT != Lexer.Tokens.TokenType.BITWISE_AND
+                        && opT != Lexer.Tokens.TokenType.BITWISE_OR)
+                        return false;
+                    return IsLoopInvariantPureNumericExpr(bo.LeftNode, bodyRoot, iterName, accName, st)
+                        && IsLoopInvariantPureNumericExpr(bo.RightNode, bodyRoot, iterName, accName, st);
+                }
+                default:
+                    return false;
+            }
+        }
+
+        // Counts how many times `name` appears as the LHS read of a
+        // redirectable self-additive `name = name ± iterName` assignment.
+        // Each such pattern contributes 1 VariableAccess of `name` (the
+        // LHS read inside the binary op).
+        private static int CountSelfAdditivePatternLhsAccess(
+            AstNode? node, string name, string iterName, State st)
+        {
+            if (node == null) return 0;
+            switch (node.NodeType)
+            {
+                case AstNodeType.Scope:
+                {
+                    var sc = (Parser.Nodes.Special.ScopeNode)node;
+                    int sum = 0;
+                    foreach (var c in sc.Nodes)
+                        sum += CountSelfAdditivePatternLhsAccess(c, name, iterName, st);
+                    return sum;
+                }
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)node;
+                    int sum = 0;
+                    foreach (var cs in ifn.Cases)
+                        sum += CountSelfAdditivePatternLhsAccess(cs.Expr, name, iterName, st);
+                    if (ifn.ElseCase.HasValue)
+                        sum += CountSelfAdditivePatternLhsAccess(ifn.ElseCase.Value.Expr, name, iterName, st);
+                    return sum;
+                }
+                case AstNodeType.VariableAssignment:
+                {
+                    var va = (Parser.Nodes.Variables.VariableAssignmentNode)node;
+                    if (va.AssignmentToken.Type != Lexer.Tokens.TokenType.EQ) return 0;
+                    if (va.Name != name) return 0;
+                    if (va.ValueNode is not Parser.Nodes.Operations.BinaryOperationNode bo) return 0;
+                    var opT = bo.OpTok.Type;
+                    if (opT != Lexer.Tokens.TokenType.PLUS && opT != Lexer.Tokens.TokenType.MINUS) return 0;
+                    if (bo.LeftNode is not Parser.Nodes.Variables.VariableAccessNode lvn) return 0;
+                    if (lvn.Name != name) return 0;
+                    // Match either typed-iter RHS or constant int64 RHS.
+                    if (bo.RightNode is Parser.Nodes.Variables.VariableAccessNode rvn
+                        && rvn.Name == iterName)
+                        return 1;
+                    if (TryGetLiteralLongFromConstExpr(bo.RightNode, out _))
+                        return 1;
+                    return 0;
+                }
+                default:
+                    return 0;
+            }
+        }
+
+        // Returns true iff `body` declares (var/let/const/final) a binding
+        // with name `name` anywhere in its subtree. Used to guard against
+        // shadowing the outer accumulator.
+        private static bool BodyDeclaresName(AstNode? node, string name)
+        {
+            if (node == null) return false;
+            if (node.NodeType == AstNodeType.VariableDeclaration)
+            {
+                var vd = (Parser.Nodes.Variables.VariableDeclarationNode)node;
+                foreach (var d in vd.Declarations)
+                {
+                    string? declName = d.Item1.Value?.ToString();
+                    if (declName == name) return true;
+                }
+                return false;
+            }
+            switch (node.NodeType)
+            {
+                case AstNodeType.Scope:
+                {
+                    var sc = (Parser.Nodes.Special.ScopeNode)node;
+                    foreach (var c in sc.Nodes) if (BodyDeclaresName(c, name)) return true;
+                    return false;
+                }
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)node;
+                    foreach (var cs in ifn.Cases)
+                        if (BodyDeclaresName(cs.Expr, name)) return true;
+                    if (ifn.ElseCase.HasValue && BodyDeclaresName(ifn.ElseCase.Value.Expr, name)) return true;
+                    return false;
+                }
+                default:
+                    return false;
+            }
+        }
+
+        // Finds the first `VariableAccessNode` matching `name` in `node`
+        // and returns its Resolver-assigned BindingId. Used to recover
+        // the accumulator's binding without re-running the Resolver.
+        private static BindingId FindFirstBindingOfName(AstNode? node, string name)
+        {
+            if (node == null) return BindingId.Unresolved;
+            if (node is Parser.Nodes.Variables.VariableAccessNode va && va.Name == name)
+                return va.Binding;
+            if (node is Parser.Nodes.Variables.VariableAssignmentNode vasn && vasn.Name == name)
+                return vasn.Binding;
+            switch (node.NodeType)
+            {
+                case AstNodeType.Scope:
+                {
+                    var sc = (Parser.Nodes.Special.ScopeNode)node;
+                    foreach (var c in sc.Nodes)
+                    {
+                        var r = FindFirstBindingOfName(c, name);
+                        if (r.IsResolved) return r;
+                    }
+                    return BindingId.Unresolved;
+                }
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)node;
+                    foreach (var cs in ifn.Cases)
+                    {
+                        var r1 = FindFirstBindingOfName(cs.Condition, name); if (r1.IsResolved) return r1;
+                        var r2 = FindFirstBindingOfName(cs.Expr, name); if (r2.IsResolved) return r2;
+                    }
+                    if (ifn.ElseCase.HasValue)
+                    {
+                        var r = FindFirstBindingOfName(ifn.ElseCase.Value.Expr, name);
+                        if (r.IsResolved) return r;
+                    }
+                    return BindingId.Unresolved;
+                }
+                case AstNodeType.VariableAssignment:
+                {
+                    var vasn2 = (Parser.Nodes.Variables.VariableAssignmentNode)node;
+                    var r = FindFirstBindingOfName(vasn2.ValueNode, name);
+                    return r;
+                }
+                case AstNodeType.BinaryOperation:
+                {
+                    var bo = (Parser.Nodes.Operations.BinaryOperationNode)node;
+                    var r1 = FindFirstBindingOfName(bo.LeftNode, name); if (r1.IsResolved) return r1;
+                    return FindFirstBindingOfName(bo.RightNode, name);
+                }
+                default:
+                    return BindingId.Unresolved;
+            }
+        }
+
+        // Returns true iff `va` matches the redirectable self-additive
+        // shape `name = name ± typedRhs` (where typedRhs is either the
+        // active typed iter or a const-foldable int64 literal). Used
+        // by `HasNonRedirectableAccumulatorWrite` to classify writes.
+        private static bool IsRedirectableSelfAdditive(
+            Parser.Nodes.Variables.VariableAssignmentNode va, string name, string iterName,
+            AstNode? bodyRoot, State? st)
+        {
+            if (va.AssignmentToken.Type != Lexer.Tokens.TokenType.EQ) return false;
+            if (va.Name != name) return false;
+            if (va.ValueNode is not Parser.Nodes.Operations.BinaryOperationNode bo) return false;
+            var opT = bo.OpTok.Type;
+            if (opT != Lexer.Tokens.TokenType.PLUS && opT != Lexer.Tokens.TokenType.MINUS) return false;
+            if (bo.LeftNode is not Parser.Nodes.Variables.VariableAccessNode lvn) return false;
+            if (lvn.Name != name) return false;
+            if (bo.RightNode is Parser.Nodes.Variables.VariableAccessNode rvn
+                && rvn.Name == iterName) return true;
+            if (TryGetLiteralLongFromConstExpr(bo.RightNode, out _)) return true;
+            // Loop-invariant pure-expression RHS — redirectable via
+            // the pre-loop typed slot path. Only validated when both
+            // bodyRoot and st are provided; legacy call sites pass
+            // null and skip this branch.
+            if (bodyRoot != null && st != null
+                && IsLoopInvariantPureNumericExpr(bo.RightNode, bodyRoot, iterName, name, st))
+                return true;
+            return false;
+        }
+
+        // Returns true iff any `VariableAssignment` whose LHS is `name`
+        // in `node`'s subtree fails the redirectable self-additive
+        // pattern. Used by the hybrid promotion gate: typed-accumulator
+        // promotion is safe only when EVERY write to `name` lands in a
+        // pattern the IR compiler can rewrite to typed AddII / SubII.
+        // Non-redirectable READS (e.g. `print(name)`, `if name > 0`)
+        // are allowed — they get a lazy `BoxI + StoreLocalS` publish
+        // emitted right before the boxed access.
+        private static bool HasNonRedirectableAccumulatorWrite(
+            AstNode? node, AstNode bodyRoot, string name, string iterName, State st)
+        {
+            if (node == null) return false;
+            switch (node.NodeType)
+            {
+                case AstNodeType.Scope:
+                {
+                    var sc = (Parser.Nodes.Special.ScopeNode)node;
+                    foreach (var c in sc.Nodes)
+                        if (HasNonRedirectableAccumulatorWrite(c, bodyRoot, name, iterName, st)) return true;
+                    return false;
+                }
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)node;
+                    foreach (var cs in ifn.Cases)
+                    {
+                        if (HasNonRedirectableAccumulatorWrite(cs.Condition, bodyRoot, name, iterName, st)) return true;
+                        if (HasNonRedirectableAccumulatorWrite(cs.Expr, bodyRoot, name, iterName, st)) return true;
+                    }
+                    if (ifn.ElseCase.HasValue
+                        && HasNonRedirectableAccumulatorWrite(ifn.ElseCase.Value.Expr, bodyRoot, name, iterName, st))
+                        return true;
+                    return false;
+                }
+                case AstNodeType.VariableAssignment:
+                {
+                    var va = (Parser.Nodes.Variables.VariableAssignmentNode)node;
+                    if (va.Name == name && !IsRedirectableSelfAdditive(va, name, iterName, bodyRoot, st))
+                        return true;
+                    // Recurse into RHS for nested assignments.
+                    return HasNonRedirectableAccumulatorWrite(va.ValueNode, bodyRoot, name, iterName, st);
+                }
+                case AstNodeType.BinaryOperation:
+                {
+                    var bo = (Parser.Nodes.Operations.BinaryOperationNode)node;
+                    return HasNonRedirectableAccumulatorWrite(bo.LeftNode, bodyRoot, name, iterName, st)
+                        || HasNonRedirectableAccumulatorWrite(bo.RightNode, bodyRoot, name, iterName, st);
+                }
+                case AstNodeType.UnaryOperation:
+                {
+                    var uo = (Parser.Nodes.Operations.UnaryOperationNode)node;
+                    return HasNonRedirectableAccumulatorWrite(uo.Node, bodyRoot, name, iterName, st);
+                }
+                case AstNodeType.FunctionCall:
+                {
+                    var fc = (Parser.Nodes.Functions.FunctionCallNode)node;
+                    if (HasNonRedirectableAccumulatorWrite(fc.NodeToCall, bodyRoot, name, iterName, st)) return true;
+                    foreach (var arg in fc.ArgNodes)
+                        if (HasNonRedirectableAccumulatorWrite(arg.Expr, bodyRoot, name, iterName, st)) return true;
+                    return false;
+                }
+                case AstNodeType.Ternary:
+                {
+                    var tn = (Parser.Nodes.Operations.TernaryNode)node;
+                    return HasNonRedirectableAccumulatorWrite(tn.Condition, bodyRoot, name, iterName, st)
+                        || HasNonRedirectableAccumulatorWrite(tn.TrueExpression, bodyRoot, name, iterName, st)
+                        || HasNonRedirectableAccumulatorWrite(tn.FalseExpression, bodyRoot, name, iterName, st);
+                }
+                case AstNodeType.NullCoalescing:
+                {
+                    var nc = (Parser.Nodes.Operations.NullCoalescingNode)node;
+                    return HasNonRedirectableAccumulatorWrite(nc.Left, bodyRoot, name, iterName, st)
+                        || HasNonRedirectableAccumulatorWrite(nc.Right, bodyRoot, name, iterName, st);
+                }
+                case AstNodeType.MemberAssignment:
+                case AstNodeType.ListAssignment:
+                    // These write to a field/index of an object, not to
+                    // a binding named `name` directly. The target may
+                    // EVALUATE `name` (read), but the binding itself is
+                    // unchanged. Safe.
+                    return false;
+                // Leaves + unhandled — conservatively assume no write
+                // (we'll catch real misses via the regression suite).
+                default:
+                    return false;
+            }
+        }
+
+        // Collects every distinct int64 literal value used as RHS of a
+        // typed-accumulator self-additive in `body`. The caller pre-loads
+        // each unique value into a typed slot exactly once before the
+        // loop, so per-iter dispatch is a single `AddII / SubII`.
+        // Accepts both literal nodes (`1`) and constant-foldable
+        // arithmetic (`10 - 7` → 3).
+        private static void CollectAccumulatorLiteralRhsValues(
+            AstNode? node, IReadOnlyCollection<string> accumulatorNames, HashSet<long> outValues)
+        {
+            if (node == null || accumulatorNames.Count == 0) return;
+            switch (node.NodeType)
+            {
+                case AstNodeType.Scope:
+                {
+                    var sc = (Parser.Nodes.Special.ScopeNode)node;
+                    foreach (var c in sc.Nodes)
+                        CollectAccumulatorLiteralRhsValues(c, accumulatorNames, outValues);
+                    return;
+                }
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)node;
+                    foreach (var cs in ifn.Cases)
+                        CollectAccumulatorLiteralRhsValues(cs.Expr, accumulatorNames, outValues);
+                    if (ifn.ElseCase.HasValue)
+                        CollectAccumulatorLiteralRhsValues(ifn.ElseCase.Value.Expr, accumulatorNames, outValues);
+                    return;
+                }
+                case AstNodeType.VariableAssignment:
+                {
+                    var va = (Parser.Nodes.Variables.VariableAssignmentNode)node;
+                    if (va.AssignmentToken.Type != Lexer.Tokens.TokenType.EQ) return;
+                    if (!accumulatorNames.Contains(va.Name)) return;
+                    if (va.ValueNode is not Parser.Nodes.Operations.BinaryOperationNode bo) return;
+                    var opT = bo.OpTok.Type;
+                    if (opT != Lexer.Tokens.TokenType.PLUS && opT != Lexer.Tokens.TokenType.MINUS) return;
+                    if (bo.LeftNode is not Parser.Nodes.Variables.VariableAccessNode lvn) return;
+                    if (lvn.Name != va.Name) return;
+                    if (TryGetLiteralLongFromConstExpr(bo.RightNode, out long lit))
+                        outValues.Add(lit);
+                    return;
+                }
+                default:
+                    return;
+            }
+        }
+
+        // Pre-loop emitter for loop-invariant pure-expression RHS slots
+        // of typed accumulators. Walks `node` looking for self-additive
+        // assignments `acc = acc ± expr` where `acc` is in
+        // `accumulatorNames` and `expr` passes
+        // `IsLoopInvariantPureNumericExpr`. For each match, compile the
+        // RHS expression into a fresh boxed slot, then UnboxI into a
+        // typed Int64 slot and register the typed slot in
+        // `st.TypedAccumulatorExprs[expr] = typedSlot`. The body's
+        // `TryEmitSelfAdditiveSlot` then emits a pure AddII / SubII
+        // reading the typed slot.
+        //
+        // De-duplicates by AstNode identity: the same RHS reference
+        // appearing twice (impossible in practice since each
+        // AstNode is unique) would reuse the typed slot.
+        private static void CollectAccumulatorLoopInvariantExprs(
+            AstNode? node, AstNode bodyRoot, string iterName,
+            IReadOnlyCollection<string> accumulatorNames, State st, ref byte topSlot)
+        {
+            if (node == null || accumulatorNames.Count == 0) return;
+            switch (node.NodeType)
+            {
+                case AstNodeType.Scope:
+                {
+                    var sc = (Parser.Nodes.Special.ScopeNode)node;
+                    foreach (var c in sc.Nodes)
+                        CollectAccumulatorLoopInvariantExprs(c, bodyRoot, iterName, accumulatorNames, st, ref topSlot);
+                    return;
+                }
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)node;
+                    foreach (var cs in ifn.Cases)
+                        CollectAccumulatorLoopInvariantExprs(cs.Expr, bodyRoot, iterName, accumulatorNames, st, ref topSlot);
+                    if (ifn.ElseCase.HasValue)
+                        CollectAccumulatorLoopInvariantExprs(ifn.ElseCase.Value.Expr, bodyRoot, iterName, accumulatorNames, st, ref topSlot);
+                    return;
+                }
+                case AstNodeType.VariableAssignment:
+                {
+                    var va = (Parser.Nodes.Variables.VariableAssignmentNode)node;
+                    if (va.AssignmentToken.Type != Lexer.Tokens.TokenType.EQ) return;
+                    if (!accumulatorNames.Contains(va.Name)) return;
+                    if (va.ValueNode is not Parser.Nodes.Operations.BinaryOperationNode bo) return;
+                    var opT = bo.OpTok.Type;
+                    if (opT != Lexer.Tokens.TokenType.PLUS && opT != Lexer.Tokens.TokenType.MINUS) return;
+                    if (bo.LeftNode is not Parser.Nodes.Variables.VariableAccessNode lvn) return;
+                    if (lvn.Name != va.Name) return;
+                    // RHS already covered by typed-iter / literal paths?
+                    if (bo.RightNode is Parser.Nodes.Variables.VariableAccessNode rvn
+                        && rvn.Name == iterName) return;
+                    if (TryGetLiteralLongFromConstExpr(bo.RightNode, out _)) return;
+                    // Loop-invariant pure expression — compile once and
+                    // pin its typed slot.
+                    if (!IsLoopInvariantPureNumericExpr(bo.RightNode, bodyRoot, iterName, va.Name, st)) return;
+                    if (st.TypedAccumulatorExprs.ContainsKey(bo.RightNode)) return;
+                    byte boxedTmp = AllocTemp(ref topSlot);
+                    CompileExpression(bo.RightNode, boxedTmp, st, ref topSlot);
+                    byte typedSlot = AllocTemp(ref topSlot);
+                    st.Code.Emit3(Opcode.UnboxI, typedSlot, boxedTmp, 0);
+                    st.TypedAccumulatorExprs[bo.RightNode] = typedSlot;
+                    return;
+                }
+                default:
+                    return;
+            }
+        }
+
+        // Returns true iff `t` is a token comparison op the IR compiler
+        // can lower to a typed II compare opcode (EqII / NeII / LtII /
+        // LeII / GtII / GeII).
+        private static bool IsTypedComparableOp(Lexer.Tokens.TokenType t)
+        {
+            return t == Lexer.Tokens.TokenType.EE
+                || t == Lexer.Tokens.TokenType.NE
+                || t == Lexer.Tokens.TokenType.LT
+                || t == Lexer.Tokens.TokenType.LTE
+                || t == Lexer.Tokens.TokenType.GT
+                || t == Lexer.Tokens.TokenType.GTE;
+        }
+
+        // Returns the typed-II compare opcode corresponding to a token
+        // comparison op. Caller has already verified via `IsTypedComparableOp`.
+        private static Opcode TypedComparisonOpcode(Lexer.Tokens.TokenType t, bool swapped)
+        {
+            // When operands are swapped (`lit ⋈ iter` instead of `iter ⋈ lit`),
+            // the comparison direction inverts: `a < b` ↔ `b > a`, etc.
+            if (!swapped)
+            {
+                return t switch
+                {
+                    Lexer.Tokens.TokenType.EE  => Opcode.EqII,
+                    Lexer.Tokens.TokenType.NE  => Opcode.NeII,
+                    Lexer.Tokens.TokenType.LT  => Opcode.LtII,
+                    Lexer.Tokens.TokenType.LTE => Opcode.LeII,
+                    Lexer.Tokens.TokenType.GT  => Opcode.GtII,
+                    Lexer.Tokens.TokenType.GTE => Opcode.GeII,
+                    _ => Opcode.EqII,
+                };
+            }
+            return t switch
+            {
+                Lexer.Tokens.TokenType.EE  => Opcode.EqII,
+                Lexer.Tokens.TokenType.NE  => Opcode.NeII,
+                Lexer.Tokens.TokenType.LT  => Opcode.GtII,
+                Lexer.Tokens.TokenType.LTE => Opcode.GeII,
+                Lexer.Tokens.TokenType.GT  => Opcode.LtII,
+                Lexer.Tokens.TokenType.GTE => Opcode.LeII,
+                _ => Opcode.EqII,
+            };
+        }
+
+        // Counts iter `VariableAccess` nodes that appear as one operand
+        // of a comparison BinaryOp whose OTHER operand is either:
+        //   * a constant-foldable int64 literal, OR
+        //   * a `VariableAccess` to a binding that is NEVER mutated in
+        //     `bodyRoot` (the enclosing for-loop body, passed top-down
+        //     so the mutation check can scan the right scope).
+        // Each such site lowers to a typed II compare reading the iter
+        // long slot directly and either a pre-loaded literal slot or a
+        // pre-loaded typed-long binding slot. No boxed mirror needed.
+        private static int CountTypedIterComparisonAccess(AstNode? node, string iterName)
+            => CountTypedIterComparisonAccess(node, iterName, node);
+
+        private static int CountTypedIterComparisonAccess(
+            AstNode? node, string iterName, AstNode? bodyRoot)
+        {
+            if (node == null || string.IsNullOrEmpty(iterName)) return 0;
+            int sum = 0;
+            if (node is Parser.Nodes.Operations.BinaryOperationNode bo
+                && IsTypedComparableOp(bo.OpTok.Type))
+            {
+                bool leftIter = bo.LeftNode is Parser.Nodes.Variables.VariableAccessNode lvi
+                                && lvi.Name == iterName;
+                bool rightIter = bo.RightNode is Parser.Nodes.Variables.VariableAccessNode rvi
+                                 && rvi.Name == iterName;
+                if (leftIter && !rightIter && TryGetLiteralLongFromConstExpr(bo.RightNode, out _))
+                    return 1 + CountTypedIterComparisonAccess(bo.RightNode, iterName, bodyRoot);
+                if (rightIter && !leftIter && TryGetLiteralLongFromConstExpr(bo.LeftNode, out _))
+                    return 1 + CountTypedIterComparisonAccess(bo.LeftNode, iterName, bodyRoot);
+                // Non-integer literal RHS that the static rewrite can
+                // collapse to a typed int compare. ConstFalse / ConstTrue
+                // (==/!= against non-int) are intentionally excluded —
+                // they aren't lowered to typed at the emission layer.
+                if (leftIter && !rightIter)
+                {
+                    var r = TryReduceNonIntIterCompareLit(bo.OpTok.Type, bo.RightNode,
+                        iterOnLeft: true, out _, out _);
+                    if (r == NonIntCompareResult.RewriteOk)
+                        return 1 + CountTypedIterComparisonAccess(bo.RightNode, iterName, bodyRoot);
+                }
+                if (rightIter && !leftIter)
+                {
+                    var r = TryReduceNonIntIterCompareLit(bo.OpTok.Type, bo.LeftNode,
+                        iterOnLeft: false, out _, out _);
+                    if (r == NonIntCompareResult.RewriteOk)
+                        return 1 + CountTypedIterComparisonAccess(bo.LeftNode, iterName, bodyRoot);
+                }
+                // Binding-operand path: `iter ⋈ binding` where binding
+                // is never mutated in the for-loop body.
+                if (leftIter && !rightIter
+                    && bo.RightNode is Parser.Nodes.Variables.VariableAccessNode rBnd
+                    && !string.IsNullOrEmpty(rBnd.Name)
+                    && rBnd.Name != iterName
+                    && !HasAnyAssignmentTo(bodyRoot, rBnd.Name))
+                    return 1 + CountTypedIterComparisonAccess(bo.RightNode, iterName, bodyRoot);
+                if (rightIter && !leftIter
+                    && bo.LeftNode is Parser.Nodes.Variables.VariableAccessNode lBnd
+                    && !string.IsNullOrEmpty(lBnd.Name)
+                    && lBnd.Name != iterName
+                    && !HasAnyAssignmentTo(bodyRoot, lBnd.Name))
+                    return 1 + CountTypedIterComparisonAccess(bo.LeftNode, iterName, bodyRoot);
+                // Comparisons not matching the pattern fall through to
+                // generic recursion below.
+            }
+            switch (node.NodeType)
+            {
+                case AstNodeType.Scope:
+                {
+                    var sc = (Parser.Nodes.Special.ScopeNode)node;
+                    foreach (var c in sc.Nodes) sum += CountTypedIterComparisonAccess(c, iterName, bodyRoot);
+                    return sum;
+                }
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)node;
+                    foreach (var cs in ifn.Cases)
+                    {
+                        sum += CountTypedIterComparisonAccess(cs.Condition, iterName, bodyRoot);
+                        sum += CountTypedIterComparisonAccess(cs.Expr, iterName, bodyRoot);
+                    }
+                    if (ifn.ElseCase.HasValue)
+                        sum += CountTypedIterComparisonAccess(ifn.ElseCase.Value.Expr, iterName, bodyRoot);
+                    return sum;
+                }
+                case AstNodeType.While:
+                {
+                    var wn = (Parser.Nodes.Statements.WhileNode)node;
+                    sum += CountTypedIterComparisonAccess(wn.ConditionNode, iterName, bodyRoot);
+                    sum += CountTypedIterComparisonAccess(wn.BodyNode, iterName, bodyRoot);
+                    return sum;
+                }
+                case AstNodeType.DoWhile:
+                {
+                    var dw = (Parser.Nodes.Statements.DoWhileNode)node;
+                    sum += CountTypedIterComparisonAccess(dw.ConditionNode, iterName, bodyRoot);
+                    sum += CountTypedIterComparisonAccess(dw.BodyNode, iterName, bodyRoot);
+                    return sum;
+                }
+                case AstNodeType.VariableAssignment:
+                {
+                    var va = (Parser.Nodes.Variables.VariableAssignmentNode)node;
+                    return CountTypedIterComparisonAccess(va.ValueNode, iterName, bodyRoot);
+                }
+                case AstNodeType.BinaryOperation:
+                {
+                    var bo2 = (Parser.Nodes.Operations.BinaryOperationNode)node;
+                    sum += CountTypedIterComparisonAccess(bo2.LeftNode, iterName, bodyRoot);
+                    sum += CountTypedIterComparisonAccess(bo2.RightNode, iterName, bodyRoot);
+                    return sum;
+                }
+                case AstNodeType.UnaryOperation:
+                {
+                    var uo = (Parser.Nodes.Operations.UnaryOperationNode)node;
+                    return CountTypedIterComparisonAccess(uo.Node, iterName, bodyRoot);
+                }
+                case AstNodeType.FunctionCall:
+                {
+                    var fc = (Parser.Nodes.Functions.FunctionCallNode)node;
+                    sum += CountTypedIterComparisonAccess(fc.NodeToCall, iterName, bodyRoot);
+                    foreach (var arg in fc.ArgNodes)
+                        sum += CountTypedIterComparisonAccess(arg.Expr, iterName, bodyRoot);
+                    return sum;
+                }
+                case AstNodeType.Ternary:
+                {
+                    var tn = (Parser.Nodes.Operations.TernaryNode)node;
+                    sum += CountTypedIterComparisonAccess(tn.Condition, iterName, bodyRoot);
+                    sum += CountTypedIterComparisonAccess(tn.TrueExpression, iterName, bodyRoot);
+                    sum += CountTypedIterComparisonAccess(tn.FalseExpression, iterName, bodyRoot);
+                    return sum;
+                }
+                case AstNodeType.NullCoalescing:
+                {
+                    var nc = (Parser.Nodes.Operations.NullCoalescingNode)node;
+                    sum += CountTypedIterComparisonAccess(nc.Left, iterName, bodyRoot);
+                    sum += CountTypedIterComparisonAccess(nc.Right, iterName, bodyRoot);
+                    return sum;
+                }
+                case AstNodeType.Return:
+                {
+                    var rn = (Parser.Nodes.Functions.ReturnNode)node;
+                    if (rn.NodeToReturn != null)
+                        sum += CountTypedIterComparisonAccess(rn.NodeToReturn, iterName, bodyRoot);
+                    return sum;
+                }
+                default:
+                    return 0;
+            }
+        }
+
+        // Returns true iff `body` contains any `VariableAssignment` or
+        // compound assignment that writes the binding `name`. Used to
+        // gate typed-long-binding promotion: only never-mutated bindings
+        // can stay in a typed slot for the loop's lifetime.
+        private static bool HasAnyAssignmentTo(AstNode? node, string name)
+        {
+            if (node == null) return false;
+            if (node is Parser.Nodes.Variables.VariableAssignmentNode va
+                && va.Name == name)
+                return true;
+            if (node is Parser.Nodes.Variables.VariableDeclarationNode vd)
+            {
+                foreach (var d in vd.Declarations)
+                {
+                    if (d.Item1.Value?.ToString() == name) return true;
+                }
+            }
+            switch (node.NodeType)
+            {
+                case AstNodeType.Scope:
+                {
+                    var sc = (Parser.Nodes.Special.ScopeNode)node;
+                    foreach (var c in sc.Nodes) if (HasAnyAssignmentTo(c, name)) return true;
+                    return false;
+                }
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)node;
+                    foreach (var cs in ifn.Cases)
+                    {
+                        if (HasAnyAssignmentTo(cs.Condition, name)) return true;
+                        if (HasAnyAssignmentTo(cs.Expr, name)) return true;
+                    }
+                    if (ifn.ElseCase.HasValue
+                        && HasAnyAssignmentTo(ifn.ElseCase.Value.Expr, name)) return true;
+                    return false;
+                }
+                case AstNodeType.While:
+                {
+                    var wn = (Parser.Nodes.Statements.WhileNode)node;
+                    return HasAnyAssignmentTo(wn.ConditionNode, name)
+                        || HasAnyAssignmentTo(wn.BodyNode, name);
+                }
+                case AstNodeType.DoWhile:
+                {
+                    var dw = (Parser.Nodes.Statements.DoWhileNode)node;
+                    return HasAnyAssignmentTo(dw.ConditionNode, name)
+                        || HasAnyAssignmentTo(dw.BodyNode, name);
+                }
+                case AstNodeType.For:
+                {
+                    var fn = (Parser.Nodes.Statements.ForNode)node;
+                    if (fn.VarNameTok.Value?.ToString() == name) return true;
+                    if (HasAnyAssignmentTo(fn.StartValueNode, name)) return true;
+                    if (HasAnyAssignmentTo(fn.EndValueNode, name)) return true;
+                    if (fn.StepValueNode != null && HasAnyAssignmentTo(fn.StepValueNode, name)) return true;
+                    return HasAnyAssignmentTo(fn.BodyNode, name);
+                }
+                case AstNodeType.ForEach:
+                {
+                    var fe = (Parser.Nodes.Statements.ForEachNode)node;
+                    if (fe.VarNameToken.Value?.ToString() == name) return true;
+                    return HasAnyAssignmentTo(fe.CollectionNode, name)
+                        || HasAnyAssignmentTo(fe.BodyNode, name);
+                }
+                case AstNodeType.VariableAssignment:
+                {
+                    var v = (Parser.Nodes.Variables.VariableAssignmentNode)node;
+                    return HasAnyAssignmentTo(v.ValueNode, name);
+                }
+                case AstNodeType.BinaryOperation:
+                {
+                    var bo = (Parser.Nodes.Operations.BinaryOperationNode)node;
+                    return HasAnyAssignmentTo(bo.LeftNode, name)
+                        || HasAnyAssignmentTo(bo.RightNode, name);
+                }
+                case AstNodeType.UnaryOperation:
+                {
+                    var uo = (Parser.Nodes.Operations.UnaryOperationNode)node;
+                    return HasAnyAssignmentTo(uo.Node, name);
+                }
+                case AstNodeType.FunctionCall:
+                {
+                    var fc = (Parser.Nodes.Functions.FunctionCallNode)node;
+                    if (HasAnyAssignmentTo(fc.NodeToCall, name)) return true;
+                    foreach (var arg in fc.ArgNodes)
+                        if (HasAnyAssignmentTo(arg.Expr, name)) return true;
+                    return false;
+                }
+                case AstNodeType.Ternary:
+                {
+                    var tn = (Parser.Nodes.Operations.TernaryNode)node;
+                    return HasAnyAssignmentTo(tn.Condition, name)
+                        || HasAnyAssignmentTo(tn.TrueExpression, name)
+                        || HasAnyAssignmentTo(tn.FalseExpression, name);
+                }
+                case AstNodeType.NullCoalescing:
+                {
+                    var nc = (Parser.Nodes.Operations.NullCoalescingNode)node;
+                    return HasAnyAssignmentTo(nc.Left, name)
+                        || HasAnyAssignmentTo(nc.Right, name);
+                }
+                case AstNodeType.Return:
+                {
+                    var rn = (Parser.Nodes.Functions.ReturnNode)node;
+                    return rn.NodeToReturn != null && HasAnyAssignmentTo(rn.NodeToReturn, name);
+                }
+                case AstNodeType.Throw:
+                {
+                    var tn = (Parser.Nodes.Statements.ThrowNode)node;
+                    return tn.Expression != null && HasAnyAssignmentTo(tn.Expression, name);
+                }
+                case AstNodeType.MemberAssignment:
+                {
+                    var ma = (Parser.Nodes.Structs.MemberAssignmentNode)node;
+                    return HasAnyAssignmentTo(ma.TargetNode, name)
+                        || HasAnyAssignmentTo(ma.ValueNode, name);
+                }
+                case AstNodeType.ListAssignment:
+                {
+                    var la = (Parser.Nodes.Variables.ListAssignmentNode)node;
+                    return HasAnyAssignmentTo(la.Target, name)
+                        || HasAnyAssignmentTo(la.Value, name);
+                }
+                default:
+                    return false; // simple expressions / literals — no nested assignments
+            }
+        }
+
+        // Walks `body` for typed-iter comparison sites and collects
+        // every distinct VARIABLE name used as the non-iter operand.
+        // Result feeds the typed-long-binding promotion: each name
+        // gets validated (never mutated, slot-eligible) and pre-loaded
+        // into a typed Int64 slot for the loop's lifetime.
+        private static void CollectIterComparisonBindingNames(
+            AstNode? node, string iterName, HashSet<string> outNames)
+        {
+            if (node == null || string.IsNullOrEmpty(iterName)) return;
+            if (node is Parser.Nodes.Operations.BinaryOperationNode bo
+                && IsTypedComparableOp(bo.OpTok.Type))
+            {
+                bool leftIter = bo.LeftNode is Parser.Nodes.Variables.VariableAccessNode lvi
+                                && lvi.Name == iterName;
+                bool rightIter = bo.RightNode is Parser.Nodes.Variables.VariableAccessNode rvi
+                                 && rvi.Name == iterName;
+                if (leftIter && !rightIter
+                    && bo.RightNode is Parser.Nodes.Variables.VariableAccessNode rOpd
+                    && !string.IsNullOrEmpty(rOpd.Name)
+                    && rOpd.Name != iterName)
+                {
+                    outNames.Add(rOpd.Name);
+                    return;
+                }
+                if (rightIter && !leftIter
+                    && bo.LeftNode is Parser.Nodes.Variables.VariableAccessNode lOpd
+                    && !string.IsNullOrEmpty(lOpd.Name)
+                    && lOpd.Name != iterName)
+                {
+                    outNames.Add(lOpd.Name);
+                    return;
+                }
+            }
+            switch (node.NodeType)
+            {
+                case AstNodeType.Scope:
+                {
+                    var sc = (Parser.Nodes.Special.ScopeNode)node;
+                    foreach (var c in sc.Nodes) CollectIterComparisonBindingNames(c, iterName, outNames);
+                    return;
+                }
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)node;
+                    foreach (var cs in ifn.Cases)
+                    {
+                        CollectIterComparisonBindingNames(cs.Condition, iterName, outNames);
+                        CollectIterComparisonBindingNames(cs.Expr, iterName, outNames);
+                    }
+                    if (ifn.ElseCase.HasValue)
+                        CollectIterComparisonBindingNames(ifn.ElseCase.Value.Expr, iterName, outNames);
+                    return;
+                }
+                case AstNodeType.While:
+                {
+                    var wn = (Parser.Nodes.Statements.WhileNode)node;
+                    CollectIterComparisonBindingNames(wn.ConditionNode, iterName, outNames);
+                    CollectIterComparisonBindingNames(wn.BodyNode, iterName, outNames);
+                    return;
+                }
+                case AstNodeType.DoWhile:
+                {
+                    var dw = (Parser.Nodes.Statements.DoWhileNode)node;
+                    CollectIterComparisonBindingNames(dw.ConditionNode, iterName, outNames);
+                    CollectIterComparisonBindingNames(dw.BodyNode, iterName, outNames);
+                    return;
+                }
+                case AstNodeType.VariableAssignment:
+                {
+                    var va = (Parser.Nodes.Variables.VariableAssignmentNode)node;
+                    CollectIterComparisonBindingNames(va.ValueNode, iterName, outNames);
+                    return;
+                }
+                case AstNodeType.BinaryOperation:
+                {
+                    var bo2 = (Parser.Nodes.Operations.BinaryOperationNode)node;
+                    CollectIterComparisonBindingNames(bo2.LeftNode, iterName, outNames);
+                    CollectIterComparisonBindingNames(bo2.RightNode, iterName, outNames);
+                    return;
+                }
+                case AstNodeType.UnaryOperation:
+                {
+                    var uo = (Parser.Nodes.Operations.UnaryOperationNode)node;
+                    CollectIterComparisonBindingNames(uo.Node, iterName, outNames);
+                    return;
+                }
+                case AstNodeType.FunctionCall:
+                {
+                    var fc = (Parser.Nodes.Functions.FunctionCallNode)node;
+                    CollectIterComparisonBindingNames(fc.NodeToCall, iterName, outNames);
+                    foreach (var arg in fc.ArgNodes)
+                        CollectIterComparisonBindingNames(arg.Expr, iterName, outNames);
+                    return;
+                }
+                case AstNodeType.Ternary:
+                {
+                    var tn = (Parser.Nodes.Operations.TernaryNode)node;
+                    CollectIterComparisonBindingNames(tn.Condition, iterName, outNames);
+                    CollectIterComparisonBindingNames(tn.TrueExpression, iterName, outNames);
+                    CollectIterComparisonBindingNames(tn.FalseExpression, iterName, outNames);
+                    return;
+                }
+                case AstNodeType.NullCoalescing:
+                {
+                    var nc = (Parser.Nodes.Operations.NullCoalescingNode)node;
+                    CollectIterComparisonBindingNames(nc.Left, iterName, outNames);
+                    CollectIterComparisonBindingNames(nc.Right, iterName, outNames);
+                    return;
+                }
+                case AstNodeType.Return:
+                {
+                    var rn = (Parser.Nodes.Functions.ReturnNode)node;
+                    if (rn.NodeToReturn != null)
+                        CollectIterComparisonBindingNames(rn.NodeToReturn, iterName, outNames);
+                    return;
+                }
+                default:
+                    return;
+            }
+        }
+
+        // Walks `body` for typed-iter comparison sites and collects every
+        // distinct int64 literal value used. Caller pre-loads each into
+        // a typed slot before the loop so per-comparison emission needs
+        // only a single typed II opcode.
+        private static void CollectIterComparisonLiterals(
+            AstNode? node, string iterName, HashSet<long> outValues)
+        {
+            if (node == null || string.IsNullOrEmpty(iterName)) return;
+            if (node is Parser.Nodes.Operations.BinaryOperationNode bo
+                && IsTypedComparableOp(bo.OpTok.Type))
+            {
+                bool leftIter = bo.LeftNode is Parser.Nodes.Variables.VariableAccessNode lvi
+                                && lvi.Name == iterName;
+                bool rightIter = bo.RightNode is Parser.Nodes.Variables.VariableAccessNode rvi
+                                 && rvi.Name == iterName;
+                if (leftIter && !rightIter && TryGetLiteralLongFromConstExpr(bo.RightNode, out long litR))
+                {
+                    outValues.Add(litR);
+                    return;
+                }
+                if (rightIter && !leftIter && TryGetLiteralLongFromConstExpr(bo.LeftNode, out long litL))
+                {
+                    outValues.Add(litL);
+                    return;
+                }
+                // Truly non-integer literal: pre-load the rewritten
+                // floor/ceil so the typed compare can resolve at
+                // emission time.
+                if (leftIter && !rightIter)
+                {
+                    var r = TryReduceNonIntIterCompareLit(bo.OpTok.Type, bo.RightNode,
+                        iterOnLeft: true, out _, out long nonIntLitR);
+                    if (r == NonIntCompareResult.RewriteOk)
+                    {
+                        outValues.Add(nonIntLitR);
+                        return;
+                    }
+                }
+                if (rightIter && !leftIter)
+                {
+                    var r = TryReduceNonIntIterCompareLit(bo.OpTok.Type, bo.LeftNode,
+                        iterOnLeft: false, out _, out long nonIntLitL);
+                    if (r == NonIntCompareResult.RewriteOk)
+                    {
+                        outValues.Add(nonIntLitL);
+                        return;
+                    }
+                }
+            }
+            switch (node.NodeType)
+            {
+                case AstNodeType.Scope:
+                {
+                    var sc = (Parser.Nodes.Special.ScopeNode)node;
+                    foreach (var c in sc.Nodes) CollectIterComparisonLiterals(c, iterName, outValues);
+                    return;
+                }
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)node;
+                    foreach (var cs in ifn.Cases)
+                    {
+                        CollectIterComparisonLiterals(cs.Condition, iterName, outValues);
+                        CollectIterComparisonLiterals(cs.Expr, iterName, outValues);
+                    }
+                    if (ifn.ElseCase.HasValue)
+                        CollectIterComparisonLiterals(ifn.ElseCase.Value.Expr, iterName, outValues);
+                    return;
+                }
+                case AstNodeType.While:
+                {
+                    var wn = (Parser.Nodes.Statements.WhileNode)node;
+                    CollectIterComparisonLiterals(wn.ConditionNode, iterName, outValues);
+                    CollectIterComparisonLiterals(wn.BodyNode, iterName, outValues);
+                    return;
+                }
+                case AstNodeType.DoWhile:
+                {
+                    var dw = (Parser.Nodes.Statements.DoWhileNode)node;
+                    CollectIterComparisonLiterals(dw.ConditionNode, iterName, outValues);
+                    CollectIterComparisonLiterals(dw.BodyNode, iterName, outValues);
+                    return;
+                }
+                case AstNodeType.VariableAssignment:
+                {
+                    var va = (Parser.Nodes.Variables.VariableAssignmentNode)node;
+                    CollectIterComparisonLiterals(va.ValueNode, iterName, outValues);
+                    return;
+                }
+                case AstNodeType.BinaryOperation:
+                {
+                    var bo2 = (Parser.Nodes.Operations.BinaryOperationNode)node;
+                    CollectIterComparisonLiterals(bo2.LeftNode, iterName, outValues);
+                    CollectIterComparisonLiterals(bo2.RightNode, iterName, outValues);
+                    return;
+                }
+                case AstNodeType.UnaryOperation:
+                {
+                    var uo = (Parser.Nodes.Operations.UnaryOperationNode)node;
+                    CollectIterComparisonLiterals(uo.Node, iterName, outValues);
+                    return;
+                }
+                case AstNodeType.FunctionCall:
+                {
+                    var fc = (Parser.Nodes.Functions.FunctionCallNode)node;
+                    CollectIterComparisonLiterals(fc.NodeToCall, iterName, outValues);
+                    foreach (var arg in fc.ArgNodes)
+                        CollectIterComparisonLiterals(arg.Expr, iterName, outValues);
+                    return;
+                }
+                case AstNodeType.Ternary:
+                {
+                    var tn = (Parser.Nodes.Operations.TernaryNode)node;
+                    CollectIterComparisonLiterals(tn.Condition, iterName, outValues);
+                    CollectIterComparisonLiterals(tn.TrueExpression, iterName, outValues);
+                    CollectIterComparisonLiterals(tn.FalseExpression, iterName, outValues);
+                    return;
+                }
+                case AstNodeType.NullCoalescing:
+                {
+                    var nc = (Parser.Nodes.Operations.NullCoalescingNode)node;
+                    CollectIterComparisonLiterals(nc.Left, iterName, outValues);
+                    CollectIterComparisonLiterals(nc.Right, iterName, outValues);
+                    return;
+                }
+                case AstNodeType.Return:
+                {
+                    var rn = (Parser.Nodes.Functions.ReturnNode)node;
+                    if (rn.NodeToReturn != null)
+                        CollectIterComparisonLiterals(rn.NodeToReturn, iterName, outValues);
+                    return;
+                }
+                default:
+                    return;
+            }
+        }
+
+        // Counts iter accesses that the IR compiler will redirect to
+        // `AddIntoSlotI` / `SubIntoSlotI` via `TryEmitSelfAdditiveSlot`.
+        // The pattern is `selfSlot = selfSlot ± iterName` where `selfSlot`
+        // is slot-eligible in the current frame. Walks the body looking
+        // for `VariableAssignmentNode` matching that shape.
+        private static int CountRedirectableIterAccess(AstNode? node, string name, State st)
+        {
+            if (node == null) return 0;
+            switch (node.NodeType)
+            {
+                case AstNodeType.Scope:
+                {
+                    var sc = (Parser.Nodes.Special.ScopeNode)node;
+                    int sum = 0;
+                    foreach (var c in sc.Nodes) sum += CountRedirectableIterAccess(c, name, st);
+                    return sum;
+                }
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)node;
+                    int sum = 0;
+                    foreach (var cs in ifn.Cases)
+                        sum += CountRedirectableIterAccess(cs.Expr, name, st);
+                    if (ifn.ElseCase.HasValue)
+                        sum += CountRedirectableIterAccess(ifn.ElseCase.Value.Expr, name, st);
+                    return sum;
+                }
+                case AstNodeType.VariableAssignment:
+                {
+                    var vasn = (Parser.Nodes.Variables.VariableAssignmentNode)node;
+                    if (vasn.AssignmentToken.Type != Lexer.Tokens.TokenType.EQ) return 0;
+                    if (!vasn.Binding.IsResolved) return 0;
+                    if (!IsSlotEligible(vasn.Binding, vasn.BindingKind, st)) return 0;
+                    if (vasn.ValueNode is not Parser.Nodes.Operations.BinaryOperationNode bo) return 0;
+                    var opT = bo.OpTok.Type;
+                    if (opT != Lexer.Tokens.TokenType.PLUS && opT != Lexer.Tokens.TokenType.MINUS) return 0;
+                    if (bo.LeftNode is not Parser.Nodes.Variables.VariableAccessNode lvn) return 0;
+                    if (!lvn.Binding.IsResolved || lvn.Binding != vasn.Binding) return 0;
+                    if (lvn.BindingKind != vasn.BindingKind) return 0;
+                    if (bo.RightNode is not Parser.Nodes.Variables.VariableAccessNode rvn) return 0;
+                    return (rvn.Name == name) ? 1 : 0;
+                }
+                // Other statements may contain non-redirectable iter accesses
+                // — those are counted by `CountVariableAccess` and not here.
+                default:
+                    return 0;
+            }
+        }
+
+        // Counts the number of `VariableAccessNode` matches for `name` in
+        // `node` (recursive). Mirrors `BodyReadsBinding`'s recursion but
+        // returns -1 on any conservative-skip subtree (function defs,
+        // class defs, asm, etc.) so the caller can refuse the optimization
+        // when an unknown construct may reference the iter.
+        private static int CountVariableAccess(AstNode? node, string name)
+        {
+            if (node == null || string.IsNullOrEmpty(name)) return 0;
+            switch (node.NodeType)
+            {
+                case AstNodeType.VariableAccess:
+                {
+                    var va = (Parser.Nodes.Variables.VariableAccessNode)node;
+                    return va.Name == name ? 1 : 0;
+                }
+                case AstNodeType.Number:
+                case AstNodeType.Boolean:
+                case AstNodeType.Null:
+                case AstNodeType.String:
+                case AstNodeType.Pass:
+                case AstNodeType.Break:
+                case AstNodeType.Continue:
+                case AstNodeType.Retry:
+                case AstNodeType.RegexLiteral:
+                case AstNodeType.Nameof:
+                case AstNodeType.Self:
+                case AstNodeType.Super:
+                case AstNodeType.VariableDelete:
+                    return 0;
+                case AstNodeType.Scope:
+                {
+                    var sc = (Parser.Nodes.Special.ScopeNode)node;
+                    int sum = 0;
+                    foreach (var c in sc.Nodes)
+                    {
+                        int sub = CountVariableAccess(c, name);
+                        if (sub < 0) return -1;
+                        sum += sub;
+                    }
+                    return sum;
+                }
+                case AstNodeType.BinaryOperation:
+                {
+                    var bo = (Parser.Nodes.Operations.BinaryOperationNode)node;
+                    int l = CountVariableAccess(bo.LeftNode, name); if (l < 0) return -1;
+                    int r = CountVariableAccess(bo.RightNode, name); if (r < 0) return -1;
+                    return l + r;
+                }
+                case AstNodeType.UnaryOperation:
+                {
+                    var uo = (Parser.Nodes.Operations.UnaryOperationNode)node;
+                    return CountVariableAccess(uo.Node, name);
+                }
+                case AstNodeType.FunctionCall:
+                {
+                    var fc = (Parser.Nodes.Functions.FunctionCallNode)node;
+                    int sum = CountVariableAccess(fc.NodeToCall, name);
+                    if (sum < 0) return -1;
+                    foreach (var arg in fc.ArgNodes)
+                    {
+                        int sub = CountVariableAccess(arg.Expr, name);
+                        if (sub < 0) return -1;
+                        sum += sub;
+                    }
+                    return sum;
+                }
+                case AstNodeType.VariableAssignment:
+                {
+                    var vasn = (Parser.Nodes.Variables.VariableAssignmentNode)node;
+                    bool isCompound = vasn.AssignmentToken.Type != Lexer.Tokens.TokenType.EQ;
+                    int self = (isCompound && vasn.Name == name) ? 1 : 0;
+                    int sub = CountVariableAccess(vasn.ValueNode, name);
+                    if (sub < 0) return -1;
+                    return self + sub;
+                }
+                case AstNodeType.VariableDeclaration:
+                {
+                    var vd = (Parser.Nodes.Variables.VariableDeclarationNode)node;
+                    int sum = 0;
+                    foreach (var d in vd.Declarations)
+                    {
+                        if (d.Item2 != null)
+                        {
+                            int sub = CountVariableAccess(d.Item2, name);
+                            if (sub < 0) return -1;
+                            sum += sub;
+                        }
+                    }
+                    return sum;
+                }
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)node;
+                    int sum = 0;
+                    foreach (var cs in ifn.Cases)
+                    {
+                        int sc1 = CountVariableAccess(cs.Condition, name); if (sc1 < 0) return -1;
+                        int sb = CountVariableAccess(cs.Expr, name); if (sb < 0) return -1;
+                        sum += sc1 + sb;
+                    }
+                    if (ifn.ElseCase.HasValue)
+                    {
+                        int sb = CountVariableAccess(ifn.ElseCase.Value.Expr, name);
+                        if (sb < 0) return -1;
+                        sum += sb;
+                    }
+                    return sum;
+                }
+                case AstNodeType.While:
+                {
+                    var wn = (Parser.Nodes.Statements.WhileNode)node;
+                    int sc1 = CountVariableAccess(wn.ConditionNode, name); if (sc1 < 0) return -1;
+                    int sb = CountVariableAccess(wn.BodyNode, name); if (sb < 0) return -1;
+                    return sc1 + sb;
+                }
+                case AstNodeType.DoWhile:
+                {
+                    var dw = (Parser.Nodes.Statements.DoWhileNode)node;
+                    int sc1 = CountVariableAccess(dw.ConditionNode, name); if (sc1 < 0) return -1;
+                    int sb = CountVariableAccess(dw.BodyNode, name); if (sb < 0) return -1;
+                    return sc1 + sb;
+                }
+                case AstNodeType.For:
+                {
+                    var fn = (Parser.Nodes.Statements.ForNode)node;
+                    int s1 = CountVariableAccess(fn.StartValueNode, name); if (s1 < 0) return -1;
+                    int s2 = CountVariableAccess(fn.EndValueNode, name); if (s2 < 0) return -1;
+                    int s3 = 0;
+                    if (fn.StepValueNode != null)
+                    {
+                        s3 = CountVariableAccess(fn.StepValueNode, name); if (s3 < 0) return -1;
+                    }
+                    string? inner = fn.VarNameTok.Value?.ToString();
+                    int sb = (inner == name) ? 0 : CountVariableAccess(fn.BodyNode, name);
+                    if (sb < 0) return -1;
+                    return s1 + s2 + s3 + sb;
+                }
+                case AstNodeType.ForEach:
+                {
+                    var fe = (Parser.Nodes.Statements.ForEachNode)node;
+                    int s1 = CountVariableAccess(fe.CollectionNode, name); if (s1 < 0) return -1;
+                    string? inner = fe.VarNameToken.Value?.ToString();
+                    int sb = (inner == name) ? 0 : CountVariableAccess(fe.BodyNode, name);
+                    if (sb < 0) return -1;
+                    return s1 + sb;
+                }
+                case AstNodeType.Return:
+                {
+                    var rn = (Parser.Nodes.Functions.ReturnNode)node;
+                    return rn.NodeToReturn != null ? CountVariableAccess(rn.NodeToReturn, name) : 0;
+                }
+                case AstNodeType.Throw:
+                {
+                    var tn = (Parser.Nodes.Statements.ThrowNode)node;
+                    return tn.Expression != null ? CountVariableAccess(tn.Expression, name) : 0;
+                }
+                case AstNodeType.MemberAccess:
+                {
+                    var ma = (Parser.Nodes.Structs.MemberAccessNode)node;
+                    return CountVariableAccess(ma.TargetNode, name);
+                }
+                case AstNodeType.MemberAssignment:
+                {
+                    var ma = (Parser.Nodes.Structs.MemberAssignmentNode)node;
+                    int l = CountVariableAccess(ma.TargetNode, name); if (l < 0) return -1;
+                    int r = CountVariableAccess(ma.ValueNode, name); if (r < 0) return -1;
+                    return l + r;
+                }
+                case AstNodeType.ListAccess:
+                {
+                    var la = (Parser.Nodes.Variables.ListAccessNode)node;
+                    int l = CountVariableAccess(la.Target, name); if (l < 0) return -1;
+                    int r = CountVariableAccess(la.Index, name); if (r < 0) return -1;
+                    return l + r;
+                }
+                case AstNodeType.ListAssignment:
+                {
+                    var la = (Parser.Nodes.Variables.ListAssignmentNode)node;
+                    int l = CountVariableAccess(la.Target, name); if (l < 0) return -1;
+                    int r = CountVariableAccess(la.Value, name); if (r < 0) return -1;
+                    return l + r;
+                }
+                case AstNodeType.Ternary:
+                {
+                    var tn = (Parser.Nodes.Operations.TernaryNode)node;
+                    int a = CountVariableAccess(tn.Condition, name); if (a < 0) return -1;
+                    int b = CountVariableAccess(tn.TrueExpression, name); if (b < 0) return -1;
+                    int c2 = CountVariableAccess(tn.FalseExpression, name); if (c2 < 0) return -1;
+                    return a + b + c2;
+                }
+                case AstNodeType.NullCoalescing:
+                {
+                    var nc = (Parser.Nodes.Operations.NullCoalescingNode)node;
+                    int l = CountVariableAccess(nc.Left, name); if (l < 0) return -1;
+                    int r = CountVariableAccess(nc.Right, name); if (r < 0) return -1;
+                    return l + r;
+                }
+                case AstNodeType.Cast:
+                {
+                    var cn = (Parser.Nodes.Operations.CastNode)node;
+                    return CountVariableAccess(cn.Expression, name);
+                }
+                case AstNodeType.Range:
+                {
+                    var rn = (Parser.Nodes.Operations.RangeNode)node;
+                    int a = CountVariableAccess(rn.Start, name); if (a < 0) return -1;
+                    int b = CountVariableAccess(rn.End, name); if (b < 0) return -1;
+                    int c2 = (rn.Step != null) ? CountVariableAccess(rn.Step, name) : 0;
+                    if (c2 < 0) return -1;
+                    return a + b + c2;
+                }
+                case AstNodeType.List:
+                {
+                    var ln = (Parser.Nodes.Primitives.ListNode)node;
+                    int sum = 0;
+                    foreach (var e in ln.ElementNodes)
+                    {
+                        int sub = CountVariableAccess(e, name); if (sub < 0) return -1;
+                        sum += sub;
+                    }
+                    return sum;
+                }
+                case AstNodeType.Set:
+                {
+                    var sn = (Parser.Nodes.Primitives.SetNode)node;
+                    int sum = 0;
+                    foreach (var e in sn.ElementNodes)
+                    {
+                        int sub = CountVariableAccess(e, name); if (sub < 0) return -1;
+                        sum += sub;
+                    }
+                    return sum;
+                }
+                case AstNodeType.Tuple:
+                {
+                    var tn = (Parser.Nodes.Primitives.TupleNode)node;
+                    int sum = 0;
+                    foreach (var e in tn.ElementNodes)
+                    {
+                        int sub = CountVariableAccess(e, name); if (sub < 0) return -1;
+                        sum += sub;
+                    }
+                    return sum;
+                }
+                case AstNodeType.Typeof:
+                {
+                    var tn = (Parser.Nodes.Special.TypeofNode)node;
+                    return CountVariableAccess(tn.Node, name);
+                }
+                case AstNodeType.Dereference:
+                {
+                    var dn = (Parser.Nodes.Operations.DereferenceNode)node;
+                    return CountVariableAccess(dn.Target, name);
+                }
+                case AstNodeType.Spread:
+                {
+                    var sn = (Parser.Nodes.Operations.SpreadNode)node;
+                    return CountVariableAccess(sn.Expression, name);
+                }
+                case AstNodeType.EnumAccess:
+                {
+                    var ea = (Parser.Nodes.Enums.EnumAccessNode)node;
+                    return CountVariableAccess(ea.EnumNode, name);
+                }
+                default:
+                    // Unknown construct — refuse the optimization to be safe.
+                    return -1;
+            }
+        }
+
+        // Default policy is CONSERVATIVE TRUE on unknown node shapes —
+        // a false positive only loses the optimization, while a false
+        // negative would corrupt observable semantics. Coverage is
+        // tuned for the most common body shapes (Pass, print(...),
+        // arithmetic, simple assignments, nested ifs/while/for, member
+        // access). Anything not enumerated falls through to TRUE.
+        private static bool BodyReadsBinding(AstNode? node, string name)
+        {
+            if (node == null || string.IsNullOrEmpty(name)) return false;
+            switch (node.NodeType)
+            {
+                case AstNodeType.VariableAccess:
+                {
+                    var va = (Parser.Nodes.Variables.VariableAccessNode)node;
+                    return va.Name == name;
+                }
+                // Leaves — no descendants that could reference `name`.
+                case AstNodeType.Number:
+                case AstNodeType.Boolean:
+                case AstNodeType.Null:
+                case AstNodeType.String:
+                case AstNodeType.Pass:
+                case AstNodeType.Break:
+                case AstNodeType.Continue:
+                case AstNodeType.Retry:
+                case AstNodeType.RegexLiteral:
+                case AstNodeType.Nameof:
+                case AstNodeType.Self:
+                case AstNodeType.Super:
+                case AstNodeType.VariableDelete: // delete by name only, no expr
+                    return false;
+
+                case AstNodeType.Scope:
+                {
+                    var sc = (Parser.Nodes.Special.ScopeNode)node;
+                    foreach (var c in sc.Nodes)
+                        if (BodyReadsBinding(c, name)) return true;
+                    return false;
+                }
+                case AstNodeType.BinaryOperation:
+                {
+                    var bo = (Parser.Nodes.Operations.BinaryOperationNode)node;
+                    return BodyReadsBinding(bo.LeftNode, name)
+                        || BodyReadsBinding(bo.RightNode, name);
+                }
+                case AstNodeType.UnaryOperation:
+                {
+                    var uo = (Parser.Nodes.Operations.UnaryOperationNode)node;
+                    return BodyReadsBinding(uo.Node, name);
+                }
+                case AstNodeType.FunctionCall:
+                {
+                    var fc = (Parser.Nodes.Functions.FunctionCallNode)node;
+                    if (BodyReadsBinding(fc.NodeToCall, name)) return true;
+                    foreach (var arg in fc.ArgNodes)
+                        if (BodyReadsBinding(arg.Expr, name)) return true;
+                    return false;
+                }
+                case AstNodeType.VariableAssignment:
+                {
+                    var va = (Parser.Nodes.Variables.VariableAssignmentNode)node;
+                    // Compound assignment (`i += x`) reads the lhs binding.
+                    // Detect via AssignmentToken != EQ.
+                    bool isCompound = va.AssignmentToken.Type != Lexer.Tokens.TokenType.EQ;
+                    if (isCompound && va.Name == name) return true;
+                    return BodyReadsBinding(va.ValueNode, name);
+                }
+                case AstNodeType.VariableDeclaration:
+                {
+                    var vd = (Parser.Nodes.Variables.VariableDeclarationNode)node;
+                    foreach (var d in vd.Declarations)
+                        if (d.Item2 != null && BodyReadsBinding(d.Item2, name))
+                            return true;
+                    return false;
+                }
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)node;
+                    foreach (var cs in ifn.Cases)
+                    {
+                        if (BodyReadsBinding(cs.Condition, name)) return true;
+                        if (BodyReadsBinding(cs.Expr, name)) return true;
+                    }
+                    if (ifn.ElseCase.HasValue && BodyReadsBinding(ifn.ElseCase.Value.Expr, name))
+                        return true;
+                    return false;
+                }
+                case AstNodeType.While:
+                {
+                    var wn = (Parser.Nodes.Statements.WhileNode)node;
+                    return BodyReadsBinding(wn.ConditionNode, name)
+                        || BodyReadsBinding(wn.BodyNode, name);
+                }
+                case AstNodeType.DoWhile:
+                {
+                    var dw = (Parser.Nodes.Statements.DoWhileNode)node;
+                    return BodyReadsBinding(dw.ConditionNode, name)
+                        || BodyReadsBinding(dw.BodyNode, name);
+                }
+                case AstNodeType.For:
+                {
+                    var fn = (Parser.Nodes.Statements.ForNode)node;
+                    string? innerName = fn.VarNameTok.Value?.ToString();
+                    if (BodyReadsBinding(fn.StartValueNode, name)) return true;
+                    if (BodyReadsBinding(fn.EndValueNode, name)) return true;
+                    if (fn.StepValueNode != null && BodyReadsBinding(fn.StepValueNode, name)) return true;
+                    if (innerName == name) return false; // shadowed
+                    return BodyReadsBinding(fn.BodyNode, name);
+                }
+                case AstNodeType.ForEach:
+                {
+                    var fe = (Parser.Nodes.Statements.ForEachNode)node;
+                    string? innerName = fe.VarNameToken.Value?.ToString();
+                    if (BodyReadsBinding(fe.CollectionNode, name)) return true;
+                    if (innerName == name) return false; // shadowed
+                    return BodyReadsBinding(fe.BodyNode, name);
+                }
+                case AstNodeType.Return:
+                {
+                    var rn = (Parser.Nodes.Functions.ReturnNode)node;
+                    return rn.NodeToReturn != null && BodyReadsBinding(rn.NodeToReturn, name);
+                }
+                case AstNodeType.Throw:
+                {
+                    var tn = (Parser.Nodes.Statements.ThrowNode)node;
+                    return tn.Expression != null && BodyReadsBinding(tn.Expression, name);
+                }
+                case AstNodeType.MemberAccess:
+                {
+                    var ma = (Parser.Nodes.Structs.MemberAccessNode)node;
+                    return BodyReadsBinding(ma.TargetNode, name);
+                }
+                case AstNodeType.MemberAssignment:
+                {
+                    var ma = (Parser.Nodes.Structs.MemberAssignmentNode)node;
+                    return BodyReadsBinding(ma.TargetNode, name)
+                        || BodyReadsBinding(ma.ValueNode, name);
+                }
+                case AstNodeType.ListAccess:
+                {
+                    var la = (Parser.Nodes.Variables.ListAccessNode)node;
+                    return BodyReadsBinding(la.Target, name)
+                        || BodyReadsBinding(la.Index, name);
+                }
+                case AstNodeType.ListAssignment:
+                {
+                    var la = (Parser.Nodes.Variables.ListAssignmentNode)node;
+                    return BodyReadsBinding(la.Target, name)
+                        || BodyReadsBinding(la.Value, name);
+                }
+                case AstNodeType.Ternary:
+                {
+                    var tn = (Parser.Nodes.Operations.TernaryNode)node;
+                    return BodyReadsBinding(tn.Condition, name)
+                        || BodyReadsBinding(tn.TrueExpression, name)
+                        || BodyReadsBinding(tn.FalseExpression, name);
+                }
+                case AstNodeType.NullCoalescing:
+                {
+                    var nc = (Parser.Nodes.Operations.NullCoalescingNode)node;
+                    return BodyReadsBinding(nc.Left, name)
+                        || BodyReadsBinding(nc.Right, name);
+                }
+                case AstNodeType.Cast:
+                {
+                    var cn = (Parser.Nodes.Operations.CastNode)node;
+                    return BodyReadsBinding(cn.Expression, name);
+                }
+                case AstNodeType.Range:
+                {
+                    var rn = (Parser.Nodes.Operations.RangeNode)node;
+                    if (BodyReadsBinding(rn.Start, name)) return true;
+                    if (BodyReadsBinding(rn.End, name)) return true;
+                    if (rn.Step != null && BodyReadsBinding(rn.Step, name)) return true;
+                    return false;
+                }
+                case AstNodeType.List:
+                {
+                    var ln = (Parser.Nodes.Primitives.ListNode)node;
+                    foreach (var e in ln.ElementNodes)
+                        if (BodyReadsBinding(e, name)) return true;
+                    return false;
+                }
+                case AstNodeType.Set:
+                {
+                    var sn = (Parser.Nodes.Primitives.SetNode)node;
+                    foreach (var e in sn.ElementNodes)
+                        if (BodyReadsBinding(e, name)) return true;
+                    return false;
+                }
+                case AstNodeType.Tuple:
+                {
+                    var tn = (Parser.Nodes.Primitives.TupleNode)node;
+                    foreach (var e in tn.ElementNodes)
+                        if (BodyReadsBinding(e, name)) return true;
+                    return false;
+                }
+                case AstNodeType.Typeof:
+                {
+                    var tn = (Parser.Nodes.Special.TypeofNode)node;
+                    return BodyReadsBinding(tn.Node, name);
+                }
+                case AstNodeType.Dereference:
+                {
+                    var dn = (Parser.Nodes.Operations.DereferenceNode)node;
+                    return BodyReadsBinding(dn.Target, name);
+                }
+                case AstNodeType.Spread:
+                {
+                    var sn = (Parser.Nodes.Operations.SpreadNode)node;
+                    return BodyReadsBinding(sn.Expression, name);
+                }
+                case AstNodeType.EnumAccess:
+                {
+                    var ea = (Parser.Nodes.Enums.EnumAccessNode)node;
+                    return BodyReadsBinding(ea.EnumNode, name);
+                }
+                // Conservative TRUE for any node kind not enumerated —
+                // closures (could capture), Try/Match (binding shapes),
+                // imports, definitions, async/yield, inline asm, etc.
+                default:
+                    return true;
+            }
         }
 
         // M84 — conservative scan for break/continue at THIS loop's

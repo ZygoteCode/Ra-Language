@@ -170,34 +170,12 @@ namespace RaLanguage.Interpreter.IR.Analysis
             return true;
         }
 
-        // Bridge into SsaForm.OperandReads. Kept as a wrapper so
-        // changes to operand-read enumeration don't require touching
-        // this pass.
+        // Bridge into SsaForm.OperandReads. Delegates directly so II/FF/BB
+        // (and any future typed opcodes added to SSA tracking) get the
+        // correct operand classification without a parallel switch
+        // statement that can fall out of sync.
         private static IEnumerable<(int Slot, bool IsUse)> SsaForm_OperandReads(Opcode op, uint instr)
-        {
-            // Mirror of SsaForm.OperandReads (private). Inline only the
-            // simple cases — variable-arity opcodes (NewList / Call /
-            // Range) are NOT hoist candidates anyway (they have side
-            // effects or huge operand footprints) so we drop them here.
-            switch (op)
-            {
-                case Opcode.Add: case Opcode.Sub: case Opcode.Mul:
-                case Opcode.Shl: case Opcode.Shr:
-                case Opcode.BAnd: case Opcode.BOr: case Opcode.BXor:
-                case Opcode.AddNN: case Opcode.SubNN: case Opcode.MulNN:
-                case Opcode.Eq: case Opcode.Ne:
-                case Opcode.SEq: case Opcode.SNe:
-                case Opcode.Lt: case Opcode.Le: case Opcode.Gt: case Opcode.Ge:
-                    yield return (Encoding.B(instr), true);
-                    yield return (Encoding.C(instr), true);
-                    break;
-                case Opcode.Neg: case Opcode.Not: case Opcode.BNot:
-                    yield return (Encoding.B(instr), true);
-                    break;
-                // LoadConst / LoadIntS / LoadNull / LoadTrue / LoadFalse:
-                // no slot reads — automatically invariant.
-            }
-        }
+            => SsaForm.OperandReads(op, instr);
 
         // M-tier1 (post-M75): II / FF / BB typed-opcode families joined
         // the pure set so loop-invariant typed chains can hoist out

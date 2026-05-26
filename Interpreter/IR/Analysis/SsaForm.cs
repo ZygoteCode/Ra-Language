@@ -528,9 +528,9 @@ namespace RaLanguage.Interpreter.IR.Analysis
             }
         }
 
-        private static IEnumerable<(int Slot, bool IsUse)> OperandReads(Opcode op, uint instr) => OperandReads(op, instr, null, -1);
-        private static IEnumerable<(int Slot, bool IsUse)> OperandReads(Opcode op, uint instr, RaFunction? fn) => OperandReads(op, instr, fn, -1);
-        private static IEnumerable<(int Slot, bool IsUse)> OperandReads(Opcode op, uint instr, RaFunction? fn, int pc)
+        internal static IEnumerable<(int Slot, bool IsUse)> OperandReads(Opcode op, uint instr) => OperandReads(op, instr, null, -1);
+        internal static IEnumerable<(int Slot, bool IsUse)> OperandReads(Opcode op, uint instr, RaFunction? fn) => OperandReads(op, instr, fn, -1);
+        internal static IEnumerable<(int Slot, bool IsUse)> OperandReads(Opcode op, uint instr, RaFunction? fn, int pc)
         {
             // 3-address binary / comparison opcodes: read B and C.
             switch (op)
