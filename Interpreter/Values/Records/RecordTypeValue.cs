@@ -22,25 +22,55 @@ namespace RaLanguage.Interpreter.Values.Records
     // positions ARE the constructor. Execute(args) skips the struct
     // ctor lookup entirely and binds primary fields by position with
     // optional named-argument refinement.
+    //
+    // Inheritance model: only `record class` may participate (value
+    // records are always sealed). `abstract record class` parents are
+    // non-instantiable; their primary fields are PREPENDED to the
+    // child's primary-field list at definition time so the
+    // synthesized layout, equality, to_string, and deconstruct all see
+    // the merged field set without runtime indirection. Structural
+    // equality continues to require the EXACT same Definition reference
+    // — parent vs child instances are never equal, which sidesteps
+    // the EqualityContract trap that C# carries in its record
+    // hierarchy.
     public sealed class RecordTypeValue : StructTypeValue
     {
         public bool IsRefRecord { get; }
+        public bool IsAbstract { get; }
+        public RecordTypeValue? BaseRecord { get; set; }
+
+        // Primary fields visible to the constructor and the auto-
+        // generated equality / to_string / deconstruct passes. When
+        // BaseRecord is set, the field list is the concatenation of
+        // base.PrimaryFields and the child-declared fields — so
+        // children "see" parent fields by position automatically.
         public List<RecordPrimaryFieldNode> PrimaryFields { get; }
+
+        // Auto-derive control flags. Default true; the DeriveTransformer
+        // can flip them via @derive(equals=false, to_string=false).
+        public bool AutoEquals { get; }
+        public bool AutoToString { get; }
 
         public RecordTypeValue(
             string recordName,
             bool isPublic,
             bool isRefRecord,
+            bool isAbstract,
             List<RecordPrimaryFieldNode> primaryFields,
             List<StructFieldDefinitionNode> syntheticFields,
             List<StructMethodDefinitionNode> bodyMethods,
             List<OperatorDefinitionNode> operators,
             List<string>? genericTypeParams,
-            List<WhereConstraintNode>? whereConstraints)
+            List<WhereConstraintNode>? whereConstraints,
+            bool autoEquals = true,
+            bool autoToString = true)
             : base(recordName, isPublic, syntheticFields, bodyMethods, operators, genericTypeParams, whereConstraints)
         {
             IsRefRecord = isRefRecord;
+            IsAbstract = isAbstract;
             PrimaryFields = primaryFields;
+            AutoEquals = autoEquals;
+            AutoToString = autoToString;
         }
 
         public override RuntimeValueType Type => RuntimeValueType.RecordType;
@@ -68,6 +98,14 @@ namespace RaLanguage.Interpreter.Values.Records
             Dictionary<string, RuntimeValue> namedArgs)
         {
             var res = new RuntimeResult();
+
+            if (IsAbstract)
+            {
+                return res.Failure(new RuntimeError(
+                    PositionStart, PositionEnd,
+                    $"Cannot instantiate abstract record '{StructName}'",
+                    Context));
+            }
 
             if (positionalArgs.Count > PrimaryFields.Count)
             {
@@ -169,6 +207,10 @@ namespace RaLanguage.Interpreter.Values.Records
         // immutable.
         public override RuntimeValue Copy() => this;
 
-        public override string ToString() => IsRefRecord ? $"<record class {StructName}>" : $"<record {StructName}>";
+        public override string ToString()
+        {
+            string kind = IsRefRecord ? (IsAbstract ? "abstract record class" : "record class") : "record";
+            return $"<{kind} {StructName}>";
+        }
     }
 }

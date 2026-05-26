@@ -35,6 +35,7 @@ namespace RaLanguage.Interpreter.Runtime
         private const byte BR_NAMESPACE          = 10;
         private const byte BR_MODULE             = 11;
         private const byte BR_PRIMITIVE_EXT      = 12;
+        private const byte BR_RECORD_DECONSTRUCT = 13;
 
         // M28.1 IC-aware entry point used by OP_GET_MEMBER. Falls back to the
         // unconditional Apply for first-hit (BranchKind = 0) and every miss.
@@ -153,6 +154,12 @@ namespace RaLanguage.Interpreter.Runtime
                             var ext = context.Extensions.Resolve(target, memberName);
                             if (ext.Count == 0) break; // refresh — extension table mutated
                             return res.Success(new BoundExtensionMethodGroupValue(target, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                        }
+                        case BR_RECORD_DECONSTRUCT:
+                        {
+                            var recInst = (RaLanguage.Interpreter.Values.Records.RecordInstanceValue)target;
+                            return res.Success(new RaLanguage.Interpreter.Values.Records.BoundRecordDeconstructValue(recInst)
+                                .SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                         }
                         case BR_CLASS_FIELD:
                         {
@@ -351,6 +358,21 @@ namespace RaLanguage.Interpreter.Runtime
                     icSlot.Shape = instance.Definition;
                     icSlot.BranchKind = BR_STRUCT_EXT;
                     return res.Success(new BoundExtensionMethodGroupValue(instance, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                }
+
+                // Synthetic record built-ins. `deconstruct` is the only one
+                // for now; resolved last so any user-defined member of the
+                // same name on the record body wins. Member access yields
+                // a BoundRecordDeconstructValue that captures the receiver;
+                // invoking it returns a TupleValue of the primary fields.
+                if (instance is RaLanguage.Interpreter.Values.Records.RecordInstanceValue recInst
+                    && string.Equals(memberName, "deconstruct", StringComparison.Ordinal))
+                {
+                    icSlot.TargetType = RuntimeValueType.RecordInstance;
+                    icSlot.Shape = recInst.Definition;
+                    icSlot.BranchKind = BR_RECORD_DECONSTRUCT;
+                    return res.Success(new RaLanguage.Interpreter.Values.Records.BoundRecordDeconstructValue(recInst)
+                        .SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
 
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,

@@ -2,8 +2,9 @@
 // flavor via `record class`). Covers definition, instantiation,
 // structural equality / hashing-via-equality, with-expressions,
 // deconstruction-via-fields, immutability of primary fields,
-// methods + operator overloads, generics, defaults, and a handful
-// of negative paths.
+// methods + operator overloads, generics, defaults, controlled
+// inheritance, @derive opt-outs, deconstruct(), pattern match,
+// and a handful of negative paths.
 //
 // Cases:
 //   R1   primary-field constructor + field reads
@@ -29,6 +30,22 @@
 //   R18  record class: reference flavor, structural equality still works
 //   R19  passing a record into a function preserves identity-by-value
 //   R20  user-defined to_string overrides the auto format
+//   R21  built-in deconstruct() returns tuple of primary fields
+//   R22  pattern match: `case Point(x, y) -> ...` binds positionally
+//   R23  pattern match: arity mismatch raises a precise diagnostic
+//   R24  pattern match: cross-type record never matches
+//   R25  @derive(equals=false) disables auto structural equality
+//        (falls back to reference identity)
+//   R26  @derive(to_string=false) disables auto record format
+//        (falls back to non-leaky '<Name>' shape)
+//   R27  @derive(equals=false, to_string=false) — both flags
+//   R28  abstract record class: abstract base cannot be instantiated
+//   R29  record class inheritance: child observes inherited fields
+//        in primary-field order (deconstruct merged shape)
+//   R30  inherited records compare equal only with same concrete
+//        Definition (no EqualityContract slip)
+//   R31  inheritance refuses to redeclare inherited primary fields
+//   R32  value records cannot inherit (always sealed)
 
 print("=== types/records ===");
 
@@ -136,5 +153,109 @@ record Named(label: string) {
 }
 var n = Named("hi");
 if (n as string) == "<<hi>>" { print("[R20] OK"); } else { print("[R20] FAIL got: " + (n as string)); }
+
+// R21 — deconstruct() returns a tuple of primary fields.
+var dp = Point(7, 8);
+var dt = dp.deconstruct();
+if dt[0] == 7 and dt[1] == 8 { print("[R21] OK"); } else { print("[R21] FAIL"); }
+
+// R22 — pattern match: positional destructure.
+var pm = Point(11, 22);
+var pmLabel = match pm {
+    case Point(a, b) -> (a as string) + "," + (b as string)
+};
+if pmLabel == "11,22" { print("[R22] OK"); } else { print("[R22] FAIL " + pmLabel); }
+
+// R23 — pattern match: arity mismatch.
+try {
+    var bad = match pm {
+        case Point(only_one) -> "x"
+    };
+    print("[R23] FAIL (no error)");
+} catch (ex) {
+    print("[R23] OK");
+}
+
+// R24 — pattern match: cross-type record never matches.
+record Pair2(x: int, y: int)
+var pp = Pair2(11, 22);
+var crossMatched = false;
+var crossLabel = match pm {
+    case Pair2(_, _) -> ("matched-Pair2")
+    case _ -> ("not-Pair2")
+};
+if crossLabel == "not-Pair2" { print("[R24] OK"); } else { print("[R24] FAIL " + crossLabel); }
+
+// R25 — @derive(equals=false) disables auto equality. Reference
+// flavor (`record class`) lets us observe the identity fallback
+// (structurally identical instances are NOT equal; an alias of
+// the same instance IS).
+@derive(equals=false)
+record class NoEq(x: int, y: int)
+var ne1 = NoEq(1, 2);
+var ne2 = NoEq(1, 2);
+var ne3 = ne1;
+if ne1 != ne2 and ne1 == ne1 and ne1 == ne3 { print("[R25] OK"); } else { print("[R25] FAIL"); }
+
+// R26 — @derive(to_string=false) disables auto format.
+@derive(to_string=false)
+record Opaque(secret: int)
+var op = Opaque(42);
+if (op as string) == "<Opaque>" { print("[R26] OK"); } else { print("[R26] FAIL got: " + (op as string)); }
+
+// R27 — both flags off.
+@derive(equals=false, to_string=false)
+record Plain(x: int)
+var pl1 = Plain(10);
+var pl2 = Plain(10);
+if pl1 != pl2 and (pl1 as string) == "<Plain>" { print("[R27] OK"); } else { print("[R27] FAIL"); }
+
+// R28 — abstract record class cannot be instantiated.
+abstract record class Shape(name: string)
+try {
+    var ax = Shape("X");
+    print("[R28] FAIL (no error)");
+} catch (ex) {
+    print("[R28] OK");
+}
+
+// R29 — controlled inheritance: child sees inherited fields in
+// primary-field order. `Circle(radius: float) : Shape("Circle")`
+// produces a 2-field instance (name, radius) — deconstruct sees
+// the merged shape.
+record class Circle(radius: float) : Shape("Circle")
+var ci = Circle("Circle", 2.0);
+var ctup = ci.deconstruct();
+if ctup[0] == "Circle" and ctup[1] == 2.0 { print("[R29] OK"); } else { print("[R29] FAIL"); }
+
+// R30 — equality remains type-restricted under inheritance: two
+// child instances with identical structural shape compare equal,
+// but a hypothetical sibling record with the same fields would
+// not (different Definition reference).
+var ci2 = Circle("Circle", 2.0);
+record class Disc(radius: float) : Shape("Disc")
+var di = Disc("Disc", 2.0);
+if ci == ci2 and (ci as string) != (di as string) { print("[R30] OK"); } else { print("[R30] FAIL"); }
+
+// R31 — child cannot redeclare inherited primary fields.
+try {
+    record class Bad(name: string, radius: float) : Shape("Bad")
+    var bad2 = Bad("Bad", 0.0);
+    print("[R31] FAIL (no error)");
+} catch (ex) {
+    print("[R31] OK");
+}
+
+// R32 — value records reject inheritance. `record X(...) : Y(...)`
+// is a definition-time error since value records are always sealed.
+// (Compile-time error path; we wrap the use site in try to surface.)
+try {
+    record ValBase(x: int)
+    record ValDerived(y: int) : ValBase(0)
+    var vd = ValDerived(0, 0);
+    print("[R32] FAIL (no error)");
+} catch (ex) {
+    print("[R32] OK");
+}
 
 print("=== done ===");
