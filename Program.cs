@@ -562,7 +562,7 @@ namespace RaLanguage
             // Two-phase microbenchmark: warmup to populate JIT + AOT inlining decisions, then
             // measured runs. Reports wall-clock time and managed-heap allocation delta per
             // benchmark so optimization passes have a numerical regression signal.
-            string[] benches = { "bench_hotloop.ra", "bench_arithmetic.ra" };
+            string[] benches = { "bench_hotloop.ra", "bench_arithmetic.ra", "bench_counter.ra", "bench_hybrid_read.ra", "bench_while.ra", "bench_branchy.ra", "bench_dirty.ra", "bench_bindcmp.ra", "bench_invariant.ra" };
 
             Console.WriteLine("[Ra Language] Microbenchmark mode.");
             foreach (var bench in benches)

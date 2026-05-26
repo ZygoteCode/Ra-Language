@@ -182,6 +182,17 @@ namespace RaLanguage.Interpreter.IR
         // Defined for List/Tuple/Set/Map; other types produce a runtime error.
         ListLen         = 0x66,
 
+        // Typed-int-RHS self-additive slot. Layout: [op][selfSlot:u8][rhsLongSlot:u16].
+        // RHS is read directly from `Slots[rhsLongSlot].Bits` as an int64 (typed
+        // slot tag must be Int64; otherwise deopt to boxed AddIntoSlot path).
+        // The slot's SymbolEntry holds the boxed accumulator; this op reads the
+        // entry's value, adds the typed RHS via the int64 fast path, and stores
+        // the new boxed value. Eliminates the per-iter `LoadLocalS` + boxed
+        // mirror dispatch in `for i = 0 to N { sum = sum + i; }` shape, where
+        // the body's `i` resolves to the lazy-long iter slot.
+        AddIntoSlotI    = 0x67,
+        SubIntoSlotI    = 0x68,
+
         // Slot-based local read. `a` = dst slot, imm16 = frame-slot index into
         // VmFrame.SlotLocals. The slot caches a SymbolEntry* populated at
         // declaration time, so the read bypasses ctx.SymbolTable.GetEntry

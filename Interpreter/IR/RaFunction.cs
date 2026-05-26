@@ -327,6 +327,19 @@ namespace RaLanguage.Interpreter.IR
         public MemberAccessIcSlot[]? MemberAccessIc;
         public CallMethodIcSlot[]? CallMethodIc;
 
+        // Names assigned anywhere in this function body (direct
+        // `VariableAssignment` writes OR `VariableDeclaration` shadow
+        // declarations). Populated once at IR-compile time via AST walk;
+        // consumed by LICM to decide whether a `LoadLocalS` of a given
+        // name is safe to hoist out of a loop preheader. A name absent
+        // from this set has a stable `SymbolEntry.Value` for the
+        // duration of the function call.
+        //
+        // Set covers ALL names assigned anywhere — closures, nested
+        // scopes, etc. Conservative for analysis purposes: any write
+        // anywhere disqualifies the name from hoist consideration.
+        public System.Collections.Generic.HashSet<string>? MutatedNames;
+
         // Parallel to AstRefs. For each AstRefs entry that originated from a
         // single-decl VariableDeclarationNode the IR lowered through
         // OP_DECLARE_LOCAL, DeclSlotByAstRef holds the frame slot to cache the

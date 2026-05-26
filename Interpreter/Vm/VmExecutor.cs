@@ -183,12 +183,15 @@ namespace RaLanguage.Interpreter.Vm
                 // — a single byte-indexed branchless load. Gated on
                 // `f.Slots.Length > 0` so functions that the M66
                 // rewriter left untouched pay nothing.
-                if (f.Slots.Length > 0 && s_writesLocalsA[(byte)op])
-                {
-                    byte aCoh = (byte)((instr >> 8) & 0xFF);
-                    if ((uint)aCoh < (uint)f.Slots.Length)
-                        f.Slots[aCoh].Tag = ValueSlotTag.Ref;
-                }
+                // Pre-clear removed: LocalsView's getter materializes via
+                // ToRuntimeValue() when Tag != Ref, and its setter writes
+                // Tag = Ref unconditionally. Every boxed handler that
+                // reads via `locals[B/C]` and writes via `locals[A] = ...`
+                // already enjoys the typed→boxed bridge without an
+                // explicit pre-clear. Handlers that bypass the setter
+                // (II / FF / BB family) manage their own Tag in their
+                // case body. Eliminates a bitmap lookup + branch per
+                // dispatched opcode — pure win on every hot path.
 
                 try
                 {
@@ -650,6 +653,129 @@ namespace RaLanguage.Interpreter.Vm
                         // because the slot now owns a fresh value.
                         entry.Value = produced;
                         entry.IsMoved = false;
+                        break;
+                    }
+
+                    // Typed-RHS fused self-additive slot. Layout matches
+                    // AddIntoSlot ([op][rhsSlot:u8][selfSlot:u16]) but rhs
+                    // is read DIRECTLY from `f.Slots[rhsSlot].Bits` as an
+                    // int64 — no boxed mirror needed. Eliminates the
+                    // body's `LoadLocalS` (and the iter-mirror BoxI when
+                    // the publish has been elided) for the common
+                    // `sum = sum + i` shape inside `for i = lit to lit`.
+                    case Opcode.AddIntoSlotI:
+                    case Opcode.SubIntoSlotI:
+                    {
+                        byte rhsLongSlot = Encoding.A(instr);
+                        ushort selfSlotI = Encoding.Imm16(instr);
+                        var entryI = selfSlotI < (uint)slots.Length ? slots[selfSlotI] : null;
+                        if (entryI == null)
+                        {
+                            string? lazyName = selfSlotI < (uint)slotNames.Length ? slotNames[selfSlotI] : null;
+                            if (!string.IsNullOrEmpty(lazyName))
+                            {
+                                entryI = ctx.SymbolTable!.GetEntry(lazyName!);
+                                if (entryI != null && selfSlotI < (uint)slots.Length) slots[selfSlotI] = entryI;
+                            }
+                        }
+                        if (entryI == null)
+                        {
+                            string? n = selfSlotI < (uint)slotNames.Length ? slotNames[selfSlotI] : null;
+                            throw new RaUserError(new Errors.Types.RuntimeError(
+                                DummyPos(ctx), DummyPos(ctx),
+                                $"'{n ?? "<slot>"}' is not defined", ctx,
+                                code: Errors.DiagnosticCode.RuntimeUndefinedSymbol,
+                                primaryLabel: "no such symbol in scope",
+                                help: "declare the binding before assigning to it"));
+                        }
+                        if (!entryI.IsMutable)
+                        {
+                            string? n = selfSlotI < (uint)slotNames.Length ? slotNames[selfSlotI] : null;
+                            throw new RaUserError(new Errors.Types.RuntimeError(
+                                DummyPos(ctx), DummyPos(ctx),
+                                $"cannot assign to '{n ?? "<slot>"}': binding is not mutable", ctx,
+                                code: Errors.DiagnosticCode.RuntimeImmutableBinding,
+                                primaryLabel: "immutable binding",
+                                help: "declare with 'var' or 'let mut' to allow reassignment"));
+                        }
+                        if (entryI.HasMutableBorrow || entryI.SharedBorrowCount > 0)
+                        {
+                            string? n = selfSlotI < (uint)slotNames.Length ? slotNames[selfSlotI] : null;
+                            throw new RaUserError(new Errors.Types.RuntimeError(
+                                DummyPos(ctx), DummyPos(ctx),
+                                $"cannot assign to '{n ?? "<slot>"}': binding is currently borrowed", ctx,
+                                code: Errors.DiagnosticCode.RuntimeBorrowViolation,
+                                primaryLabel: "active borrow blocks assignment",
+                                help: "wait for the borrow to fall out of scope before reassigning"));
+                        }
+                        if (entryI.IsMoved)
+                        {
+                            string? n = selfSlotI < (uint)slotNames.Length ? slotNames[selfSlotI] : null;
+                            throw new RaUserError(new Errors.Types.RuntimeError(
+                                DummyPos(ctx), DummyPos(ctx),
+                                $"value of '{n ?? "<slot>"}' was already moved", ctx,
+                                code: Errors.DiagnosticCode.RuntimeMovedValue,
+                                primaryLabel: "used here after move",
+                                help: "non-copy 'let' bindings transfer ownership on use"));
+                        }
+                        // Typed RHS read: the IR compiler only emits this
+                        // opcode when the source slot is provably Int64-
+                        // tagged (lazy-long for-loop iter). At runtime we
+                        // verify defensively and deopt to the boxed
+                        // helper if the tag has drifted.
+                        bool isAddI = (Opcode)(instr & 0xFF) == Opcode.AddIntoSlotI;
+                        ref var rhsSlotRef = ref f.Slots[rhsLongSlot];
+                        long rvI;
+                        if (rhsSlotRef.Tag == ValueSlotTag.Int64)
+                        {
+                            rvI = rhsSlotRef.Bits;
+                        }
+                        else
+                        {
+                            // Deopt: slot is boxed. Pull via ToRuntimeValue
+                            // and route through the boxed AddIntoSlot path
+                            // semantics.
+                            var rhsBoxedDeopt = rhsSlotRef.ToRuntimeValue();
+                            var leftValDeopt = entryI.Value;
+                            var rDeopt = isAddI ? leftValDeopt.AddedTo(rhsBoxedDeopt) : leftValDeopt.SubbedBy(rhsBoxedDeopt);
+                            if (rDeopt.Error != null) throw new RaUserError(rDeopt.Error);
+                            entryI.Value = rDeopt.Value!;
+                            entryI.IsMoved = false;
+                            break;
+                        }
+                        var leftValI = entryI.Value;
+                        RuntimeValue? producedI = null;
+                        if (leftValI.Type == RuntimeValueType.Number)
+                        {
+                            var lnI = (NumberValue)leftValI;
+                            if (TryGetInt64(lnI, out long lvI))
+                            {
+                                if (isAddI)
+                                {
+                                    long sumI = lvI + rvI;
+                                    if (((lvI ^ sumI) & (rvI ^ sumI)) >= 0)
+                                        producedI = NumberValue.OfBigNumber(BigNumberFromLong(sumI));
+                                }
+                                else
+                                {
+                                    long diffI = lvI - rvI;
+                                    if (((lvI ^ rvI) & (lvI ^ diffI)) >= 0)
+                                        producedI = NumberValue.OfBigNumber(BigNumberFromLong(diffI));
+                                }
+                            }
+                        }
+                        if (producedI == null)
+                        {
+                            // Overflow / scale mismatch: box rhs and route
+                            // through the boxed dispatch path. Matches the
+                            // AddIntoSlot fallback semantics.
+                            var rhsBoxedSlow = NumberValue.OfBigNumber(BigNumberFromLong(rvI));
+                            var rSlow = isAddI ? leftValI.AddedTo(rhsBoxedSlow) : leftValI.SubbedBy(rhsBoxedSlow);
+                            if (rSlow.Error != null) throw new RaUserError(rSlow.Error);
+                            producedI = rSlow.Value!;
+                        }
+                        entryI.Value = producedI;
+                        entryI.IsMoved = false;
                         break;
                     }
 

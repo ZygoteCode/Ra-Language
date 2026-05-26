@@ -19,6 +19,18 @@ namespace RaLanguage.Interpreter.IR
         public void Emit3(Opcode op, byte a, byte b, byte c)
             => _code.Add(Encoding.Pack3(op, a, b, c));
 
+        // PC-stable opcode erasure: overwrites the instruction at `pc`
+        // with `OP_PASS`. Used by `CompileForLazyLong` to elide a
+        // tentatively-emitted `BoxI` / `AssignBinding` pair when the
+        // body proves the boxed iter mirror is dead. Caller is
+        // responsible for not invalidating downstream PC-relative
+        // offsets (Pass is single-word like the original).
+        public void OverwriteAsPass(int pc)
+        {
+            if (pc < 0 || pc >= _code.Count) return;
+            _code[pc] = Encoding.Pack3(Opcode.Pass, 0, 0, 0);
+        }
+
         public void Emit2(Opcode op, byte a, ushort imm)
             => _code.Add(Encoding.Pack2(op, a, imm));
 
