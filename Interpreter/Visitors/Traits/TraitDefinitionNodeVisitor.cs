@@ -64,6 +64,17 @@ namespace RaLanguage.Interpreter.Visitors.Traits
                 traitValue.AddProperty(PropertyBuilder.Build(p, traitName));
             }
 
+            foreach (var ev in node.Events)
+            {
+                var ename = ev.NameTok.Value?.ToString() ?? "";
+                if (string.IsNullOrEmpty(ename)) continue;
+                if (traitValue.EventByName.ContainsKey(ename))
+                    return res.Failure(new RuntimeError(ev.PositionStart, ev.PositionEnd,
+                        $"duplicate event '{ename}' in trait '{traitName}'", context));
+                traitValue.AddEvent(
+                    RaLanguage.Interpreter.Runtime.Events.EventBuilder.Build(ev, traitName));
+            }
+
             context.SymbolTable.Set(
                 traitName,
                 traitValue,
@@ -92,6 +103,14 @@ namespace RaLanguage.Interpreter.Visitors.Traits
                 if (!field.HasAnnotations) continue;
                 var t = new MetadataTarget(AnnotationTargetKind.Field, traitName, field.NameTok.Value?.ToString() ?? "");
                 var annErr = AnnotationProcessor.Process(field.Annotations, t, context, interpreter);
+                if (annErr != null) return res.Failure(annErr);
+            }
+
+            foreach (var ev in node.Events)
+            {
+                if (!ev.HasAnnotations) continue;
+                var t = new MetadataTarget(AnnotationTargetKind.Event, traitName, ev.NameTok.Value?.ToString() ?? "");
+                var annErr = AnnotationProcessor.Process(ev.Annotations, t, context, interpreter);
                 if (annErr != null) return res.Failure(annErr);
             }
 

@@ -107,6 +107,50 @@ namespace RaLanguage.Interpreter.Visitors.Classes
                 classValue.AddProperty(PropertyBuilder.Build(p, className));
             }
 
+            // Register event descriptors. Same precedence as properties —
+            // happens before trait / interface conformance checks so the
+            // satisfier sees the concrete event set.
+            foreach (var ev in node.Events)
+            {
+                var ename = ev.NameTok.Value?.ToString() ?? "";
+                if (string.IsNullOrEmpty(ename)) continue;
+
+                if (classValue.HasField(ename))
+                {
+                    return res.Failure(new RuntimeError(
+                        ev.PositionStart, ev.PositionEnd,
+                        $"event '{ename}' on class '{className}' collides with a field of the same name",
+                        context));
+                }
+
+                if (classValue.PropertyByName.ContainsKey(ename))
+                {
+                    return res.Failure(new RuntimeError(
+                        ev.PositionStart, ev.PositionEnd,
+                        $"event '{ename}' on class '{className}' collides with a property of the same name",
+                        context));
+                }
+
+                if (classValue.EventByName.ContainsKey(ename))
+                {
+                    return res.Failure(new RuntimeError(
+                        ev.PositionStart, ev.PositionEnd,
+                        $"duplicate event '{ename}' in class '{className}'",
+                        context));
+                }
+
+                if (ev.IsAbstract && !node.IsAbstract)
+                {
+                    return res.Failure(new RuntimeError(
+                        ev.PositionStart, ev.PositionEnd,
+                        $"abstract event '{ename}' can only appear inside an abstract class",
+                        context));
+                }
+
+                classValue.AddEvent(
+                    RaLanguage.Interpreter.Runtime.Events.EventBuilder.Build(ev, className));
+            }
+
             foreach (var trait in traits)
             {
                 if (!classValue.SatisfiesTrait(trait))
@@ -230,6 +274,42 @@ namespace RaLanguage.Interpreter.Visitors.Classes
                         $"Class '{className}' does not implement abstract properties: {string.Join(", ", unresolvedProps.Select(p => p.Name))}",
                         context));
                 }
+
+                var unresolvedEvents = classValue.GetAbstractEventsInHierarchy()
+                    .Where(e => !classValue.HasConcreteEventOverride(e.Name))
+                    .ToList();
+
+                if (unresolvedEvents.Count > 0)
+                {
+                    return res.Failure(new RuntimeError(
+                        node.PositionStart,
+                        node.PositionEnd,
+                        $"Class '{className}' does not implement abstract events: {string.Join(", ", unresolvedEvents.Select(e => e.Name))}",
+                        context));
+                }
+
+                // Override-signature check: every `override event` on this
+                // class must structurally match the abstract event it
+                // overrides (name, arity, cancellable, payload types).
+                foreach (var localEv in classValue.Events)
+                {
+                    if (!localEv.IsOverride) continue;
+                    var baseEv = classValue.BaseClass?.GetEvent(localEv.Name);
+                    if (baseEv == null)
+                    {
+                        return res.Failure(new RuntimeError(
+                            localEv.SourceNode.PositionStart, localEv.SourceNode.PositionEnd,
+                            $"override event '{localEv.Name}' on class '{className}' has no matching event in any base class",
+                            context));
+                    }
+                    if (!localEv.SignatureMatches(baseEv))
+                    {
+                        return res.Failure(new RuntimeError(
+                            localEv.SourceNode.PositionStart, localEv.SourceNode.PositionEnd,
+                            $"override event '{className}.{localEv.Name}' does not match the base event signature (arity, cancellable flag, or payload types differ)",
+                            context));
+                    }
+                }
             }
 
             context.SymbolTable.Set(
@@ -325,6 +405,15 @@ namespace RaLanguage.Interpreter.Visitors.Classes
                 if (!op.HasAnnotations) continue;
                 var opTarget = new MetadataTarget(AnnotationTargetKind.Operator, className, op.OperatorTok.Type.ToString());
                 var annErr = AnnotationProcessor.Process(op.Annotations, opTarget, context, interpreter);
+                if (annErr != null) return res.Failure(annErr);
+            }
+
+            foreach (var ev in node.Events)
+            {
+                if (!ev.HasAnnotations) continue;
+                var kind = ev.IsStatic ? AnnotationTargetKind.StaticEvent : AnnotationTargetKind.Event;
+                var evTarget = new MetadataTarget(kind, className, ev.NameTok.Value?.ToString() ?? "");
+                var annErr = AnnotationProcessor.Process(ev.Annotations, evTarget, context, interpreter);
                 if (annErr != null) return res.Failure(annErr);
             }
 

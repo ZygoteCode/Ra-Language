@@ -83,6 +83,17 @@ namespace RaLanguage.Interpreter.Visitors.Interfaces
                 iface.AddProperty(PropertyBuilder.Build(p, name));
             }
 
+            foreach (var ev in node.Events)
+            {
+                var ename = ev.NameTok.Value?.ToString() ?? "";
+                if (string.IsNullOrEmpty(ename)) continue;
+                if (iface.EventByName.ContainsKey(ename))
+                    return res.Failure(new RuntimeError(ev.PositionStart, ev.PositionEnd,
+                        $"duplicate event contract '{ename}' in interface '{name}'", context));
+                iface.AddEvent(
+                    RaLanguage.Interpreter.Runtime.Events.EventBuilder.Build(ev, name));
+            }
+
             context.SymbolTable.Set(
                 name,
                 iface,
@@ -111,6 +122,14 @@ namespace RaLanguage.Interpreter.Visitors.Interfaces
                 if (!field.HasAnnotations) continue;
                 var t = new MetadataTarget(AnnotationTargetKind.Field, name, field.NameTok.Value?.ToString() ?? "");
                 var annErr = AnnotationProcessor.Process(field.Annotations, t, context, interpreter);
+                if (annErr != null) return res.Failure(annErr);
+            }
+
+            foreach (var ev in node.Events)
+            {
+                if (!ev.HasAnnotations) continue;
+                var t = new MetadataTarget(AnnotationTargetKind.Event, name, ev.NameTok.Value?.ToString() ?? "");
+                var annErr = AnnotationProcessor.Process(ev.Annotations, t, context, interpreter);
                 if (annErr != null) return res.Failure(annErr);
             }
 

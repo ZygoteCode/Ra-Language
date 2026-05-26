@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Lexer.Tokens;
+using RaLanguage.Parser.Nodes.Events;
 using RaLanguage.Parser.Nodes.Functions;
 using RaLanguage.Parser.Nodes.Properties;
 using RaLanguage.Parser.Nodes.Special;
@@ -20,6 +21,7 @@ namespace RaLanguage.Parser.Nodes.Classes
         public List<FunctionDefinitionNode> Methods { get; }
         public List<OperatorDefinitionNode> Operators { get; }
         public List<PropertyDefinitionNode> Properties { get; }
+        public List<EventDefinitionNode> Events { get; }
         public List<string> GenericTypeParams { get; }
         public List<WhereConstraintNode> WhereConstraints { get; }
 
@@ -36,7 +38,8 @@ namespace RaLanguage.Parser.Nodes.Classes
             List<OperatorDefinitionNode> operators,
             List<string>? genericTypeParams = null,
             List<WhereConstraintNode>? whereConstraints = null,
-            List<PropertyDefinitionNode>? properties = null
+            List<PropertyDefinitionNode>? properties = null,
+            List<EventDefinitionNode>? events = null
         ) : base(AstNodeType.ClassDefinition)
         {
             NameTok = nameTok;
@@ -52,6 +55,7 @@ namespace RaLanguage.Parser.Nodes.Classes
             GenericTypeParams = genericTypeParams ?? new List<string>();
             WhereConstraints = whereConstraints ?? new List<WhereConstraintNode>();
             Properties = properties ?? new List<PropertyDefinitionNode>();
+            Events = events ?? new List<EventDefinitionNode>();
 
             PositionStart = nameTok.PositionStart;
             PositionEnd = methods.Count > 0

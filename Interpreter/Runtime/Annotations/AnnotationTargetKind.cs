@@ -17,6 +17,8 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
         Parameter,
         Variable,
         Annotation,
-        Return
+        Return,
+        Event,
+        StaticEvent
     }
 }

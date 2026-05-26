@@ -1,4 +1,5 @@
 using System.Threading.Tasks;
+using RaLanguage.Interpreter.Runtime.Events;
 using RaLanguage.Interpreter.Runtime.Properties;
 using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Traits;
@@ -14,6 +15,8 @@ namespace RaLanguage.Interpreter.Values.Traits
         public List<StructFieldDefinitionNode> Fields { get; }
         public List<PropertyDescriptor> Properties { get; } = new();
         public Dictionary<string, PropertyDescriptor> PropertyByName { get; } = new(StringComparer.Ordinal);
+        public List<EventDescriptor> Events { get; } = new();
+        public Dictionary<string, EventDescriptor> EventByName { get; } = new(StringComparer.Ordinal);
         public List<string> GenericTypeParams { get; }
         public List<WhereConstraintNode> WhereConstraints { get; }
 
@@ -44,6 +47,15 @@ namespace RaLanguage.Interpreter.Values.Traits
 
         public PropertyDescriptor? GetProperty(string name)
             => PropertyByName.TryGetValue(name, out var d) ? d : null;
+
+        public void AddEvent(EventDescriptor desc)
+        {
+            Events.Add(desc);
+            EventByName[desc.Name] = desc;
+        }
+
+        public EventDescriptor? GetEvent(string name)
+            => EventByName.TryGetValue(name, out var d) ? d : null;
 
         public IEnumerable<TraitMethodDefinitionNode> GetRequiredMethods()
             => Methods.Where(m => !m.HasBody);

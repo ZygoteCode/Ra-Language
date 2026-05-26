@@ -1,5 +1,6 @@
 ﻿using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes.Classes;
+using RaLanguage.Parser.Nodes.Events;
 using RaLanguage.Parser.Nodes.Properties;
 using RaLanguage.Parser.Nodes.Special;
 
@@ -13,6 +14,7 @@ namespace RaLanguage.Parser.Nodes.Structs
         public List<StructMethodDefinitionNode> Methods { get; }
         public List<OperatorDefinitionNode> Operators { get; }
         public List<PropertyDefinitionNode> Properties { get; }
+        public List<EventDefinitionNode> Events { get; }
         public List<string> GenericTypeParams { get; }
         public List<WhereConstraintNode> WhereConstraints { get; }
 
@@ -24,7 +26,8 @@ namespace RaLanguage.Parser.Nodes.Structs
             List<OperatorDefinitionNode> operators,
             List<string>? genericTypeParams = null,
             List<WhereConstraintNode>? whereConstraints = null,
-            List<PropertyDefinitionNode>? properties = null) : base(AstNodeType.StructDefinition)
+            List<PropertyDefinitionNode>? properties = null,
+            List<EventDefinitionNode>? events = null) : base(AstNodeType.StructDefinition)
         {
             NameTok = nameTok;
             IsPublic = isPublic;
@@ -34,6 +37,7 @@ namespace RaLanguage.Parser.Nodes.Structs
             GenericTypeParams = genericTypeParams ?? new List<string>();
             WhereConstraints = whereConstraints ?? new List<WhereConstraintNode>();
             Properties = properties ?? new List<PropertyDefinitionNode>();
+            Events = events ?? new List<EventDefinitionNode>();
             PositionStart = nameTok.PositionStart;
             PositionEnd = methods.Count > 0
                 ? methods[^1].PositionEnd

@@ -46,6 +46,9 @@
         Regex,
         RegexMatch,
         RecordType,
-        RecordInstance
+        RecordInstance,
+        EventSubscription,
+        Subscription,
+        EventRef
     }
 }

@@ -25,6 +25,12 @@ namespace RaLanguage.Interpreter.Values.Structs
         public HashSet<string>? LazyInitialized;
         public HashSet<string>? LazyInitializing;
 
+        // Per-instance event subscriber storage. Allocated on first
+        // subscribe. Only RecordInstance (record class flavour) ever
+        // populates this slot — value-record / struct event
+        // declarations are rejected at parse time.
+        public Dictionary<string, RaLanguage.Interpreter.Runtime.Events.EventSubscriberList>? EventSubs;
+
         public override RuntimeValueType Type => RuntimeValueType.StructInstance;
         public override bool IsCopy => true;
 

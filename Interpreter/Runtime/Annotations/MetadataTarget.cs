@@ -39,6 +39,8 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
                 AnnotationTargetKind.Variable => "var",
                 AnnotationTargetKind.Annotation => "annotation",
                 AnnotationTargetKind.Return => "return",
+                AnnotationTargetKind.Event => "event",
+                AnnotationTargetKind.StaticEvent => "static_event",
                 _ => "unknown"
             };
             return owner != null ? $"{prefix}:{owner}.{name}" : $"{prefix}:{name}";
@@ -67,6 +69,8 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
             yield return "variable";
             yield return "annotation";
             yield return "return";
+            yield return "event";
+            yield return "static_event";
         }
 
         public static AnnotationTargetKind? FromName(string name) => name switch
@@ -92,6 +96,8 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
             "var" => AnnotationTargetKind.Variable,
             "annotation" => AnnotationTargetKind.Annotation,
             "return" => AnnotationTargetKind.Return,
+            "event" => AnnotationTargetKind.Event,
+            "static_event" => AnnotationTargetKind.StaticEvent,
             _ => null
         };
     }

@@ -92,6 +92,8 @@
         RecordPrimaryField,
         WithExpression,
         PropertyDefinition,
-        PropertyAccessor
+        PropertyAccessor,
+        EventDefinition,
+        EventAccessor
     }
 }

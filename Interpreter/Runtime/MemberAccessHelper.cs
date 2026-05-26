@@ -1,9 +1,11 @@
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.IR;
+using RaLanguage.Interpreter.Runtime.Events;
 using RaLanguage.Interpreter.Runtime.Properties;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Classes;
+using RaLanguage.Interpreter.Values.Events;
 using RaLanguage.Interpreter.Values.Namespaces;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Interpreter.Values.Structs;
@@ -37,6 +39,9 @@ namespace RaLanguage.Interpreter.Runtime
         private const byte BR_MODULE             = 11;
         private const byte BR_PRIMITIVE_EXT      = 12;
         private const byte BR_RECORD_DECONSTRUCT = 13;
+        private const byte BR_EVENT_INSTANCE     = 14;
+        private const byte BR_EVENT_STATIC       = 15;
+        private const byte BR_EVENT_REF          = 16;
 
         // M28.1 IC-aware entry point used by OP_GET_MEMBER. Falls back to the
         // unconditional Apply for first-hit (BranchKind = 0) and every miss.
@@ -160,6 +165,50 @@ namespace RaLanguage.Interpreter.Runtime
                         {
                             var recInst = (RaLanguage.Interpreter.Values.Records.RecordInstanceValue)target;
                             return res.Success(new RaLanguage.Interpreter.Values.Records.BoundRecordDeconstructValue(recInst)
+                                .SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                        }
+                        case BR_EVENT_INSTANCE:
+                        {
+                            // Owner is the target instance (StructInstance/RecordInstance/ClassInstance).
+                            // Descriptor is pinned in CachedAux. Skip the GetEvent dict walk.
+                            var desc = (EventDescriptor)icSlot.CachedAux!;
+                            // Re-check subscribe visibility on the cached path —
+                            // the answer depends on the caller's context, which
+                            // the IC cannot bake in.
+                            string declType = desc.DeclaringTypeName;
+                            bool isInside =
+                                IsInsideSameType(context, declType) ||
+                                (target is ClassInstanceValue ci && IsInsideClassHierarchy(context, ci.Definition));
+                            if (!isInside && !desc.SubscribeIsPublic)
+                            {
+                                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                                    $"event '{declType}.{desc.Name}' is not accessible here (subscribe is private)",
+                                    context));
+                            }
+                            return res.Success(new EventSubscriptionValue(target, desc)
+                                .SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                        }
+                        case BR_EVENT_STATIC:
+                        {
+                            var desc = (EventDescriptor)icSlot.CachedAux!;
+                            var classType = (ClassTypeValue)target;
+                            bool isInside =
+                                IsInsideSameType(context, classType.ClassName) ||
+                                IsInsideClassHierarchy(context, classType);
+                            if (!isInside && !desc.SubscribeIsPublic)
+                            {
+                                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                                    $"event '{desc.DeclaringTypeName}.{desc.Name}' is not accessible here (subscribe is private)",
+                                    context));
+                            }
+                            return res.Success(new EventSubscriptionValue(classType, desc)
+                                .SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                        }
+                        case BR_EVENT_REF:
+                        {
+                            // Class.Event for instance events — unbound ref.
+                            var desc = (EventDescriptor)icSlot.CachedAux!;
+                            return res.Success(new EventRefValue(target, desc)
                                 .SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                         }
                         case BR_CLASS_FIELD:
@@ -341,6 +390,29 @@ namespace RaLanguage.Interpreter.Runtime
                     return PropertyAccessOps.Get(instance, propDesc, context, node.PositionStart, node.PositionEnd, isInside);
                 }
 
+                // Event probe — only record class (StructInstance acting
+                // as record) reaches here for events; value structs and
+                // value records reject `event` declarations at parse time.
+                // Subscribe visibility is checked here; raise visibility
+                // is checked on Execute via Context comparison.
+                var evDesc = instance.Definition.GetEvent(memberName);
+                if (evDesc != null)
+                {
+                    bool isInside = IsInsideSameType(context, instance.Definition.StructName);
+                    if (!isInside && !evDesc.SubscribeIsPublic)
+                    {
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                            $"event '{evDesc.DeclaringTypeName}.{evDesc.Name}' is not accessible here (subscribe is private)",
+                            context));
+                    }
+                    icSlot.TargetType = target.Type;
+                    icSlot.Shape = instance.Definition;
+                    icSlot.BranchKind = BR_EVENT_INSTANCE;
+                    icSlot.CachedAux = evDesc;
+                    return res.Success(new EventSubscriptionValue(instance, evDesc)
+                        .SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                }
+
                 if (instance.HasField(memberName))
                 {
                     if (!instance.IsFieldPublic(memberName) && !IsInsideSameType(context, instance.Definition.StructName))
@@ -410,6 +482,26 @@ namespace RaLanguage.Interpreter.Runtime
                     bool isInside = IsInsideSameType(context, instance.Definition.ClassName)
                                  || IsInsideClassHierarchy(context, instance.Definition);
                     return PropertyAccessOps.Get(instance, propDesc, context, node.PositionStart, node.PositionEnd, isInside);
+                }
+
+                // Event probe (walks BaseClass via GetEvent).
+                var evDesc = instance.Definition.GetEvent(memberName);
+                if (evDesc != null)
+                {
+                    bool isInside = IsInsideSameType(context, instance.Definition.ClassName)
+                                 || IsInsideClassHierarchy(context, instance.Definition);
+                    if (!isInside && !evDesc.SubscribeIsPublic)
+                    {
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                            $"event '{evDesc.DeclaringTypeName}.{evDesc.Name}' is not accessible here (subscribe is private)",
+                            context));
+                    }
+                    icSlot.TargetType = RuntimeValueType.ClassInstance;
+                    icSlot.Shape = instance.Definition;
+                    icSlot.BranchKind = BR_EVENT_INSTANCE;
+                    icSlot.CachedAux = evDesc;
+                    return res.Success(new EventSubscriptionValue(instance, evDesc)
+                        .SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
 
                 if (instance.HasField(memberName))
@@ -499,12 +591,99 @@ namespace RaLanguage.Interpreter.Runtime
                     icSlot.CachedResult = bound;
                     return res.Success(bound);
                 }
+                // Event probe on the class type itself:
+                //   - static → EventSubscriptionValue (bound to the type)
+                //   - instance → EventRefValue (first-class unbound ref;
+                //     call with an instance arg to get a subscription).
+                var evOnType = classType.GetEvent(memberName);
+                if (evOnType != null)
+                {
+                    if (evOnType.IsStatic)
+                    {
+                        bool isInside = IsInsideSameType(context, classType.ClassName)
+                                     || IsInsideClassHierarchy(context, classType);
+                        if (!isInside && !evOnType.SubscribeIsPublic)
+                        {
+                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                                $"event '{evOnType.DeclaringTypeName}.{evOnType.Name}' is not accessible here (subscribe is private)",
+                                context));
+                        }
+                        icSlot.TargetType = RuntimeValueType.ClassType;
+                        icSlot.Shape = classType;
+                        icSlot.BranchKind = BR_EVENT_STATIC;
+                        icSlot.CachedAux = evOnType;
+                        return res.Success(new EventSubscriptionValue(classType, evOnType)
+                            .SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                    }
+                    icSlot.TargetType = RuntimeValueType.ClassType;
+                    icSlot.Shape = classType;
+                    icSlot.BranchKind = BR_EVENT_REF;
+                    icSlot.CachedAux = evOnType;
+                    return res.Success(new EventRefValue(classType, evOnType)
+                        .SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                }
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
                     $"class '{classType.ClassName}' has no static member named '{memberName}'",
                     context,
                     code: DiagnosticCode.RuntimeUndefinedSymbol,
                     primaryLabel: "no such static field or method",
                     help: $"check the spelling, or declare '{memberName}' with 'static' inside class '{classType.ClassName}'"));
+            }
+
+            // EventSubscriptionValue: synthetic methods (on/off/clear/count).
+            if (target.Type == RuntimeValueType.EventSubscription)
+            {
+                var evSrc = (EventSubscriptionValue)target;
+                BoundEventMethodValue? bound = memberName switch
+                {
+                    "on"    => new BoundEventMethodValue(evSrc, EventMethodKind.On),
+                    "off"   => new BoundEventMethodValue(evSrc, EventMethodKind.Off),
+                    "clear" => new BoundEventMethodValue(evSrc, EventMethodKind.Clear),
+                    "count" => new BoundEventMethodValue(evSrc, EventMethodKind.Count),
+                    _ => null
+                };
+                if (bound != null)
+                {
+                    bound.SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    return res.Success(bound);
+                }
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                    $"event '{evSrc.Descriptor.DeclaringTypeName}.{evSrc.Descriptor.Name}' has no method '{memberName}' (available: on, off, clear, count)",
+                    context));
+            }
+
+            // SubscriptionValue: dispose / is_active.
+            if (target.Type == RuntimeValueType.Subscription)
+            {
+                var sub = (SubscriptionValue)target;
+                BoundSubscriptionMethodValue? bound = memberName switch
+                {
+                    "dispose"    => new BoundSubscriptionMethodValue(sub, SubscriptionMethodKind.Dispose),
+                    "is_active"  => new BoundSubscriptionMethodValue(sub, SubscriptionMethodKind.IsActive),
+                    _ => null
+                };
+                if (bound != null)
+                {
+                    bound.SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    return res.Success(bound);
+                }
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                    $"subscription has no method '{memberName}' (available: dispose, is_active)",
+                    context));
+            }
+
+            // RecordType (record class definition) — surface instance
+            // events as EventRefValue so `RecClass.Event(instance)` works
+            // symmetrically with classes.
+            if (target.Type == RuntimeValueType.RecordType)
+            {
+                var recType = (RaLanguage.Interpreter.Values.Records.RecordTypeValue)target;
+                var evRec = recType.GetEvent(memberName);
+                if (evRec != null && !evRec.IsStatic)
+                {
+                    return res.Success(new EventRefValue(recType, evRec)
+                        .SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                }
             }
 
             if (target.Type == RuntimeValueType.Namespace)
@@ -593,6 +772,20 @@ namespace RaLanguage.Interpreter.Runtime
                     return PropertyAccessOps.Get(instance, propDesc, context, node.PositionStart, node.PositionEnd, isInside);
                 }
 
+                var evDesc = instance.Definition.GetEvent(memberName);
+                if (evDesc != null)
+                {
+                    bool isInside = IsInsideSameType(context, instance.Definition.StructName);
+                    if (!isInside && !evDesc.SubscribeIsPublic)
+                    {
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                            $"event '{evDesc.DeclaringTypeName}.{evDesc.Name}' is not accessible here (subscribe is private)",
+                            context));
+                    }
+                    return res.Success(new EventSubscriptionValue(instance, evDesc)
+                        .SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                }
+
                 if (instance.HasField(memberName))
                 {
                     if (!instance.IsFieldPublic(memberName) && !IsInsideSameType(context, instance.Definition.StructName))
@@ -640,6 +833,21 @@ namespace RaLanguage.Interpreter.Runtime
                     bool isInside = IsInsideSameType(context, instance.Definition.ClassName)
                                  || IsInsideClassHierarchy(context, instance.Definition);
                     return PropertyAccessOps.Get(instance, propDesc, context, node.PositionStart, node.PositionEnd, isInside);
+                }
+
+                var evDesc = instance.Definition.GetEvent(memberName);
+                if (evDesc != null)
+                {
+                    bool isInside = IsInsideSameType(context, instance.Definition.ClassName)
+                                 || IsInsideClassHierarchy(context, instance.Definition);
+                    if (!isInside && !evDesc.SubscribeIsPublic)
+                    {
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                            $"event '{evDesc.DeclaringTypeName}.{evDesc.Name}' is not accessible here (subscribe is private)",
+                            context));
+                    }
+                    return res.Success(new EventSubscriptionValue(instance, evDesc)
+                        .SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
 
                 if (instance.HasField(memberName))
@@ -694,12 +902,84 @@ namespace RaLanguage.Interpreter.Runtime
                     return res.Success(classType.StaticFields[memberName].SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 if (classType.TryGetStaticMethodOwner(memberName, out var owner, out var method) && method != null)
                     return res.Success(new BoundClassMethodValue(owner, null, method, isStatic: true).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                var evOnType2 = classType.GetEvent(memberName);
+                if (evOnType2 != null)
+                {
+                    if (evOnType2.IsStatic)
+                    {
+                        bool isInside = IsInsideSameType(context, classType.ClassName)
+                                     || IsInsideClassHierarchy(context, classType);
+                        if (!isInside && !evOnType2.SubscribeIsPublic)
+                        {
+                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                                $"event '{evOnType2.DeclaringTypeName}.{evOnType2.Name}' is not accessible here (subscribe is private)",
+                                context));
+                        }
+                        return res.Success(new EventSubscriptionValue(classType, evOnType2)
+                            .SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                    }
+                    return res.Success(new EventRefValue(classType, evOnType2)
+                        .SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                }
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
                     $"class '{classType.ClassName}' has no static member named '{memberName}'",
                     context,
                     code: DiagnosticCode.RuntimeUndefinedSymbol,
                     primaryLabel: "no such static field or method",
                     help: $"check the spelling, or declare '{memberName}' with 'static' inside class '{classType.ClassName}'"));
+            }
+
+            // EventSubscriptionValue: synthetic methods (on/off/clear/count).
+            if (target.Type == RuntimeValueType.EventSubscription)
+            {
+                var evSrc = (EventSubscriptionValue)target;
+                BoundEventMethodValue? bound = memberName switch
+                {
+                    "on"    => new BoundEventMethodValue(evSrc, EventMethodKind.On),
+                    "off"   => new BoundEventMethodValue(evSrc, EventMethodKind.Off),
+                    "clear" => new BoundEventMethodValue(evSrc, EventMethodKind.Clear),
+                    "count" => new BoundEventMethodValue(evSrc, EventMethodKind.Count),
+                    _ => null
+                };
+                if (bound != null)
+                {
+                    bound.SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    return res.Success(bound);
+                }
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                    $"event '{evSrc.Descriptor.DeclaringTypeName}.{evSrc.Descriptor.Name}' has no method '{memberName}' (available: on, off, clear, count)",
+                    context));
+            }
+
+            // SubscriptionValue: dispose / is_active.
+            if (target.Type == RuntimeValueType.Subscription)
+            {
+                var sub = (SubscriptionValue)target;
+                BoundSubscriptionMethodValue? bound = memberName switch
+                {
+                    "dispose"   => new BoundSubscriptionMethodValue(sub, SubscriptionMethodKind.Dispose),
+                    "is_active" => new BoundSubscriptionMethodValue(sub, SubscriptionMethodKind.IsActive),
+                    _ => null
+                };
+                if (bound != null)
+                {
+                    bound.SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                    return res.Success(bound);
+                }
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                    $"subscription has no method '{memberName}' (available: dispose, is_active)",
+                    context));
+            }
+
+            if (target.Type == RuntimeValueType.RecordType)
+            {
+                var recType = (RaLanguage.Interpreter.Values.Records.RecordTypeValue)target;
+                var evRec = recType.GetEvent(memberName);
+                if (evRec != null && !evRec.IsStatic)
+                {
+                    return res.Success(new EventRefValue(recType, evRec)
+                        .SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                }
             }
 
             if (target.Type == RuntimeValueType.Namespace)

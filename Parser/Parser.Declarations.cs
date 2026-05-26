@@ -349,6 +349,7 @@ namespace RaLanguage.Parser
             var methods = new List<TraitMethodDefinitionNode>();
             var fields = new List<StructFieldDefinitionNode>();
             var traitProperties = new List<RaLanguage.Parser.Nodes.Properties.PropertyDefinitionNode>();
+            var traitEvents = new List<RaLanguage.Parser.Nodes.Events.EventDefinitionNode>();
 
             while (_currentToken.Type != TokenType.RBRACKET)
             {
@@ -459,6 +460,38 @@ namespace RaLanguage.Parser
                         Advance();
                     }
                     continue;
+                }
+
+                // Event contract / default inside a trait body. Events on
+                // traits are always contracts (abstract by definition);
+                // the implementer's concrete event satisfies them.
+                var (tm_cancel, tm_tolerant, tm_async) = TryConsumeEventModifiers(res);
+                if (_currentToken.Matches(Keyword.Event))
+                {
+                    var evRes = ParseEventDeclaration(
+                        isPublic: memberPublic,
+                        isStatic: false,
+                        isAbstract: true,
+                        isOverride: false,
+                        isCancellable: tm_cancel,
+                        isTolerant: tm_tolerant,
+                        isAsync: tm_async);
+                    if (evRes.Error != null) return res.Failure(evRes.Error);
+                    var evNode = (RaLanguage.Parser.Nodes.Events.EventDefinitionNode)evRes.Node!;
+                    AnnotationAttacher.Attach(evNode, memberAnnotations);
+                    traitEvents.Add(evNode);
+                    if (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                    continue;
+                }
+                if (tm_cancel || tm_tolerant || tm_async)
+                {
+                    return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                        "'event' (after 'cancellable' / 'tolerant' / 'async')",
+                        contextHint: "these modifiers are only meaningful as an 'event' prefix"));
                 }
 
                 bool traitMemberAsync = false;
@@ -586,7 +619,7 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            return res.Success(new TraitDefinitionNode(nameTok, isPublic, methods, fields, genericTypeParams, whereConstraints, traitProperties));
+            return res.Success(new TraitDefinitionNode(nameTok, isPublic, methods, fields, genericTypeParams, whereConstraints, traitProperties, traitEvents));
             }
             finally
             {
@@ -652,6 +685,7 @@ namespace RaLanguage.Parser
             var methods = new List<InterfaceMethodSignatureNode>();
             var fields = new List<StructFieldDefinitionNode>();
             var interfaceProperties = new List<RaLanguage.Parser.Nodes.Properties.PropertyDefinitionNode>();
+            var interfaceEvents = new List<RaLanguage.Parser.Nodes.Events.EventDefinitionNode>();
 
             while (_currentToken.Type != TokenType.RBRACKET)
             {
@@ -749,6 +783,37 @@ namespace RaLanguage.Parser
                         Advance();
                     }
                     continue;
+                }
+
+                // Event contract inside an interface body. Always
+                // abstract — interface events are pure contracts.
+                var (im_cancel, im_tolerant, im_async) = TryConsumeEventModifiers(res);
+                if (_currentToken.Matches(Keyword.Event))
+                {
+                    var evRes = ParseEventDeclaration(
+                        isPublic: memberPublic,
+                        isStatic: false,
+                        isAbstract: true,
+                        isOverride: false,
+                        isCancellable: im_cancel,
+                        isTolerant: im_tolerant,
+                        isAsync: im_async);
+                    if (evRes.Error != null) return res.Failure(evRes.Error);
+                    var evNode = (RaLanguage.Parser.Nodes.Events.EventDefinitionNode)evRes.Node!;
+                    AnnotationAttacher.Attach(evNode, memberAnnotations);
+                    interfaceEvents.Add(evNode);
+                    if (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                    continue;
+                }
+                if (im_cancel || im_tolerant || im_async)
+                {
+                    return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                        "'event' (after 'cancellable' / 'tolerant' / 'async')",
+                        contextHint: "these modifiers are only meaningful as an 'event' prefix"));
                 }
 
                 if (!_currentToken.Matches(Keyword.Fn))
@@ -895,7 +960,7 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            return res.Success(new InterfaceDefinitionNode(nameTok, isPublic, methods, fields, genericTypeParams, whereConstraints, interfaceProperties));
+            return res.Success(new InterfaceDefinitionNode(nameTok, isPublic, methods, fields, genericTypeParams, whereConstraints, interfaceProperties, interfaceEvents));
             }
             finally
             {
@@ -1165,6 +1230,7 @@ namespace RaLanguage.Parser
             var methods = new List<FunctionDefinitionNode>();
             var operators = new List<RaLanguage.Parser.Nodes.Classes.OperatorDefinitionNode>();
             var properties = new List<RaLanguage.Parser.Nodes.Properties.PropertyDefinitionNode>();
+            var events = new List<RaLanguage.Parser.Nodes.Events.EventDefinitionNode>();
 
             while (_currentToken.Type != TokenType.RBRACKET)
             {
@@ -1324,6 +1390,40 @@ namespace RaLanguage.Parser
                         contextHint: "'lazy' is only meaningful as a 'prop' prefix; remove it or follow it with a property declaration"));
                 }
 
+                // Event declaration. Contextual modifiers `cancellable` /
+                // `tolerant` and the `async` keyword may appear in any
+                // order before `event`. Events inherit the class's
+                // instance/static, abstract, and override modifiers from
+                // the surrounding member-modifier scan.
+                var (memberIsCancellable, memberIsTolerant, memberIsAsyncEvt) = TryConsumeEventModifiers(res);
+                if (_currentToken.Matches(Keyword.Event))
+                {
+                    var evRes = ParseEventDeclaration(
+                        isPublic: isMemberPublic,
+                        isStatic: isMemberStatic,
+                        isAbstract: isMemberAbstract,
+                        isOverride: isMemberOverride,
+                        isCancellable: memberIsCancellable,
+                        isTolerant: memberIsTolerant,
+                        isAsync: memberIsAsyncEvt);
+                    if (evRes.Error != null) return res.Failure(evRes.Error);
+                    var evNode = (RaLanguage.Parser.Nodes.Events.EventDefinitionNode)evRes.Node!;
+                    AnnotationAttacher.Attach(evNode, memberAnnotations);
+                    events.Add(evNode);
+                    if (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                    continue;
+                }
+                if (memberIsCancellable || memberIsTolerant || memberIsAsyncEvt)
+                {
+                    return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                        "'event' (after 'cancellable' / 'tolerant' / 'async')",
+                        contextHint: "these modifiers are only meaningful as an 'event' prefix"));
+                }
+
                 while (_currentToken.Type == TokenType.NEWLINE)
                 {
                     res.RegisterAdvancement();
@@ -1400,7 +1500,7 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            return res.Success(new ClassDefinitionNode(nameTok, isPublic, isAbstract, isStatic, baseType, implementedInterfaces, withTraits, fields, methods, operators, genericTypeParams, whereConstraints, properties));
+            return res.Success(new ClassDefinitionNode(nameTok, isPublic, isAbstract, isStatic, baseType, implementedInterfaces, withTraits, fields, methods, operators, genericTypeParams, whereConstraints, properties, events));
             }
             finally
             {
@@ -2636,6 +2736,7 @@ namespace RaLanguage.Parser
             var methods = new List<StructMethodDefinitionNode>();
             var operators = new List<OperatorDefinitionNode>();
             var recordProperties = new List<RaLanguage.Parser.Nodes.Properties.PropertyDefinitionNode>();
+            var recordEvents = new List<RaLanguage.Parser.Nodes.Events.EventDefinitionNode>();
 
             int peek = _tokenIndex;
             while (peek < _tokens.Count && _tokens[peek].Type == TokenType.NEWLINE) peek++;
@@ -2774,6 +2875,47 @@ namespace RaLanguage.Parser
                         contextHint: "'lazy' is only meaningful as a 'prop' prefix"));
                 }
 
+                // Event declaration on a record. Only `record class`
+                // (reference record) supports events — value records are
+                // copy-on-read so subscriptions would not reach the
+                // original. The runtime model matches a class event:
+                // per-instance subscriber list, snapshot semantics, etc.
+                var (rm_cancel, rm_tolerant, rm_async) = TryConsumeEventModifiers(res);
+                if (_currentToken.Matches(Keyword.Event))
+                {
+                    if (!isRefRecord)
+                    {
+                        return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                            "a method ('fn') or operator (events are not allowed on value records)",
+                            contextHint: "value records are copy-on-read; events require a stable instance identity. Declare the record as 'record class' to enable events."));
+                    }
+
+                    var evRes = ParseEventDeclaration(
+                        isPublic: memberPublic,
+                        isStatic: false,
+                        isAbstract: isAbstract,
+                        isOverride: false,
+                        isCancellable: rm_cancel,
+                        isTolerant: rm_tolerant,
+                        isAsync: rm_async);
+                    if (evRes.Error != null) return res.Failure(evRes.Error);
+                    var evNode = (RaLanguage.Parser.Nodes.Events.EventDefinitionNode)evRes.Node!;
+                    AnnotationAttacher.Attach(evNode, memberAnnotations);
+                    recordEvents.Add(evNode);
+                    if (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                    continue;
+                }
+                if (rm_cancel || rm_tolerant || rm_async)
+                {
+                    return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                        "'event' (after 'cancellable' / 'tolerant' / 'async')",
+                        contextHint: "these modifiers are only meaningful as an 'event' prefix"));
+                }
+
                 // Records explicitly forbid extra instance fields in the
                 // body — `var`/`let`/`const`/`final` would silently fall
                 // outside the auto-generated equality/hash/to_string set.
@@ -2872,7 +3014,8 @@ namespace RaLanguage.Parser
                 operators,
                 genericTypeParams,
                 whereConstraints,
-                recordProperties));
+                recordProperties,
+                recordEvents));
             }
             finally
             {
@@ -3059,6 +3202,24 @@ namespace RaLanguage.Parser
                     return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
                         "'prop' (after 'lazy')",
                         contextHint: "'lazy' is only meaningful as a 'prop' prefix"));
+                }
+
+                // Structs are value-types (IsCopy=true). Subscribing on a
+                // copy of a struct would silently miss the original, so
+                // events are disallowed at definition time. The user
+                // should use a class or `record class` instead.
+                var (sm_cancel, sm_tolerant, sm_async) = TryConsumeEventModifiers(res);
+                if (_currentToken.Matches(Keyword.Event))
+                {
+                    return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                        "a method ('fn') or operator declaration (events are not allowed on value-type structs)",
+                        contextHint: "structs are copy-on-read value types; subscribing to an event on a copy would miss the original. Use a class or 'record class' for event-driven types."));
+                }
+                if (sm_cancel || sm_tolerant || sm_async)
+                {
+                    return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                        "'event' (after 'cancellable' / 'tolerant' / 'async')",
+                        contextHint: "these modifiers are only meaningful as an 'event' prefix"));
                 }
 
                 while (_currentToken.Type == TokenType.NEWLINE)
