@@ -9,12 +9,20 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <Platforms>x64</Platforms>
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
-    <OptimizationPreference>Size</OptimizationPreference>
+    <OptimizationPreference>Speed</OptimizationPreference>
+    <IlcOptimizationPreference>Speed</IlcOptimizationPreference>
     <TrimMode>link</TrimMode>
     <PublishTrimmed>true</PublishTrimmed>
     <StackTraceSupport>false</StackTraceSupport>
     <DebugType>None</DebugType>
     <DebugSymbols>false</DebugSymbols>
+    <EventSourceSupport>false</EventSourceSupport>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <StripSymbols>true</StripSymbols>
+    <TieredCompilation>false</TieredCompilation>
+    <DebuggerSupport>false</DebuggerSupport>
+    <MetricsSupport>false</MetricsSupport>
+    <HttpActivityPropagationSupport>false</HttpActivityPropagationSupport>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
