@@ -1,5 +1,6 @@
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes.Classes;
+using RaLanguage.Parser.Nodes.Properties;
 using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Structs;
 using RaLanguage.Types;
@@ -43,6 +44,7 @@ namespace RaLanguage.Parser.Nodes.Records
         public List<RecordPrimaryFieldNode> PrimaryFields { get; }
         public List<StructMethodDefinitionNode> Methods { get; }
         public List<OperatorDefinitionNode> Operators { get; }
+        public List<PropertyDefinitionNode> Properties { get; }
         public List<string> GenericTypeParams { get; }
         public List<WhereConstraintNode> WhereConstraints { get; }
 
@@ -62,7 +64,8 @@ namespace RaLanguage.Parser.Nodes.Records
             List<StructMethodDefinitionNode> methods,
             List<OperatorDefinitionNode> operators,
             List<string>? genericTypeParams,
-            List<WhereConstraintNode>? whereConstraints) : base(AstNodeType.RecordDefinition)
+            List<WhereConstraintNode>? whereConstraints,
+            List<PropertyDefinitionNode>? properties = null) : base(AstNodeType.RecordDefinition)
         {
             NameTok = nameTok;
             IsPublic = isPublic;
@@ -73,6 +76,7 @@ namespace RaLanguage.Parser.Nodes.Records
             PrimaryFields = primaryFields;
             Methods = methods;
             Operators = operators;
+            Properties = properties ?? new List<PropertyDefinitionNode>();
             GenericTypeParams = genericTypeParams ?? new List<string>();
             WhereConstraints = whereConstraints ?? new List<WhereConstraintNode>();
             PositionStart = nameTok.PositionStart;

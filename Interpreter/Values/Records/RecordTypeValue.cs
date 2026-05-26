@@ -194,6 +194,26 @@ namespace RaLanguage.Interpreter.Values.Records
                 }
             }
 
+            // After primary fields are bound, walk this record's
+            // body-declared properties and apply their default
+            // initialisers. Lazy properties skip; computed have no
+            // backing.
+            foreach (var prop in Properties)
+            {
+                if (prop.IsAbstract) continue;
+                if (!prop.HasBacking) continue;
+                if (prop.IsLazy) continue;
+
+                RuntimeValue val = NullValue.Null.SetContext(Context).SetPos(PositionStart, PositionEnd);
+                if (prop.DefaultValueNode != null)
+                {
+                    var initRes = await new Interpreter().Visit(prop.DefaultValueNode, Context);
+                    if (initRes.Error != null) return res.Failure(initRes.Error);
+                    val = initRes.Value ?? val;
+                }
+                instance.SetField(prop.Name, val, prop.IsPublic, Parser.Nodes.Variables.VariableDeclarationType.VARIABLE);
+            }
+
             return res.Success(instance);
         }
 

@@ -4,6 +4,7 @@ using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Runtime.Classes;
+using RaLanguage.Interpreter.Runtime.Properties;
 using RaLanguage.Interpreter.Values.Classes;
 using RaLanguage.Interpreter.Values.Functions;
 using RaLanguage.Interpreter.Values.Interfaces;
@@ -31,6 +32,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public List<OperatorDefinitionNode> Operators { get; } = new();
         public List<string> GenericTypeParams { get; }
         public List<WhereConstraintNode> WhereConstraints { get; }
+
+        // Property descriptors declared on this class (not the
+        // hierarchy). GetProperty walks the BaseClass chain.
+        public List<PropertyDescriptor> Properties { get; } = new();
+        public Dictionary<string, PropertyDescriptor> PropertyByName { get; } = new(StringComparer.Ordinal);
 
         public override RuntimeValueType Type => RuntimeValueType.ClassType;
 
@@ -73,6 +79,26 @@ namespace RaLanguage.Interpreter.Values.Primitives
         }
 
         public bool HasStaticField(string name) => StaticFields.ContainsKey(name);
+
+        // Registers a property declared on this class. Invalidates the
+        // shape cache so the slot allocator picks up the new backing
+        // slot on the next access.
+        public void AddProperty(PropertyDescriptor desc)
+        {
+            Properties.Add(desc);
+            PropertyByName[desc.Name] = desc;
+            _fieldNameToIndex = null;
+            _fieldSlotCount = -1;
+        }
+
+        // Walks this class then base classes, returning the most-derived
+        // descriptor for `name`. Overrides on this class shadow base
+        // descriptors automatically because we hit them first.
+        public PropertyDescriptor? GetProperty(string name)
+        {
+            if (PropertyByName.TryGetValue(name, out var d)) return d;
+            return BaseClass?.GetProperty(name);
+        }
 
         // M38: hidden class / shape information. Field set on a class
         // definition is static — fields are declared at parse time and
@@ -140,6 +166,14 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 {
                     map[n] = next++;
                 }
+            }
+            // Stored properties allocate next to fields. Inherited
+            // properties already received their slot via the base
+            // class's BuildFieldShape recursion above.
+            foreach (var p in Properties)
+            {
+                if (!p.HasBacking) continue;
+                if (!map.ContainsKey(p.Name)) map[p.Name] = next++;
             }
             _fieldNameToIndex = map;
             _fieldSlotCount = next;
@@ -340,6 +374,30 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return result;
         }
 
+        public List<PropertyDescriptor> GetAbstractPropertiesInHierarchy()
+        {
+            var result = new List<PropertyDescriptor>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+
+            void Collect(ClassTypeValue? type)
+            {
+                if (type == null) return;
+                foreach (var p in type.Properties)
+                    if (p.IsAbstract && seen.Add(p.Name))
+                        result.Add(p);
+                Collect(type.BaseClass);
+            }
+
+            Collect(this);
+            return result;
+        }
+
+        public bool HasConcretePropertyOverride(string name)
+        {
+            var p = GetProperty(name);
+            return p != null && !p.IsAbstract;
+        }
+
         private static void CollectAbstractFields(ClassTypeValue type, List<StructFieldDefinitionNode> output)
         {
             output.AddRange(type.Fields.Where(f => f.IsAbstract));
@@ -382,6 +440,24 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 if (!HasFieldMatching(field))
                     return false;
+            }
+
+            // Trait property requirements — abstract entries declare a
+            // contract the implementor must supply. Default-bodied
+            // property declarations in the trait carry their own
+            // accessors and need not be re-declared.
+            foreach (var requiredProp in trait.Properties)
+            {
+                if (!requiredProp.IsAbstract) continue;
+                var prov = GetProperty(requiredProp.Name);
+                if (prov == null)
+                {
+                    var fld = GetField(requiredProp.Name);
+                    if (fld != null && !requiredProp.HasSetter && !requiredProp.HasInitter) continue;
+                    return false;
+                }
+                if (requiredProp.HasGetter && !prov.HasGetter) return false;
+                if (requiredProp.HasSetter && !prov.HasSetter) return false;
             }
 
             return true;
@@ -635,6 +711,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
             foreach (var field in type.Fields)
             {
+                if (field.IsStatic) continue;
                 RuntimeValue value = NullValue.Null.SetContext(context).SetPos(type.PositionStart, type.PositionEnd);
 
                 if (field.DefaultValueNode != null)
@@ -655,6 +732,34 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
                 instance.SetField(fieldName, value, field.IsPublic, field.FieldType, field.DeclarationType);
             }
+
+            // Property defaults: stored, non-lazy, non-abstract properties
+            // are populated from their DefaultValueNode at construction
+            // time. Lazy properties skip this pass and initialise on first
+            // read. Computed properties have no backing.
+            foreach (var prop in type.Properties)
+            {
+                if (prop.IsAbstract) continue;
+                if (!prop.HasBacking) continue;
+                if (prop.IsLazy) continue;
+
+                RuntimeValue value = Primitives.NullValue.Null.SetContext(context).SetPos(type.PositionStart, type.PositionEnd);
+
+                if (prop.DefaultValueNode != null)
+                {
+                    var initRes = await new Interpreter().Visit(prop.DefaultValueNode, context);
+                    if (initRes.Error != null) return initRes.Error;
+                    if (initRes.Value != null) value = initRes.Value;
+                }
+
+                var propKey = MetadataTarget.BuildKey(AnnotationTargetKind.Field, type.ClassName, prop.Name);
+                var (coerced, verr) = AnnotationValidator.CoerceAndValidate(propKey, value, $"property '{type.ClassName}.{prop.Name}'", context);
+                if (verr != null) return verr;
+                value = coerced;
+
+                instance.SetField(prop.Name, value, prop.IsPublic, prop.PropertyType, Parser.Nodes.Variables.VariableDeclarationType.VARIABLE);
+            }
+
             return null;
         }
 
@@ -678,6 +783,27 @@ namespace RaLanguage.Interpreter.Values.Primitives
             {
                 if (!HasFieldMatching(field))
                     return false;
+            }
+
+            // Property contracts. A concrete property anywhere in the
+            // class hierarchy satisfies the contract when it provides
+            // at least the accessors the interface requires (a class
+            // may add a setter when the interface only requires a
+            // getter, but never the reverse). A field of the same name
+            // also satisfies a `prop X { get; }` contract — direct
+            // field access is read-compatible with a getter.
+            foreach (var requiredProp in iface.Properties)
+            {
+                var prov = GetProperty(requiredProp.Name);
+                if (prov == null)
+                {
+                    var fld = GetField(requiredProp.Name);
+                    if (fld != null && !requiredProp.HasSetter && !requiredProp.HasInitter) continue;
+                    return false;
+                }
+                if (requiredProp.HasGetter && !prov.HasGetter) return false;
+                if (requiredProp.HasSetter && !prov.HasSetter) return false;
+                if (requiredProp.HasInitter && !prov.HasInitter && !prov.HasSetter) return false;
             }
 
             return true;

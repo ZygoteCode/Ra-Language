@@ -1,4 +1,5 @@
 using System.Threading.Tasks;
+using RaLanguage.Interpreter.Runtime.Properties;
 using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Traits;
 using RaLanguage.Parser.Nodes.Structs;
@@ -11,6 +12,8 @@ namespace RaLanguage.Interpreter.Values.Traits
         public bool IsPublic { get; }
         public List<TraitMethodDefinitionNode> Methods { get; }
         public List<StructFieldDefinitionNode> Fields { get; }
+        public List<PropertyDescriptor> Properties { get; } = new();
+        public Dictionary<string, PropertyDescriptor> PropertyByName { get; } = new(StringComparer.Ordinal);
         public List<string> GenericTypeParams { get; }
         public List<WhereConstraintNode> WhereConstraints { get; }
 
@@ -32,6 +35,15 @@ namespace RaLanguage.Interpreter.Values.Traits
             GenericTypeParams = genericTypeParams ?? new List<string>();
             WhereConstraints = whereConstraints ?? new List<WhereConstraintNode>();
         }
+
+        public void AddProperty(PropertyDescriptor desc)
+        {
+            Properties.Add(desc);
+            PropertyByName[desc.Name] = desc;
+        }
+
+        public PropertyDescriptor? GetProperty(string name)
+            => PropertyByName.TryGetValue(name, out var d) ? d : null;
 
         public IEnumerable<TraitMethodDefinitionNode> GetRequiredMethods()
             => Methods.Where(m => !m.HasBody);

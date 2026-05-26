@@ -21,6 +21,10 @@ namespace RaLanguage.Interpreter.Values.Structs
         // slot array is the O(1) read path consulted by the M28.1 IC.
         public RuntimeValue?[] FieldSlots;
 
+        // Lazy-property bookkeeping. Allocated on first use.
+        public HashSet<string>? LazyInitialized;
+        public HashSet<string>? LazyInitializing;
+
         public override RuntimeValueType Type => RuntimeValueType.StructInstance;
         public override bool IsCopy => true;
 

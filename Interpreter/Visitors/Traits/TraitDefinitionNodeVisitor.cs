@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
+using RaLanguage.Interpreter.Runtime.Properties;
 using RaLanguage.Interpreter.Values.Traits;
 using RaLanguage.Parser.Nodes.Traits;
 using RaLanguage.Parser.Nodes.Variables;
@@ -49,9 +50,19 @@ namespace RaLanguage.Interpreter.Visitors.Traits
                 }
             }
 
-            var traitValue = new TraitTypeValue(traitName, node.IsPublic, node.Methods, node.Fields, node.GenericTypeParams, node.WhereConstraints)
+            var traitValue = (TraitTypeValue)new TraitTypeValue(traitName, node.IsPublic, node.Methods, node.Fields, node.GenericTypeParams, node.WhereConstraints)
                 .SetContext(context)
                 .SetPos(node.PositionStart, node.PositionEnd);
+
+            foreach (var p in node.Properties)
+            {
+                var pname = p.NameTok.Value?.ToString() ?? "";
+                if (string.IsNullOrEmpty(pname)) continue;
+                if (traitValue.PropertyByName.ContainsKey(pname))
+                    return res.Failure(new RuntimeError(p.PositionStart, p.PositionEnd,
+                        $"duplicate property '{pname}' in trait '{traitName}'", context));
+                traitValue.AddProperty(PropertyBuilder.Build(p, traitName));
+            }
 
             context.SymbolTable.Set(
                 traitName,

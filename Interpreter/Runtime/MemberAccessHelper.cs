@@ -1,6 +1,7 @@
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.IR;
+using RaLanguage.Interpreter.Runtime.Properties;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Classes;
 using RaLanguage.Interpreter.Values.Namespaces;
@@ -326,6 +327,20 @@ namespace RaLanguage.Interpreter.Runtime
             if (target.Type == RuntimeValueType.StructInstance || target.Type == RuntimeValueType.RecordInstance)
             {
                 var instance = (StructInstanceValue)target;
+
+                // Property probe — properties take precedence over
+                // fields when both are declared. The parser prevents
+                // same-name collisions, so the dispatch is unambiguous.
+                // IC is not primed for property hits in v1; the
+                // property pipeline runs from scratch each visit.
+                var propDesc = instance.Definition.GetProperty(memberName);
+                if (propDesc != null)
+                {
+                    icSlot.BranchKind = 0;
+                    bool isInside = IsInsideSameType(context, instance.Definition.StructName);
+                    return PropertyAccessOps.Get(instance, propDesc, context, node.PositionStart, node.PositionEnd, isInside);
+                }
+
                 if (instance.HasField(memberName))
                 {
                     if (!instance.IsFieldPublic(memberName) && !IsInsideSameType(context, instance.Definition.StructName))
@@ -386,6 +401,16 @@ namespace RaLanguage.Interpreter.Runtime
             if (target.Type == RuntimeValueType.ClassInstance)
             {
                 var instance = (ClassInstanceValue)target;
+
+                // Property probe (walks BaseClass via GetProperty).
+                var propDesc = instance.Definition.GetProperty(memberName);
+                if (propDesc != null)
+                {
+                    icSlot.BranchKind = 0;
+                    bool isInside = IsInsideSameType(context, instance.Definition.ClassName)
+                                 || IsInsideClassHierarchy(context, instance.Definition);
+                    return PropertyAccessOps.Get(instance, propDesc, context, node.PositionStart, node.PositionEnd, isInside);
+                }
 
                 if (instance.HasField(memberName))
                 {
@@ -560,6 +585,14 @@ namespace RaLanguage.Interpreter.Runtime
             if (target.Type == RuntimeValueType.StructInstance || target.Type == RuntimeValueType.RecordInstance)
             {
                 var instance = (StructInstanceValue)target;
+
+                var propDesc = instance.Definition.GetProperty(memberName);
+                if (propDesc != null)
+                {
+                    bool isInside = IsInsideSameType(context, instance.Definition.StructName);
+                    return PropertyAccessOps.Get(instance, propDesc, context, node.PositionStart, node.PositionEnd, isInside);
+                }
+
                 if (instance.HasField(memberName))
                 {
                     if (!instance.IsFieldPublic(memberName) && !IsInsideSameType(context, instance.Definition.StructName))
@@ -600,6 +633,14 @@ namespace RaLanguage.Interpreter.Runtime
             if (target.Type == RuntimeValueType.ClassInstance)
             {
                 var instance = (ClassInstanceValue)target;
+
+                var propDesc = instance.Definition.GetProperty(memberName);
+                if (propDesc != null)
+                {
+                    bool isInside = IsInsideSameType(context, instance.Definition.ClassName)
+                                 || IsInsideClassHierarchy(context, instance.Definition);
+                    return PropertyAccessOps.Get(instance, propDesc, context, node.PositionStart, node.PositionEnd, isInside);
+                }
 
                 if (instance.HasField(memberName))
                     return res.Success(instance.GetField(memberName).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
@@ -711,6 +752,19 @@ namespace RaLanguage.Interpreter.Runtime
             if (selfEntry.Value.Type == RuntimeValueType.ClassInstance)
                 return string.Equals(((ClassInstanceValue)selfEntry.Value).Definition.ClassName, typeName, System.StringComparison.Ordinal);
             return false;
+        }
+
+        // True when the calling context's `self` is an instance of
+        // `decl` or any subclass of it. Properties declared on the base
+        // are reachable from a method body that runs on a derived class,
+        // matching the visibility model for fields/methods.
+        public static bool IsInsideClassHierarchy(Context context, ClassTypeValue decl)
+        {
+            var selfEntry = context.SymbolTable!.GetEntry("self");
+            if (selfEntry == null) return false;
+            if (selfEntry.Value.Type != RuntimeValueType.ClassInstance) return false;
+            var inst = (ClassInstanceValue)selfEntry.Value;
+            return inst.Definition.InheritsFrom(decl.ClassName);
         }
     }
 }

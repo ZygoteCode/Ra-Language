@@ -348,6 +348,7 @@ namespace RaLanguage.Parser
 
             var methods = new List<TraitMethodDefinitionNode>();
             var fields = new List<StructFieldDefinitionNode>();
+            var traitProperties = new List<RaLanguage.Parser.Nodes.Properties.PropertyDefinitionNode>();
 
             while (_currentToken.Type != TokenType.RBRACKET)
             {
@@ -431,6 +432,33 @@ namespace RaLanguage.Parser
                         res.RegisterAdvancement();
                         Advance();
                     }
+                }
+
+                // Property requirement / default inside a trait body.
+                // Traits inherit the same "abstract by default" rule as
+                // interfaces, but a property declared with an accessor
+                // body provides a default implementation that
+                // implementers can inherit (mirroring trait method
+                // defaults).
+                if (_currentToken.Matches(Keyword.Prop))
+                {
+                    bool traitIsAbstract = isAbstract;
+                    var propRes = ParsePropertyDeclaration(
+                        isPublic: memberPublic,
+                        isStatic: false,
+                        isAbstract: traitIsAbstract,
+                        isOverride: false,
+                        isLazy: false);
+                    if (propRes.Error != null) return res.Failure(propRes.Error);
+                    var propNode = (RaLanguage.Parser.Nodes.Properties.PropertyDefinitionNode)propRes.Node!;
+                    AnnotationAttacher.Attach(propNode, memberAnnotations);
+                    traitProperties.Add(propNode);
+                    if (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                    continue;
                 }
 
                 bool traitMemberAsync = false;
@@ -558,7 +586,7 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            return res.Success(new TraitDefinitionNode(nameTok, isPublic, methods, fields, genericTypeParams, whereConstraints));
+            return res.Success(new TraitDefinitionNode(nameTok, isPublic, methods, fields, genericTypeParams, whereConstraints, traitProperties));
             }
             finally
             {
@@ -623,6 +651,7 @@ namespace RaLanguage.Parser
 
             var methods = new List<InterfaceMethodSignatureNode>();
             var fields = new List<StructFieldDefinitionNode>();
+            var interfaceProperties = new List<RaLanguage.Parser.Nodes.Properties.PropertyDefinitionNode>();
 
             while (_currentToken.Type != TokenType.RBRACKET)
             {
@@ -698,10 +727,34 @@ namespace RaLanguage.Parser
                     continue;
                 }
 
+                // Property contract inside an interface body. Interface
+                // properties are abstract by definition (no storage,
+                // accessor signatures only). Author with explicit
+                // accessor list: `prop name: T { get; set; }`.
+                if (_currentToken.Matches(Keyword.Prop))
+                {
+                    var propRes = ParsePropertyDeclaration(
+                        isPublic: memberPublic,
+                        isStatic: false,
+                        isAbstract: true,
+                        isOverride: false,
+                        isLazy: false);
+                    if (propRes.Error != null) return res.Failure(propRes.Error);
+                    var propNode = (RaLanguage.Parser.Nodes.Properties.PropertyDefinitionNode)propRes.Node!;
+                    AnnotationAttacher.Attach(propNode, memberAnnotations);
+                    interfaceProperties.Add(propNode);
+                    if (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                    continue;
+                }
+
                 if (!_currentToken.Matches(Keyword.Fn))
                     return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
-                        "'fn' (for methods) or a field declaration",
-                        contextHint: "interface bodies contain method signatures ('fn ...') or field declarations ('var', 'let', 'const', 'final')"));
+                        "'fn' (for methods), 'prop' (for property contracts) or a field declaration",
+                        contextHint: "interface bodies contain method signatures ('fn ...'), property contracts ('prop ...'), or field declarations ('var', 'let', 'const', 'final')"));
 
                 res.RegisterAdvancement();
                 Advance();
@@ -842,7 +895,7 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            return res.Success(new InterfaceDefinitionNode(nameTok, isPublic, methods, fields, genericTypeParams, whereConstraints));
+            return res.Success(new InterfaceDefinitionNode(nameTok, isPublic, methods, fields, genericTypeParams, whereConstraints, interfaceProperties));
             }
             finally
             {
@@ -1111,6 +1164,7 @@ namespace RaLanguage.Parser
             var fields = new List<StructFieldDefinitionNode>();
             var methods = new List<FunctionDefinitionNode>();
             var operators = new List<RaLanguage.Parser.Nodes.Classes.OperatorDefinitionNode>();
+            var properties = new List<RaLanguage.Parser.Nodes.Properties.PropertyDefinitionNode>();
 
             while (_currentToken.Type != TokenType.RBRACKET)
             {
@@ -1222,6 +1276,54 @@ namespace RaLanguage.Parser
                     continue;
                 }
 
+                // `lazy prop` and `prop` — property declarations sit
+                // here in the modifier-parsed slot, after the field
+                // shortcut and before async/fn/operator. The `lazy`
+                // keyword is meaningful only as a `prop` prefix; if it
+                // appears alone the parser will surface the mismatch
+                // below.
+                bool isMemberLazy = false;
+                if (_currentToken.Matches(Keyword.Lazy))
+                {
+                    isMemberLazy = true;
+                    res.RegisterAdvancement();
+                    Advance();
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                }
+
+                if (_currentToken.Matches(Keyword.Prop))
+                {
+                    var propRes = ParsePropertyDeclaration(
+                        isPublic: isMemberPublic,
+                        isStatic: isMemberStatic,
+                        isAbstract: isMemberAbstract,
+                        isOverride: isMemberOverride,
+                        isLazy: isMemberLazy);
+                    if (propRes.Error != null) return res.Failure(propRes.Error);
+
+                    var propNode = (RaLanguage.Parser.Nodes.Properties.PropertyDefinitionNode)propRes.Node!;
+                    AnnotationAttacher.Attach(propNode, memberAnnotations);
+                    properties.Add(propNode);
+
+                    if (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                    continue;
+                }
+
+                if (isMemberLazy)
+                {
+                    return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                        "'prop' (after 'lazy')",
+                        contextHint: "'lazy' is only meaningful as a 'prop' prefix; remove it or follow it with a property declaration"));
+                }
+
                 while (_currentToken.Type == TokenType.NEWLINE)
                 {
                     res.RegisterAdvancement();
@@ -1298,7 +1400,7 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            return res.Success(new ClassDefinitionNode(nameTok, isPublic, isAbstract, isStatic, baseType, implementedInterfaces, withTraits, fields, methods, operators, genericTypeParams, whereConstraints));
+            return res.Success(new ClassDefinitionNode(nameTok, isPublic, isAbstract, isStatic, baseType, implementedInterfaces, withTraits, fields, methods, operators, genericTypeParams, whereConstraints, properties));
             }
             finally
             {
@@ -2533,6 +2635,7 @@ namespace RaLanguage.Parser
 
             var methods = new List<StructMethodDefinitionNode>();
             var operators = new List<OperatorDefinitionNode>();
+            var recordProperties = new List<RaLanguage.Parser.Nodes.Properties.PropertyDefinitionNode>();
 
             int peek = _tokenIndex;
             while (peek < _tokens.Count && _tokens[peek].Type == TokenType.NEWLINE) peek++;
@@ -2552,7 +2655,8 @@ namespace RaLanguage.Parser
                     methods,
                     operators,
                     genericTypeParams,
-                    whereConstraints));
+                    whereConstraints,
+                    recordProperties));
             }
 
             while (_currentToken.Type == TokenType.NEWLINE)
@@ -2620,6 +2724,54 @@ namespace RaLanguage.Parser
                         res.RegisterAdvancement();
                         Advance();
                     }
+                }
+
+                // Property declarations on records — body-side. These
+                // are body-only and do not participate in the primary
+                // tuple, so structural equality / hash / to_string
+                // continue to operate over the header. Computed and
+                // observe-only properties are explicitly allowed;
+                // stored properties on records are permitted but the
+                // auto-derive equality remains anchored to the
+                // primary-field list (see RA_PROPERTIES_DESIGN §4.14).
+                bool recordMemberLazy = false;
+                if (_currentToken.Matches(Keyword.Lazy))
+                {
+                    recordMemberLazy = true;
+                    res.RegisterAdvancement();
+                    Advance();
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                }
+
+                if (_currentToken.Matches(Keyword.Prop))
+                {
+                    var propRes = ParsePropertyDeclaration(
+                        isPublic: memberPublic,
+                        isStatic: false,
+                        isAbstract: false,
+                        isOverride: false,
+                        isLazy: recordMemberLazy);
+                    if (propRes.Error != null) return res.Failure(propRes.Error);
+                    var propNode = (RaLanguage.Parser.Nodes.Properties.PropertyDefinitionNode)propRes.Node!;
+                    AnnotationAttacher.Attach(propNode, memberAnnotations);
+                    recordProperties.Add(propNode);
+                    if (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                    continue;
+                }
+
+                if (recordMemberLazy)
+                {
+                    return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                        "'prop' (after 'lazy')",
+                        contextHint: "'lazy' is only meaningful as a 'prop' prefix"));
                 }
 
                 // Records explicitly forbid extra instance fields in the
@@ -2719,7 +2871,8 @@ namespace RaLanguage.Parser
                 methods,
                 operators,
                 genericTypeParams,
-                whereConstraints));
+                whereConstraints,
+                recordProperties));
             }
             finally
             {
@@ -2788,6 +2941,7 @@ namespace RaLanguage.Parser
             var fields = new List<StructFieldDefinitionNode>();
             var methods = new List<StructMethodDefinitionNode>();
             var operators = new List<OperatorDefinitionNode>();
+            var properties = new List<RaLanguage.Parser.Nodes.Properties.PropertyDefinitionNode>();
 
             while (_currentToken.Type != TokenType.RBRACKET)
             {
@@ -2861,6 +3015,50 @@ namespace RaLanguage.Parser
                     }
 
                     continue;
+                }
+
+                // Property declaration. Structs do not allow override /
+                // abstract / static on properties (no inheritance, no
+                // static surface) — those modifier slots are 'false'.
+                bool memberIsLazy = false;
+                if (_currentToken.Matches(Keyword.Lazy))
+                {
+                    memberIsLazy = true;
+                    res.RegisterAdvancement();
+                    Advance();
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                }
+
+                if (_currentToken.Matches(Keyword.Prop))
+                {
+                    var propRes = ParsePropertyDeclaration(
+                        isPublic: memberPublic,
+                        isStatic: false,
+                        isAbstract: false,
+                        isOverride: false,
+                        isLazy: memberIsLazy);
+                    if (propRes.Error != null) return res.Failure(propRes.Error);
+                    var propNode = (RaLanguage.Parser.Nodes.Properties.PropertyDefinitionNode)propRes.Node!;
+                    AnnotationAttacher.Attach(propNode, memberAnnotations);
+                    properties.Add(propNode);
+
+                    if (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                    continue;
+                }
+
+                if (memberIsLazy)
+                {
+                    return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                        "'prop' (after 'lazy')",
+                        contextHint: "'lazy' is only meaningful as a 'prop' prefix"));
                 }
 
                 while (_currentToken.Type == TokenType.NEWLINE)
@@ -2939,7 +3137,7 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            return res.Success(new StructDefinitionNode(nameTok, isPublic, fields, methods, operators, genericTypeParams, whereConstraints));
+            return res.Success(new StructDefinitionNode(nameTok, isPublic, fields, methods, operators, genericTypeParams, whereConstraints, properties));
             }
             finally
             {

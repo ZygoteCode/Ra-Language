@@ -1,4 +1,5 @@
 ﻿using RaLanguage.Lexer.Tokens;
+using RaLanguage.Parser.Nodes.Properties;
 using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Structs;
 
@@ -10,6 +11,7 @@ namespace RaLanguage.Parser.Nodes.Interfaces
         public bool IsPublic { get; }
         public List<InterfaceMethodSignatureNode> Methods { get; }
         public List<StructFieldDefinitionNode> Fields { get; }
+        public List<PropertyDefinitionNode> Properties { get; }
         public List<string> GenericTypeParams { get; }
         public List<WhereConstraintNode> WhereConstraints { get; }
 
@@ -19,13 +21,15 @@ namespace RaLanguage.Parser.Nodes.Interfaces
             List<InterfaceMethodSignatureNode> methods,
             List<StructFieldDefinitionNode> fields,
             List<string>? genericTypeParams = null,
-            List<WhereConstraintNode>? whereConstraints = null)
+            List<WhereConstraintNode>? whereConstraints = null,
+            List<PropertyDefinitionNode>? properties = null)
             : base(AstNodeType.InterfaceDefinition)
         {
             NameTok = nameTok;
             IsPublic = isPublic;
             Methods = methods;
             Fields = fields;
+            Properties = properties ?? new List<PropertyDefinitionNode>();
             GenericTypeParams = genericTypeParams ?? new List<string>();
             WhereConstraints = whereConstraints ?? new List<WhereConstraintNode>();
             PositionStart = nameTok.PositionStart;

@@ -87,6 +87,10 @@ Centre of gravity is [Interpreter/Runtime/Annotations/](Interpreter/Runtime/Anno
 
 [Errors/](Errors) — `DiagnosticBag` (lexer + parser warnings/errors) and the typed error hierarchy under [Errors/Types/](Errors/Types) (`ExpectedCharacterError`, `IllegalCharacterError`, `InvalidSyntaxError`, `ModuleError`, `RuntimeError`). Lexer/parser failures are surfaced as `InvalidSyntaxError` from `Program.Run`; runtime failures are returned in `RuntimeResult.Error`.
 
+### Properties subsystem
+
+`prop NAME[: TYPE] [= default] [body]` declarations on class / struct / record / interface / trait bodies are first-class properties — they share the same member-name namespace as fields and methods, and route through the same `MemberAccessHelper` / `MemberAssignmentHelper` dispatch (so the IR's `OP_GET_MEMBER` / `OP_SET_MEMBER` opcodes pick them up with zero new opcodes). Design and grammar in [RA_PROPERTIES_DESIGN.md](RA_PROPERTIES_DESIGN.md). Runtime descriptors and the accessor pipeline live in [Interpreter/Runtime/Properties/](Interpreter/Runtime/Properties); the AST nodes are in [Parser/Nodes/Properties/](Parser/Nodes/Properties). Stored auto-properties allocate a slot in the hidden-class shape (`ClassTypeValue.BuildFieldShape` / `StructTypeValue.BuildFieldShape`) under the property name, so steady-state read cost matches a field once the IC primes. Lazy properties keep a `LazyInitialized` set on the instance for first-touch evaluation. Smoke tests at `tests_properties.ra`; microbench at `bench_properties.ra`.
+
 ## Conventions
 
 - Mirror the `Parser/Nodes/<Category>` ↔ `Interpreter/Visitors/<Category>` split when adding language features. Failing to register a new node in `Interpreter.RegisterVisitors` is the most common breakage.

@@ -3,6 +3,7 @@ using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
+using RaLanguage.Interpreter.Runtime.Properties;
 using RaLanguage.Interpreter.Values.Records;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes.Records;
@@ -176,6 +177,19 @@ namespace RaLanguage.Interpreter.Visitors.Records
                 .SetPos(node.PositionStart, node.PositionEnd);
 
             recordValue.BaseRecord = baseRecord;
+
+            foreach (var p in node.Properties)
+            {
+                var pname = p.NameTok.Value?.ToString() ?? "";
+                if (string.IsNullOrEmpty(pname)) continue;
+                if (recordValue.HasField(pname))
+                    return res.Failure(new RuntimeError(p.PositionStart, p.PositionEnd,
+                        $"property '{pname}' on record '{name}' collides with a primary field of the same name", context));
+                if (recordValue.PropertyByName.ContainsKey(pname))
+                    return res.Failure(new RuntimeError(p.PositionStart, p.PositionEnd,
+                        $"duplicate property '{pname}' in record '{name}'", context));
+                recordValue.AddProperty(PropertyBuilder.Build(p, name));
+            }
 
             context.SymbolTable.Set(
                 name,

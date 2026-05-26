@@ -1,0 +1,191 @@
+// Ra Properties — feature test suite.
+//
+// Every test prints "[PNN] OK" on success. Failures throw and abort.
+
+// ----- P1: auto stored property -----
+class Box {
+    pub prop value: int = 0
+}
+
+let b = Box()
+print(b.value)
+b.value = 42
+print(b.value)
+print("[P1] OK")
+
+// ----- P2: readonly auto property (no setter) -----
+class Const {
+    pub prop tag: string = "fixed" { get; }
+}
+
+let c = Const()
+print(c.tag)
+let p2_err = try { c.tag = "x"; "no throw" } catch (e) { "readonly enforced" }
+print(p2_err)
+print("[P2] OK")
+
+// ----- P3: computed property (shorthand) -----
+class Greeter {
+    pub prop who: string = "world"
+    pub prop greeting: string => $"hello, ${self.who}"
+}
+
+let g = Greeter()
+print(g.greeting)
+g.who = "ra"
+print(g.greeting)
+print("[P3] OK")
+
+// ----- P4: validated setter -----
+class Account {
+    pub prop balance: int = 0 {
+        get
+        set {
+            if (value < 0) { throw "balance cannot be negative" }
+            field = value
+        }
+    }
+}
+
+let a = Account()
+a.balance = 100
+print(a.balance)
+let p4_err = try { a.balance = -1; "no throw" } catch (e) { "rejected" }
+print(p4_err)
+print(a.balance)
+print("[P4] OK")
+
+// ----- P5: observable property -----
+class Watched {
+    pub prop x: int = 0 {
+        get
+        set
+        observe {
+            print($"changed ${old} -> ${value}")
+        }
+    }
+}
+
+let w = Watched()
+w.x = 1
+w.x = 5
+print("[P5] OK")
+
+// ----- P6: lazy property -----
+class Calc {
+    pub prop seed: int = 7
+    pub lazy prop squared: int = self.seed * self.seed
+}
+
+let k = Calc()
+print(k.seed)
+print(k.squared)
+k.seed = 100
+print(k.squared)
+print("[P6] OK")
+
+// ----- P7: per-accessor visibility -----
+class Counter {
+    pub prop count: int = 0 { get; priv set; }
+    pub fn tick() { self.count = self.count + 1 }
+}
+
+let cc = Counter()
+print(cc.count)
+cc.tick()
+cc.tick()
+print(cc.count)
+let p7_err = try { cc.count = 99; "no throw" } catch (e) { "blocked" }
+print(p7_err)
+print("[P7] OK")
+
+// ----- P8: struct property -----
+struct Point {
+    pub prop x: int = 0
+    pub prop y: int = 0
+    pub prop magnitude: int => self.x * self.x + self.y * self.y
+}
+
+var pt = Point()
+pt.x = 3
+pt.y = 4
+print(pt.magnitude)
+print("[P8] OK")
+
+// ----- P9: record body property -----
+record Tag(name: string) {
+    pub prop upper: string => $"TAG:${self.name}"
+}
+
+let t = Tag("x")
+print(t.upper)
+print("[P9] OK")
+
+// ----- P10: abstract property + override -----
+pub abstract class Shape {
+    pub abstract prop kind: string { get; }
+}
+
+pub class Circle : Shape {
+    pub override prop kind: string => "circle"
+}
+
+pub class Square : Shape {
+    pub override prop kind: string => "square"
+}
+
+let c10 = Circle()
+let s10 = Square()
+print(c10.kind)
+print(s10.kind)
+print("[P10] OK")
+
+// ----- P11: interface property contract -----
+pub interface Named {
+    pub prop name: string { get; }
+}
+
+pub class Person impl Named {
+    pub prop name: string = "anon"
+}
+
+let pn = Person()
+pn.name = "ra"
+print(pn.name)
+print("[P11] OK")
+
+// ----- P12: lazy recursion is detected -----
+class Recur {
+    pub lazy prop bad: int = self.bad + 1
+}
+
+let r12 = Recur()
+let p12_err = try { print(r12.bad); "no throw" } catch (e) { "recursion detected" }
+print(p12_err)
+print("[P12] OK")
+
+// ----- P13: init-only property -----
+class Built {
+    pub prop label: string = "default" { get; init; }
+    pub fn Built(s: string) { self.label = s }
+}
+
+let bx = Built("ready")
+print(bx.label)
+let p13_err = try { bx.label = "x"; "no throw" } catch (e) { "init-only blocked" }
+print(p13_err)
+print("[P13] OK")
+
+// ----- P14: read inside the declaring type bypasses priv -----
+class Vault {
+    prop secret: string = "shh"
+    pub fn reveal(): string { ret self.secret }
+}
+
+let v14 = Vault()
+print(v14.reveal())
+let p14_err = try { print(v14.secret); "no throw" } catch (e) { "private blocked" }
+print(p14_err)
+print("[P14] OK")
+
+print("=== done ===")

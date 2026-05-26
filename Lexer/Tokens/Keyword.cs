@@ -76,5 +76,7 @@
         Move,
         Throw,
         Record,
+        Prop,
+        Lazy,
     }
 }

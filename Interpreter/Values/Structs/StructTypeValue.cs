@@ -3,11 +3,13 @@ using System.Threading.Tasks;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Runtime.Properties;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes.Classes;
 using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Structs;
+using RaLanguage.Parser.Nodes.Variables;
 using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Structs
@@ -21,6 +23,13 @@ namespace RaLanguage.Interpreter.Values.Structs
         public List<OperatorDefinitionNode> Operators { get; } = new();
         public List<string> GenericTypeParams { get; }
         public List<WhereConstraintNode> WhereConstraints { get; }
+
+        // Property descriptors built once at type definition. Populated
+        // by the struct/record visitor via AddProperty. Walked by the
+        // member-access pipeline before the field branch — see
+        // MemberAccessHelper / MemberAssignmentHelper.
+        public List<PropertyDescriptor> Properties { get; } = new();
+        public Dictionary<string, PropertyDescriptor> PropertyByName { get; } = new(StringComparer.Ordinal);
 
         public override RuntimeValueType Type => RuntimeValueType.StructType;
         public override bool IsCopy => true;
@@ -42,6 +51,20 @@ namespace RaLanguage.Interpreter.Values.Structs
             GenericTypeParams = genericTypeParams ?? new List<string>();
             WhereConstraints = whereConstraints ?? new List<WhereConstraintNode>();
         }
+
+        // Registers a property descriptor. The shape builder is reset so
+        // any subsequent FieldSlotCount / GetFieldSlotIndex query rebuilds
+        // with the new backing slot.
+        public void AddProperty(PropertyDescriptor desc)
+        {
+            Properties.Add(desc);
+            PropertyByName[desc.Name] = desc;
+            _fieldNameToIndex = null;
+            _fieldSlotCount = -1;
+        }
+
+        public virtual PropertyDescriptor? GetProperty(string name)
+            => PropertyByName.TryGetValue(name, out var d) ? d : null;
 
         public bool HasField(string name)
         {
@@ -91,6 +114,15 @@ namespace RaLanguage.Interpreter.Values.Structs
                 var n = f.NameTok.Value?.ToString();
                 if (string.IsNullOrEmpty(n)) continue;
                 if (!map.ContainsKey(n)) map[n] = next++;
+            }
+            // Stored properties share the FieldSlots array — auto reads
+            // become bit-identical to field reads once the IC primes.
+            // Computed / abstract properties have HasBacking == false
+            // so they are skipped.
+            foreach (var p in Properties)
+            {
+                if (!p.HasBacking) continue;
+                if (!map.ContainsKey(p.Name)) map[p.Name] = next++;
             }
             _fieldNameToIndex = map;
             _fieldSlotCount = next;
@@ -163,6 +195,26 @@ namespace RaLanguage.Interpreter.Values.Structs
                 instance.SetField(field.NameTok.Value?.ToString() ?? "", fieldValue, field.IsPublic, field.DeclarationType);
             }
 
+            // Initialise stored, non-lazy property backing slots from
+            // their default-value expressions. Mirrors the field-init
+            // loop above; lazy properties stay uninitialised and run
+            // their initialiser on first read.
+            foreach (var prop in Properties)
+            {
+                if (prop.IsAbstract) continue;
+                if (!prop.HasBacking) continue;
+                if (prop.IsLazy) continue;
+
+                RuntimeValue val = NullValue.Null.SetContext(Context).SetPos(PositionStart, PositionEnd);
+                if (prop.DefaultValueNode != null)
+                {
+                    var initRes = await new Interpreter().Visit(prop.DefaultValueNode, Context);
+                    if (initRes.Error != null) return res.Failure(initRes.Error);
+                    val = initRes.Value ?? val;
+                }
+                instance.SetField(prop.Name, val, prop.IsPublic, Parser.Nodes.Variables.VariableDeclarationType.VARIABLE);
+            }
+
             var ctor = GetConstructor(positionalArgs, namedArgs);
             if (ctor == null)
             {
@@ -184,12 +236,14 @@ namespace RaLanguage.Interpreter.Values.Structs
             return res.Success(instance);
         }
 
-        public override RuntimeValue Copy()
-        {
-            return new StructTypeValue(StructName, IsPublic, Fields, Methods, Operators, GenericTypeParams, WhereConstraints)
-                .SetContext(Context)
-                .SetPos(PositionStart, PositionEnd);
-        }
+        // Struct type *values* are conceptually immutable singletons —
+        // they carry the type definition, not any per-instance state.
+        // Returning `this` from Copy() keeps the registered Properties
+        // (and any future per-type metadata) intact when the type
+        // value is aliased through the symbol table. Instances of the
+        // struct still get their own StructInstanceValue copies via
+        // the regular IsCopy=true path on StructInstanceValue.
+        public override RuntimeValue Copy() => this;
 
         public override string ToString() => $"<struct {StructName}>";
 

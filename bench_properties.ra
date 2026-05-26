@@ -1,0 +1,47 @@
+// Microbenchmark: property access vs field access.
+//
+// Measures the overhead of an auto-stored property's getter over a
+// plain field read. The expectation is that they are very close once
+// the dispatch IC primes (auto-stored = slot read in both cases),
+// with a small descriptor-probe cost on the property side.
+//
+// Run with the release binary:
+//   dotnet build -c Release
+//   bin\Release\net10.0\RaLanguage.exe bench_properties.ra
+
+class Field {
+    pub var x: int = 0
+}
+
+class Prop {
+    pub prop x: int = 0
+}
+
+fn time_field(iter: int): int {
+    let f = Field()
+    var sum = 0
+    for (var i = 0; i < iter; i = i + 1) {
+        f.x = i
+        sum = sum + f.x
+    }
+    ret sum
+}
+
+fn time_prop(iter: int): int {
+    let p = Prop()
+    var sum = 0
+    for (var i = 0; i < iter; i = i + 1) {
+        p.x = i
+        sum = sum + p.x
+    }
+    ret sum
+}
+
+let N = 1000000
+
+let f_sum = time_field(N)
+let p_sum = time_prop(N)
+
+print($"field sum = ${f_sum}")
+print($"prop  sum = ${p_sum}")
+print("done")
