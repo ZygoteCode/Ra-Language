@@ -1,0 +1,8 @@
+var a = 0;
+var b = 0;
+for i in 0..500000 {
+    a = a + i;
+    b = b + a;
+}
+print(a);
+print(b);
