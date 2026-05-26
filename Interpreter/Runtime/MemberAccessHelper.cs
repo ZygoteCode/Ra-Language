@@ -316,7 +316,7 @@ namespace RaLanguage.Interpreter.Runtime
                 return res.Success(variant);
             }
 
-            if (target.Type == RuntimeValueType.StructInstance)
+            if (target.Type == RuntimeValueType.StructInstance || target.Type == RuntimeValueType.RecordInstance)
             {
                 var instance = (StructInstanceValue)target;
                 if (instance.HasField(memberName))
@@ -535,7 +535,7 @@ namespace RaLanguage.Interpreter.Runtime
                 return res.Success(enumType.GetMember(memberName));
             }
 
-            if (target.Type == RuntimeValueType.StructInstance)
+            if (target.Type == RuntimeValueType.StructInstance || target.Type == RuntimeValueType.RecordInstance)
             {
                 var instance = (StructInstanceValue)target;
                 if (instance.HasField(memberName))

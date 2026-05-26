@@ -62,8 +62,18 @@ namespace RaLanguage.Types
 
             if (symbol is StructTypeValue structType)
             {
-                return value.Type == RuntimeValueType.StructInstance &&
-                       string.Equals(((StructInstanceValue)value).Definition.StructName, structType.StructName, StringComparison.Ordinal);
+                // RecordTypeValue inherits from StructTypeValue (records
+                // reuse the struct field-shape + method-binding machinery
+                // at runtime), and RecordInstanceValue likewise inherits
+                // from StructInstanceValue. The nominal-name check below
+                // already guards against accidental cross-type aliasing,
+                // so widening the runtime-type guard to accept both kinds
+                // is exactly the right thing.
+                if (value.Type == RuntimeValueType.StructInstance || value.Type == RuntimeValueType.RecordInstance)
+                {
+                    return string.Equals(((StructInstanceValue)value).Definition.StructName, structType.StructName, StringComparison.Ordinal);
+                }
+                return false;
             }
 
             if (symbol is ClassTypeValue targetClass)
@@ -347,8 +357,10 @@ namespace RaLanguage.Types
                 case RuntimeValueType.ClassType:
                     return new TypeDescriptor(((ClassTypeValue)val).ClassName);
                 case RuntimeValueType.StructInstance:
+                case RuntimeValueType.RecordInstance:
                     return new TypeDescriptor(((StructInstanceValue)val).Definition.StructName);
                 case RuntimeValueType.StructType:
+                case RuntimeValueType.RecordType:
                     return new TypeDescriptor(((StructTypeValue)val).StructName);
                 case RuntimeValueType.Enum:
                     return new TypeDescriptor(((EnumValue)val).EnumName);
@@ -441,6 +453,7 @@ namespace RaLanguage.Types
                 RuntimeValueType.Tuple => "tuple",
                 RuntimeValueType.Null => "null",
                 RuntimeValueType.StructInstance => ((StructInstanceValue)value).Definition.StructName,
+                RuntimeValueType.RecordInstance => ((StructInstanceValue)value).Definition.StructName,
                 RuntimeValueType.ClassInstance => ((ClassInstanceValue)value).Definition.ClassName,
                 RuntimeValueType.Enum => ((EnumValue)value).EnumName,
                 RuntimeValueType.EnumType => ((EnumTypeValue)value).EnumName,

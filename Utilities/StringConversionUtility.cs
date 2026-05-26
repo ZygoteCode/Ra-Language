@@ -17,7 +17,7 @@ namespace RaLanguage.Utilities
                 return instance.TryCallToString().value;
             }
 
-            if (value.Type == RuntimeValueType.StructInstance)
+            if (value.Type == RuntimeValueType.StructInstance || value.Type == RuntimeValueType.RecordInstance)
             {
                 var instance = (StructInstanceValue)value;
                 return instance.TryCallToString().value;

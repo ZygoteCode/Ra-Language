@@ -24,12 +24,12 @@ namespace RaLanguage.Interpreter.Runtime
             var res = new RuntimeResult();
             string memberName = node.TargetNode.MemberTok.Value?.ToString() ?? "";
 
-            if (owner.Type == RuntimeValueType.StructInstance)
+            if (owner.Type == RuntimeValueType.StructInstance || owner.Type == RuntimeValueType.RecordInstance)
             {
                 var instance = (StructInstanceValue)owner;
                 if (!instance.HasField(memberName))
                     return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
-                        $"Struct '{instance.Definition.StructName}' has no field '{memberName}'", context));
+                        $"{(owner.Type == RuntimeValueType.RecordInstance ? "Record" : "Struct")} '{instance.Definition.StructName}' has no field '{memberName}'", context));
 
                 var fieldDeclType = instance.GetFieldDeclarationType(memberName);
                 if (fieldDeclType == VariableDeclarationType.CONST)

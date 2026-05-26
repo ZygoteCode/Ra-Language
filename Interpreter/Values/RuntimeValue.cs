@@ -1489,6 +1489,7 @@ namespace RaLanguage.Interpreter.Values
             {
                 RuntimeValueType.ClassInstance => ((RaLanguage.Interpreter.Values.Primitives.ClassInstanceValue)value).Definition.ClassName,
                 RuntimeValueType.StructInstance => ((RaLanguage.Interpreter.Values.Structs.StructInstanceValue)value).Definition.StructName,
+                RuntimeValueType.RecordInstance => ((RaLanguage.Interpreter.Values.Records.RecordInstanceValue)value).Definition.StructName,
                 RuntimeValueType.Integer => "int",
                 RuntimeValueType.Long => "long",
                 RuntimeValueType.Float => "float",

@@ -11,6 +11,7 @@ using RaLanguage.Interpreter.Visitors.Extensions;
 using RaLanguage.Interpreter.Visitors.Functions;
 using RaLanguage.Interpreter.Visitors.Interfaces;
 using RaLanguage.Interpreter.Visitors.Iterations;
+using RaLanguage.Interpreter.Visitors.Records;
 using RaLanguage.Interpreter.Visitors.Members;
 using RaLanguage.Interpreter.Visitors.Operations;
 using RaLanguage.Interpreter.Visitors.Primitives;
@@ -128,6 +129,8 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.Match] = new RaLanguage.Interpreter.Visitors.Patterns.MatchNodeVisitor().Visit;
             _visitors[(int)AstNodeType.TryUnwrap] = new RaLanguage.Interpreter.Visitors.Patterns.TryUnwrapNodeVisitor().Visit;
             _visitors[(int)AstNodeType.Throw] = new ThrowNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.RecordDefinition] = new RecordDefinitionNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.WithExpression] = new WithExpressionNodeVisitor().Visit;
         }
 
         public ValueTask<RuntimeResult> Visit(AstNode node, Context context)

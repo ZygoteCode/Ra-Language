@@ -1252,6 +1252,14 @@ namespace RaLanguage.Interpreter.Vm
                                 sub = Visitors.Structs.StructDefinitionNodeVisitor.Apply(
                                     (Parser.Nodes.Structs.StructDefinitionNode)node, ctx, _interpreter);
                                 break;
+                            case AstNodeType.RecordDefinition:
+                                sub = Visitors.Records.RecordDefinitionNodeVisitor.Apply(
+                                    (Parser.Nodes.Records.RecordDefinitionNode)node, ctx, _interpreter);
+                                break;
+                            case AstNodeType.WithExpression:
+                                sub = await Visitors.Operations.WithExpressionNodeVisitor.Apply(
+                                    (Parser.Nodes.Operations.WithExpressionNode)node, ctx, _interpreter).ConfigureAwait(false);
+                                break;
                             case AstNodeType.InterfaceDefinition:
                                 sub = Visitors.Interfaces.InterfaceDefinitionNodeVisitor.Apply(
                                     (Parser.Nodes.Interfaces.InterfaceDefinitionNode)node, ctx, _interpreter);

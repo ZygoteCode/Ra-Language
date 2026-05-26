@@ -1257,7 +1257,8 @@ namespace RaLanguage.Lexer
                 { "asm", Keyword.Asm },
                 { "mut", Keyword.Mut },
                 { "move", Keyword.Move },
-                { "throw", Keyword.Throw }
+                { "throw", Keyword.Throw },
+                { "record", Keyword.Record }
             };
         }
 

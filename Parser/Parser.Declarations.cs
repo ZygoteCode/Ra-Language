@@ -18,6 +18,7 @@ using RaLanguage.Parser.Nodes.Traits;
 using RaLanguage.Parser.Nodes.Variables;
 using RaLanguage.Parser.Nodes.Imports;
 using RaLanguage.Parser.Nodes.Namespaces;
+using RaLanguage.Parser.Nodes.Records;
 using RaLanguage.Types;
 
 namespace RaLanguage.Parser
@@ -899,6 +900,12 @@ namespace RaLanguage.Parser
                 var structDef = res.Register(ParseStructDefinition(true));
                 if (res.Error != null) return res;
                 return res.Success(structDef);
+            }
+            else if (_currentToken.Matches(Keyword.Record))
+            {
+                var recordDef = res.Register(ParseRecordDefinition(isPublic: true));
+                if (res.Error != null) return res;
+                return res.Success(recordDef);
             }
             else if (_currentToken.Matches(Keyword.Class))
             {
@@ -2205,6 +2212,422 @@ namespace RaLanguage.Parser
                 paramAnnotations,
                 captureList
             ) { VarArgAnnotations = varArgAnnotations, IsAsync = isAsync, IsAsyncStream = isAsyncStream });
+            }
+            finally
+            {
+                PopGenericScope();
+            }
+        }
+
+
+        // ============================================================
+        // Records
+        //
+        //   [pub] record [class] Name [<T,U>] (f1[: T1] [= def], ...) [where ...] [{ methods/operators }]
+        //
+        // Primary fields are positional, public by default and immutable
+        // (`let`-like). `pub` and `priv` modifiers may be used inline per
+        // field, as well as `mut` to opt out of immutability. No
+        // additional instance fields may appear in the optional body —
+        // only methods and operator overloads.
+        // ============================================================
+        private ParserResult ParseRecordDefinition(bool isPublic)
+        {
+            var res = new ParserResult();
+            // Consume `record`.
+            res.RegisterAdvancement();
+            Advance();
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            // Optional `class` — flips the record into reference flavour.
+            bool isRefRecord = false;
+            if (_currentToken.Matches(Keyword.Class))
+            {
+                isRefRecord = true;
+                res.RegisterAdvancement();
+                Advance();
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+            }
+
+            if (_currentToken.Type != TokenType.IDENTIFIER)
+                return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken, after: "'record'",
+                    help: "record declarations begin with a name, e.g. 'record Point(x: int, y: int)'"));
+
+            var nameTok = _currentToken;
+            var recordName = nameTok.Value?.ToString() ?? "";
+
+            res.RegisterAdvancement();
+            Advance();
+
+            List<string> genericTypeParams;
+            res.Register(ParseOptionalGenericTypeParameters(out genericTypeParams));
+            if (res.Error != null) return res;
+
+            PushGenericScope(genericTypeParams);
+            try
+            {
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            if (_currentToken.Type != TokenType.LPAREN)
+                return res.Failure(ParserDiagnostics.ExpectedOpening(_currentToken, '(',
+                    context: "the primary-constructor parameter list of a record"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            var primaryFields = new List<RecordPrimaryFieldNode>();
+            var seenNames = new HashSet<string>(StringComparer.Ordinal);
+
+            while (_currentToken.Type != TokenType.RPAREN)
+            {
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type == TokenType.RPAREN) break;
+
+                // Inline modifiers on a primary field.
+                bool fieldPublic = true;
+                bool fieldMutable = false;
+
+                while (true)
+                {
+                    if (_currentToken.Matches(Keyword.Pub))
+                    {
+                        fieldPublic = true;
+                        res.RegisterAdvancement();
+                        Advance();
+                        continue;
+                    }
+
+                    if (_currentToken.Matches(Keyword.Mut))
+                    {
+                        fieldMutable = true;
+                        res.RegisterAdvancement();
+                        Advance();
+                        continue;
+                    }
+
+                    // Identifier "priv" used as a soft-modifier (not a
+                    // dedicated keyword). Reserved usage to opt fields
+                    // out of public visibility without bloating the
+                    // keyword table.
+                    if (_currentToken.Type == TokenType.IDENTIFIER &&
+                        string.Equals(_currentToken.Value?.ToString(), "priv", StringComparison.Ordinal))
+                    {
+                        fieldPublic = false;
+                        res.RegisterAdvancement();
+                        Advance();
+                        continue;
+                    }
+
+                    break;
+                }
+
+                if (_currentToken.Type != TokenType.IDENTIFIER)
+                    return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
+                        after: "the start of a record primary field",
+                        help: "primary fields look like 'name: Type' or 'name: Type = default'"));
+
+                var fieldNameTok = _currentToken;
+                var fieldName = fieldNameTok.Value?.ToString() ?? "";
+
+                if (!seenNames.Add(fieldName))
+                {
+                    return res.Failure(ParserDiagnostics.UnexpectedToken(fieldNameTok,
+                        $"a unique primary-field name (duplicate '{fieldName}')",
+                        contextHint: "every primary field must have a distinct name; record auto-generated equality / hash / to_string consume the field list as-is"));
+                }
+
+                res.RegisterAdvancement();
+                Advance();
+
+                TypeDescriptor? fieldType = null;
+                if (_currentToken.Type == TokenType.COLON)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    var parsedType = ParseType(res);
+                    if (parsedType == null)
+                        return res.Failure(ParserDiagnostics.ExpectedTypeAfterColon(_currentToken,
+                            where: $"the type of primary field '{fieldName}'"));
+
+                    fieldType = parsedType;
+                }
+
+                AstNode? defaultValueNode = null;
+                if (_currentToken.Type == TokenType.EQ)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    var defaultExpr = res.Register(ParseExpression());
+                    if (res.Error != null) return res;
+                    defaultValueNode = defaultExpr;
+                }
+
+                primaryFields.Add(new RecordPrimaryFieldNode(
+                    fieldNameTok,
+                    fieldType,
+                    defaultValueNode,
+                    fieldPublic,
+                    fieldMutable));
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type == TokenType.COMMA)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                    continue;
+                }
+
+                break;
+            }
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            if (_currentToken.Type != TokenType.RPAREN)
+                return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, ')', '(',
+                    context: "the primary-constructor parameter list"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            // Optional `where` clause + optional body. Both are
+            // newline-tolerant individually but we cannot let the
+            // outer NEWLINE between `record X(...)` and the next
+            // top-level statement get eaten if neither follow-on
+            // exists — ParseStatements relies on that NEWLINE as the
+            // statement terminator. So we peek through whitespace
+            // first and only consume when we see `where` or `{`.
+            List<WhereConstraintNode> whereConstraints = new List<WhereConstraintNode>();
+            int peekWhere = _tokenIndex;
+            while (peekWhere < _tokens.Count && _tokens[peekWhere].Type == TokenType.NEWLINE) peekWhere++;
+            bool hasWhere = peekWhere < _tokens.Count
+                            && _tokens[peekWhere].Type == TokenType.KEYWORD
+                            && _tokens[peekWhere].Value is Keyword wkw
+                            && wkw == Keyword.Where;
+            if (hasWhere)
+            {
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+                res.Register(ParseOptionalWhereClause(genericTypeParams, out whereConstraints));
+                if (res.Error != null) return res;
+            }
+
+            var methods = new List<StructMethodDefinitionNode>();
+            var operators = new List<OperatorDefinitionNode>();
+
+            int peek = _tokenIndex;
+            while (peek < _tokens.Count && _tokens[peek].Type == TokenType.NEWLINE) peek++;
+
+            bool hasBody = peek < _tokens.Count && _tokens[peek].Type == TokenType.LBRACKET;
+
+            if (!hasBody)
+            {
+                return res.Success(new RecordDefinitionNode(
+                    nameTok,
+                    isPublic,
+                    isRefRecord,
+                    primaryFields,
+                    methods,
+                    operators,
+                    genericTypeParams,
+                    whereConstraints));
+            }
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            // Consume `{`.
+            res.RegisterAdvancement();
+            Advance();
+
+            while (_currentToken.Type == TokenType.NEWLINE)
+            {
+                res.RegisterAdvancement();
+                Advance();
+            }
+
+            while (_currentToken.Type != TokenType.RBRACKET)
+            {
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                if (_currentToken.Type == TokenType.RBRACKET) break;
+
+                List<AnnotationApplicationNode>? memberAnnotations = null;
+                if (_currentToken.Type == TokenType.AT_SIGN)
+                {
+                    var (annList, annErr) = ParseAnnotationListInline(res);
+                    if (annErr != null) return res.Failure(annErr);
+                    memberAnnotations = annList;
+                }
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                bool memberPublic = true;
+                if (_currentToken.Matches(Keyword.Pub))
+                {
+                    memberPublic = true;
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                }
+                else if (_currentToken.Type == TokenType.IDENTIFIER &&
+                         string.Equals(_currentToken.Value?.ToString(), "priv", StringComparison.Ordinal))
+                {
+                    memberPublic = false;
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                }
+
+                // Records explicitly forbid extra instance fields in the
+                // body — `var`/`let`/`const`/`final` would silently fall
+                // outside the auto-generated equality/hash/to_string set.
+                if (_currentToken.Matches(Keyword.Var) ||
+                    _currentToken.Matches(Keyword.Let) ||
+                    _currentToken.Matches(Keyword.Const) ||
+                    _currentToken.Matches(Keyword.Final))
+                {
+                    return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                        "a method ('fn'), an operator overload, or '}'",
+                        contextHint: "records cannot declare extra instance fields in the body — primary-constructor parameters are the single source of truth. Add the field to the header instead."));
+                }
+
+                bool memberIsAsync = false;
+                bool memberIsAsyncStream = false;
+                if (_currentToken.Matches(Keyword.Async))
+                {
+                    memberIsAsync = true;
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    if (_currentToken.Type == TokenType.IDENTIFIER &&
+                        string.Equals(_currentToken.Value?.ToString(), "stream", StringComparison.Ordinal))
+                    {
+                        memberIsAsyncStream = true;
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        while (_currentToken.Type == TokenType.NEWLINE)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                        }
+                    }
+                }
+
+                if (_currentToken.Matches(Keyword.Fn))
+                {
+                    var fnRes = ParseFunctionDefinition(ownerTypeName: recordName, isPublic: memberPublic, isDeclaringConstructor: false, isAsync: memberIsAsync, isAsyncStream: memberIsAsyncStream);
+                    if (fnRes.Error != null) return fnRes;
+
+                    var methodNode = (FunctionDefinitionNode)fnRes.Node!;
+                    AnnotationAttacher.Attach(methodNode, memberAnnotations);
+                    methods.Add(new StructMethodDefinitionNodeFromFunctionDefinition(methodNode));
+
+                    if (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    continue;
+                }
+
+                if (_currentToken.Matches(Keyword.Operator))
+                {
+                    var opRes = ParseOperatorDefinition(isPublic: memberPublic, ownerTypeName: null);
+                    if (opRes.Error != null) return opRes;
+
+                    var opNode = (OperatorDefinitionNode)opRes.Node!;
+                    AnnotationAttacher.Attach(opNode, memberAnnotations);
+                    operators.Add(opNode);
+
+                    if (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    continue;
+                }
+
+                return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                    "a method ('fn'), an operator overload, or '}'",
+                    contextHint: "record bodies allow methods and operator overloads only"));
+            }
+
+            res.RegisterAdvancement();
+            Advance();
+
+            return res.Success(new RecordDefinitionNode(
+                nameTok,
+                isPublic,
+                isRefRecord,
+                primaryFields,
+                methods,
+                operators,
+                genericTypeParams,
+                whereConstraints));
             }
             finally
             {

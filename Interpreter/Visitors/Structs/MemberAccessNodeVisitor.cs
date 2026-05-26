@@ -39,7 +39,7 @@ namespace RaLanguage.Interpreter.Visitors.Members
                 return res.Success(enumType.GetMember(memberName));
             }
 
-            if (target.Type == RuntimeValueType.StructInstance)
+            if (target.Type == RuntimeValueType.StructInstance || target.Type == RuntimeValueType.RecordInstance)
             {
                 var instance = (StructInstanceValue)target;
 

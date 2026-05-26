@@ -113,6 +113,7 @@ namespace RaLanguage.Interpreter.Runtime
                 case AstNodeType.VariableDelete:
                 case AstNodeType.ClassDefinition:
                 case AstNodeType.StructDefinition:
+                case AstNodeType.RecordDefinition:
                 case AstNodeType.EnumDefinition:
                 case AstNodeType.InterfaceDefinition:
                 case AstNodeType.TraitDefinition:

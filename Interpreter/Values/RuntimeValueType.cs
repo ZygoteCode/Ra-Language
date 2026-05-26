@@ -44,6 +44,8 @@
         Namespace,
         NativeHandle,
         Regex,
-        RegexMatch
+        RegexMatch,
+        RecordType,
+        RecordInstance
     }
 }

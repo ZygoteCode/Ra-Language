@@ -1550,6 +1550,7 @@ namespace RaLanguage.Interpreter.IR
                 case AstNodeType.ExtensionDefinition:
                 case AstNodeType.TraitDefinition:
                 case AstNodeType.StructDefinition:
+                case AstNodeType.RecordDefinition:
                 case AstNodeType.InterfaceDefinition:
                 case AstNodeType.EnumDefinition:
                 case AstNodeType.UsingNamespace:
@@ -1598,6 +1599,7 @@ namespace RaLanguage.Interpreter.IR
                 case AstNodeType.VariableDelete:
                 case AstNodeType.MemberAssignment:
                 case AstNodeType.ListAssignment:
+                case AstNodeType.WithExpression:
                     return true;
                 default:
                     return false;
@@ -1775,6 +1777,7 @@ namespace RaLanguage.Interpreter.IR
                 case AstNodeType.ExtensionDefinition:
                 case AstNodeType.TraitDefinition:
                 case AstNodeType.StructDefinition:
+                case AstNodeType.RecordDefinition:
                 case AstNodeType.InterfaceDefinition:
                 case AstNodeType.EnumDefinition:
                 case AstNodeType.UsingNamespace:
@@ -1801,6 +1804,7 @@ namespace RaLanguage.Interpreter.IR
                 case AstNodeType.FormattedInterpolation:
                 case AstNodeType.Yield:
                 case AstNodeType.AnnotationApplication:
+                case AstNodeType.WithExpression:
                 case AstNodeType.Switch:
                 {
                     if (st.DefineRefs.Count > ushort.MaxValue)

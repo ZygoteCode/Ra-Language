@@ -75,5 +75,6 @@
         Match,
         Move,
         Throw,
+        Record,
     }
 }

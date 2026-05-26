@@ -226,7 +226,7 @@ namespace RaLanguage.Interpreter.Runtime.Calls
                     }
                 }
 
-                if (owner.Type == RuntimeValueType.StructInstance)
+                if (owner.Type == RuntimeValueType.StructInstance || owner.Type == RuntimeValueType.RecordInstance)
                 {
                     var instance = (Values.Structs.StructInstanceValue)owner;
 
