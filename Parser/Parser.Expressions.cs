@@ -1047,9 +1047,28 @@ namespace RaLanguage.Parser
                     if (res.Error != null) return res;
                     return res.Success(structExpr);
                 case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Record:
-                    var recordExpr = res.Register(ParseRecordDefinition(false));
+                    var recordExpr = res.Register(ParseRecordDefinition(false, isAbstract: false));
                     if (res.Error != null) return res;
                     return res.Success(recordExpr);
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Abstract:
+                {
+                    // Bare `abstract record class X(...) : Base(...)` —
+                    // accepted at top-level without the `pub` prefix. The
+                    // only abstract-able shape outside `pub` today is a
+                    // record class; classes still require the `pub`
+                    // route. Peek past whitespace to ensure `record` is
+                    // next; otherwise bubble the error.
+                    res.RegisterAdvancement();
+                    Advance();
+                    while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+                    if (!_currentToken.Matches(Keyword.Record))
+                        return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                            "'record' after 'abstract'",
+                            contextHint: "bare 'abstract' at top-level may only precede 'record class' — use 'pub abstract class' for classes"));
+                    var absRec = res.Register(ParseRecordDefinition(false, isAbstract: true));
+                    if (res.Error != null) return res;
+                    return res.Success(absRec);
+                }
                 case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Class:
                     var classExpr = res.Register(ParseClassDefinition(false, false, false));
                     if (res.Error != null) return res;

@@ -28,14 +28,80 @@ namespace RaLanguage.Interpreter.Visitors.Records
             if (context.SymbolTable.Get(name) != null)
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{name}' is already defined", context));
 
-            // Synthesize the struct field list from the record's
-            // primary fields. The synthesized field carries the same
-            // type / default / visibility plus the FINAL declaration
-            // type (or VARIABLE for `mut` primary fields), which is
-            // what the MemberAssignmentHelper consults when refusing
-            // reassignment after construction.
-            var syntheticFields = new List<StructFieldDefinitionNode>();
+            // Inheritance is only allowed on `record class`; value records
+            // are always sealed by construction.
+            RecordTypeValue? baseRecord = null;
+            if (node.BaseType != null)
+            {
+                if (!node.IsRefRecord)
+                {
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                        $"Value record '{name}' cannot inherit from '{node.BaseType.Name}'. Only 'record class' supports inheritance.",
+                        context));
+                }
+
+                var baseSym = context.SymbolTable.Get(node.BaseType.Name);
+                if (baseSym is not RecordTypeValue baseRec)
+                {
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                        $"Base type '{node.BaseType.Name}' of record '{name}' is not a record type",
+                        context));
+                }
+
+                if (!baseRec.IsRefRecord)
+                {
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                        $"Record '{name}' cannot inherit from value record '{baseRec.StructName}' — only 'record class' bases are inheritable",
+                        context));
+                }
+
+                if (!baseRec.IsAbstract)
+                {
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                        $"Record '{name}' cannot inherit from non-abstract record '{baseRec.StructName}' — only 'abstract record class' bases are inheritable. Mark the parent with 'abstract' to opt into controlled inheritance.",
+                        context));
+                }
+
+                baseRecord = baseRec;
+            }
+
+            // Compose the effective primary-field list. Base fields come
+            // first (so children stack on top), with duplicate-name
+            // detection. Inherited fields are not redeclared by the child;
+            // adding them in the child header would silently mask the
+            // parent and break the merged equality/to_string/deconstruct
+            // shape.
+            var effectiveFields = new List<RecordPrimaryFieldNode>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            if (baseRecord != null)
+            {
+                foreach (var bp in baseRecord.PrimaryFields)
+                {
+                    var pname = bp.NameTok.Value?.ToString() ?? "";
+                    if (!seen.Add(pname)) continue;
+                    effectiveFields.Add(bp);
+                }
+            }
             foreach (var pf in node.PrimaryFields)
+            {
+                var pname = pf.NameTok.Value?.ToString() ?? "";
+                if (!seen.Add(pname))
+                {
+                    return res.Failure(new RuntimeError(pf.PositionStart, pf.PositionEnd,
+                        $"Record '{name}' redeclares primary field '{pname}' already inherited from '{baseRecord?.StructName}'. Inherited primary fields cannot be shadowed.",
+                        context));
+                }
+                effectiveFields.Add(pf);
+            }
+
+            // Synthesize the struct field list from the record's
+            // effective primary fields. The synthesized field carries
+            // the same type / default / visibility plus the FINAL
+            // declaration type (or VARIABLE for `mut` primary fields),
+            // which is what the MemberAssignmentHelper consults when
+            // refusing reassignment after construction.
+            var syntheticFields = new List<StructFieldDefinitionNode>();
+            foreach (var pf in effectiveFields)
             {
                 var declType = pf.IsMutable
                     ? VariableDeclarationType.VARIABLE
@@ -74,18 +140,42 @@ namespace RaLanguage.Interpreter.Visitors.Records
             ValidateToStringMethod(node, context, ref res);
             if (res.ShouldReturn()) return res;
 
+            // Merge methods/operators from base. Children may override
+            // by re-declaring; later declarations win. Body method
+            // bindings (FrameId / ParamBindings) on base methods are
+            // already resolved at base definition time, so the merge is
+            // a straight reference copy.
+            var mergedMethods = new List<StructMethodDefinitionNode>();
+            var mergedOps = new List<Parser.Nodes.Classes.OperatorDefinitionNode>();
+            if (baseRecord != null)
+            {
+                foreach (var bm in baseRecord.Methods) mergedMethods.Add(bm);
+                foreach (var bop in baseRecord.Operators) mergedOps.Add(bop);
+            }
+            foreach (var m in node.Methods)
+            {
+                int idx = mergedMethods.FindIndex(x => string.Equals(x.NameTok.Value?.ToString(), m.NameTok.Value?.ToString(), StringComparison.Ordinal));
+                if (idx >= 0) mergedMethods[idx] = m; else mergedMethods.Add(m);
+            }
+            foreach (var op in node.Operators) mergedOps.Add(op);
+
             var recordValue = (RecordTypeValue) new RecordTypeValue(
                 name,
                 node.IsPublic,
                 node.IsRefRecord,
-                node.PrimaryFields,
+                node.IsAbstract,
+                effectiveFields,
                 syntheticFields,
-                node.Methods,
-                node.Operators,
+                mergedMethods,
+                mergedOps,
                 node.GenericTypeParams,
-                node.WhereConstraints)
+                node.WhereConstraints,
+                autoEquals: node.AutoEquals,
+                autoToString: node.AutoToString)
                 .SetContext(context)
                 .SetPos(node.PositionStart, node.PositionEnd);
+
+            recordValue.BaseRecord = baseRecord;
 
             context.SymbolTable.Set(
                 name,

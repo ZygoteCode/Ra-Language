@@ -903,7 +903,7 @@ namespace RaLanguage.Parser
             }
             else if (_currentToken.Matches(Keyword.Record))
             {
-                var recordDef = res.Register(ParseRecordDefinition(isPublic: true));
+                var recordDef = res.Register(ParseRecordDefinition(isPublic: true, isAbstract: isAbstract));
                 if (res.Error != null) return res;
                 return res.Success(recordDef);
             }
@@ -2231,7 +2231,7 @@ namespace RaLanguage.Parser
         // additional instance fields may appear in the optional body —
         // only methods and operator overloads.
         // ============================================================
-        private ParserResult ParseRecordDefinition(bool isPublic)
+        private ParserResult ParseRecordDefinition(bool isPublic, bool isAbstract)
         {
             var res = new ParserResult();
             // Consume `record`.
@@ -2257,6 +2257,13 @@ namespace RaLanguage.Parser
                     res.RegisterAdvancement();
                     Advance();
                 }
+            }
+
+            if (isAbstract && !isRefRecord)
+            {
+                return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                    "'class' after 'abstract record'",
+                    contextHint: "only 'abstract record class' is permitted — value records are always sealed"));
             }
 
             if (_currentToken.Type != TokenType.IDENTIFIER)
@@ -2420,6 +2427,85 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
+            // Optional base specifier: `: Base(arg1, arg2, ...)` — only
+            // allowed on `record class`. The base's primary fields are
+            // PREPENDED to the child's at definition time so the merged
+            // layout is observable through the same primary-field list
+            // (equality, to_string, deconstruct all see the full set).
+            // BaseArgs are parsed but currently informational; the
+            // visitor enforces the inherited-fields-not-redeclared rule
+            // and uses base PrimaryFields directly.
+            TypeDescriptor? baseType = null;
+            List<AstNode>? baseArgs = null;
+            {
+                int peekBase = _tokenIndex;
+                while (peekBase < _tokens.Count && _tokens[peekBase].Type == TokenType.NEWLINE) peekBase++;
+                if (peekBase < _tokens.Count && _tokens[peekBase].Type == TokenType.COLON)
+                {
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                    // Consume ':'.
+                    res.RegisterAdvancement();
+                    Advance();
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    var parsedBase = ParseType(res);
+                    if (parsedBase == null)
+                        return res.Failure(ParserDiagnostics.ExpectedTypeAfterColon(_currentToken,
+                            where: "the base record after ':'"));
+                    baseType = parsedBase;
+
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    if (_currentToken.Type == TokenType.LPAREN)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                        baseArgs = new List<AstNode>();
+                        while (_currentToken.Type != TokenType.RPAREN)
+                        {
+                            while (_currentToken.Type == TokenType.NEWLINE)
+                            {
+                                res.RegisterAdvancement();
+                                Advance();
+                            }
+                            if (_currentToken.Type == TokenType.RPAREN) break;
+                            var argExpr = res.Register(ParseExpression());
+                            if (res.Error != null) return res;
+                            baseArgs.Add(argExpr!);
+                            while (_currentToken.Type == TokenType.NEWLINE)
+                            {
+                                res.RegisterAdvancement();
+                                Advance();
+                            }
+                            if (_currentToken.Type == TokenType.COMMA)
+                            {
+                                res.RegisterAdvancement();
+                                Advance();
+                                continue;
+                            }
+                            break;
+                        }
+                        if (_currentToken.Type != TokenType.RPAREN)
+                            return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, ')', '(',
+                                context: "the base-record argument list"));
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                }
+            }
+
             // Optional `where` clause + optional body. Both are
             // newline-tolerant individually but we cannot let the
             // outer NEWLINE between `record X(...)` and the next
@@ -2459,6 +2545,9 @@ namespace RaLanguage.Parser
                     nameTok,
                     isPublic,
                     isRefRecord,
+                    isAbstract,
+                    baseType,
+                    baseArgs,
                     primaryFields,
                     methods,
                     operators,
@@ -2623,6 +2712,9 @@ namespace RaLanguage.Parser
                 nameTok,
                 isPublic,
                 isRefRecord,
+                isAbstract,
+                baseType,
+                baseArgs,
                 primaryFields,
                 methods,
                 operators,

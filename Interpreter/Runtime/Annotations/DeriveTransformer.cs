@@ -7,6 +7,7 @@ using RaLanguage.Parser.Nodes;
 using RaLanguage.Parser.Nodes.Annotations;
 using RaLanguage.Parser.Nodes.Classes;
 using RaLanguage.Parser.Nodes.Functions;
+using RaLanguage.Parser.Nodes.Records;
 using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Structs;
 using RaLanguage.Types;
@@ -31,10 +32,52 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
                     foreach (var m in cls.Methods)
                         if (m.BodyNode != null) Walk(m.BodyNode);
                     break;
+                case RecordDefinitionNode rec:
+                    ApplyToRecord(rec);
+                    foreach (var m in rec.Methods)
+                        if (m.BodyNode != null) Walk(m.BodyNode);
+                    break;
                 case FunctionDefinitionNode fn:
                     if (fn.BodyNode != null) Walk(fn.BodyNode);
                     break;
             }
+        }
+
+        // Record opt-out semantics. Records auto-derive equals + to_string
+        // by default — `@derive(equals=false, to_string=false)` flips the
+        // flags so the record falls back to reference identity and
+        // non-structural diagnostic-only ToString respectively. Named
+        // args only; positional flags would be ambiguous with the class
+        // form which uses "Equals"/"ToString" strings as opt-INs.
+        private static void ApplyToRecord(RecordDefinitionNode rec)
+        {
+            if (rec.Annotations == null) return;
+            var consumed = new List<Parser.Nodes.Annotations.AnnotationApplicationNode>();
+            foreach (var app in rec.Annotations)
+            {
+                if (app.Name != "derive") continue;
+                consumed.Add(app);
+
+                foreach (var (nameTok, value) in app.NamedArgs)
+                {
+                    string key = nameTok.Value?.ToString() ?? "";
+                    bool? boolVal = ExtractBool(value);
+                    if (boolVal == null) continue;
+                    switch (key)
+                    {
+                        case "equals":     rec.AutoEquals     = boolVal.Value; break;
+                        case "to_string":  rec.AutoToString   = boolVal.Value; break;
+                    }
+                }
+            }
+            foreach (var c in consumed) rec.Annotations.Remove(c);
+        }
+
+        private static bool? ExtractBool(AstNode value)
+        {
+            if (value is Parser.Nodes.Primitives.BooleanNode bn)
+                return bn.Token.Matches(Keyword.True);
+            return null;
         }
 
         private static void ApplyToClass(ClassDefinitionNode cls)

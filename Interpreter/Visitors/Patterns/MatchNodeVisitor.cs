@@ -252,6 +252,48 @@ namespace RaLanguage.Interpreter.Visitors.Patterns
                                             List<(string, RuntimeValue)> bindings, out Error? error)
         {
             error = null;
+
+            // Record positional destructure: `case Point(x, y) -> ...`.
+            // Routes through the primary-field list of the scrutinee's
+            // Definition; binds left-to-right. Cross-type patterns
+            // (mismatched names) reject; nominal identity is required.
+            if (scrutinee is RaLanguage.Interpreter.Values.Records.RecordInstanceValue recInst
+                && vap.EnumName == null)
+            {
+                var sym = context.SymbolTable.Get(vap.VariantName);
+                if (sym is RaLanguage.Interpreter.Values.Records.RecordTypeValue patType)
+                {
+                    if (!ReferenceEquals(patType, recInst.Definition)) return false;
+
+                    var subs = vap.SubPatterns;
+                    int subCount = subs?.Count ?? 0;
+                    int fieldCount = recInst.Definition.PrimaryFields.Count;
+
+                    if (subCount != fieldCount)
+                    {
+                        error = new RuntimeError(vap.PositionStart, vap.PositionEnd,
+                            $"record '{recInst.Definition.StructName}' has {fieldCount} primary field(s), pattern destructures {subCount}",
+                            context,
+                            code: DiagnosticCode.RuntimeTypeMismatch,
+                            primaryLabel: "arity mismatch",
+                            help: $"write 'case {recInst.Definition.StructName}({string.Join(", ", new string[fieldCount].Select((_, i) => "p" + (i + 1)))})'");
+                        return false;
+                    }
+
+                    if (subs == null) return true;
+                    for (int i = 0; i < subs.Count; i++)
+                    {
+                        var fname = recInst.Definition.PrimaryFields[i].NameTok.Value?.ToString() ?? "";
+                        var fval = recInst.HasField(fname)
+                            ? recInst.GetField(fname)
+                            : (RuntimeValue)NullValue.Null;
+                        if (!TryMatch(subs[i], fval, context, bindings, out error)) return false;
+                        if (error != null) return false;
+                    }
+                    return true;
+                }
+            }
+
             if (scrutinee is not EnumValue ev) return false;
 
             if (vap.EnumName != null && !string.Equals(ev.EnumName, vap.EnumName, System.StringComparison.Ordinal))
@@ -260,12 +302,12 @@ namespace RaLanguage.Interpreter.Visitors.Patterns
             if (!string.Equals(ev.MemberName, vap.VariantName, System.StringComparison.Ordinal))
                 return false;
 
-            var subs = vap.SubPatterns;
-            int subCount = subs?.Count ?? 0;
-            if (subCount != ev.Payload.Count)
+            var subsE = vap.SubPatterns;
+            int subCountE = subsE?.Count ?? 0;
+            if (subCountE != ev.Payload.Count)
             {
                 error = new RuntimeError(vap.PositionStart, vap.PositionEnd,
-                    $"variant '{ev.EnumName}.{ev.MemberName}' carries {ev.Payload.Count} value(s), pattern destructures {subCount}",
+                    $"variant '{ev.EnumName}.{ev.MemberName}' carries {ev.Payload.Count} value(s), pattern destructures {subCountE}",
                     context,
                     code: DiagnosticCode.RuntimeTypeMismatch,
                     primaryLabel: "arity mismatch",
@@ -273,10 +315,10 @@ namespace RaLanguage.Interpreter.Visitors.Patterns
                 return false;
             }
 
-            if (subs == null) return true;
-            for (int i = 0; i < subs.Count; i++)
+            if (subsE == null) return true;
+            for (int i = 0; i < subsE.Count; i++)
             {
-                if (!TryMatch(subs[i], ev.Payload[i], context, bindings, out error)) return false;
+                if (!TryMatch(subsE[i], ev.Payload[i], context, bindings, out error)) return false;
                 if (error != null) return false;
             }
             return true;
