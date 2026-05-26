@@ -37,6 +37,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
         // allocation pattern as LazyInitialized.
         public HashSet<string>? LazyInitializing;
 
+        // Per-instance event subscriber storage. Allocated lazily on
+        // first subscribe so instances of classes with no live event
+        // subscriptions pay zero overhead. Keyed by event name; values
+        // are mutable subscriber lists, not snapshots.
+        public Dictionary<string, RaLanguage.Interpreter.Runtime.Events.EventSubscriberList>? EventSubs;
+
         public override RuntimeValueType Type => RuntimeValueType.ClassInstance;
         public override bool IsCopy => false;
 

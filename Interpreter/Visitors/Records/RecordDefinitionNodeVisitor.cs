@@ -191,6 +191,28 @@ namespace RaLanguage.Interpreter.Visitors.Records
                 recordValue.AddProperty(PropertyBuilder.Build(p, name));
             }
 
+            // Event descriptors on records. Only `record class` reaches
+            // here because the parser rejects events on value records.
+            foreach (var ev in node.Events)
+            {
+                var ename = ev.NameTok.Value?.ToString() ?? "";
+                if (string.IsNullOrEmpty(ename)) continue;
+                if (recordValue.HasField(ename))
+                    return res.Failure(new RuntimeError(ev.PositionStart, ev.PositionEnd,
+                        $"event '{ename}' on record '{name}' collides with a primary field of the same name", context));
+                if (recordValue.PropertyByName.ContainsKey(ename))
+                    return res.Failure(new RuntimeError(ev.PositionStart, ev.PositionEnd,
+                        $"event '{ename}' on record '{name}' collides with a property of the same name", context));
+                if (recordValue.EventByName.ContainsKey(ename))
+                    return res.Failure(new RuntimeError(ev.PositionStart, ev.PositionEnd,
+                        $"duplicate event '{ename}' in record '{name}'", context));
+                if (ev.IsAbstract && !node.IsAbstract)
+                    return res.Failure(new RuntimeError(ev.PositionStart, ev.PositionEnd,
+                        $"abstract event '{ename}' can only appear inside an abstract record class", context));
+                recordValue.AddEvent(
+                    RaLanguage.Interpreter.Runtime.Events.EventBuilder.Build(ev, name));
+            }
+
             context.SymbolTable.Set(
                 name,
                 recordValue,
@@ -232,6 +254,15 @@ namespace RaLanguage.Interpreter.Visitors.Records
                 if (!op.HasAnnotations) continue;
                 var opTarget = new MetadataTarget(AnnotationTargetKind.Operator, name, op.OperatorTok.Type.ToString());
                 var annErr = AnnotationProcessor.Process(op.Annotations, opTarget, context, interpreter);
+                if (annErr != null) return res.Failure(annErr);
+            }
+
+            foreach (var ev in node.Events)
+            {
+                if (!ev.HasAnnotations) continue;
+                var kind = ev.IsStatic ? AnnotationTargetKind.StaticEvent : AnnotationTargetKind.Event;
+                var evTarget = new MetadataTarget(kind, name, ev.NameTok.Value?.ToString() ?? "");
+                var annErr = AnnotationProcessor.Process(ev.Annotations, evTarget, context, interpreter);
                 if (annErr != null) return res.Failure(annErr);
             }
 

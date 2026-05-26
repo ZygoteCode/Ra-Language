@@ -402,6 +402,27 @@ namespace RaLanguage.Interpreter.IR
         MatchArm        = 0x91,   // _, armIdx:u16  jumps on no-match
         MatchEnd        = 0x92,
 
+        // --- events ---
+        //
+        // Dedicated opcodes for event member-access and emit. v1 lands
+        // them as semantic markers — IR-gen does NOT yet emit them
+        // (Ra has no static event-type detection, so the `obj.E(args)`
+        // shape is indistinguishable from any other call until the IC
+        // primes). The VM dispatch routes through the same helpers
+        // OP_GET_MEMBER / OP_CALL_METHOD use, plus an IC fast-path
+        // tagged `BR_EVENT_INSTANCE` / `BR_EVENT_STATIC` in
+        // MemberAccessHelper that skips the type-tag cascade once the
+        // descriptor lookup is cached.
+        //
+        // Encoding parity with GetMember / CallMethod so a future PGO
+        // pass can swap them in-place when the IC reports a stable
+        // event hit.
+        //
+        //   GetEvent     [op][dst][recv][refIdx:u8 → MemberAccessRefs]
+        //   EmitEvent    [op][dst][evSlot][argBase] + ext: argCount
+        GetEvent        = 0x93,
+        EmitEvent       = 0x94,
+
         // --- exceptions ---
         Throw           = 0xA0,   // a (err src)
         EnterTry        = 0xA1,   // _, handlerIdx:u16

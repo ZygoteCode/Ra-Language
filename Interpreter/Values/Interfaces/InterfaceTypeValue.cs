@@ -1,6 +1,7 @@
 using System.Threading.Tasks;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
+using RaLanguage.Interpreter.Runtime.Events;
 using RaLanguage.Interpreter.Runtime.Properties;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Parser.Nodes.Interfaces;
@@ -16,6 +17,8 @@ namespace RaLanguage.Interpreter.Values.Interfaces
         public List<StructFieldDefinitionNode> Fields { get; }
         public List<PropertyDescriptor> Properties { get; } = new();
         public Dictionary<string, PropertyDescriptor> PropertyByName { get; } = new(StringComparer.Ordinal);
+        public List<EventDescriptor> Events { get; } = new();
+        public Dictionary<string, EventDescriptor> EventByName { get; } = new(StringComparer.Ordinal);
         public List<string> GenericTypeParams { get; }
         public List<WhereConstraintNode> WhereConstraints { get; }
 
@@ -44,6 +47,15 @@ namespace RaLanguage.Interpreter.Values.Interfaces
 
         public PropertyDescriptor? GetProperty(string name)
             => PropertyByName.TryGetValue(name, out var d) ? d : null;
+
+        public void AddEvent(EventDescriptor desc)
+        {
+            Events.Add(desc);
+            EventByName[desc.Name] = desc;
+        }
+
+        public EventDescriptor? GetEvent(string name)
+            => EventByName.TryGetValue(name, out var d) ? d : null;
 
         public InterfaceMethodSignatureNode? GetMethod(string name)
             => Methods.FirstOrDefault(m => string.Equals(m.NameTok.Value?.ToString(), name, StringComparison.Ordinal));

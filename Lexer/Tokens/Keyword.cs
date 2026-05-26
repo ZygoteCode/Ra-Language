@@ -78,5 +78,6 @@
         Record,
         Prop,
         Lazy,
+        Event,
     }
 }

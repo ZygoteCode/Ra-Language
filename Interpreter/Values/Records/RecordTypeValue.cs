@@ -227,6 +227,14 @@ namespace RaLanguage.Interpreter.Values.Records
         // immutable.
         public override RuntimeValue Copy() => this;
 
+        // GetEvent walks the BaseRecord chain so inherited event
+        // declarations are visible on child instances.
+        public override RaLanguage.Interpreter.Runtime.Events.EventDescriptor? GetEvent(string name)
+        {
+            if (EventByName.TryGetValue(name, out var d)) return d;
+            return BaseRecord?.GetEvent(name);
+        }
+
         public override string ToString()
         {
             string kind = IsRefRecord ? (IsAbstract ? "abstract record class" : "record class") : "record";

@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Runtime.Events;
 using RaLanguage.Interpreter.Runtime.Properties;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Lexer.Tokens;
@@ -30,6 +31,19 @@ namespace RaLanguage.Interpreter.Values.Structs
         // MemberAccessHelper / MemberAssignmentHelper.
         public List<PropertyDescriptor> Properties { get; } = new();
         public Dictionary<string, PropertyDescriptor> PropertyByName { get; } = new(StringComparer.Ordinal);
+
+        // Event descriptors. Structs reject events at parse time, but
+        // the slot lives here because records (which extend StructType)
+        // do support events on `record class`. RecordTypeValue uses the
+        // same Events list.
+        public List<EventDescriptor> Events { get; } = new();
+        public Dictionary<string, EventDescriptor> EventByName { get; } = new(StringComparer.Ordinal);
+
+        // Static-event subscriber storage (record class statics).
+        // Records currently do not support `static event` (parser does
+        // not surface a static modifier inside a record body) — this
+        // slot exists for future use and structural parity with class.
+        public Dictionary<string, EventSubscriberList>? StaticEventSubs;
 
         public override RuntimeValueType Type => RuntimeValueType.StructType;
         public override bool IsCopy => true;
@@ -65,6 +79,17 @@ namespace RaLanguage.Interpreter.Values.Structs
 
         public virtual PropertyDescriptor? GetProperty(string name)
             => PropertyByName.TryGetValue(name, out var d) ? d : null;
+
+        public void AddEvent(EventDescriptor desc)
+        {
+            Events.Add(desc);
+            EventByName[desc.Name] = desc;
+        }
+
+        // Default GetEvent walks only this struct. Record class extends
+        // and overrides to walk the BaseRecord chain.
+        public virtual EventDescriptor? GetEvent(string name)
+            => EventByName.TryGetValue(name, out var d) ? d : null;
 
         public bool HasField(string name)
         {

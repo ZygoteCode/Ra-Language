@@ -4,6 +4,7 @@ using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Runtime.Classes;
+using RaLanguage.Interpreter.Runtime.Events;
 using RaLanguage.Interpreter.Runtime.Properties;
 using RaLanguage.Interpreter.Values.Classes;
 using RaLanguage.Interpreter.Values.Functions;
@@ -37,6 +38,16 @@ namespace RaLanguage.Interpreter.Values.Primitives
         // hierarchy). GetProperty walks the BaseClass chain.
         public List<PropertyDescriptor> Properties { get; } = new();
         public Dictionary<string, PropertyDescriptor> PropertyByName { get; } = new(StringComparer.Ordinal);
+
+        // Event descriptors declared on this class (not the hierarchy).
+        // GetEvent walks the BaseClass chain. Subscriber storage lives
+        // per-instance for non-static events; static events store the
+        // subscriber list directly on the type below.
+        public List<EventDescriptor> Events { get; } = new();
+        public Dictionary<string, EventDescriptor> EventByName { get; } = new(StringComparer.Ordinal);
+
+        // Per-class storage for static events. Allocated lazily.
+        public Dictionary<string, EventSubscriberList>? StaticEventSubs;
 
         public override RuntimeValueType Type => RuntimeValueType.ClassType;
 
@@ -98,6 +109,20 @@ namespace RaLanguage.Interpreter.Values.Primitives
         {
             if (PropertyByName.TryGetValue(name, out var d)) return d;
             return BaseClass?.GetProperty(name);
+        }
+
+        public void AddEvent(EventDescriptor desc)
+        {
+            Events.Add(desc);
+            EventByName[desc.Name] = desc;
+        }
+
+        // Walks the class and its base classes for an event named `name`.
+        // Overrides on this class shadow base descriptors.
+        public EventDescriptor? GetEvent(string name)
+        {
+            if (EventByName.TryGetValue(name, out var d)) return d;
+            return BaseClass?.GetEvent(name);
         }
 
         // M38: hidden class / shape information. Field set on a class
@@ -398,6 +423,32 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return p != null && !p.IsAbstract;
         }
 
+        // Walks the hierarchy collecting abstract event descriptors not
+        // yet resolved by a concrete override. Used at concrete-class
+        // build time to refuse instantiation when an abstract event is
+        // left unimplemented.
+        public List<RaLanguage.Interpreter.Runtime.Events.EventDescriptor> GetAbstractEventsInHierarchy()
+        {
+            var result = new List<RaLanguage.Interpreter.Runtime.Events.EventDescriptor>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            void Collect(ClassTypeValue? type)
+            {
+                if (type == null) return;
+                foreach (var ev in type.Events)
+                    if (ev.IsAbstract && seen.Add(ev.Name))
+                        result.Add(ev);
+                Collect(type.BaseClass);
+            }
+            Collect(this);
+            return result;
+        }
+
+        public bool HasConcreteEventOverride(string name)
+        {
+            var ev = GetEvent(name);
+            return ev != null && !ev.IsAbstract;
+        }
+
         private static void CollectAbstractFields(ClassTypeValue type, List<StructFieldDefinitionNode> output)
         {
             output.AddRange(type.Fields.Where(f => f.IsAbstract));
@@ -458,6 +509,18 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 }
                 if (requiredProp.HasGetter && !prov.HasGetter) return false;
                 if (requiredProp.HasSetter && !prov.HasSetter) return false;
+            }
+
+            // Trait event requirements — implementer must supply a
+            // concrete event whose full signature (name + arity +
+            // cancellable + payload types pairwise) matches.
+            foreach (var requiredEv in trait.Events)
+            {
+                if (!requiredEv.IsAbstract) continue;
+                var prov = GetEvent(requiredEv.Name);
+                if (prov == null) return false;
+                if (prov.IsAbstract) return false;
+                if (!prov.SignatureMatches(requiredEv)) return false;
             }
 
             return true;
@@ -804,6 +867,18 @@ namespace RaLanguage.Interpreter.Values.Primitives
                 if (requiredProp.HasGetter && !prov.HasGetter) return false;
                 if (requiredProp.HasSetter && !prov.HasSetter) return false;
                 if (requiredProp.HasInitter && !prov.HasInitter && !prov.HasSetter) return false;
+            }
+
+            // Event contracts. Implementer must declare a concrete event
+            // whose full signature matches every event in the interface
+            // body. See EventDescriptor.SignatureMatches for the test:
+            // name + arity + cancellable + payload types pairwise.
+            foreach (var requiredEv in iface.Events)
+            {
+                var prov = GetEvent(requiredEv.Name);
+                if (prov == null) return false;
+                if (prov.IsAbstract) return false;
+                if (!prov.SignatureMatches(requiredEv)) return false;
             }
 
             return true;
