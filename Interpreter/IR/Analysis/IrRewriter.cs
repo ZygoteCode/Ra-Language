@@ -1064,6 +1064,37 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.NewInstance:
                 case Opcode.NativeDefine:
                 case Opcode.Await: case Opcode.Spawn:
+                // M87 — extend WritesToSlot to include the entire typed
+                // tagged-union family. Without these, GVN's
+                // `IsCanonicalSlotClean` walked through a typed write
+                // to the canonical slot without flagging it, and
+                // emitted a stale `Move` from a slot whose value had
+                // since been overwritten. The bug is invisible at
+                // function scope (typed ops live inside a loop's
+                // scope, distinct slot ranges) but surfaces at top
+                // level when the M87 generalised typed-Int64 redirect
+                // emits typed ops in sibling statements that share
+                // temp slot indices.
+                case Opcode.LoadIntS64:
+                case Opcode.UnboxI:
+                case Opcode.BoxI:
+                case Opcode.UnboxF:
+                case Opcode.BoxF:
+                case Opcode.AddII: case Opcode.SubII: case Opcode.MulII:
+                case Opcode.DivII: case Opcode.ModII:
+                case Opcode.ShlII: case Opcode.ShrII:
+                case Opcode.BAndII: case Opcode.BOrII: case Opcode.BXorII:
+                case Opcode.LtII:  case Opcode.LeII:
+                case Opcode.GtII:  case Opcode.GeII:
+                case Opcode.EqII:  case Opcode.NeII:
+                case Opcode.AddFF: case Opcode.SubFF:
+                case Opcode.MulFF: case Opcode.DivFF:
+                case Opcode.LtFF:  case Opcode.LeFF:
+                case Opcode.GtFF:  case Opcode.GeFF:
+                case Opcode.AndBB: case Opcode.OrBB:
+                case Opcode.NotB:
+                case Opcode.NegI:  case Opcode.NegF:
+                case Opcode.PowII: case Opcode.PowFF:
                     return Encoding.A(instr) == slot;
                 default:
                     return false;

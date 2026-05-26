@@ -532,13 +532,62 @@ namespace RaLanguage.Interpreter.IR.Analysis
                             return true;
                         // Indirect mutation via call → bridge through
                         // MutatedNames. If the function never assigns
-                        // this name anywhere, callees in the same scope
-                        // cannot reach it either.
+                        // this name anywhere AND no imported module
+                        // could capture / re-export it AND every
+                        // statically-resolvable callee proves clean,
+                        // callees in the same scope cannot reach it.
                         case Opcode.Call:
                         case Opcode.CallMethod:
                         case Opcode.TailCall:
                             if (nameInMutatedSet) return true;
-                            break;
+                            // M88: cross-file gate. With imports active,
+                            // a callee could live in a different
+                            // module and mutate `name` via closure
+                            // capture / shared mutable state — paths
+                            // the in-file walker behind
+                            // `fn.MutatedNames` cannot see. Consult
+                            // the process-wide
+                            // `ModuleManager.GlobalMutatedNames`
+                            // registry first: when no loaded module
+                            // ever assigns this name, no callee in
+                            // any module could either, so the hoist
+                            // is still safe even with imports active.
+                            // When the name DOES appear in the
+                            // registry (or the registry is empty
+                            // because no module has loaded yet — a
+                            // possibility on the importing function's
+                            // first compile), refuse conservatively.
+                            if (fn.HasImports)
+                            {
+                                var reg = RaLanguage.Interpreter.Modules.ModuleManager.GlobalMutatedNames;
+                                if (reg.Count == 0 || reg.Contains(name)) return true;
+                            }
+                            // M88: per-call alias check. When the
+                            // function value loaded into the Call's
+                            // `fnSlot` traces back to a `LoadGlobal`
+                            // of a known in-file name, look up that
+                            // callee's `MutatedNames` and refuse iff
+                            // it contains `name`. Lambdas / dynamic
+                            // dispatch / cross-file calls without a
+                            // direct `LoadGlobal` def fall through to
+                            // the safe-refuse arm below.
+                            if (op == Opcode.Call || op == Opcode.TailCall)
+                            {
+                                byte fnSlot = Encoding.B(instr);
+                                string? calleeName = TraceFnSlotName(fn, cfg, pc, fnSlot);
+                                if (calleeName != null
+                                    && fn.CalleeMutatedNames != null
+                                    && fn.CalleeMutatedNames.TryGetValue(calleeName, out var calleeMut))
+                                {
+                                    if (calleeMut.Contains(name)) return true;
+                                    // Resolved + clean — continue scanning.
+                                    break;
+                                }
+                                // CallMethod or unresolved callee:
+                                // refuse conservatively.
+                                return true;
+                            }
+                            return true;
                     }
                 }
             }
@@ -553,6 +602,108 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 || op == Opcode.AndJz
                 || op == Opcode.OrJnz
                 || op == Opcode.NCJz;
+        }
+
+        // M88: walk backward from the Call's PC inside the same basic
+        // block looking for the most-recent write to `fnSlot`. When
+        // that write is a `LoadGlobal a=fnSlot, imm16=nameIdx`, return
+        // the resolved name; otherwise null. Limited to within-block
+        // scan because cross-block tracing would require SSA and is
+        // not worth the complexity for the common pattern (`name(...)`
+        // → `LoadGlobal` followed immediately by `Call`).
+        private static string? TraceFnSlotName(
+            RaFunction fn, ControlFlowGraph cfg, int callPc, byte fnSlot)
+        {
+            int blockId = cfg.PcToBlock[callPc];
+            if (blockId < 0) return null;
+            var bb = cfg.Blocks[blockId];
+            for (int pc = callPc - 1; pc >= bb.StartPc; pc--)
+            {
+                uint instr = fn.Code[pc];
+                var op = Encoding.DecodeOp(instr);
+                if (!WritesSlot(op, instr, fnSlot)) continue;
+                if (op == Opcode.LoadGlobal)
+                {
+                    ushort nameIdx = Encoding.Imm16(instr);
+                    if (nameIdx < (uint)fn.Names.Length) return fn.Names[nameIdx];
+                    return null;
+                }
+                // Any other writer (Move, Call result, dynamic dispatch,
+                // …) — give up.
+                return null;
+            }
+            return null;
+        }
+
+        // Lightweight predicate: returns true iff `op` writes its A
+        // operand (the slot encoding) AND A == slot. Mirrors the
+        // SsaForm-side `DefinedSlot` lookup but inlined here so we
+        // don't depend on the full bundle.
+        private static bool WritesSlot(Opcode op, uint instr, byte slot)
+        {
+            switch (op)
+            {
+                case Opcode.LoadConst:
+                case Opcode.LoadNull:
+                case Opcode.LoadTrue:
+                case Opcode.LoadFalse:
+                case Opcode.LoadIntS:
+                case Opcode.LoadIntS64:
+                case Opcode.LoadGlobal:
+                case Opcode.LoadBuiltin:
+                case Opcode.LoadUpval:
+                case Opcode.LoadLocalS:
+                case Opcode.Move:
+                case Opcode.Alias:
+                case Opcode.MoveLet:
+                case Opcode.Borrow:
+                case Opcode.Deref:
+                case Opcode.Add: case Opcode.Sub: case Opcode.Mul:
+                case Opcode.Div: case Opcode.Mod: case Opcode.Pow:
+                case Opcode.Shl: case Opcode.Shr:
+                case Opcode.BAnd: case Opcode.BOr: case Opcode.BXor:
+                case Opcode.AddNN: case Opcode.SubNN: case Opcode.MulNN:
+                case Opcode.AddII: case Opcode.SubII: case Opcode.MulII:
+                case Opcode.DivII: case Opcode.ModII:
+                case Opcode.ShlII: case Opcode.ShrII:
+                case Opcode.BAndII: case Opcode.BOrII: case Opcode.BXorII:
+                case Opcode.LtII: case Opcode.LeII:
+                case Opcode.GtII: case Opcode.GeII:
+                case Opcode.EqII: case Opcode.NeII:
+                case Opcode.Neg: case Opcode.NegI: case Opcode.NegF:
+                case Opcode.Not: case Opcode.BNot:
+                case Opcode.Eq: case Opcode.Ne:
+                case Opcode.SEq: case Opcode.SNe:
+                case Opcode.Lt: case Opcode.Le: case Opcode.Gt: case Opcode.Ge:
+                case Opcode.AddFF: case Opcode.SubFF:
+                case Opcode.MulFF: case Opcode.DivFF:
+                case Opcode.LtFF: case Opcode.LeFF:
+                case Opcode.GtFF: case Opcode.GeFF:
+                case Opcode.AndBB: case Opcode.OrBB:
+                case Opcode.NotB:
+                case Opcode.UnboxI: case Opcode.BoxI:
+                case Opcode.UnboxF: case Opcode.BoxF:
+                case Opcode.PowII: case Opcode.PowFF:
+                case Opcode.NullCoal:
+                case Opcode.StrConcat: case Opcode.Interp: case Opcode.Fmt:
+                case Opcode.NewList: case Opcode.NewMap:
+                case Opcode.NewSet: case Opcode.NewTuple:
+                case Opcode.ListGet: case Opcode.MapGet:
+                case Opcode.Range:
+                case Opcode.GetMember: case Opcode.EnumAccess:
+                case Opcode.ForEachIterable: case Opcode.ListLen:
+                case Opcode.Cast: case Opcode.Is:
+                case Opcode.Typeof: case Opcode.Nameof:
+                case Opcode.Closure: case Opcode.DefineFunction:
+                case Opcode.GetSelf: case Opcode.GetSuper:
+                case Opcode.Call: case Opcode.CallKw: case Opcode.CallMethod:
+                case Opcode.NewInstance:
+                case Opcode.NativeDefine:
+                case Opcode.Await: case Opcode.Spawn:
+                    return Encoding.A(instr) == slot;
+                default:
+                    return false;
+            }
         }
     }
 }
