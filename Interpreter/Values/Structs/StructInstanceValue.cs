@@ -21,8 +21,8 @@ namespace RaLanguage.Interpreter.Values.Structs
         // slot array is the O(1) read path consulted by the M28.1 IC.
         public RuntimeValue?[] FieldSlots;
 
-        public sealed override RuntimeValueType Type => RuntimeValueType.StructInstance;
-        public sealed override bool IsCopy => true;
+        public override RuntimeValueType Type => RuntimeValueType.StructInstance;
+        public override bool IsCopy => true;
 
         public StructInstanceValue(StructTypeValue definition)
         {
@@ -65,55 +65,55 @@ namespace RaLanguage.Interpreter.Values.Structs
             if ((uint)idx < (uint)FieldSlots.Length) FieldSlots[idx] = stored;
         }
 
-        public sealed override ValueResult AddedTo(RuntimeValue other) =>
+        public override ValueResult AddedTo(RuntimeValue other) =>
             TryOperatorDispatch(TokenType.PLUS, other, (l, r) => l.AddedTo(other));
 
-        public sealed override ValueResult SubbedBy(RuntimeValue other) =>
+        public override ValueResult SubbedBy(RuntimeValue other) =>
             TryOperatorDispatch(TokenType.MINUS, other, (l, r) => l.SubbedBy(other));
 
-        public sealed override ValueResult MultedBy(RuntimeValue other) =>
+        public override ValueResult MultedBy(RuntimeValue other) =>
             TryOperatorDispatch(TokenType.MUL, other, (l, r) => l.MultedBy(other));
 
-        public sealed override ValueResult DivedBy(RuntimeValue other) =>
+        public override ValueResult DivedBy(RuntimeValue other) =>
             TryOperatorDispatch(TokenType.DIV, other, (l, r) => l.DivedBy(other));
 
-        public sealed override ValueResult PowedBy(RuntimeValue other) =>
+        public override ValueResult PowedBy(RuntimeValue other) =>
             TryOperatorDispatch(TokenType.POW, other, (l, r) => l.PowedBy(other));
 
-        public sealed override ValueResult ModuledBy(RuntimeValue other) =>
+        public override ValueResult ModuledBy(RuntimeValue other) =>
             TryOperatorDispatch(TokenType.MODULO, other, (l, r) => l.ModuledBy(other));
 
-        public sealed override ValueResult BitwiseLeftShiftedBy(RuntimeValue other) =>
+        public override ValueResult BitwiseLeftShiftedBy(RuntimeValue other) =>
             TryOperatorDispatch(TokenType.BITWISE_LEFT_SHIFT, other, (l, r) => l.BitwiseLeftShiftedBy(other));
 
-        public sealed override ValueResult BitwiseRightShiftedBy(RuntimeValue other) =>
+        public override ValueResult BitwiseRightShiftedBy(RuntimeValue other) =>
             TryOperatorDispatch(TokenType.BITWISE_RIGHT_SHIFT, other, (l, r) => l.BitwiseRightShiftedBy(other));
 
-        public sealed override ValueResult BitwiseAndedBy(RuntimeValue other) =>
+        public override ValueResult BitwiseAndedBy(RuntimeValue other) =>
             TryOperatorDispatch(TokenType.BITWISE_AND, other, (l, r) => l.BitwiseAndedBy(other));
 
-        public sealed override ValueResult BitwiseOredBy(RuntimeValue other) =>
+        public override ValueResult BitwiseOredBy(RuntimeValue other) =>
             TryOperatorDispatch(TokenType.BITWISE_OR, other, (l, r) => l.BitwiseOredBy(other));
 
-        public sealed override ValueResult GetComparisonEq(RuntimeValue other) =>
+        public override ValueResult GetComparisonEq(RuntimeValue other) =>
             TryOperatorDispatch(TokenType.EE, other, (l, r) => l.GetComparisonEq(other));
 
-        public sealed override ValueResult GetComparisonNe(RuntimeValue other) =>
+        public override ValueResult GetComparisonNe(RuntimeValue other) =>
             TryOperatorDispatch(TokenType.NE, other, (l, r) => l.GetComparisonNe(other));
 
-        public sealed override ValueResult GetComparisonLt(RuntimeValue other) =>
+        public override ValueResult GetComparisonLt(RuntimeValue other) =>
             TryOperatorDispatch(TokenType.LT, other, (l, r) => l.GetComparisonLt(other));
 
-        public sealed override ValueResult GetComparisonGt(RuntimeValue other) =>
+        public override ValueResult GetComparisonGt(RuntimeValue other) =>
             TryOperatorDispatch(TokenType.GT, other, (l, r) => l.GetComparisonGt(other));
 
-        public sealed override ValueResult GetComparisonLte(RuntimeValue other) =>
+        public override ValueResult GetComparisonLte(RuntimeValue other) =>
             TryOperatorDispatch(TokenType.LTE, other, (l, r) => l.GetComparisonLte(other));
 
-        public sealed override ValueResult GetComparisonGte(RuntimeValue other) =>
+        public override ValueResult GetComparisonGte(RuntimeValue other) =>
             TryOperatorDispatch(TokenType.GTE, other, (l, r) => l.GetComparisonGte(other));
 
-        public sealed override RuntimeValue Copy()
+        public override RuntimeValue Copy()
         {
             var copy = new StructInstanceValue(Definition);
             foreach (var kv in Fields)
@@ -163,7 +163,7 @@ namespace RaLanguage.Interpreter.Values.Structs
             }
         }
 
-        public sealed override string ToString()
+        public override string ToString()
             => $"{Definition.StructName}{{{string.Join(", ", Fields.Select(kv => $"{kv.Key}: {kv.Value}"))}}}";
     }
 }

@@ -32,11 +32,11 @@ namespace RaLanguage.Interpreter.Visitors.Members
             var value = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.ValueNode, context, interpreter));
             if (res.ShouldReturn()) return res;
 
-            if (owner.Type == RuntimeValueType.StructInstance)
+            if (owner.Type == RuntimeValueType.StructInstance || owner.Type == RuntimeValueType.RecordInstance)
             {
                 var instance = (StructInstanceValue)owner;
                 if (!instance.HasField(memberName))
-                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Struct '{instance.Definition.StructName}' has no field '{memberName}'", context));
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"{(owner.Type == RuntimeValueType.RecordInstance ? "Record" : "Struct")} '{instance.Definition.StructName}' has no field '{memberName}'", context));
 
                 var fieldDeclType = instance.GetFieldDeclarationType(memberName);
                 if (fieldDeclType == VariableDeclarationType.CONST)

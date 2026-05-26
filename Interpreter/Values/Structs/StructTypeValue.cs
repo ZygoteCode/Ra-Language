@@ -22,8 +22,8 @@ namespace RaLanguage.Interpreter.Values.Structs
         public List<string> GenericTypeParams { get; }
         public List<WhereConstraintNode> WhereConstraints { get; }
 
-        public sealed override RuntimeValueType Type => RuntimeValueType.StructType;
-        public sealed override bool IsCopy => true;
+        public override RuntimeValueType Type => RuntimeValueType.StructType;
+        public override bool IsCopy => true;
 
         public StructTypeValue(
             string structName,
@@ -138,7 +138,7 @@ namespace RaLanguage.Interpreter.Values.Structs
         public StructFieldDefinitionNode? GetField(string name)
             => Fields.FirstOrDefault(f => string.Equals(f.NameTok.Value?.ToString(), name, StringComparison.Ordinal));
 
-        public sealed override async ValueTask<RuntimeResult> Execute(List<RuntimeValue> args)
+        public override async ValueTask<RuntimeResult> Execute(List<RuntimeValue> args)
             => await ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
 
         public async ValueTask<RuntimeResult> ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs)
@@ -184,14 +184,14 @@ namespace RaLanguage.Interpreter.Values.Structs
             return res.Success(instance);
         }
 
-        public sealed override RuntimeValue Copy()
+        public override RuntimeValue Copy()
         {
             return new StructTypeValue(StructName, IsPublic, Fields, Methods, Operators, GenericTypeParams, WhereConstraints)
                 .SetContext(Context)
                 .SetPos(PositionStart, PositionEnd);
         }
 
-        public sealed override string ToString() => $"<struct {StructName}>";
+        public override string ToString() => $"<struct {StructName}>";
 
         public OperatorDefinitionNode? ResolveOperator(TokenType operatorType, string parameterTypeName)
         {

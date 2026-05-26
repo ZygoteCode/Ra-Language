@@ -557,8 +557,101 @@ namespace RaLanguage.Parser
             while (_currentToken.Type == TokenType.LPAREN
                 || _currentToken.Type == TokenType.LSQUARE
                 || _currentToken.Type == TokenType.DOT
-                || _currentToken.Matches(Keyword.Not))
+                || _currentToken.Matches(Keyword.Not)
+                || (_currentToken.Matches(Keyword.With)
+                    && _tokenIndex + 1 < _tokens.Count
+                    && _tokens[_tokenIndex + 1].Type == TokenType.LBRACKET))
             {
+                if (_currentToken.Matches(Keyword.With))
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    // Consume `{`.
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    var updates = new List<(Token, AstNode)>();
+                    var seenWithNames = new HashSet<string>(StringComparer.Ordinal);
+
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    while (_currentToken.Type != TokenType.RBRACKET)
+                    {
+                        if (_currentToken.Type != TokenType.IDENTIFIER)
+                            return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
+                                after: "the opening brace of a record-update",
+                                help: "record-update syntax: 'expr with { name: value, name: value }'"));
+
+                        var nameTok = _currentToken;
+                        var name = nameTok.Value?.ToString() ?? "";
+
+                        if (!seenWithNames.Add(name))
+                        {
+                            return res.Failure(ParserDiagnostics.UnexpectedToken(nameTok,
+                                $"a unique field name (duplicate '{name}')",
+                                contextHint: "record-update lists may not name the same field twice"));
+                        }
+
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        if (_currentToken.Type != TokenType.COLON)
+                            return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                                "':'",
+                                contextHint: "record-update pairs are 'name: value'"));
+
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        var valExpr = res.Register(ParseExpression());
+                        if (res.Error != null) return res;
+                        updates.Add((nameTok, valExpr));
+
+                        while (_currentToken.Type == TokenType.NEWLINE)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                        }
+
+                        if (_currentToken.Type == TokenType.COMMA)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+
+                            while (_currentToken.Type == TokenType.NEWLINE)
+                            {
+                                res.RegisterAdvancement();
+                                Advance();
+                            }
+
+                            continue;
+                        }
+
+                        break;
+                    }
+
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    if (_currentToken.Type != TokenType.RBRACKET)
+                        return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, '}', '{',
+                            context: "the record-update list"));
+
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    resultNode = new RaLanguage.Parser.Nodes.Operations.WithExpressionNode(resultNode, updates);
+                    continue;
+                }
+
                 if (_currentToken.Matches(Keyword.Not))
                 {
                     var opTok = _currentToken;
@@ -953,6 +1046,10 @@ namespace RaLanguage.Parser
                     var structExpr = res.Register(ParseStructDefinition(false));
                     if (res.Error != null) return res;
                     return res.Success(structExpr);
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Record:
+                    var recordExpr = res.Register(ParseRecordDefinition(false));
+                    if (res.Error != null) return res;
+                    return res.Success(recordExpr);
                 case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Class:
                     var classExpr = res.Register(ParseClassDefinition(false, false, false));
                     if (res.Error != null) return res;

@@ -1,0 +1,140 @@
+// Ra Language - types: records (value flavor by default, reference
+// flavor via `record class`). Covers definition, instantiation,
+// structural equality / hashing-via-equality, with-expressions,
+// deconstruction-via-fields, immutability of primary fields,
+// methods + operator overloads, generics, defaults, and a handful
+// of negative paths.
+//
+// Cases:
+//   R1   primary-field constructor + field reads
+//   R2   record-style auto to_string format
+//   R3   structural equality   ==   (positive case)
+//   R4   structural inequality ==   (different field value)
+//   R5   structural inequality ==   (different declared type)
+//   R6   with-expression — single override
+//   R7   with-expression — multiple overrides; receiver unchanged
+//   R8   with-expression — produces a structurally-equal sibling
+//   R9   with-expression — unknown field raises a precise error
+//   R10  primary fields are immutable by default
+//   R11  `mut` primary field on a `record class` allows in-place
+//        reassignment (value records use `with` instead, since
+//        in-place mutation of a value-semantic type would only
+//        write to a transient copy of the receiver)
+//   R12  body method using self
+//   R13  body operator overload — addition
+//   R14  generic record
+//   R15  default-value primary field
+//   R16  nested records: equality drills down into inner records
+//   R17  record + list field: structural equality element-wise
+//   R18  record class: reference flavor, structural equality still works
+//   R19  passing a record into a function preserves identity-by-value
+//   R20  user-defined to_string overrides the auto format
+
+print("=== types/records ===");
+
+record Point(x: int, y: int)
+
+var p = Point(3, 4);
+if p.x == 3 and p.y == 4 { print("[R1] OK"); } else { print("[R1] FAIL"); }
+
+if (p as string) == "Point(x=3, y=4)" { print("[R2] OK"); } else { print("[R2] FAIL got: " + (p as string)); }
+
+var p1 = Point(1, 2);
+var p2 = Point(1, 2);
+var p3 = Point(1, 3);
+
+if p1 == p2 { print("[R3] OK"); } else { print("[R3] FAIL"); }
+if p1 != p3 { print("[R4] OK"); } else { print("[R4] FAIL"); }
+
+record Pair(x: int, y: int)
+var pair = Pair(1, 2);
+if pair != p1 { print("[R5] OK"); } else { print("[R5] FAIL (cross-type equality)"); }
+
+var p4 = p1 with { x: 10 };
+if p4.x == 10 and p4.y == 2 { print("[R6] OK"); } else { print("[R6] FAIL"); }
+
+var p5 = p1 with { x: 99, y: 88 };
+if p5.x == 99 and p5.y == 88 and p1.x == 1 and p1.y == 2 { print("[R7] OK"); } else { print("[R7] FAIL"); }
+
+var p6 = p1 with { x: 1, y: 2 };
+if p6 == p1 { print("[R8] OK"); } else { print("[R8] FAIL"); }
+
+try {
+    var bad = p1 with { z: 5 };
+    print("[R9] FAIL (no error)");
+} catch (ex) {
+    print("[R9] OK");
+}
+
+try {
+    p1.x = 99;
+    print("[R10] FAIL (no error)");
+} catch (ex) {
+    print("[R10] OK");
+}
+
+record class Counter(mut n: int)
+var c = Counter(0);
+c.n = 5;
+if c.n == 5 { print("[R11] OK"); } else { print("[R11] FAIL"); }
+
+record Vec3(x: float, y: float, z: float) {
+    pub fn magnitude_sq(): float {
+        ret (self.x * self.x + self.y * self.y + self.z * self.z) as float;
+    }
+}
+var v = Vec3(1.0, 2.0, 2.0);
+if v.magnitude_sq() == 9.0 { print("[R12] OK"); } else { print("[R12] FAIL"); }
+
+record Money(amount: int, currency: string) {
+    operator +(other: Money): Money {
+        ret Money(self.amount + other.amount, self.currency);
+    }
+}
+var m1 = Money(100, "EUR");
+var m2 = Money(50, "EUR");
+var m3 = m1 + m2;
+if m3.amount == 150 and m3.currency == "EUR" { print("[R13] OK"); } else { print("[R13] FAIL"); }
+
+record Box<T>(value: T)
+var bi = Box(7);
+var bs = Box("hi");
+if bi.value == 7 and bs.value == "hi" { print("[R14] OK"); } else { print("[R14] FAIL"); }
+
+record Config(retries: int = 3, label: string = "default")
+var cfg = Config();
+if cfg.retries == 3 and cfg.label == "default" { print("[R15] OK"); } else { print("[R15] FAIL"); }
+
+// Children intentionally typed as `any` — Ra has no nullable shorthand,
+// and we want to be able to slot `null` in for a leaf.
+record Tree(value: int, left: any, right: any)
+var t1 = Tree(1, Tree(2, null, null), Tree(3, null, null));
+var t2 = Tree(1, Tree(2, null, null), Tree(3, null, null));
+var t3 = Tree(1, Tree(99, null, null), Tree(3, null, null));
+if t1 == t2 { print("[R16a] OK"); } else { print("[R16a] FAIL"); }
+if t1 != t3 { print("[R16b] OK"); } else { print("[R16b] FAIL"); }
+
+record Bundle(name: string, items: list)
+var b1 = Bundle("a", [1, 2, 3]);
+var b2 = Bundle("a", [1, 2, 3]);
+if b1 == b2 { print("[R17] OK"); } else { print("[R17] FAIL"); }
+
+record class Person(name: string, age: int)
+var pa = Person("Ana", 30);
+var pb = Person("Ana", 30);
+if pa == pb { print("[R18] OK"); } else { print("[R18] FAIL"); }
+
+fn double_x(pt: Point): Point { ret pt with { x: pt.x * 2 }; }
+var p7 = Point(5, 6);
+var p8 = double_x(p7);
+if p7.x == 5 and p8.x == 10 and p8.y == 6 { print("[R19] OK"); } else { print("[R19] FAIL"); }
+
+record Named(label: string) {
+    pub fn to_string(): string {
+        ret "<<" + self.label + ">>";
+    }
+}
+var n = Named("hi");
+if (n as string) == "<<hi>>" { print("[R20] OK"); } else { print("[R20] FAIL got: " + (n as string)); }
+
+print("=== done ===");

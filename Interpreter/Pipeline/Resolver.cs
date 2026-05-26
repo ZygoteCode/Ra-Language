@@ -13,6 +13,7 @@ using RaLanguage.Parser.Nodes.Patterns;
 using RaLanguage.Parser.Nodes.Primitives;
 using RaLanguage.Parser.Nodes.Special;
 using RaLanguage.Parser.Nodes.Statements;
+using RaLanguage.Parser.Nodes.Records;
 using RaLanguage.Parser.Nodes.Structs;
 using RaLanguage.Parser.Nodes.Traits;
 using RaLanguage.Parser.Nodes.Variables;
@@ -97,6 +98,7 @@ namespace RaLanguage.Interpreter.Pipeline
                 case FunctionDefinitionNode fn: WalkFunction(fn, s); return;
                 case ClassDefinitionNode cls: WalkClass(cls, s); return;
                 case StructDefinitionNode str: WalkStruct(str, s); return;
+                case RecordDefinitionNode rec: WalkRecord(rec, s); return;
                 case TraitDefinitionNode trait: WalkTrait(trait, s); return;
                 case ExtensionDefinitionNode ext: WalkExtension(ext, s); return;
                 case Parser.Nodes.Namespaces.NamespaceDeclarationNode nd:
@@ -455,6 +457,29 @@ namespace RaLanguage.Interpreter.Pipeline
             }
 
             foreach (var op in str.Operators)
+            {
+                var paramBindings = WalkMethodLikeBody(op.BodyNode, new[] { op.ArgNameTok }, s, out int frameId);
+                op.FrameId = frameId;
+                op.ParamBindings = paramBindings;
+            }
+        }
+
+        private static void WalkRecord(RecordDefinitionNode rec, State s)
+        {
+            var name = rec.NameTok.Value?.ToString();
+            if (!string.IsNullOrEmpty(name)) s.AllocateLocalIfAbsent(name!);
+
+            foreach (var pf in rec.PrimaryFields)
+                if (pf.DefaultValueNode != null) Walk(pf.DefaultValueNode, s);
+
+            foreach (var m in rec.Methods)
+            {
+                var paramBindings = WalkMethodLikeBody(m.BodyNode, m.ArgNameToks, s, out int frameId);
+                m.FrameId = frameId;
+                m.ParamBindings = paramBindings;
+            }
+
+            foreach (var op in rec.Operators)
             {
                 var paramBindings = WalkMethodLikeBody(op.BodyNode, new[] { op.ArgNameTok }, s, out int frameId);
                 op.FrameId = frameId;

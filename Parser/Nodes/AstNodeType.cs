@@ -87,6 +87,9 @@
         RegexLiteral,
         Match,
         TryUnwrap,
-        Throw
+        Throw,
+        RecordDefinition,
+        RecordPrimaryField,
+        WithExpression
     }
 }
