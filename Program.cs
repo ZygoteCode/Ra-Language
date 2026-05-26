@@ -88,6 +88,10 @@ namespace RaLanguage
             RegisterBuiltinAdts(BuiltinSymbolTable);
             MetadataRegistry.Global.Clear();
             NamespaceRegistry.Global.Clear();
+            // M88: clear the cross-module mutated-names registry so a
+            // previous run's loaded modules do not over-constrain the
+            // next run's LICM. Same lifetime as `MetadataRegistry.Global`.
+            Interpreter.Modules.ModuleManager.GlobalMutatedNames.Clear();
 
             GlobalSymbolTable = new SymbolTable(BuiltinSymbolTable);
 

@@ -78,6 +78,47 @@ namespace RaLanguage.Interpreter.Modules
     {
         private readonly Dictionary<string, LoadedModule> _cache = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<string> _loadingChain = new();
+
+        // M88: process-wide accumulator of every binding name ever
+        // assigned by any function in any loaded module. Read by the
+        // LICM `LoadLocalS` hoist's cross-file gate when an importing
+        // function has `HasImports = true` — the typed walker behind
+        // the per-function `MutatedNames` set cannot see into modules
+        // that load lazily at runtime, so this registry serves as a
+        // conservative super-set for the closure-aliasing check.
+        //
+        // Static field on purpose: the registry survives across
+        // `InitializeSymbolTable` resets (which reset
+        // `ModuleManager` instances) because the LICM consults it
+        // from any compilation that hands its IR to a VM run.
+        public static readonly System.Collections.Generic.HashSet<string> GlobalMutatedNames =
+            new(System.StringComparer.Ordinal);
+
+        // M88: register every binding name a loaded module may mutate.
+        // Walks the module's compiled function values (or the module's
+        // symbol table when those are still in AST form) and unions
+        // each contributing function's `MutatedNames` into the global
+        // registry. Idempotent — a name added by one module re-added
+        // by another costs only a hash lookup.
+        public static void RegisterModuleMutatedNames(LoadedModule module)
+        {
+            if (module == null) return;
+            // Walk every binding in the module's symbol table (not
+            // only exports) — a non-exported helper closure can still
+            // mutate state observed elsewhere when its result is
+            // returned through an exported wrapper.
+            foreach (var key in module.SymbolTable.GetLocalKeys())
+            {
+                var entry = module.SymbolTable.GetEntry(key);
+                if (entry == null) continue;
+                if (entry.Value is RaLanguage.Interpreter.Values.Functions.FunctionValue fv
+                    && fv.CompiledBody?.MutatedNames != null)
+                {
+                    foreach (var nm in fv.CompiledBody.MutatedNames)
+                        GlobalMutatedNames.Add(nm);
+                }
+            }
+        }
         private readonly ModuleResolver _resolver;
         private readonly Func<SymbolTable> _builtinsProvider;
 
@@ -228,6 +269,13 @@ namespace RaLanguage.Interpreter.Modules
 
                 module.State = ModuleState.Loaded;
                 module.LoadedAt = DateTime.UtcNow;
+                // M88: register the loaded module's exported function
+                // MutatedNames into the process-wide registry so any
+                // subsequent LICM re-analysis (tier-up compile) of an
+                // importer can prove individual binding names safe
+                // against cross-module mutation without falling back
+                // to the blanket `HasImports` refuse-all gate.
+                RegisterModuleMutatedNames(module);
                 return ModuleLoadResult.Success(module);
             }
             catch (Exception ex)

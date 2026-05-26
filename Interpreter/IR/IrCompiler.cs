@@ -167,6 +167,21 @@ namespace RaLanguage.Interpreter.IR
             // bench_invariant.ra).
             public readonly Dictionary<AstNode, byte> TypedAccumulatorExprs = new();
 
+            // M88 (#29): when true, the enclosing lazy-counter loop is
+            // statically guaranteed to execute its body at least once.
+            // Loop-invariant pure-expression RHS pre-loads admitted by
+            // `IsLoopInvariantPureNumericExpr` can therefore include
+            // Div / Mod / Pow — any error their evaluation would raise
+            // is one the original boxed dispatch would also raise on
+            // the first iteration, with the same diagnostic. Set by
+            // `CompileForLazyLong` when (start < end) holds for the
+            // step direction, and by `CompileForEachLazyIntRange`
+            // unconditionally (its caller already verifies start <=
+            // end). Conditional preheader-emit paths (while-counter)
+            // set it true after the runtime guard so the same admit
+            // rule applies on the in-loop branch.
+            public bool LoopGuaranteedToEnter = false;
+
             public void RegisterSlot(int slot, string? name)
             {
                 if (slot > MaxSlot) MaxSlot = slot;
@@ -191,11 +206,58 @@ namespace RaLanguage.Interpreter.IR
             }
         }
 
+        // M87: snapshot of the typed-promotion dictionaries. Captured at
+        // the entry of a nested lazy-counter compile and replayed on
+        // exit so an inner loop's `Clear()` of literals / typed-bindings
+        // / typed-acc-exprs does not blow away the OUTER loop's state.
+        // Without this, a nested `while jj < 4 { ... }` inside an outer
+        // `while ii < 3 { ... ii = ii + 1 }` would leave outer `ii`
+        // mid-flight, with the post-inner `ii = ii + 1` falling through
+        // to a boxed path that no longer updates `ii`'s typed slot —
+        // an infinite loop.
+        private readonly struct TypedPromotionSnapshot
+        {
+            public readonly Dictionary<string, byte> ActiveTypedIters;
+            public readonly Dictionary<string, (byte LongSlot, BindingId Binding)> TypedAccumulators;
+            public readonly Dictionary<long, byte> TypedAccumulatorLiterals;
+            public readonly Dictionary<string, (byte LongSlot, BindingId Binding)> TypedLongBindings;
+            public readonly Dictionary<AstNode, byte> TypedAccumulatorExprs;
+            public readonly HashSet<string> DirtyTypedAccs;
+
+            public TypedPromotionSnapshot(State st)
+            {
+                ActiveTypedIters = new Dictionary<string, byte>(st.ActiveTypedIters);
+                TypedAccumulators = new Dictionary<string, (byte, BindingId)>(st.TypedAccumulators);
+                TypedAccumulatorLiterals = new Dictionary<long, byte>(st.TypedAccumulatorLiterals);
+                TypedLongBindings = new Dictionary<string, (byte, BindingId)>(st.TypedLongBindings);
+                TypedAccumulatorExprs = new Dictionary<AstNode, byte>(st.TypedAccumulatorExprs);
+                DirtyTypedAccs = new HashSet<string>(st.DirtyTypedAccs);
+            }
+
+            public void RestoreInto(State st)
+            {
+                st.ActiveTypedIters.Clear();
+                foreach (var kv in ActiveTypedIters) st.ActiveTypedIters[kv.Key] = kv.Value;
+                st.TypedAccumulators.Clear();
+                foreach (var kv in TypedAccumulators) st.TypedAccumulators[kv.Key] = kv.Value;
+                st.TypedAccumulatorLiterals.Clear();
+                foreach (var kv in TypedAccumulatorLiterals) st.TypedAccumulatorLiterals[kv.Key] = kv.Value;
+                st.TypedLongBindings.Clear();
+                foreach (var kv in TypedLongBindings) st.TypedLongBindings[kv.Key] = kv.Value;
+                st.TypedAccumulatorExprs.Clear();
+                foreach (var kv in TypedAccumulatorExprs) st.TypedAccumulatorExprs[kv.Key] = kv.Value;
+                st.DirtyTypedAccs.Clear();
+                foreach (var s in DirtyTypedAccs) st.DirtyTypedAccs.Add(s);
+            }
+        }
+
         public static RaFunction CompileScript(AstNode root, string sourceName)
         {
             var fn = new RaFunction(sourceName ?? "<script>");
             fn.FrameId = 0;
             fn.MutatedNames = CollectMutatedNames(root);
+            fn.HasImports = AstContainsImport(root);
+            fn.CalleeMutatedNames = CollectCalleeMutatedNames(root);
 
             var st = new State();
             st.FrameId = 0;
@@ -415,6 +477,188 @@ namespace RaLanguage.Interpreter.IR
             }
         }
 
+        // M88: returns true iff `node` contains any kind of import /
+        // namespace-using statement. Used by `LicmHoist` to gate the
+        // closure-alias check: with imports active, callees may live
+        // in modules whose `MutatedNames` set we cannot statically
+        // inspect at compile time, so any in-loop call has to be
+        // treated as a potential writer of every binding name.
+        private static bool AstContainsImport(AstNode? node)
+        {
+            if (node == null) return false;
+            switch (node.NodeType)
+            {
+                case AstNodeType.ImportAll:
+                case AstNodeType.ImportSelective:
+                case AstNodeType.ImportAlias:
+                case AstNodeType.UsingNamespace:
+                    return true;
+                case AstNodeType.Scope:
+                {
+                    var sc = (Parser.Nodes.Special.ScopeNode)node;
+                    foreach (var c in sc.Nodes) if (AstContainsImport(c)) return true;
+                    return false;
+                }
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)node;
+                    foreach (var cs in ifn.Cases)
+                    {
+                        if (AstContainsImport(cs.Condition)) return true;
+                        if (AstContainsImport(cs.Expr)) return true;
+                    }
+                    if (ifn.ElseCase.HasValue && AstContainsImport(ifn.ElseCase.Value.Expr)) return true;
+                    return false;
+                }
+                case AstNodeType.While:
+                {
+                    var wn = (Parser.Nodes.Statements.WhileNode)node;
+                    return AstContainsImport(wn.ConditionNode)
+                        || AstContainsImport(wn.BodyNode);
+                }
+                case AstNodeType.DoWhile:
+                {
+                    var dw = (Parser.Nodes.Statements.DoWhileNode)node;
+                    return AstContainsImport(dw.ConditionNode)
+                        || AstContainsImport(dw.BodyNode);
+                }
+                case AstNodeType.For:
+                {
+                    var fn = (Parser.Nodes.Statements.ForNode)node;
+                    return AstContainsImport(fn.BodyNode);
+                }
+                case AstNodeType.ForEach:
+                {
+                    var fe = (Parser.Nodes.Statements.ForEachNode)node;
+                    return AstContainsImport(fe.BodyNode);
+                }
+                case AstNodeType.FunctionDefinition:
+                {
+                    var fdn = (Parser.Nodes.Functions.FunctionDefinitionNode)node;
+                    return AstContainsImport(fdn.BodyNode);
+                }
+                case AstNodeType.Try:
+                {
+                    var tn = (Parser.Nodes.Special.TryNode)node;
+                    if (AstContainsImport(tn.TryBody)) return true;
+                    if (tn.CatchBody != null && AstContainsImport(tn.CatchBody)) return true;
+                    if (tn.FinallyBody != null && AstContainsImport(tn.FinallyBody)) return true;
+                    return false;
+                }
+                case AstNodeType.NamespaceDeclaration:
+                {
+                    var ns = (Parser.Nodes.Namespaces.NamespaceDeclarationNode)node;
+                    return AstContainsImport(ns.Body);
+                }
+                default:
+                    return false;
+            }
+        }
+
+        // M88: walks the AST and builds a `name → MutatedNames`
+        // dictionary covering every named function definition reachable
+        // in this compilation unit (top-level + nested). LICM consults
+        // this map to resolve `Call` opcodes whose function value
+        // traces back to a `LoadGlobal` of a known name: if the
+        // resolved callee's `MutatedNames` does NOT contain the
+        // binding under consideration, the call is safe to hoist
+        // past — regardless of whether the surrounding function's
+        // own `MutatedNames` includes the name.
+        //
+        // Pre-computing the map up front (rather than lazily) keeps
+        // LICM's per-Call check O(1) and avoids re-walking the AST.
+        // Anonymous functions (no `VarNameTok`) and lambdas can't be
+        // looked up by name and fall through to the conservative
+        // path.
+        private static System.Collections.Generic.Dictionary<string, System.Collections.Generic.HashSet<string>>
+            CollectCalleeMutatedNames(AstNode? root)
+        {
+            var map = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.HashSet<string>>(
+                System.StringComparer.Ordinal);
+            CollectCalleeMutatedNamesWalk(root, map);
+            return map;
+        }
+
+        private static void CollectCalleeMutatedNamesWalk(
+            AstNode? node,
+            System.Collections.Generic.Dictionary<string, System.Collections.Generic.HashSet<string>> map)
+        {
+            if (node == null) return;
+            switch (node.NodeType)
+            {
+                case AstNodeType.FunctionDefinition:
+                {
+                    var fdn = (Parser.Nodes.Functions.FunctionDefinitionNode)node;
+                    string? fname = fdn.VarNameTok?.Value?.ToString();
+                    if (!string.IsNullOrEmpty(fname) && !map.ContainsKey(fname))
+                    {
+                        map[fname!] = CollectMutatedNames(fdn.BodyNode);
+                    }
+                    CollectCalleeMutatedNamesWalk(fdn.BodyNode, map);
+                    return;
+                }
+                case AstNodeType.Scope:
+                {
+                    var sc = (Parser.Nodes.Special.ScopeNode)node;
+                    foreach (var c in sc.Nodes) CollectCalleeMutatedNamesWalk(c, map);
+                    return;
+                }
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)node;
+                    foreach (var cs in ifn.Cases)
+                    {
+                        CollectCalleeMutatedNamesWalk(cs.Condition, map);
+                        CollectCalleeMutatedNamesWalk(cs.Expr, map);
+                    }
+                    if (ifn.ElseCase.HasValue) CollectCalleeMutatedNamesWalk(ifn.ElseCase.Value.Expr, map);
+                    return;
+                }
+                case AstNodeType.While:
+                {
+                    var wn = (Parser.Nodes.Statements.WhileNode)node;
+                    CollectCalleeMutatedNamesWalk(wn.ConditionNode, map);
+                    CollectCalleeMutatedNamesWalk(wn.BodyNode, map);
+                    return;
+                }
+                case AstNodeType.DoWhile:
+                {
+                    var dw = (Parser.Nodes.Statements.DoWhileNode)node;
+                    CollectCalleeMutatedNamesWalk(dw.ConditionNode, map);
+                    CollectCalleeMutatedNamesWalk(dw.BodyNode, map);
+                    return;
+                }
+                case AstNodeType.For:
+                {
+                    var fn = (Parser.Nodes.Statements.ForNode)node;
+                    CollectCalleeMutatedNamesWalk(fn.BodyNode, map);
+                    return;
+                }
+                case AstNodeType.ForEach:
+                {
+                    var fe = (Parser.Nodes.Statements.ForEachNode)node;
+                    CollectCalleeMutatedNamesWalk(fe.BodyNode, map);
+                    return;
+                }
+                case AstNodeType.Try:
+                {
+                    var tn = (Parser.Nodes.Special.TryNode)node;
+                    CollectCalleeMutatedNamesWalk(tn.TryBody, map);
+                    if (tn.CatchBody != null) CollectCalleeMutatedNamesWalk(tn.CatchBody, map);
+                    if (tn.FinallyBody != null) CollectCalleeMutatedNamesWalk(tn.FinallyBody, map);
+                    return;
+                }
+                case AstNodeType.NamespaceDeclaration:
+                {
+                    var ns = (Parser.Nodes.Namespaces.NamespaceDeclarationNode)node;
+                    CollectCalleeMutatedNamesWalk(ns.Body, map);
+                    return;
+                }
+                default:
+                    return;
+            }
+        }
+
         // M16: compile a user function body into a RaFunction. Mirrors the
         // CompileScript shape but uses the function's own frame id so slot
         // lowering admits parameters / locals declared inside the function,
@@ -543,6 +787,8 @@ namespace RaLanguage.Interpreter.IR
             // its LoadLocalS stays in-loop. Parameters that are never
             // reassigned remain hoist-eligible.
             fn.MutatedNames = CollectMutatedNames(body);
+            fn.HasImports = AstContainsImport(body);
+            fn.CalleeMutatedNames = CollectCalleeMutatedNames(body);
             // Parameters are bound at call-time, never reassigned by
             // the prologue — but a body that DOES reassign them is
             // already captured above. No extra work needed.
@@ -1101,6 +1347,40 @@ namespace RaLanguage.Interpreter.IR
                 var opAA = opType == TokenType.PLUS ? Opcode.AddII : Opcode.SubII;
                 st.Code.Emit3(opAA, accTyped.LongSlot, accTyped.LongSlot, typedIterSlot0);
                 st.RedirectedTypedIterAccessCount++;
+                st.DirtyTypedAccs.Add(va.Name);
+                return true;
+            }
+
+            // Path 1b (M87): acc + another typed accumulator. Pattern
+            // `b = b + a` where both `a` and `b` are typed accumulators
+            // (e.g. running sums that feed each other across iterations).
+            // Reads the RHS acc's typed long slot directly — no boxed
+            // mirror touch, no per-iter alloc. The compile-time dirty
+            // flag for the RHS acc is irrelevant here: typed II reads
+            // always observe the current typed-slot value.
+            if (bo.RightNode is VariableAccessNode rvn1b
+                && !string.IsNullOrEmpty(rvn1b.Name)
+                && st.TypedAccumulators.TryGetValue(va.Name, out var accTyped1b)
+                && rvn1b.Name != va.Name
+                && st.TypedAccumulators.TryGetValue(rvn1b.Name, out var rhsAccTyped))
+            {
+                var opAA1b = opType == TokenType.PLUS ? Opcode.AddII : Opcode.SubII;
+                st.Code.Emit3(opAA1b, accTyped1b.LongSlot, accTyped1b.LongSlot, rhsAccTyped.LongSlot);
+                st.DirtyTypedAccs.Add(va.Name);
+                return true;
+            }
+
+            // Path 1c (M87): acc + typed-long-binding. Pattern
+            // `acc = acc + cap` where `cap` is a never-mutated local
+            // pre-loaded into a typed Int64 slot via the typed-long
+            // binding pre-load. Avoids the boxed read of `cap` each iter.
+            if (bo.RightNode is VariableAccessNode rvn1c
+                && !string.IsNullOrEmpty(rvn1c.Name)
+                && st.TypedAccumulators.TryGetValue(va.Name, out var accTyped1c)
+                && st.TypedLongBindings.TryGetValue(rvn1c.Name, out var rhsTypedBnd))
+            {
+                var opAA1c = opType == TokenType.PLUS ? Opcode.AddII : Opcode.SubII;
+                st.Code.Emit3(opAA1c, accTyped1c.LongSlot, accTyped1c.LongSlot, rhsTypedBnd.LongSlot);
                 st.DirtyTypedAccs.Add(va.Name);
                 return true;
             }
@@ -1803,6 +2083,16 @@ namespace RaLanguage.Interpreter.IR
             bool? whileFolded = TryFoldCondition(node.ConditionNode);
             if (whileFolded == false) return;
 
+            // M87: lazy-long while counter. Detect the C-style counter
+            // pattern `var i = 0; while i ⋈ N { ... i = i ± step; }` and
+            // lower it through the same typed-Int64 machinery as
+            // `CompileForLazyLong`. Catches `bench_while.ra` /
+            // `bench_branchy.ra` whose previous boxed dispatch paid
+            // O(1M) NumberValue allocations per run.
+            if (whileFolded != true
+                && TryCompileWhileLazyLongCounter(node, st, ref topSlot, scratchSlot))
+                return;
+
             // Skip scope plumbing entirely when the body introduces no
             // bindings. Saves PushScope + per-iter ClearScope + PopScope.
             bool whileBodyNeedsScope = Parser.Nodes.AstScopeAnalysis.NeedsFreshScope(node.BodyNode);
@@ -1847,6 +2137,520 @@ namespace RaLanguage.Interpreter.IR
             // we don't statically model (variable iteration count, break/
             // continue). Conservative re-dirty.
             MarkAllTypedAccsDirty(st);
+        }
+
+        // M87: C-style counter detection. Returns true when `node` matches
+        //   var i = expr_init;     // declared in outer scope
+        //   while i ⋈ end { body; ... i = i ± step_lit; }
+        //
+        // and `i`, `end` (if a binding), `step_lit` all satisfy:
+        //   * `i` is a slot-eligible local with a resolved BindingId.
+        //   * `i` is NOT re-declared inside `body` (no shadowing).
+        //   * Every write to `i` in `body` is a self-additive
+        //     `i = i ± literal_long` (multiple writes across `if` branches
+        //     are OK as long as each is the redirectable shape).
+        //   * `cmpOp` is one of `<`, `<=`, `>`, `>=`, `==`, `!=`.
+        //   * `end` is either a constant-foldable int64 literal OR a
+        //     never-mutated slot-eligible local binding.
+        //
+        // When the pattern matches, the heavy lifting is delegated to
+        // `CompileWhileLazyLongCounter` which mirrors `CompileForLazyLong`'s
+        // typed-promotion plumbing (`TypedAccumulators`,
+        // `TypedAccumulatorLiterals`, `TypedAccumulatorExprs`,
+        // `TypedLongBindings`) but adapted to the while form where the
+        // iter binding lives in the outer scope and the body owns the
+        // advance.
+        private static bool TryCompileWhileLazyLongCounter(
+            WhileNode node, State st, ref byte topSlot, byte scratchSlot)
+        {
+            if (node.ConditionNode is not Parser.Nodes.Operations.BinaryOperationNode cond)
+                return false;
+            if (!IsTypedComparableOp(cond.OpTok.Type)) return false;
+
+            Parser.Nodes.Variables.VariableAccessNode? iterAccess;
+            AstNode endNode;
+            bool iterOnLeft;
+            if (cond.LeftNode is Parser.Nodes.Variables.VariableAccessNode lva
+                && !string.IsNullOrEmpty(lva.Name)
+                && lva.Binding.IsResolved)
+            {
+                iterAccess = lva;
+                endNode = cond.RightNode;
+                iterOnLeft = true;
+            }
+            else if (cond.RightNode is Parser.Nodes.Variables.VariableAccessNode rva
+                && !string.IsNullOrEmpty(rva.Name)
+                && rva.Binding.IsResolved)
+            {
+                iterAccess = rva;
+                endNode = cond.LeftNode;
+                iterOnLeft = false;
+            }
+            else
+            {
+                return false;
+            }
+
+            string iterName = iterAccess.Name;
+            var iterBinding = iterAccess.Binding;
+            var iterKind = iterAccess.BindingKind;
+            if (!IsSlotEligible(iterBinding, iterKind, st)) return false;
+            if (iterBinding.Offset > ushort.MaxValue) return false;
+            if (BodyDeclaresName(node.BodyNode, iterName)) return false;
+
+            // Body must contain at least one redirectable iter advance,
+            // and every assignment to iter must be redirectable.
+            if (!HasAnyAssignmentTo(node.BodyNode, iterName)) return false;
+            if (HasNonRedirectableIterAdvance(node.BodyNode, iterName)) return false;
+            // Iter must not be reassigned via the condition expression.
+            if (HasAnyAssignmentTo(node.ConditionNode, iterName)) return false;
+
+            bool endIsLiteral = TryGetLiteralLongFromConstExpr(endNode, out long endLit);
+            Parser.Nodes.Variables.VariableAccessNode? endBindingNode = null;
+            if (!endIsLiteral)
+            {
+                if (endNode is not Parser.Nodes.Variables.VariableAccessNode evn) return false;
+                if (string.IsNullOrEmpty(evn.Name)) return false;
+                if (evn.Name == iterName) return false;
+                if (!evn.Binding.IsResolved) return false;
+                if (evn.Binding.Offset > ushort.MaxValue) return false;
+                if (!IsSlotEligible(evn.Binding, BindingKind.Local, st)
+                    && !IsSlotEligible(evn.Binding, BindingKind.Global, st)
+                    && !IsSlotEligible(evn.Binding, BindingKind.Parameter, st))
+                    return false;
+                if (HasAnyAssignmentTo(node.BodyNode, evn.Name)) return false;
+                if (HasAnyAssignmentTo(node.ConditionNode, evn.Name)) return false;
+                endBindingNode = evn;
+            }
+
+            CompileWhileLazyLongCounter(
+                node, iterName, iterBinding, cond, iterOnLeft,
+                endIsLiteral, endLit, endBindingNode,
+                st, ref topSlot, scratchSlot);
+            return true;
+        }
+
+        // Walks `node` and returns true when there's any write to `iterName`
+        // that is NOT a typed-redirectable self-additive `iter = iter ± lit`.
+        // Used by `TryCompileWhileLazyLongCounter` to gate the typed
+        // promotion — anything more complex than the canonical counter
+        // shape falls back to the boxed while compile.
+        private static bool HasNonRedirectableIterAdvance(AstNode? node, string iterName)
+        {
+            if (node == null) return false;
+            switch (node.NodeType)
+            {
+                case AstNodeType.VariableAssignment:
+                {
+                    var va = (Parser.Nodes.Variables.VariableAssignmentNode)node;
+                    if (va.Name == iterName)
+                    {
+                        if (va.AssignmentToken.Type != Lexer.Tokens.TokenType.EQ) return true;
+                        if (va.ValueNode is not Parser.Nodes.Operations.BinaryOperationNode bo) return true;
+                        if (bo.OpTok.Type != Lexer.Tokens.TokenType.PLUS
+                            && bo.OpTok.Type != Lexer.Tokens.TokenType.MINUS) return true;
+                        if (bo.LeftNode is not Parser.Nodes.Variables.VariableAccessNode lvn) return true;
+                        if (lvn.Name != iterName) return true;
+                        if (!TryGetLiteralLongFromConstExpr(bo.RightNode, out _)) return true;
+                        // Defensively descend into RHS in case it contains
+                        // a side-effecting iter write (extremely unlikely
+                        // given the literal predicate, but cheap).
+                        return HasNonRedirectableIterAdvance(bo.RightNode, iterName);
+                    }
+                    return HasNonRedirectableIterAdvance(va.ValueNode, iterName);
+                }
+                case AstNodeType.VariableDeclaration:
+                {
+                    var vd = (Parser.Nodes.Variables.VariableDeclarationNode)node;
+                    foreach (var d in vd.Declarations)
+                    {
+                        if (d.Item1.Value?.ToString() == iterName) return true;
+                        if (d.Item2 != null && HasNonRedirectableIterAdvance(d.Item2, iterName)) return true;
+                    }
+                    return false;
+                }
+                case AstNodeType.Scope:
+                {
+                    var sc = (Parser.Nodes.Special.ScopeNode)node;
+                    foreach (var c in sc.Nodes)
+                        if (HasNonRedirectableIterAdvance(c, iterName)) return true;
+                    return false;
+                }
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)node;
+                    foreach (var cs in ifn.Cases)
+                    {
+                        if (HasNonRedirectableIterAdvance(cs.Condition, iterName)) return true;
+                        if (HasNonRedirectableIterAdvance(cs.Expr, iterName)) return true;
+                    }
+                    if (ifn.ElseCase.HasValue
+                        && HasNonRedirectableIterAdvance(ifn.ElseCase.Value.Expr, iterName)) return true;
+                    return false;
+                }
+                case AstNodeType.BinaryOperation:
+                {
+                    var bo = (Parser.Nodes.Operations.BinaryOperationNode)node;
+                    return HasNonRedirectableIterAdvance(bo.LeftNode, iterName)
+                        || HasNonRedirectableIterAdvance(bo.RightNode, iterName);
+                }
+                case AstNodeType.UnaryOperation:
+                {
+                    var uo = (Parser.Nodes.Operations.UnaryOperationNode)node;
+                    // `i++` / `i--` are non-redirectable (would need a
+                    // separate compile path; the typed-acc machinery only
+                    // covers `i = i ± lit`).
+                    if ((uo.OpTok.Type == Lexer.Tokens.TokenType.DOUBLE_PLUS
+                         || uo.OpTok.Type == Lexer.Tokens.TokenType.DOUBLE_MINUS)
+                        && uo.Node is Parser.Nodes.Variables.VariableAccessNode vau
+                        && vau.Name == iterName)
+                        return true;
+                    return HasNonRedirectableIterAdvance(uo.Node, iterName);
+                }
+                case AstNodeType.FunctionCall:
+                {
+                    var fc = (Parser.Nodes.Functions.FunctionCallNode)node;
+                    if (HasNonRedirectableIterAdvance(fc.NodeToCall, iterName)) return true;
+                    foreach (var arg in fc.ArgNodes)
+                        if (HasNonRedirectableIterAdvance(arg.Expr, iterName)) return true;
+                    return false;
+                }
+                case AstNodeType.Ternary:
+                {
+                    var tn = (Parser.Nodes.Operations.TernaryNode)node;
+                    return HasNonRedirectableIterAdvance(tn.Condition, iterName)
+                        || HasNonRedirectableIterAdvance(tn.TrueExpression, iterName)
+                        || HasNonRedirectableIterAdvance(tn.FalseExpression, iterName);
+                }
+                case AstNodeType.Return:
+                {
+                    var rn = (Parser.Nodes.Functions.ReturnNode)node;
+                    return rn.NodeToReturn != null
+                        && HasNonRedirectableIterAdvance(rn.NodeToReturn, iterName);
+                }
+                // Nested loops / function defs / try-catch can write to
+                // iter via paths the simple shape analysis above can't
+                // verify. Fall back conservatively.
+                case AstNodeType.While:
+                case AstNodeType.DoWhile:
+                case AstNodeType.For:
+                case AstNodeType.ForEach:
+                case AstNodeType.FunctionDefinition:
+                case AstNodeType.Try:
+                    return HasAnyAssignmentTo(node, iterName);
+                default:
+                    return false;
+            }
+        }
+
+        // Lazy-long while counter. Mirrors `CompileForLazyLong`'s
+        // typed-promotion shape, with two key differences:
+        //   1. The iter binding lives in the OUTER scope (declared by a
+        //      preceding `var i = …;`), so the pre-loop reads its
+        //      current boxed value into a typed slot and the post-loop
+        //      writes it back via `BoxI + StoreLocalS`.
+        //   2. The body owns the advance — `i = i ± lit` is part of the
+        //      user code, so the iter is registered in BOTH
+        //      `ActiveTypedIters` (for comparison redirects) AND
+        //      `TypedAccumulators` (for self-additive redirects via
+        //      `TryEmitSelfAdditiveSlot`).
+        //
+        // Layout:
+        //   <LoadLocalS iter_boxed_tmp, iter_binding; UnboxI iter_long, iter_boxed_tmp>
+        //   <pre-load end (literal or never-mutated binding)>
+        //   <pre-load typed accumulator candidates (sum, count, …)>
+        //   <pre-load TypedAccumulatorLiterals (every distinct int64 literal
+        //    appearing as accumulator-RHS or comparison-operand)>
+        //   <pre-load TypedAccumulatorExprs / TypedLongBindings as for-loop does>
+        //   PushScope (body) if needed
+        //   loop_top:
+        //     ClearScope (if body needs scope)
+        //     cond  → typed II compare (LtII / GtII / EqII / …)
+        //     JmpIfNot exit
+        //     <body — every self-additive is now AddII / SubII;
+        //      every typed-iter comparison is *II>
+        //     Jmp loop_top
+        //   exit:
+        //     <BoxI + StoreLocalS for every TypedAccumulator including iter>
+        //   PopScope (body) if needed
+        private static void CompileWhileLazyLongCounter(
+            WhileNode node, string iterName, BindingId iterBinding,
+            Parser.Nodes.Operations.BinaryOperationNode condNode, bool iterOnLeft,
+            bool endIsLiteral, long endLit,
+            Parser.Nodes.Variables.VariableAccessNode? endBindingNode,
+            State st, ref byte topSlot, byte scratchSlot)
+        {
+            // M87: snapshot for nested-loop containment. The outer
+            // loop's typed-promotion dictionaries survive this compile
+            // unchanged.
+            var snapshot = new TypedPromotionSnapshot(st);
+
+            // M88 (#29): conditional preheader. Evaluate the loop
+            // condition ONCE up front (via the existing boxed dispatch
+            // — typed slots aren't set up yet) and jump past the
+            // entire typed-promotion scaffold + body when the body
+            // wouldn't run. With the body guaranteed to run on the
+            // in-loop side, `IsLoopInvariantPureNumericExpr` can admit
+            // Div / Mod / Pow RHS shapes safely — any error their
+            // pre-load evaluation raises is one the original boxed
+            // dispatch would also raise on iteration 0 (same source
+            // PC, same diagnostic). The post-loop box-back is INSIDE
+            // the guarded region so an empty loop leaves the iter /
+            // accumulator SymbolEntry values intact.
+            byte preCondSlot = AllocTemp(ref topSlot);
+            CompileExpression(node.ConditionNode, preCondSlot, st, ref topSlot);
+            int skipAllJmp = st.Code.EmitForwardJump(Opcode.JmpIfNot, preCondSlot);
+            bool prevWcGuaranteed = st.LoopGuaranteedToEnter;
+            st.LoopGuaranteedToEnter = true;
+
+            // Pre-loop: unbox iter into typed slot. Reading the boxed
+            // mirror BEFORE registering iter in any typed dict — otherwise
+            // a recursive typed redirect would try to use the slot before
+            // it's been initialised.
+            byte iterLong = AllocTemp(ref topSlot);
+            byte iterBoxedTmp = AllocTemp(ref topSlot);
+            st.Code.Emit2(Opcode.LoadLocalS, iterBoxedTmp, (ushort)iterBinding.Offset);
+            st.Code.Emit3(Opcode.UnboxI, iterLong, iterBoxedTmp, 0);
+
+            // Register iter in both maps so:
+            //   * `TryEmitSelfAdditiveSlot` redirects `i = i + lit` to
+            //     AddII against `iterLong` (typed-acc Path 2).
+            //   * Typed comparison redirects pick up `iter ⋈ X` shapes.
+            //   * Boxed reads of iter (e.g. `print(i)`) publish through
+            //     the `DirtyTypedAccs` machinery in `VariableAccess`.
+            st.ActiveTypedIters[iterName] = iterLong;
+            st.TypedAccumulators[iterName] = (iterLong, iterBinding);
+
+            // Collect non-iter typed accumulators (sum, count, etc.) the
+            // body would benefit from promoting. `CollectTypedAccumulatorCandidates`
+            // applies its own redirectable-write gate.
+            var typedAccCandidates = CollectTypedAccumulatorCandidates(node.BodyNode, iterName, st);
+            // Strip iter (we've already registered it manually so its
+            // SymbolEntry → typed slot read happens up here, not via the
+            // candidate-loop's pre-load below).
+            typedAccCandidates.RemoveAll(c => c.Name == iterName);
+
+            foreach (var acc in typedAccCandidates)
+            {
+                if (acc.Binding.Offset > ushort.MaxValue) continue;
+                byte accLong = AllocTemp(ref topSlot);
+                byte accBoxedTmp = AllocTemp(ref topSlot);
+                st.Code.Emit2(Opcode.LoadLocalS, accBoxedTmp, (ushort)acc.Binding.Offset);
+                st.Code.Emit3(Opcode.UnboxI, accLong, accBoxedTmp, 0);
+                st.TypedAccumulators[acc.Name] = (accLong, acc.Binding);
+            }
+
+            // Literal pre-load: union of literals used by typed acc
+            // self-additives (including iter's own advance) + all typed
+            // iter comparison sites in BOTH the condition AND the body.
+            var accNamesAll = new HashSet<string>();
+            accNamesAll.Add(iterName);
+            foreach (var acc in typedAccCandidates) accNamesAll.Add(acc.Name);
+
+            var litValuesAll = new HashSet<long>();
+            CollectAccumulatorLiteralRhsValues(node.BodyNode, accNamesAll, litValuesAll);
+            CollectIterComparisonLiterals(node.BodyNode, iterName, litValuesAll);
+            CollectIterComparisonLiterals(node.ConditionNode, iterName, litValuesAll);
+            // M87: capture every constant-int int64 literal anywhere in
+            // body / condition so the generalised typed-Int64 redirect
+            // (`(i & 1) == 0`, `(i + 5) % N`, …) can pull operands
+            // straight out of pre-loaded typed slots.
+            CollectAllConstIntLiterals(node.BodyNode, litValuesAll);
+            CollectAllConstIntLiterals(node.ConditionNode, litValuesAll);
+            if (endIsLiteral) litValuesAll.Add(endLit);
+
+            foreach (var lit in litValuesAll)
+            {
+                byte litSlot = AllocTemp(ref topSlot);
+                EmitLiteralLongLoad(lit, litSlot, st, ref topSlot);
+                st.TypedAccumulatorLiterals[lit] = litSlot;
+            }
+
+            // Loop-invariant pure-expression RHS pre-load — same path as
+            // `CompileForLazyLong`. Only non-iter accumulators are
+            // candidates here; iter's RHS is always a literal so it's
+            // already covered by the literal pre-load above.
+            if (typedAccCandidates.Count > 0)
+            {
+                var accNamesNonIter = new HashSet<string>();
+                foreach (var acc in typedAccCandidates) accNamesNonIter.Add(acc.Name);
+                CollectAccumulatorLoopInvariantExprs(
+                    node.BodyNode, node.BodyNode, iterName, accNamesNonIter, st, ref topSlot);
+            }
+
+            // Typed-long bindings: comparison-binding-names in body +
+            // condition + the end binding (when end is not a literal).
+            var bindingNamesAll = new HashSet<string>();
+            CollectIterComparisonBindingNames(node.BodyNode, iterName, bindingNamesAll);
+            CollectIterComparisonBindingNames(node.ConditionNode, iterName, bindingNamesAll);
+            if (endBindingNode != null) bindingNamesAll.Add(endBindingNode.Name);
+            foreach (var nm in bindingNamesAll)
+            {
+                if (st.ActiveTypedIters.ContainsKey(nm)) continue;
+                if (st.TypedAccumulators.ContainsKey(nm)) continue;
+                if (st.TypedLongBindings.ContainsKey(nm)) continue;
+                if (HasAnyAssignmentTo(node.BodyNode, nm)) continue;
+                if (HasAnyAssignmentTo(node.ConditionNode, nm)) continue;
+                BindingId binding = FindFirstBindingOfName(node.BodyNode, nm);
+                if (!binding.IsResolved && endBindingNode != null && endBindingNode.Name == nm)
+                    binding = endBindingNode.Binding;
+                if (!binding.IsResolved && condNode != null)
+                    binding = FindFirstBindingOfName(condNode, nm);
+                if (!binding.IsResolved) continue;
+                if (binding.Offset > ushort.MaxValue) continue;
+                if (!IsSlotEligible(binding, BindingKind.Local, st)
+                    && !IsSlotEligible(binding, BindingKind.Global, st)
+                    && !IsSlotEligible(binding, BindingKind.Parameter, st))
+                    continue;
+                byte bndLong = AllocTemp(ref topSlot);
+                byte bndBoxedTmp = AllocTemp(ref topSlot);
+                st.Code.Emit2(Opcode.LoadLocalS, bndBoxedTmp, (ushort)binding.Offset);
+                st.Code.Emit3(Opcode.UnboxI, bndLong, bndBoxedTmp, 0);
+                st.TypedLongBindings[nm] = (bndLong, binding);
+            }
+
+            // Loop scaffold.
+            bool bodyNeedsScope = Parser.Nodes.AstScopeAnalysis.NeedsFreshScope(node.BodyNode);
+            if (bodyNeedsScope)
+                EmitPushScope(st);
+            int baselineDepth = st.ScopeDepth;
+            int loopTopPc = st.Code.Pc;
+            if (bodyNeedsScope)
+                st.Code.Emit3(Opcode.ClearScope, 0, 0, 0);
+
+            // Compile the condition normally. The typed-Int64 / typed-iter
+            // redirects in `CompileExpression` will lower it to a single
+            // *II compare reading from the iter typed slot + pre-loaded
+            // literal / typed binding slot — zero per-iter alloc.
+            byte condSlot = AllocTemp(ref topSlot);
+            CompileExpression(node.ConditionNode, condSlot, st, ref topSlot);
+            int exitJmp = st.Code.EmitForwardJump(Opcode.JmpIfNot, condSlot);
+
+            var loop = new LoopContext(loopTopPc, baselineDepth);
+            st.Loops.Push(loop);
+            try
+            {
+                CompileBodyStrictInline(node.BodyNode, st, ref topSlot, scratchSlot);
+                st.Code.EmitBackwardJump(Opcode.Jmp, 0, loopTopPc);
+            }
+            finally
+            {
+                st.Loops.Pop();
+            }
+
+            st.Code.PatchJumpToHere(exitJmp);
+            foreach (var p in loop.BreakFixups) st.Code.PatchJumpToHere(p);
+            PatchJumpsBackward(st, loop.ContinueFixups, loopTopPc);
+
+            // Post-loop: box every typed accumulator (iter included) back
+            // to its SymbolEntry slot so downstream `print(sum)` /
+            // `print(i)` reads see the freshly-computed values. ONLY
+            // emit the box-back for entries we ourselves added (i.e.
+            // entries not present in the entry snapshot).
+            var accumulatorsToBox = new List<KeyValuePair<string, (byte LongSlot, BindingId Binding)>>(
+                st.TypedAccumulators);
+            foreach (var kvp in accumulatorsToBox)
+            {
+                if (snapshot.TypedAccumulators.ContainsKey(kvp.Key)) continue;
+                if (kvp.Value.Binding.Offset > ushort.MaxValue) continue;
+                byte accBoxedTmp = AllocTemp(ref topSlot);
+                st.Code.Emit3(Opcode.BoxI, accBoxedTmp, kvp.Value.LongSlot, 0);
+                st.Code.Emit2(Opcode.StoreLocalS, accBoxedTmp, (ushort)kvp.Value.Binding.Offset);
+            }
+            // Restore the entry-snapshot of every typed-promotion dict so
+            // the OUTER lazy-counter compile keeps the state it had at
+            // entry.
+            snapshot.RestoreInto(st);
+            // M88: restore the guaranteed-enter flag.
+            st.LoopGuaranteedToEnter = prevWcGuaranteed;
+
+            if (bodyNeedsScope)
+                EmitPopScope(st);
+
+            // M88: patch the preheader skip target. Falls through here
+            // when the original (pre-evaluated) condition was already
+            // false, leaving every SymbolEntry untouched.
+            st.Code.PatchJumpToHere(skipAllJmp);
+        }
+
+        // Walks `node` collecting every constant-foldable int64 literal
+        // value into `outValues`. Used by the M87 typed-Int64 redirect
+        // pre-load so even literals that appear OUTSIDE accumulator
+        // self-additives / iter comparisons (e.g. inside `(i + 5) % N`
+        // sub-trees) end up in `TypedAccumulatorLiterals` and can be
+        // picked up by `EmitTypedInt64Operand`'s `Number` case without
+        // re-emitting a `LoadIntS64` per iteration.
+        private static void CollectAllConstIntLiterals(AstNode? node, HashSet<long> outValues)
+        {
+            if (node == null) return;
+            switch (node.NodeType)
+            {
+                case AstNodeType.Number:
+                    if (TryGetLiteralLongFromConstExpr(node, out long v)) outValues.Add(v);
+                    return;
+                case AstNodeType.Scope:
+                {
+                    var sc = (Parser.Nodes.Special.ScopeNode)node;
+                    foreach (var c in sc.Nodes) CollectAllConstIntLiterals(c, outValues);
+                    return;
+                }
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)node;
+                    foreach (var cs in ifn.Cases)
+                    {
+                        CollectAllConstIntLiterals(cs.Condition, outValues);
+                        CollectAllConstIntLiterals(cs.Expr, outValues);
+                    }
+                    if (ifn.ElseCase.HasValue)
+                        CollectAllConstIntLiterals(ifn.ElseCase.Value.Expr, outValues);
+                    return;
+                }
+                case AstNodeType.VariableAssignment:
+                {
+                    var va = (Parser.Nodes.Variables.VariableAssignmentNode)node;
+                    CollectAllConstIntLiterals(va.ValueNode, outValues);
+                    return;
+                }
+                case AstNodeType.BinaryOperation:
+                {
+                    var bo = (Parser.Nodes.Operations.BinaryOperationNode)node;
+                    CollectAllConstIntLiterals(bo.LeftNode, outValues);
+                    CollectAllConstIntLiterals(bo.RightNode, outValues);
+                    return;
+                }
+                case AstNodeType.UnaryOperation:
+                {
+                    var uo = (Parser.Nodes.Operations.UnaryOperationNode)node;
+                    CollectAllConstIntLiterals(uo.Node, outValues);
+                    return;
+                }
+                case AstNodeType.Ternary:
+                {
+                    var tn = (Parser.Nodes.Operations.TernaryNode)node;
+                    CollectAllConstIntLiterals(tn.Condition, outValues);
+                    CollectAllConstIntLiterals(tn.TrueExpression, outValues);
+                    CollectAllConstIntLiterals(tn.FalseExpression, outValues);
+                    return;
+                }
+                case AstNodeType.FunctionCall:
+                {
+                    var fc = (Parser.Nodes.Functions.FunctionCallNode)node;
+                    CollectAllConstIntLiterals(fc.NodeToCall, outValues);
+                    foreach (var arg in fc.ArgNodes)
+                        CollectAllConstIntLiterals(arg.Expr, outValues);
+                    return;
+                }
+                case AstNodeType.Return:
+                {
+                    var rn = (Parser.Nodes.Functions.ReturnNode)node;
+                    if (rn.NodeToReturn != null)
+                        CollectAllConstIntLiterals(rn.NodeToReturn, outValues);
+                    return;
+                }
+                default:
+                    return;
+            }
         }
 
         // DoWhile: PushScope ; loop_top: ClearScope ; body ; continue_target:
@@ -2106,6 +2910,18 @@ namespace RaLanguage.Interpreter.IR
             long startLit, long endLit, long stepLit,
             State st, ref byte topSlot, byte scratchSlot)
         {
+            // M87: snapshot for nested-loop containment.
+            var forSnapshot = new TypedPromotionSnapshot(st);
+
+            // M88: statically classify whether the loop body runs at
+            // least once. When yes, loop-invariant pure-expression
+            // RHS pre-loads admit Div / Mod / Pow without violating
+            // the original error-PC contract.
+            bool prevGuaranteed = st.LoopGuaranteedToEnter;
+            bool willEnter = (stepLit > 0 && startLit < endLit)
+                || (stepLit < 0 && startLit > endLit);
+            st.LoopGuaranteedToEnter = willEnter;
+
             // Long-typed slots for iter / end / step.
             byte iterLongSlot = AllocTemp(ref topSlot);
             EmitLiteralLongLoad(startLit, iterLongSlot, st, ref topSlot);
@@ -2287,8 +3103,6 @@ namespace RaLanguage.Interpreter.IR
                 st.Loops.Pop();
             }
 
-            if (addedTyped) st.ActiveTypedIters.Remove(iterName);
-
             int continueTargetPc = st.Code.Pc;
             st.Code.Emit3(Opcode.AddII, iterLongSlot, iterLongSlot, stepLongSlot);
             st.Code.EmitBackwardJump(Opcode.Jmp, 0, loopTopPc);
@@ -2298,31 +3112,25 @@ namespace RaLanguage.Interpreter.IR
 
             // Box accumulators back to their SymbolEntry after every loop
             // exit (test failure + break both land here). Subsequent code
-            // observing `acc` sees the freshly-computed value.
+            // observing `acc` sees the freshly-computed value. Only
+            // emit the box-back for entries WE added (not present in
+            // entry snapshot) — outer loops may still own typed slots
+            // whose box-back is their responsibility.
             foreach (var acc in typedAccs)
             {
+                if (forSnapshot.TypedAccumulators.ContainsKey(acc.Name)) continue;
                 if (acc.Binding.Offset > ushort.MaxValue) continue;
                 if (!st.TypedAccumulators.ContainsKey(acc.Name)) continue;
                 byte accBoxedTmp = AllocTemp(ref topSlot);
                 st.Code.Emit3(Opcode.BoxI, accBoxedTmp, st.TypedAccumulators[acc.Name].LongSlot, 0);
                 st.Code.Emit2(Opcode.StoreLocalS, accBoxedTmp, (ushort)acc.Binding.Offset);
-                st.TypedAccumulators.Remove(acc.Name);
             }
-            // Clear literal-pre-load cache so a sibling for-loop later in
-            // the script doesn't accidentally reuse a stale typed slot.
-            st.TypedAccumulatorLiterals.Clear();
-            // Typed-long bindings are scoped to this for-loop only — clear
-            // so a sibling for-loop allocates fresh slots and re-verifies
-            // the never-mutated property for ITS body.
-            st.TypedLongBindings.Clear();
-            // Loop-invariant pure-expression RHS slots are scoped to
-            // this for-loop only — drop the dictionary so a sibling
-            // for-loop re-evaluates and re-allocates fresh typed slots.
-            st.TypedAccumulatorExprs.Clear();
-            // Typed accumulators are out of scope post-loop; clear any
-            // residual dirty flags so an unrelated subsequent for-loop
-            // doesn't see them.
-            st.DirtyTypedAccs.Clear();
+            // M87: restore the entry-snapshot rather than blow away the
+            // outer loop's typed dicts. Preserves correctness of nested
+            // loop compilation.
+            forSnapshot.RestoreInto(st);
+            // M88: restore the guaranteed-enter flag too.
+            st.LoopGuaranteedToEnter = prevGuaranteed;
 
             if (bodyNeedsScope)
                 EmitPopScope(st); // body
@@ -2629,6 +3437,18 @@ namespace RaLanguage.Interpreter.IR
             // analyses (escape analysis / IPCP / PRE / SROA /
             // DSE-across-phi / loop unrolling) are tracked as
             // separate future milestones.
+            // M87: snapshot for nested-loop containment.
+            var feSnapshot = new TypedPromotionSnapshot(st);
+
+            // M88: caller (`CompileForEach`) already gates this lowering
+            // on `startLit <= endLit`. For the inclusive form (`..=`),
+            // equality means a single iteration. For the half-open form
+            // (`..`), the body runs only when `startLit < endLit`.
+            bool prevFeGuaranteed = st.LoopGuaranteedToEnter;
+            st.LoopGuaranteedToEnter = inclusive
+                ? (startLit <= endLit)
+                : (startLit < endLit);
+
             byte iterLongSlot = AllocTemp(ref topSlot);
             EmitLiteralLongLoad(startLit, iterLongSlot, st, ref topSlot);
 
@@ -2646,25 +3466,138 @@ namespace RaLanguage.Interpreter.IR
             st.Code.Emit3(Opcode.LoadNull, nullSlot, 0, 0);
             st.Code.Emit2(Opcode.SetLocalDirect, nullSlot, iterNameIdx);
 
-            EmitPushScope(st); // body scope
+            bool foreachBodyNeedsScope = Parser.Nodes.AstScopeAnalysis.NeedsFreshScope(node.BodyNode);
+            if (foreachBodyNeedsScope)
+                EmitPushScope(st); // body scope
             int baselineDepth = st.ScopeDepth;
+
+            // M87.5: lift the same typed-promotion plumbing as
+            // `CompileForLazyLong` into the foreach lazy-range path.
+            // Previously the foreach lowered to AddII for the iter
+            // advance but the body's `sum = sum + i` re-routed through
+            // `AddIntoSlot[I]` (boxed dispatch, NumberValue per iter)
+            // because no `TypedAccumulators` registration existed.
+            //
+            // Step 1: classify iter accesses to decide whether the boxed
+            // `BoxI + AssignBinding` publish is dead. Mirrors
+            // `CompileForLazyLong`'s redirect counting.
+            int feTotalIterAccess = CountVariableAccess(node.BodyNode, iterName);
+            int feRedirectableIterAccess = CountRedirectableIterAccess(node.BodyNode, iterName, st);
+            int feTypedComparableIterAccess = CountTypedIterComparisonAccess(node.BodyNode, iterName);
+            int feTotalRedirectable = feRedirectableIterAccess + feTypedComparableIterAccess;
+            bool feIterPublished = feTotalIterAccess > 0
+                && (feTotalIterAccess < 0 || feTotalRedirectable < feTotalIterAccess);
+            if (feTotalIterAccess < 0) feIterPublished = BodyReadsBinding(node.BodyNode, iterName);
+
+            // Step 2: register iter as active typed iter so body-side
+            // `iter ⋈ lit` comparisons and `acc = acc ± iter` redirects
+            // can pick it up.
+            bool addedFeTyped = false;
+            if (iterLongSlot <= byte.MaxValue && !st.ActiveTypedIters.ContainsKey(iterName))
+            {
+                st.ActiveTypedIters[iterName] = iterLongSlot;
+                addedFeTyped = true;
+            }
+
+            // Step 3: collect typed accumulator candidates from the body
+            // and pre-load each into a typed Int64 slot. Mirrors
+            // `CompileForLazyLong` line 2169-2199.
+            var feTypedAccs = CollectTypedAccumulatorCandidates(node.BodyNode, iterName, st);
+            foreach (var acc in feTypedAccs)
+            {
+                if (acc.Binding.Offset > ushort.MaxValue) continue;
+                byte accLong = AllocTemp(ref topSlot);
+                byte accBoxedTmp = AllocTemp(ref topSlot);
+                st.Code.Emit2(Opcode.LoadLocalS, accBoxedTmp, (ushort)acc.Binding.Offset);
+                st.Code.Emit3(Opcode.UnboxI, accLong, accBoxedTmp, 0);
+                st.TypedAccumulators[acc.Name] = (accLong, acc.Binding);
+            }
+
+            // Step 4: pre-load every distinct int64 literal used by
+            // typed-acc self-additives or typed-iter comparisons in
+            // the body. Adds the foreach's own `0` (when accumulator
+            // RHS happens to be it) — harmless duplicate.
+            var feLitValuesAll = new HashSet<long>();
+            if (feTypedAccs.Count > 0)
+            {
+                var feAccNames = new HashSet<string>();
+                foreach (var acc in feTypedAccs) feAccNames.Add(acc.Name);
+                CollectAccumulatorLiteralRhsValues(node.BodyNode, feAccNames, feLitValuesAll);
+            }
+            CollectIterComparisonLiterals(node.BodyNode, iterName, feLitValuesAll);
+            // M87: also feed the generalised typed-Int64 redirect by
+            // pre-loading every integer literal anywhere in the body.
+            CollectAllConstIntLiterals(node.BodyNode, feLitValuesAll);
+            foreach (var lit in feLitValuesAll)
+            {
+                byte litSlot = AllocTemp(ref topSlot);
+                EmitLiteralLongLoad(lit, litSlot, st, ref topSlot);
+                st.TypedAccumulatorLiterals[lit] = litSlot;
+            }
+
+            // Step 5: loop-invariant pure-expression RHS pre-load.
+            if (feTypedAccs.Count > 0)
+            {
+                var feAccNameSet = new HashSet<string>();
+                foreach (var acc in feTypedAccs) feAccNameSet.Add(acc.Name);
+                CollectAccumulatorLoopInvariantExprs(
+                    node.BodyNode, node.BodyNode, iterName, feAccNameSet, st, ref topSlot);
+            }
+
+            // Step 6: typed-long binding pre-load for `iter ⋈ name`
+            // comparison sites where `name` is a never-mutated local.
+            var feBindingNames = new HashSet<string>();
+            CollectIterComparisonBindingNames(node.BodyNode, iterName, feBindingNames);
+            foreach (var nm in feBindingNames)
+            {
+                if (st.ActiveTypedIters.ContainsKey(nm)) continue;
+                if (st.TypedAccumulators.ContainsKey(nm)) continue;
+                if (st.TypedLongBindings.ContainsKey(nm)) continue;
+                if (HasAnyAssignmentTo(node.BodyNode, nm)) continue;
+                var binding = FindFirstBindingOfName(node.BodyNode, nm);
+                if (!binding.IsResolved) continue;
+                if (binding.Offset > ushort.MaxValue) continue;
+                if (!IsSlotEligible(binding, BindingKind.Local, st)
+                    && !IsSlotEligible(binding, BindingKind.Global, st)
+                    && !IsSlotEligible(binding, BindingKind.Parameter, st))
+                    continue;
+                byte bndLong = AllocTemp(ref topSlot);
+                byte bndBoxedTmp = AllocTemp(ref topSlot);
+                st.Code.Emit2(Opcode.LoadLocalS, bndBoxedTmp, (ushort)binding.Offset);
+                st.Code.Emit3(Opcode.UnboxI, bndLong, bndBoxedTmp, 0);
+                st.TypedLongBindings[nm] = (bndLong, binding);
+            }
+
             int loopTopPc = st.Code.Pc;
-            st.Code.Emit3(Opcode.ClearScope, 0, 0, 0);
+            if (foreachBodyNeedsScope)
+                st.Code.Emit3(Opcode.ClearScope, 0, 0, 0);
 
             byte cmpSlot = AllocTemp(ref topSlot);
             Opcode testOp = inclusive ? Opcode.LeII : Opcode.LtII;
             st.Code.Emit3(testOp, cmpSlot, iterLongSlot, endLongSlot);
             int exitJmp = st.Code.EmitForwardJump(Opcode.JmpIfNot, cmpSlot);
 
-            byte iterBoxSlot = AllocTemp(ref topSlot);
-            st.Code.Emit3(Opcode.BoxI, iterBoxSlot, iterLongSlot, 0);
-            st.Code.Emit2(Opcode.AssignBinding, iterBoxSlot, iterNameIdx);
+            if (feIterPublished)
+            {
+                byte iterBoxSlot = AllocTemp(ref topSlot);
+                st.Code.Emit3(Opcode.BoxI, iterBoxSlot, iterLongSlot, 0);
+                st.Code.Emit2(Opcode.AssignBinding, iterBoxSlot, iterNameIdx);
+            }
 
-            // Increment BEFORE the body so `continue` (which jumps to
-            // `loop_top`) does not skip the step. Matches the boxed
-            // `CompileForEach` ordering.
-            st.Code.Emit3(Opcode.AddII, iterLongSlot, iterLongSlot, oneLongSlot);
-
+            // Body runs BEFORE the advance so both the boxed publish
+            // (when emitted) and the typed `AddIntoSlotI` reads inside
+            // the body observe the SAME iteration value (pre-advance).
+            // `continue` jumps to `continueTargetPc` (the advance) so the
+            // loop still makes progress through any early exit. Matches
+            // `for i in 0..N` semantics: body sees i = 0, 1, …, N-1.
+            //
+            // Initialise dirty-tracking: at body entry the typed slot
+            // matches the SymbolEntry (pre-loop UnboxI synced them).
+            // ACROSS iterations, the previous iter may have left the
+            // SymbolEntry stale though — conservatively mark every
+            // typed acc dirty at body start so the first boxed read in
+            // an iter always publishes.
+            MarkAllTypedAccsDirty(st);
             var loop = new LoopContext(loopTopPc, baselineDepth);
             st.Loops.Push(loop);
             try
@@ -2676,13 +3609,35 @@ namespace RaLanguage.Interpreter.IR
                 st.Loops.Pop();
             }
 
+            int continueTargetPc = st.Code.Pc;
+            st.Code.Emit3(Opcode.AddII, iterLongSlot, iterLongSlot, oneLongSlot);
             st.Code.EmitBackwardJump(Opcode.Jmp, 0, loopTopPc);
-
             st.Code.PatchJumpToHere(exitJmp);
             foreach (var p in loop.BreakFixups) st.Code.PatchJumpToHere(p);
-            PatchJumpsBackward(st, loop.ContinueFixups, loopTopPc);
+            PatchJumpsBackward(st, loop.ContinueFixups, continueTargetPc);
 
-            EmitPopScope(st); // body
+            // Box accumulators back to their SymbolEntry slots so
+            // post-loop reads observe the fresh value. Skip entries we
+            // inherited from the entry snapshot — those belong to an
+            // outer loop and its post-emission will handle them.
+            foreach (var acc in feTypedAccs)
+            {
+                if (feSnapshot.TypedAccumulators.ContainsKey(acc.Name)) continue;
+                if (acc.Binding.Offset > ushort.MaxValue) continue;
+                if (!st.TypedAccumulators.ContainsKey(acc.Name)) continue;
+                byte accBoxedTmp = AllocTemp(ref topSlot);
+                st.Code.Emit3(Opcode.BoxI, accBoxedTmp, st.TypedAccumulators[acc.Name].LongSlot, 0);
+                st.Code.Emit2(Opcode.StoreLocalS, accBoxedTmp, (ushort)acc.Binding.Offset);
+            }
+            // M87: restore the entry-snapshot rather than blow away the
+            // outer loop's typed dicts. Preserves correctness of nested
+            // loop compilation.
+            feSnapshot.RestoreInto(st);
+            // M88: restore the guaranteed-enter flag too.
+            st.LoopGuaranteedToEnter = prevFeGuaranteed;
+
+            if (foreachBodyNeedsScope)
+                EmitPopScope(st); // body
             EmitPopScope(st); // iter
             MarkAllTypedAccsDirty(st);
         }
@@ -2944,6 +3899,26 @@ namespace RaLanguage.Interpreter.IR
                     {
                         ushort cidx = st.Consts.Add(foldedConst);
                         st.Code.Emit2(Opcode.LoadConst, destSlot, cidx);
+                        return;
+                    }
+                    // M87: typed-Int64 generalised redirect. Fires when both
+                    // operands of an arith/bitwise/compare op reduce to typed
+                    // Int64 trees (every leaf is a typed slot or int64 literal).
+                    // Covers shapes like `(i % 2) == 0`, `i & 1`, `(i + 5) % N`
+                    // that the narrower iter-compare redirect below can't match
+                    // because one operand is a nested BinaryOp instead of a
+                    // bare `VariableAccess`. Result tag is Int64 (arith /
+                    // bitwise) or Bool (compare) — both consumable by
+                    // downstream `JmpIfNot` / typed-acc paths without an
+                    // intermediate alloc.
+                    if (IsTypedBinaryOp(bo.OpTok.Type)
+                        && IsTypedInt64Expression(bo, st))
+                    {
+                        byte lhsT = EmitTypedInt64Operand(bo.LeftNode, st, ref topSlot);
+                        byte rhsT = EmitTypedInt64Operand(bo.RightNode, st, ref topSlot);
+                        st.Code.Emit3(MapTypedBinary(bo.OpTok.Type), destSlot, lhsT, rhsT);
+                        if (IsTypedComparableOp(bo.OpTok.Type))
+                            st.RedirectedTypedIterAccessCount++;
                         return;
                     }
                     // Typed-iter comparison fast path. Emits a pure typed II
@@ -3692,6 +4667,22 @@ namespace RaLanguage.Interpreter.IR
                         outNames.Add(va.Name);
                         return;
                     }
+                    // M87: RHS = another typed-acc-candidate. Chains like
+                    // `b = b + a` where `a` is itself an iter-additive
+                    // accumulator (`a = a + i`) become pure typed AddII
+                    // when both ends are typed-promoted. The chain check
+                    // (`IsTypedAccumulatorCandidateName`) confirms the
+                    // RHS will be promoted alongside; the caller's
+                    // post-collection validator (HasNonRedirectable...)
+                    // still gates the LHS final admission.
+                    if (bo.RightNode is Parser.Nodes.Variables.VariableAccessNode rvnChain
+                        && rvnChain.Name != va.Name
+                        && rvnChain.Name != iterName
+                        && IsTypedAccumulatorCandidateName(bodyRoot, rvnChain.Name, iterName, st))
+                    {
+                        outNames.Add(va.Name);
+                        return;
+                    }
                     return;
                 }
                 // Nested loops, sub-blocks, etc. don't contribute candidates
@@ -3753,17 +4744,27 @@ namespace RaLanguage.Interpreter.IR
                     var bo = (Parser.Nodes.Operations.BinaryOperationNode)node;
                     var opT = bo.OpTok.Type;
                     // Arith / shift / bitwise — no error edges, safe to
-                    // hoist as a single pre-loop evaluation. Div / Mod /
-                    // Pow excluded (error edges); EE / NE / LT / LE /
-                    // GT / GE excluded (Boolean result, not int64).
-                    if (opT != Lexer.Tokens.TokenType.PLUS
-                        && opT != Lexer.Tokens.TokenType.MINUS
-                        && opT != Lexer.Tokens.TokenType.MUL
-                        && opT != Lexer.Tokens.TokenType.BITWISE_LEFT_SHIFT
-                        && opT != Lexer.Tokens.TokenType.BITWISE_RIGHT_SHIFT
-                        && opT != Lexer.Tokens.TokenType.BITWISE_AND
-                        && opT != Lexer.Tokens.TokenType.BITWISE_OR)
-                        return false;
+                    // hoist as a single pre-loop evaluation.
+                    bool safe = opT == Lexer.Tokens.TokenType.PLUS
+                        || opT == Lexer.Tokens.TokenType.MINUS
+                        || opT == Lexer.Tokens.TokenType.MUL
+                        || opT == Lexer.Tokens.TokenType.BITWISE_LEFT_SHIFT
+                        || opT == Lexer.Tokens.TokenType.BITWISE_RIGHT_SHIFT
+                        || opT == Lexer.Tokens.TokenType.BITWISE_AND
+                        || opT == Lexer.Tokens.TokenType.BITWISE_OR;
+                    // M88 (#29): Div / Mod / Pow admit only when the
+                    // loop is statically known (or runtime-guarded) to
+                    // execute its body at least once. Then any error
+                    // their pre-load evaluation raises is one the
+                    // original boxed dispatch would also raise on
+                    // iteration 0 — diagnostic-equivalent at the
+                    // user's eyes. Comparisons (EE / NE / LT / LE /
+                    // GT / GE) excluded — they yield Bool, not Int64.
+                    bool errorEdge = opT == Lexer.Tokens.TokenType.DIV
+                        || opT == Lexer.Tokens.TokenType.MODULO
+                        || opT == Lexer.Tokens.TokenType.POW;
+                    if (errorEdge && st.LoopGuaranteedToEnter) safe = true;
+                    if (!safe) return false;
                     return IsLoopInvariantPureNumericExpr(bo.LeftNode, bodyRoot, iterName, accName, st)
                         && IsLoopInvariantPureNumericExpr(bo.RightNode, bodyRoot, iterName, accName, st);
                 }
@@ -3932,6 +4933,17 @@ namespace RaLanguage.Interpreter.IR
             if (bo.RightNode is Parser.Nodes.Variables.VariableAccessNode rvn
                 && rvn.Name == iterName) return true;
             if (TryGetLiteralLongFromConstExpr(bo.RightNode, out _)) return true;
+            // M87: RHS = another acc / typed-binding. The other acc must
+            // itself be a redirectable accumulator OR a never-mutated
+            // local — checked indirectly via `IsTypedAccumulatorCandidateName`
+            // when `bodyRoot != null` so the caller's two-phase collection
+            // (find candidates, then validate) accepts the chain.
+            if (bo.RightNode is Parser.Nodes.Variables.VariableAccessNode rvnAccChain
+                && bodyRoot != null
+                && rvnAccChain.Name != name
+                && rvnAccChain.Name != iterName
+                && IsTypedAccumulatorCandidateName(bodyRoot, rvnAccChain.Name, iterName, st))
+                return true;
             // Loop-invariant pure-expression RHS — redirectable via
             // the pre-loop typed slot path. Only validated when both
             // bodyRoot and st are provided; legacy call sites pass
@@ -3940,6 +4952,128 @@ namespace RaLanguage.Interpreter.IR
                 && IsLoopInvariantPureNumericExpr(bo.RightNode, bodyRoot, iterName, name, st))
                 return true;
             return false;
+        }
+
+        // M87: cheap recursive predicate — returns true if `name` would be
+        // admitted as a typed accumulator candidate or as a typed-long
+        // binding (never-mutated local). Used by the chain-redirectable
+        // gate in `IsRedirectableSelfAdditive` so `b = b + a` is accepted
+        // when `a` itself is a redirectable accumulator (`a = a + iter`).
+        //
+        // Conservative: does NOT call `CollectTypedAccumulatorCandidates`
+        // recursively (would cycle). Instead inspects each assignment to
+        // `name` for the canonical redirectable shapes.
+        private static bool IsTypedAccumulatorCandidateName(
+            AstNode bodyRoot, string name, string iterName, State? st)
+        {
+            // Body-declared names are rejected by
+            // `CollectTypedAccumulatorCandidates.BodyDeclaresName`, so
+            // the chain check must reject them too — otherwise the LHS
+            // of `b = b + loc` (where `loc` is `var loc = ...` inside
+            // the body) is admitted as a redirectable acc, gets a
+            // typed slot, and the post-loop box-back overwrites whatever
+            // the boxed `AddIntoSlot` actually computed.
+            if (BodyDeclaresName(bodyRoot, name)) return false;
+            // Never-mutated bindings are valid typed-long sources.
+            if (!HasAnyAssignmentTo(bodyRoot, name)) return true;
+            return IsCandidateAccumulatorOnly(bodyRoot, bodyRoot, name, iterName, st);
+        }
+
+        // Walks `node` and returns true iff every write to `name` is one of
+        // the canonical typed-accumulator shapes:
+        //   name = name ± iter        (iter-redirect)
+        //   name = name ± literal     (literal-redirect)
+        //   name = name ± (invariant) (invariant-expr-redirect)
+        // Used by `IsTypedAccumulatorCandidateName` without the recursion
+        // hazard of `HasNonRedirectableAccumulatorWrite` (which itself
+        // calls `IsRedirectableSelfAdditive` and would loop on chained
+        // accumulators).
+        private static bool IsCandidateAccumulatorOnly(
+            AstNode? node, AstNode bodyRoot, string name, string iterName, State? st)
+        {
+            if (node == null) return true;
+            switch (node.NodeType)
+            {
+                case AstNodeType.Scope:
+                {
+                    var sc = (Parser.Nodes.Special.ScopeNode)node;
+                    foreach (var c in sc.Nodes)
+                        if (!IsCandidateAccumulatorOnly(c, bodyRoot, name, iterName, st)) return false;
+                    return true;
+                }
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)node;
+                    foreach (var cs in ifn.Cases)
+                    {
+                        if (!IsCandidateAccumulatorOnly(cs.Condition, bodyRoot, name, iterName, st)) return false;
+                        if (!IsCandidateAccumulatorOnly(cs.Expr, bodyRoot, name, iterName, st)) return false;
+                    }
+                    if (ifn.ElseCase.HasValue
+                        && !IsCandidateAccumulatorOnly(ifn.ElseCase.Value.Expr, bodyRoot, name, iterName, st))
+                        return false;
+                    return true;
+                }
+                case AstNodeType.VariableAssignment:
+                {
+                    var va = (Parser.Nodes.Variables.VariableAssignmentNode)node;
+                    if (va.Name == name)
+                    {
+                        if (va.AssignmentToken.Type != Lexer.Tokens.TokenType.EQ) return false;
+                        if (va.ValueNode is not Parser.Nodes.Operations.BinaryOperationNode bo) return false;
+                        var opT = bo.OpTok.Type;
+                        if (opT != Lexer.Tokens.TokenType.PLUS
+                            && opT != Lexer.Tokens.TokenType.MINUS) return false;
+                        if (bo.LeftNode is not Parser.Nodes.Variables.VariableAccessNode lvn) return false;
+                        if (lvn.Name != name) return false;
+                        if (bo.RightNode is Parser.Nodes.Variables.VariableAccessNode rvn
+                            && rvn.Name == iterName) { return IsCandidateAccumulatorOnly(va.ValueNode, bodyRoot, name, iterName, st); }
+                        if (TryGetLiteralLongFromConstExpr(bo.RightNode, out _))
+                            return IsCandidateAccumulatorOnly(va.ValueNode, bodyRoot, name, iterName, st);
+                        // RHS could itself be a typed-accumulator candidate
+                        // OR a never-mutated local. Don't recurse to avoid
+                        // cycles; let CollectTypedAccumulatorCandidates
+                        // validate the OUTER chain.
+                        if (bo.RightNode is Parser.Nodes.Variables.VariableAccessNode rvnAny
+                            && rvnAny.Name != name && rvnAny.Name != iterName
+                            && !HasAnyAssignmentTo(bodyRoot, rvnAny.Name))
+                            return IsCandidateAccumulatorOnly(va.ValueNode, bodyRoot, name, iterName, st);
+                        if (st != null
+                            && IsLoopInvariantPureNumericExpr(bo.RightNode, bodyRoot, iterName, name, st))
+                            return IsCandidateAccumulatorOnly(va.ValueNode, bodyRoot, name, iterName, st);
+                        return false;
+                    }
+                    return IsCandidateAccumulatorOnly(va.ValueNode, bodyRoot, name, iterName, st);
+                }
+                case AstNodeType.BinaryOperation:
+                {
+                    var bo = (Parser.Nodes.Operations.BinaryOperationNode)node;
+                    return IsCandidateAccumulatorOnly(bo.LeftNode, bodyRoot, name, iterName, st)
+                        && IsCandidateAccumulatorOnly(bo.RightNode, bodyRoot, name, iterName, st);
+                }
+                case AstNodeType.UnaryOperation:
+                {
+                    var uo = (Parser.Nodes.Operations.UnaryOperationNode)node;
+                    return IsCandidateAccumulatorOnly(uo.Node, bodyRoot, name, iterName, st);
+                }
+                case AstNodeType.FunctionCall:
+                {
+                    var fc = (Parser.Nodes.Functions.FunctionCallNode)node;
+                    if (!IsCandidateAccumulatorOnly(fc.NodeToCall, bodyRoot, name, iterName, st)) return false;
+                    foreach (var arg in fc.ArgNodes)
+                        if (!IsCandidateAccumulatorOnly(arg.Expr, bodyRoot, name, iterName, st)) return false;
+                    return true;
+                }
+                case AstNodeType.Ternary:
+                {
+                    var tn = (Parser.Nodes.Operations.TernaryNode)node;
+                    return IsCandidateAccumulatorOnly(tn.Condition, bodyRoot, name, iterName, st)
+                        && IsCandidateAccumulatorOnly(tn.TrueExpression, bodyRoot, name, iterName, st)
+                        && IsCandidateAccumulatorOnly(tn.FalseExpression, bodyRoot, name, iterName, st);
+                }
+                default:
+                    return true;
+            }
         }
 
         // Returns true iff any `VariableAssignment` whose LHS is `name`
@@ -4186,6 +5320,156 @@ namespace RaLanguage.Interpreter.IR
                 Lexer.Tokens.TokenType.GTE => Opcode.LeII,
                 _ => Opcode.EqII,
             };
+        }
+
+        // M87: typed-Int64 expression family. Generalises the typed-iter
+        // comparison redirect so that ARBITRARY arithmetic / bitwise /
+        // comparison trees whose every leaf is either a typed slot
+        // (ActiveTypedIters / TypedAccumulators / TypedLongBindings) or
+        // a constant-foldable int64 literal compile to pure *II opcodes
+        // — no boxed mirror touches, zero NumberValue per iter.
+        //
+        // Used by `bench_branchy.ra`-style bodies such as
+        // `if (i % 2) == 0 { ... }` where the boxed `Mod` + `Eq`
+        // dispatch was the per-iter allocation tax.
+        private static bool IsTypedBinaryOp(Lexer.Tokens.TokenType t)
+        {
+            return t == Lexer.Tokens.TokenType.PLUS
+                || t == Lexer.Tokens.TokenType.MINUS
+                || t == Lexer.Tokens.TokenType.MUL
+                || t == Lexer.Tokens.TokenType.DIV
+                || t == Lexer.Tokens.TokenType.MODULO
+                || t == Lexer.Tokens.TokenType.BITWISE_AND
+                || t == Lexer.Tokens.TokenType.BITWISE_OR
+                || t == Lexer.Tokens.TokenType.BITWISE_LEFT_SHIFT
+                || t == Lexer.Tokens.TokenType.BITWISE_RIGHT_SHIFT
+                || t == Lexer.Tokens.TokenType.POW
+                || IsTypedComparableOp(t);
+        }
+
+        private static Opcode MapTypedBinary(Lexer.Tokens.TokenType t)
+        {
+            return t switch
+            {
+                Lexer.Tokens.TokenType.PLUS                  => Opcode.AddII,
+                Lexer.Tokens.TokenType.MINUS                 => Opcode.SubII,
+                Lexer.Tokens.TokenType.MUL                   => Opcode.MulII,
+                Lexer.Tokens.TokenType.DIV                   => Opcode.DivII,
+                Lexer.Tokens.TokenType.MODULO                => Opcode.ModII,
+                Lexer.Tokens.TokenType.BITWISE_AND           => Opcode.BAndII,
+                Lexer.Tokens.TokenType.BITWISE_OR            => Opcode.BOrII,
+                Lexer.Tokens.TokenType.BITWISE_LEFT_SHIFT    => Opcode.ShlII,
+                Lexer.Tokens.TokenType.BITWISE_RIGHT_SHIFT   => Opcode.ShrII,
+                Lexer.Tokens.TokenType.POW                   => Opcode.PowII,
+                Lexer.Tokens.TokenType.EE                    => Opcode.EqII,
+                Lexer.Tokens.TokenType.NE                    => Opcode.NeII,
+                Lexer.Tokens.TokenType.LT                    => Opcode.LtII,
+                Lexer.Tokens.TokenType.LTE                   => Opcode.LeII,
+                Lexer.Tokens.TokenType.GT                    => Opcode.GtII,
+                Lexer.Tokens.TokenType.GTE                   => Opcode.GeII,
+                _ => throw new IrCompileException($"typed binary op {t} not mappable"),
+            };
+        }
+
+        // Pure recursive predicate. Returns true when `node` evaluates to
+        // a typed `Int64` (or `Bool` for the comparison variants) at
+        // runtime without any boxed dispatch — every leaf resolves to a
+        // typed slot, every interior op is in `IsTypedBinaryOp`, and
+        // every unary is the typed-supported `MINUS`. The result tag
+        // matters less than the absence of allocation: the typed family
+        // either keeps the slot Int64 / Bool, or deopts in place
+        // preserving error PC.
+        //
+        // Conservative: rejects POW / DIV / MOD trees if either operand
+        // is non-literal AND non-typed (would need wider analysis to
+        // prove overflow safety). The conservative rejection just routes
+        // to the existing boxed path with no correctness impact.
+        private static bool IsTypedInt64Expression(AstNode? node, State st)
+        {
+            if (node == null) return false;
+            switch (node.NodeType)
+            {
+                case AstNodeType.Number:
+                    return TryGetLiteralLongFromConstExpr(node, out _);
+                case AstNodeType.VariableAccess:
+                {
+                    var va = (Parser.Nodes.Variables.VariableAccessNode)node;
+                    if (string.IsNullOrEmpty(va.Name)) return false;
+                    return st.ActiveTypedIters.ContainsKey(va.Name)
+                        || st.TypedLongBindings.ContainsKey(va.Name)
+                        || st.TypedAccumulators.ContainsKey(va.Name);
+                }
+                case AstNodeType.UnaryOperation:
+                {
+                    var uo = (Parser.Nodes.Operations.UnaryOperationNode)node;
+                    // Only typed-MINUS is supported (NegI). BITWISE_NOT
+                    // currently has no typed unary opcode; reject.
+                    if (uo.OpTok.Type != Lexer.Tokens.TokenType.MINUS) return false;
+                    return IsTypedInt64Expression(uo.Node, st);
+                }
+                case AstNodeType.BinaryOperation:
+                {
+                    var bo = (Parser.Nodes.Operations.BinaryOperationNode)node;
+                    if (!IsTypedBinaryOp(bo.OpTok.Type)) return false;
+                    return IsTypedInt64Expression(bo.LeftNode, st)
+                        && IsTypedInt64Expression(bo.RightNode, st);
+                }
+                default:
+                    return false;
+            }
+        }
+
+        // Emits a typed-Int64 sub-expression. Returns the slot index
+        // where the value lives — either an existing typed slot (no
+        // allocation, no opcode emitted) or a freshly-allocated temp
+        // holding the computed result. Caller has already validated
+        // `IsTypedInt64Expression(node, st) == true`.
+        //
+        // Designed to be called from the typed redirect inside
+        // `CompileExpression`'s `BinaryOperation` case so it can produce
+        // operand slots without going through the boxed VA / Number
+        // codepaths.
+        private static byte EmitTypedInt64Operand(AstNode node, State st, ref byte topSlot)
+        {
+            switch (node.NodeType)
+            {
+                case AstNodeType.Number:
+                {
+                    TryGetLiteralLongFromConstExpr(node, out long v);
+                    if (st.TypedAccumulatorLiterals.TryGetValue(v, out byte preloaded))
+                        return preloaded;
+                    byte s = AllocTemp(ref topSlot);
+                    EmitLiteralLongLoad(v, s, st, ref topSlot);
+                    return s;
+                }
+                case AstNodeType.VariableAccess:
+                {
+                    var va = (Parser.Nodes.Variables.VariableAccessNode)node;
+                    if (st.ActiveTypedIters.TryGetValue(va.Name, out byte itSlot)) return itSlot;
+                    if (st.TypedLongBindings.TryGetValue(va.Name, out var tlb)) return tlb.LongSlot;
+                    if (st.TypedAccumulators.TryGetValue(va.Name, out var ta)) return ta.LongSlot;
+                    throw new IrCompileException("typed Int64 operand: VA binding not in typed registry");
+                }
+                case AstNodeType.UnaryOperation:
+                {
+                    var uo = (Parser.Nodes.Operations.UnaryOperationNode)node;
+                    byte src = EmitTypedInt64Operand(uo.Node, st, ref topSlot);
+                    byte dst = AllocTemp(ref topSlot);
+                    st.Code.Emit3(Opcode.NegI, dst, src, 0);
+                    return dst;
+                }
+                case AstNodeType.BinaryOperation:
+                {
+                    var bo = (Parser.Nodes.Operations.BinaryOperationNode)node;
+                    byte lhs = EmitTypedInt64Operand(bo.LeftNode, st, ref topSlot);
+                    byte rhs = EmitTypedInt64Operand(bo.RightNode, st, ref topSlot);
+                    byte dst = AllocTemp(ref topSlot);
+                    st.Code.Emit3(MapTypedBinary(bo.OpTok.Type), dst, lhs, rhs);
+                    return dst;
+                }
+                default:
+                    throw new IrCompileException($"typed Int64 operand: unhandled node {node.NodeType}");
+            }
         }
 
         // Counts iter `VariableAccess` nodes that appear as one operand

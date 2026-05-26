@@ -340,6 +340,31 @@ namespace RaLanguage.Interpreter.IR
         // anywhere disqualifies the name from hoist consideration.
         public System.Collections.Generic.HashSet<string>? MutatedNames;
 
+        // M88: the AST contains at least one `import` / `using` /
+        // `namespace import` node. With cross-module references in
+        // play, `MutatedNames` (which only walks the importing
+        // function's own AST + nested function defs) can NOT see
+        // mutations performed by callees that live in a different
+        // module's frame. The LICM `LoadLocalS` hoist therefore has
+        // to assume any in-loop `Call` / `CallMethod` / `TailCall`
+        // could indirectly mutate any binding name when this flag is
+        // true — closure capture across imported boundaries +
+        // exported closures both fall into this hole.
+        public bool HasImports;
+
+        // M88: every named function reachable in this function's
+        // compilation unit, mapped to its `MutatedNames` set if
+        // known. Populated by `IrCompiler` from the AST's
+        // `FunctionDefinition` walker. The LICM `LoadLocalS` hoist
+        // uses this to resolve `Call` opcodes whose `fnSlot` was
+        // loaded via `LoadGlobal` of a name in this map — if the
+        // callee's `MutatedNames` does NOT contain the binding name,
+        // the call is safe to hoist past. Unknown callees (cross-
+        // module, dynamic dispatch, captured closures whose name
+        // was not in scope) fall through to the conservative
+        // `HasImports` gate.
+        public System.Collections.Generic.Dictionary<string, System.Collections.Generic.HashSet<string>>? CalleeMutatedNames;
+
         // Parallel to AstRefs. For each AstRefs entry that originated from a
         // single-decl VariableDeclarationNode the IR lowered through
         // OP_DECLARE_LOCAL, DeclSlotByAstRef holds the frame slot to cache the
