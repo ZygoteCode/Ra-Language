@@ -1,0 +1,4 @@
+// Shared receiver type used by the ambiguity test helpers.
+pub class SharedAmbig {
+    pub SharedAmbig() { pass; }
+}

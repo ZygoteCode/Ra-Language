@@ -360,6 +360,39 @@ var l34 = L34(2);
 l34.memo = 42;
 if l34.memo == 42 { print("[E34] OK"); } else { print("[E34] FAIL"); }
 
+// E36: cross-module ambiguity diagnostic — two imported modules
+// declare a colliding `conflict` ext-field on the same target. The
+// access must refuse with an ambiguity error rather than pick one
+// arbitrarily.
+import "tests_extensions_helpers/shared.ra";
+import "tests_extensions_helpers/mod_a.ra";
+import "tests_extensions_helpers/mod_b.ra";
+var ambig_ok: int = 0;
+var ambig_val: int = -1;
+try {
+    var sa = SharedAmbig();
+    ambig_val = (sa.conflict) as int;
+    ambig_ok = 0;
+} catch (ex) {
+    ambig_ok = 1;
+}
+if ambig_ok == 1 { print("[E36] OK"); } else { print("[E36] FAIL — got " + (ambig_val as string)); }
+
+// E37: sealed cross-module — importer pulls in sealed_owner.ra (which
+// seals SharedAmbig) and then sealed_violator.ra. The second import
+// must fail at merge-time, not silently drop or surface later as
+// ambiguity. The import statement returns a RuntimeError that try
+// catches.
+var sealed_mod_ok: int = 0;
+try {
+    import "tests_extensions_helpers/sealed_owner.ra";
+    import "tests_extensions_helpers/sealed_violator.ra";
+    sealed_mod_ok = 0;
+} catch (ex) {
+    sealed_mod_ok = 1;
+}
+if sealed_mod_ok == 1 { print("[E37] OK"); } else { print("[E37] FAIL — sealed merge should have raised"); }
+
 // E35: IC stability — hot loop reads same field many times
 pub class Hot { pub Hot() { pass; } }
 extend Hot { pub var v: int = 0; }

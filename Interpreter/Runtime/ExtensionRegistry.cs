@@ -3,6 +3,7 @@ using RaLanguage.Interpreter.Runtime.Properties;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Primitives;
 using RaLanguage.Interpreter.Values.Structs;
+using RaLanguage.Lexer;
 using RaLanguage.Lexer.Tokens;
 using RaLanguage.Parser.Nodes.Classes;
 using RaLanguage.Parser.Nodes.Functions;
@@ -80,6 +81,28 @@ namespace RaLanguage.Interpreter.Runtime
             return _sealedTargets.Add(targetTypeName);
         }
 
+        // Builds a human-facing source location for an entry. When
+        // the source position is known we render `path:line:col`;
+        // otherwise we fall back to the bare module path so the
+        // message still tells the user *which file* introduced the
+        // entry.
+        internal static string FormatEntrySource(string? declaringModule, Position? pos)
+        {
+            if (pos.HasValue)
+            {
+                var p = pos.Value;
+                // Position.ToString() already produces "Fn:Ln:Col".
+                // Prefer DeclaringModule (full absolute path) when
+                // Fn would otherwise be empty.
+                if (!string.IsNullOrEmpty(p.Fn))
+                    return p.ToString();
+                if (!string.IsNullOrEmpty(declaringModule))
+                    return $"{declaringModule}:{p.Ln}:{p.Col}";
+                return $"<unknown>:{p.Ln}:{p.Col}";
+            }
+            return string.IsNullOrEmpty(declaringModule) ? "<this module>" : declaringModule!;
+        }
+
         public void Register(string targetTypeName, FunctionDefinitionNode method)
             => RegisterMethod(targetTypeName, method, isBlockPublic: true, isLocal: true, declaringModule: null, targetType: null);
 
@@ -89,14 +112,15 @@ namespace RaLanguage.Interpreter.Runtime
             bool isBlockPublic,
             bool isLocal,
             string? declaringModule,
-            TypeDescriptor? targetType = null)
+            TypeDescriptor? targetType = null,
+            Position? sourcePosition = null)
         {
             if (!_methods.TryGetValue(targetTypeName, out var list))
             {
                 list = new List<ExtensionMethodEntry>();
                 _methods[targetTypeName] = list;
             }
-            list.Add(new ExtensionMethodEntry(method, isBlockPublic, isLocal, declaringModule, targetType));
+            list.Add(new ExtensionMethodEntry(method, isBlockPublic, isLocal, declaringModule, targetType, sourcePosition));
         }
 
         public bool RegisterProperty(
@@ -106,7 +130,8 @@ namespace RaLanguage.Interpreter.Runtime
             bool isLocal,
             string? declaringModule,
             out string? error,
-            TypeDescriptor? targetType = null)
+            TypeDescriptor? targetType = null,
+            Position? sourcePosition = null)
         {
             error = null;
             if (!_properties.TryGetValue(targetTypeName, out var list))
@@ -117,19 +142,27 @@ namespace RaLanguage.Interpreter.Runtime
 
             for (int i = 0; i < list.Count; i++)
             {
-                if (string.Equals(list[i].Descriptor.Name, descriptor.Name, StringComparison.Ordinal)
-                    && SameTargetSpec(list[i].TargetType, targetType))
+                if (!string.Equals(list[i].Descriptor.Name, descriptor.Name, StringComparison.Ordinal)
+                    || !SameTargetSpec(list[i].TargetType, targetType))
+                    continue;
+
+                // Local-local duplicate is a hard error — same module
+                // declared the same property twice.
+                if (list[i].IsLocal && isLocal)
                 {
-                    if (list[i].IsLocal && isLocal)
-                    {
-                        error = $"extension property '{descriptor.Name}' on '{targetTypeName}' is declared more than once";
-                        return false;
-                    }
-                    return true;
+                    error = $"extension property '{descriptor.Name}' on '{targetTypeName}' is declared more than once";
+                    return false;
                 }
+                // Same-module re-import (e.g. diamond import) collapses
+                // silently — already present.
+                if (string.Equals(list[i].DeclaringModule, declaringModule, StringComparison.OrdinalIgnoreCase))
+                    return true;
+                // Different-module duplicate (cross-module ambiguity)
+                // is kept in the list so resolution can surface it as
+                // a diagnostic instead of arbitrary first-match.
             }
 
-            list.Add(new ExtensionPropertyEntry(descriptor, isBlockPublic, isLocal, declaringModule, targetType));
+            list.Add(new ExtensionPropertyEntry(descriptor, isBlockPublic, isLocal, declaringModule, targetType, sourcePosition));
             return true;
         }
 
@@ -139,14 +172,15 @@ namespace RaLanguage.Interpreter.Runtime
             bool isBlockPublic,
             bool isLocal,
             string? declaringModule,
-            TypeDescriptor? targetType = null)
+            TypeDescriptor? targetType = null,
+            Position? sourcePosition = null)
         {
             if (!_operators.TryGetValue(targetTypeName, out var list))
             {
                 list = new List<ExtensionOperatorEntry>();
                 _operators[targetTypeName] = list;
             }
-            list.Add(new ExtensionOperatorEntry(op, isBlockPublic, isLocal, declaringModule, targetType));
+            list.Add(new ExtensionOperatorEntry(op, isBlockPublic, isLocal, declaringModule, targetType, sourcePosition));
         }
 
         public void RegisterIndexer(
@@ -168,7 +202,8 @@ namespace RaLanguage.Interpreter.Runtime
             bool isLocal,
             string? declaringModule,
             out string? error,
-            TypeDescriptor? targetType = null)
+            TypeDescriptor? targetType = null,
+            Position? sourcePosition = null)
         {
             error = null;
             if (!_fields.TryGetValue(targetTypeName, out var list))
@@ -179,31 +214,39 @@ namespace RaLanguage.Interpreter.Runtime
 
             for (int i = 0; i < list.Count; i++)
             {
-                if (string.Equals(list[i].Descriptor.Name, descriptor.Name, StringComparison.Ordinal)
-                    && SameTargetSpec(list[i].TargetType, targetType))
+                if (!string.Equals(list[i].Descriptor.Name, descriptor.Name, StringComparison.Ordinal)
+                    || !SameTargetSpec(list[i].TargetType, targetType))
+                    continue;
+                if (list[i].IsLocal && isLocal)
                 {
-                    if (list[i].IsLocal && isLocal)
-                    {
-                        error = $"extension field '{descriptor.Name}' on '{targetTypeName}' is declared more than once";
-                        return false;
-                    }
-                    return true;
+                    error = $"extension field '{descriptor.Name}' on '{targetTypeName}' is declared more than once";
+                    return false;
                 }
+                if (string.Equals(list[i].DeclaringModule, declaringModule, StringComparison.OrdinalIgnoreCase))
+                    return true;
+                // Different module → keep for ambiguity detection.
             }
 
-            list.Add(new ExtensionFieldEntry(descriptor, isBlockPublic, isLocal, declaringModule, targetType));
+            list.Add(new ExtensionFieldEntry(descriptor, isBlockPublic, isLocal, declaringModule, targetType, sourcePosition));
             return true;
         }
 
         public ExtensionFieldEntry? ResolveFieldEntry(RuntimeValue receiver, string memberName)
+            => ResolveFieldEntry(receiver, memberName, out _);
+
+        public ExtensionFieldEntry? ResolveFieldEntry(
+            RuntimeValue receiver,
+            string memberName,
+            out ExtensionFieldEntry? ambiguous)
         {
-            // Static fields surface only on a ClassType receiver
-            // (the type itself), instance fields only on an actual
-            // instance. The descriptor's IsStaticField flag is the
-            // sole source of truth for this partition — the registry
-            // never mixes them on the same dispatch.
+            ambiguous = null;
+            // Static fields surface only on a ClassType receiver,
+            // instance fields only on an actual instance.
             bool wantStatic = receiver.Type == RuntimeValueType.ClassType;
 
+
+            ExtensionFieldEntry? first = null;
+            int firstPass = -1;
             for (int pass = 0; pass < 2; pass++)
             {
                 bool wantLocal = pass == 0;
@@ -217,12 +260,20 @@ namespace RaLanguage.Interpreter.Runtime
                         if (entry.IsLocal != wantLocal) continue;
                         if (entry.Descriptor.IsStaticField != wantStatic) continue;
                         if (!MatchesGenericTarget(entry.TargetType, receiver)) continue;
-                        if (string.Equals(entry.Descriptor.Name, memberName, StringComparison.Ordinal))
-                            return entry;
+                        if (!string.Equals(entry.Descriptor.Name, memberName, StringComparison.Ordinal))
+                            continue;
+                        if (first == null) { first = entry; firstPass = pass; continue; }
+                        if (pass == firstPass
+                            && !string.Equals(first.DeclaringModule, entry.DeclaringModule, StringComparison.OrdinalIgnoreCase))
+                        {
+                            ambiguous = entry;
+                            return first;
+                        }
                     }
                 }
+                if (first != null) return first;
             }
-            return null;
+            return first;
         }
 
         public bool RegisterEvent(
@@ -232,7 +283,8 @@ namespace RaLanguage.Interpreter.Runtime
             bool isLocal,
             string? declaringModule,
             out string? error,
-            TypeDescriptor? targetType = null)
+            TypeDescriptor? targetType = null,
+            Position? sourcePosition = null)
         {
             error = null;
             if (!_events.TryGetValue(targetTypeName, out var list))
@@ -243,19 +295,20 @@ namespace RaLanguage.Interpreter.Runtime
 
             for (int i = 0; i < list.Count; i++)
             {
-                if (string.Equals(list[i].Descriptor.Name, descriptor.Name, StringComparison.Ordinal)
-                    && SameTargetSpec(list[i].TargetType, targetType))
+                if (!string.Equals(list[i].Descriptor.Name, descriptor.Name, StringComparison.Ordinal)
+                    || !SameTargetSpec(list[i].TargetType, targetType))
+                    continue;
+                if (list[i].IsLocal && isLocal)
                 {
-                    if (list[i].IsLocal && isLocal)
-                    {
-                        error = $"extension event '{descriptor.Name}' on '{targetTypeName}' is declared more than once";
-                        return false;
-                    }
-                    return true;
+                    error = $"extension event '{descriptor.Name}' on '{targetTypeName}' is declared more than once";
+                    return false;
                 }
+                if (string.Equals(list[i].DeclaringModule, declaringModule, StringComparison.OrdinalIgnoreCase))
+                    return true;
+                // Different module → keep for ambiguity detection.
             }
 
-            list.Add(new ExtensionEventEntry(descriptor, isBlockPublic, isLocal, declaringModule, targetType));
+            list.Add(new ExtensionEventEntry(descriptor, isBlockPublic, isLocal, declaringModule, targetType, sourcePosition));
             return true;
         }
 
@@ -334,10 +387,23 @@ namespace RaLanguage.Interpreter.Runtime
         }
 
         public PropertyDescriptor? ResolveProperty(RuntimeValue receiver, string memberName)
-            => ResolvePropertyEntry(receiver, memberName)?.Descriptor;
+            => ResolvePropertyEntry(receiver, memberName, out _)?.Descriptor;
 
         public ExtensionPropertyEntry? ResolvePropertyEntry(RuntimeValue receiver, string memberName)
+            => ResolvePropertyEntry(receiver, memberName, out _);
+
+        // Returns the highest-priority entry. When `ambiguous` is
+        // non-null, the resolver also found a second same-tier entry
+        // declared in a different module — callers should treat this
+        // as an error.
+        public ExtensionPropertyEntry? ResolvePropertyEntry(
+            RuntimeValue receiver,
+            string memberName,
+            out ExtensionPropertyEntry? ambiguous)
         {
+            ambiguous = null;
+            ExtensionPropertyEntry? first = null;
+            int firstPass = -1;
             for (int pass = 0; pass < 2; pass++)
             {
                 bool wantLocal = pass == 0;
@@ -350,18 +416,36 @@ namespace RaLanguage.Interpreter.Runtime
                     {
                         if (entry.IsLocal != wantLocal) continue;
                         if (!MatchesGenericTarget(entry.TargetType, receiver)) continue;
-                        if (string.Equals(entry.Descriptor.Name, memberName, StringComparison.Ordinal))
-                            return entry;
+                        if (!string.Equals(entry.Descriptor.Name, memberName, StringComparison.Ordinal))
+                            continue;
+                        if (first == null) { first = entry; firstPass = pass; continue; }
+                        if (pass == firstPass
+                            && !string.Equals(first.DeclaringModule, entry.DeclaringModule, StringComparison.OrdinalIgnoreCase))
+                        {
+                            ambiguous = entry;
+                            return first;
+                        }
                     }
                 }
+                if (first != null) return first; // higher tier already won
             }
-            return null;
+            return first;
         }
 
         // Operator resolution. Matches by operator token type and the
         // rhs parameter type name (mirroring ClassTypeValue.ResolveOperator).
         public ExtensionOperatorEntry? ResolveOperatorEntry(RuntimeValue receiver, TokenType opType, string rhsTypeName)
+            => ResolveOperatorEntry(receiver, opType, rhsTypeName, out _);
+
+        public ExtensionOperatorEntry? ResolveOperatorEntry(
+            RuntimeValue receiver,
+            TokenType opType,
+            string rhsTypeName,
+            out ExtensionOperatorEntry? ambiguous)
         {
+            ambiguous = null;
+            ExtensionOperatorEntry? first = null;
+            int firstPass = -1;
             for (int pass = 0; pass < 2; pass++)
             {
                 bool wantLocal = pass == 0;
@@ -377,19 +461,35 @@ namespace RaLanguage.Interpreter.Runtime
                         if (entry.Operator.OperatorTok.Type != opType) continue;
 
                         var paramType = entry.Operator.ArgType?.Name ?? "";
-                        if (string.Equals(paramType, rhsTypeName, StringComparison.Ordinal)
-                            || string.Equals(paramType, "any", StringComparison.Ordinal))
+                        bool matches = string.Equals(paramType, rhsTypeName, StringComparison.Ordinal)
+                                    || string.Equals(paramType, "any", StringComparison.Ordinal);
+                        if (!matches) continue;
+
+                        if (first == null) { first = entry; firstPass = pass; continue; }
+                        if (pass == firstPass
+                            && !string.Equals(first.DeclaringModule, entry.DeclaringModule, StringComparison.OrdinalIgnoreCase))
                         {
-                            return entry;
+                            ambiguous = entry;
+                            return first;
                         }
                     }
                 }
+                if (first != null) return first;
             }
-            return null;
+            return first;
         }
 
         public ExtensionIndexerEntry? ResolveIndexerEntry(RuntimeValue receiver, bool isAssignment)
+            => ResolveIndexerEntry(receiver, isAssignment, out _);
+
+        public ExtensionIndexerEntry? ResolveIndexerEntry(
+            RuntimeValue receiver,
+            bool isAssignment,
+            out ExtensionIndexerEntry? ambiguous)
         {
+            ambiguous = null;
+            ExtensionIndexerEntry? first = null;
+            int firstPass = -1;
             for (int pass = 0; pass < 2; pass++)
             {
                 bool wantLocal = pass == 0;
@@ -403,15 +503,31 @@ namespace RaLanguage.Interpreter.Runtime
                         if (entry.IsLocal != wantLocal) continue;
                         if (!MatchesGenericTarget(entry.TargetType, receiver)) continue;
                         if (entry.IsSetter != isAssignment) continue;
-                        return entry;
+                        if (first == null) { first = entry; firstPass = pass; continue; }
+                        if (pass == firstPass
+                            && !string.Equals(first.DeclaringModule, entry.DeclaringModule, StringComparison.OrdinalIgnoreCase))
+                        {
+                            ambiguous = entry;
+                            return first;
+                        }
                     }
                 }
+                if (first != null) return first;
             }
-            return null;
+            return first;
         }
 
         public ExtensionEventEntry? ResolveEventEntry(RuntimeValue receiver, string eventName)
+            => ResolveEventEntry(receiver, eventName, out _);
+
+        public ExtensionEventEntry? ResolveEventEntry(
+            RuntimeValue receiver,
+            string eventName,
+            out ExtensionEventEntry? ambiguous)
         {
+            ambiguous = null;
+            ExtensionEventEntry? first = null;
+            int firstPass = -1;
             for (int pass = 0; pass < 2; pass++)
             {
                 bool wantLocal = pass == 0;
@@ -424,12 +540,20 @@ namespace RaLanguage.Interpreter.Runtime
                     {
                         if (entry.IsLocal != wantLocal) continue;
                         if (!MatchesGenericTarget(entry.TargetType, receiver)) continue;
-                        if (string.Equals(entry.Descriptor.Name, eventName, StringComparison.Ordinal))
-                            return entry;
+                        if (!string.Equals(entry.Descriptor.Name, eventName, StringComparison.Ordinal))
+                            continue;
+                        if (first == null) { first = entry; firstPass = pass; continue; }
+                        if (pass == firstPass
+                            && !string.Equals(first.DeclaringModule, entry.DeclaringModule, StringComparison.OrdinalIgnoreCase))
+                        {
+                            ambiguous = entry;
+                            return first;
+                        }
                     }
                 }
+                if (first != null) return first;
             }
-            return null;
+            return first;
         }
 
         // -----------------------------------------------------------
@@ -546,21 +670,30 @@ namespace RaLanguage.Interpreter.Runtime
         public bool IsLocal { get; set; }
         public string? DeclaringModule { get; }
         public TypeDescriptor? TargetType { get; }
+        // PositionStart of the surrounding `extend` block. Used by
+        // diagnostics so the message points at the actual source line
+        // instead of just the file path.
+        public Position? SourcePosition { get; }
 
         public bool IsEffectivelyPublic => IsBlockPublic || Method.IsPublic;
+
+        public string FormatSource()
+            => ExtensionRegistry.FormatEntrySource(DeclaringModule, SourcePosition);
 
         public ExtensionMethodEntry(
             FunctionDefinitionNode method,
             bool isBlockPublic,
             bool isLocal,
             string? declaringModule,
-            TypeDescriptor? targetType = null)
+            TypeDescriptor? targetType = null,
+            Position? sourcePosition = null)
         {
             Method = method;
             IsBlockPublic = isBlockPublic;
             IsLocal = isLocal;
             DeclaringModule = declaringModule;
             TargetType = targetType;
+            SourcePosition = sourcePosition;
         }
     }
 
@@ -571,21 +704,27 @@ namespace RaLanguage.Interpreter.Runtime
         public bool IsLocal { get; set; }
         public string? DeclaringModule { get; }
         public TypeDescriptor? TargetType { get; }
+        public Position? SourcePosition { get; }
 
         public bool IsEffectivelyPublic => IsBlockPublic || Descriptor.IsPublic;
+
+        public string FormatSource()
+            => ExtensionRegistry.FormatEntrySource(DeclaringModule, SourcePosition);
 
         public ExtensionPropertyEntry(
             PropertyDescriptor descriptor,
             bool isBlockPublic,
             bool isLocal,
             string? declaringModule,
-            TypeDescriptor? targetType = null)
+            TypeDescriptor? targetType = null,
+            Position? sourcePosition = null)
         {
             Descriptor = descriptor;
             IsBlockPublic = isBlockPublic;
             IsLocal = isLocal;
             DeclaringModule = declaringModule;
             TargetType = targetType;
+            SourcePosition = sourcePosition;
         }
     }
 
@@ -596,21 +735,27 @@ namespace RaLanguage.Interpreter.Runtime
         public bool IsLocal { get; set; }
         public string? DeclaringModule { get; }
         public TypeDescriptor? TargetType { get; }
+        public Position? SourcePosition { get; }
 
         public bool IsEffectivelyPublic => IsBlockPublic || Operator.IsPublic;
+
+        public string FormatSource()
+            => ExtensionRegistry.FormatEntrySource(DeclaringModule, SourcePosition);
 
         public ExtensionOperatorEntry(
             OperatorDefinitionNode op,
             bool isBlockPublic,
             bool isLocal,
             string? declaringModule,
-            TypeDescriptor? targetType = null)
+            TypeDescriptor? targetType = null,
+            Position? sourcePosition = null)
         {
             Operator = op;
             IsBlockPublic = isBlockPublic;
             IsLocal = isLocal;
             DeclaringModule = declaringModule;
             TargetType = targetType;
+            SourcePosition = sourcePosition;
         }
     }
 
@@ -626,8 +771,12 @@ namespace RaLanguage.Interpreter.Runtime
         public bool IsLocal { get; set; }
         public string? DeclaringModule { get; }
         public TypeDescriptor? TargetType { get; }
+        public Position? SourcePosition { get; }
 
         public bool IsEffectivelyPublic => IsBlockPublic || Method.IsPublic;
+
+        public string FormatSource()
+            => ExtensionRegistry.FormatEntrySource(DeclaringModule, SourcePosition);
 
         public ExtensionIndexerEntry(
             FunctionDefinitionNode method,
@@ -635,7 +784,8 @@ namespace RaLanguage.Interpreter.Runtime
             bool isBlockPublic,
             bool isLocal,
             string? declaringModule,
-            TypeDescriptor? targetType = null)
+            TypeDescriptor? targetType = null,
+            Position? sourcePosition = null)
         {
             Method = method;
             IsSetter = isSetter;
@@ -643,6 +793,7 @@ namespace RaLanguage.Interpreter.Runtime
             IsLocal = isLocal;
             DeclaringModule = declaringModule;
             TargetType = targetType;
+            SourcePosition = sourcePosition;
         }
     }
 
@@ -653,21 +804,27 @@ namespace RaLanguage.Interpreter.Runtime
         public bool IsLocal { get; set; }
         public string? DeclaringModule { get; }
         public TypeDescriptor? TargetType { get; }
+        public Position? SourcePosition { get; }
 
         public bool IsEffectivelyPublic => IsBlockPublic || Descriptor.IsPublic;
+
+        public string FormatSource()
+            => ExtensionRegistry.FormatEntrySource(DeclaringModule, SourcePosition);
 
         public ExtensionEventEntry(
             EventDescriptor descriptor,
             bool isBlockPublic,
             bool isLocal,
             string? declaringModule,
-            TypeDescriptor? targetType = null)
+            TypeDescriptor? targetType = null,
+            Position? sourcePosition = null)
         {
             Descriptor = descriptor;
             IsBlockPublic = isBlockPublic;
             IsLocal = isLocal;
             DeclaringModule = declaringModule;
             TargetType = targetType;
+            SourcePosition = sourcePosition;
         }
     }
 
@@ -678,21 +835,27 @@ namespace RaLanguage.Interpreter.Runtime
         public bool IsLocal { get; set; }
         public string? DeclaringModule { get; }
         public TypeDescriptor? TargetType { get; }
+        public Position? SourcePosition { get; }
 
         public bool IsEffectivelyPublic => IsBlockPublic || Descriptor.IsPublic;
+
+        public string FormatSource()
+            => ExtensionRegistry.FormatEntrySource(DeclaringModule, SourcePosition);
 
         public ExtensionFieldEntry(
             ExtensionFieldDescriptor descriptor,
             bool isBlockPublic,
             bool isLocal,
             string? declaringModule,
-            TypeDescriptor? targetType = null)
+            TypeDescriptor? targetType = null,
+            Position? sourcePosition = null)
         {
             Descriptor = descriptor;
             IsBlockPublic = isBlockPublic;
             IsLocal = isLocal;
             DeclaringModule = declaringModule;
             TargetType = targetType;
+            SourcePosition = sourcePosition;
         }
     }
 }

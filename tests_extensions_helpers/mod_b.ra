@@ -1,0 +1,8 @@
+// Module B — declares a *colliding* extension field `conflict`
+// on the same SharedAmbig type. Importing both A and B into the
+// same module surfaces a cross-module ambiguity at read time.
+import "shared.ra";
+
+extend SharedAmbig {
+    pub var conflict: int = 200;
+}

@@ -106,7 +106,8 @@ namespace RaLanguage.Interpreter.Visitors.Imports
                     isPublic: true);
             }
 
-            MergeExtensions(context.Extensions, module.Extensions);
+            var mergeErr = MergeExtensions(context.Extensions, module.Extensions, node.PositionStart, node.PositionEnd);
+            if (mergeErr != null) return result.Failure(mergeErr);
 
             return result.Success(NullValue.Null
                 .SetPos(node.PositionStart, node.PositionEnd)
@@ -170,13 +171,34 @@ namespace RaLanguage.Interpreter.Visitors.Imports
                 .SetPos(node.PositionStart, node.PositionEnd));
         }
 
-        private static void MergeExtensions(ExtensionRegistry target, ExtensionRegistry source)
+        private static Error? MergeExtensions(
+            ExtensionRegistry target,
+            ExtensionRegistry source,
+            Position posStart,
+            Position posEnd)
         {
-            if (target == null || source == null || ReferenceEquals(target, source)) return;
+            if (target == null || source == null || ReferenceEquals(target, source)) return null;
+
+            // Sealed cross-module check: if any target is sealed in
+            // the importer and the source carries entries on it, the
+            // import is rejected upfront. This keeps the seal honest
+            // even when modules are loaded out of order — `mod_a`
+            // sealing `T` and then `mod_b` (loaded later) trying to
+            // ship its own ext on `T` would otherwise silently lose
+            // members at merge time. Single error per import; we
+            // surface the first conflict with enough context to
+            // identify the offending entry.
+            foreach (var (kindLabel, sealedConflict) in EnumerateSealedConflicts(target, source))
+            {
+                return new RuntimeError(posStart, posEnd,
+                    $"sealed extension target '{sealedConflict.target}' cannot accept new {kindLabel} '{sealedConflict.name}' from '{sealedConflict.source}'",
+                    context: null!,
+                    code: Errors.DiagnosticCode.RuntimeGeneric,
+                    help: "remove the @sealed marker from the original declaration or move the new extension members into the same module that sealed the target");
+            }
 
             foreach (var kvp in source.AllMethodEntries)
             {
-                if (target.IsSealed(kvp.Key)) continue;
                 foreach (var entry in kvp.Value)
                 {
                     if (!entry.IsEffectivelyPublic) continue;
@@ -186,13 +208,13 @@ namespace RaLanguage.Interpreter.Visitors.Imports
                         isBlockPublic: entry.IsBlockPublic,
                         isLocal: false,
                         declaringModule: entry.DeclaringModule,
-                        targetType: entry.TargetType);
+                        targetType: entry.TargetType,
+                        sourcePosition: entry.SourcePosition);
                 }
             }
 
             foreach (var kvp in source.AllPropertyEntries)
             {
-                if (target.IsSealed(kvp.Key)) continue;
                 foreach (var entry in kvp.Value)
                 {
                     if (!entry.IsEffectivelyPublic) continue;
@@ -203,13 +225,13 @@ namespace RaLanguage.Interpreter.Visitors.Imports
                         isLocal: false,
                         declaringModule: entry.DeclaringModule,
                         out _,
-                        targetType: entry.TargetType);
+                        targetType: entry.TargetType,
+                        sourcePosition: entry.SourcePosition);
                 }
             }
 
             foreach (var kvp in source.AllOperatorEntries)
             {
-                if (target.IsSealed(kvp.Key)) continue;
                 foreach (var entry in kvp.Value)
                 {
                     if (!entry.IsEffectivelyPublic) continue;
@@ -219,13 +241,13 @@ namespace RaLanguage.Interpreter.Visitors.Imports
                         isBlockPublic: entry.IsBlockPublic,
                         isLocal: false,
                         declaringModule: entry.DeclaringModule,
-                        targetType: entry.TargetType);
+                        targetType: entry.TargetType,
+                        sourcePosition: entry.SourcePosition);
                 }
             }
 
             foreach (var kvp in source.AllIndexerEntries)
             {
-                if (target.IsSealed(kvp.Key)) continue;
                 foreach (var entry in kvp.Value)
                 {
                     if (!entry.IsEffectivelyPublic) continue;
@@ -235,13 +257,13 @@ namespace RaLanguage.Interpreter.Visitors.Imports
                         isBlockPublic: entry.IsBlockPublic,
                         isLocal: false,
                         declaringModule: entry.DeclaringModule,
-                        targetType: entry.TargetType));
+                        targetType: entry.TargetType,
+                        sourcePosition: entry.SourcePosition));
                 }
             }
 
             foreach (var kvp in source.AllEventEntries)
             {
-                if (target.IsSealed(kvp.Key)) continue;
                 foreach (var entry in kvp.Value)
                 {
                     if (!entry.IsEffectivelyPublic) continue;
@@ -252,13 +274,13 @@ namespace RaLanguage.Interpreter.Visitors.Imports
                         isLocal: false,
                         declaringModule: entry.DeclaringModule,
                         out _,
-                        targetType: entry.TargetType);
+                        targetType: entry.TargetType,
+                        sourcePosition: entry.SourcePosition);
                 }
             }
 
             foreach (var kvp in source.AllFieldEntries)
             {
-                if (target.IsSealed(kvp.Key)) continue;
                 foreach (var entry in kvp.Value)
                 {
                     if (!entry.IsEffectivelyPublic) continue;
@@ -269,14 +291,54 @@ namespace RaLanguage.Interpreter.Visitors.Imports
                         isLocal: false,
                         declaringModule: entry.DeclaringModule,
                         out _,
-                        targetType: entry.TargetType);
+                        targetType: entry.TargetType,
+                        sourcePosition: entry.SourcePosition);
                 }
             }
 
-            // Sealed targets propagate — once a target is sealed in
-            // the source module, the importer adopts the seal too.
             foreach (var key in source.SealedTargets)
                 target.MarkSealed(key);
+
+            return null;
+        }
+
+        // Walk source's per-kind entry tables and yield any entries
+        // whose target is sealed in the importer. Each tuple carries
+        // (kind label, target name, member name, source location)
+        // so the caller can render a precise error.
+        private static IEnumerable<(string kind, (string target, string name, string source) detail)>
+            EnumerateSealedConflicts(ExtensionRegistry target, ExtensionRegistry source)
+        {
+            foreach (var kvp in source.AllMethodEntries)
+                if (target.IsSealed(kvp.Key))
+                    foreach (var e in kvp.Value)
+                        if (e.IsEffectivelyPublic)
+                            yield return ("method", (kvp.Key, e.Method.VarNameTok?.Value?.ToString() ?? "<anon>", e.FormatSource()));
+            foreach (var kvp in source.AllPropertyEntries)
+                if (target.IsSealed(kvp.Key))
+                    foreach (var e in kvp.Value)
+                        if (e.IsEffectivelyPublic)
+                            yield return ("property", (kvp.Key, e.Descriptor.Name, e.FormatSource()));
+            foreach (var kvp in source.AllOperatorEntries)
+                if (target.IsSealed(kvp.Key))
+                    foreach (var e in kvp.Value)
+                        if (e.IsEffectivelyPublic)
+                            yield return ("operator", (kvp.Key, e.Operator.OperatorTok.Value?.ToString() ?? "<op>", e.FormatSource()));
+            foreach (var kvp in source.AllIndexerEntries)
+                if (target.IsSealed(kvp.Key))
+                    foreach (var e in kvp.Value)
+                        if (e.IsEffectivelyPublic)
+                            yield return ("indexer", (kvp.Key, e.IsSetter ? "op_index_set" : "op_index", e.FormatSource()));
+            foreach (var kvp in source.AllEventEntries)
+                if (target.IsSealed(kvp.Key))
+                    foreach (var e in kvp.Value)
+                        if (e.IsEffectivelyPublic)
+                            yield return ("event", (kvp.Key, e.Descriptor.Name, e.FormatSource()));
+            foreach (var kvp in source.AllFieldEntries)
+                if (target.IsSealed(kvp.Key))
+                    foreach (var e in kvp.Value)
+                        if (e.IsEffectivelyPublic)
+                            yield return ("field", (kvp.Key, e.Descriptor.Name, e.FormatSource()));
         }
     }
 

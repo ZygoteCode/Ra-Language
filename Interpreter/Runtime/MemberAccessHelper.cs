@@ -98,6 +98,7 @@ namespace RaLanguage.Interpreter.Runtime
                                     CachedAux = icSlot.CachedAux,
                                     CachedResult = icSlot.CachedResult,
                                     FieldIndex = icSlot.FieldIndex,
+                                    ExtRegistry = icSlot.ExtRegistry,
                                 };
                                 icSlot.TargetType = picEntry.TargetType;
                                 icSlot.Shape = picEntry.Shape;
@@ -105,6 +106,7 @@ namespace RaLanguage.Interpreter.Runtime
                                 icSlot.CachedAux = picEntry.CachedAux;
                                 icSlot.CachedResult = picEntry.CachedResult;
                                 icSlot.FieldIndex = picEntry.FieldIndex;
+                                icSlot.ExtRegistry = picEntry.ExtRegistry;
                                 picEntry = saved;
                                 curShape = icSlot.Shape; // refresh after promote
                                 break;
@@ -112,7 +114,15 @@ namespace RaLanguage.Interpreter.Runtime
                         }
                     }
                 }
-                if (ReferenceEquals(icSlot.Shape, curShape))
+                // v2.5: for extension-routed branches the IC is also
+                // keyed on the calling context's ExtensionRegistry —
+                // two contexts that share a Definition but ship
+                // different registries must not cross-pollinate
+                // cached resolutions. Native branches set ExtRegistry
+                // to null at prime time, so the check is a no-op.
+                bool extRegistryMatch = !IsExtensionBranch(icSlot.BranchKind)
+                    || ReferenceEquals(icSlot.ExtRegistry, context.Extensions);
+                if (ReferenceEquals(icSlot.Shape, curShape) && extRegistryMatch)
                 {
                     switch (icSlot.BranchKind)
                     {
@@ -340,10 +350,22 @@ namespace RaLanguage.Interpreter.Runtime
                     CachedAux = icSlot.CachedAux,
                     CachedResult = icSlot.CachedResult,
                     FieldIndex = icSlot.FieldIndex,
+                    ExtRegistry = icSlot.ExtRegistry,
                 };
             }
             // Slow path: full chain dispatch with IC prime on success.
             return ApplyAndPrime(node, context, target, memberName, ref icSlot);
+        }
+
+        private static bool IsExtensionBranch(byte kind)
+            => kind == BR_STRUCT_EXT
+            || kind == BR_CLASS_EXT
+            || kind == BR_PRIMITIVE_EXT
+            || kind == BR_EXT_FIELD;
+
+        private static void SetExtRegistry(ref MemberAccessIcSlot icSlot, Context context)
+        {
+            icSlot.ExtRegistry = context.Extensions;
         }
 
         // Materialises the resolution shape used as the IC key. For
@@ -483,12 +505,21 @@ namespace RaLanguage.Interpreter.Runtime
                 // visits skip the registry walk entirely; the IC
                 // hit path reads ExtFieldSlots[slot] directly.
                 {
-                    var sFieldEntry = context.Extensions.ResolveFieldEntry(instance, memberName);
+                    var sFieldEntry = context.Extensions.ResolveFieldEntry(instance, memberName, out var sFieldAmb);
                     if (sFieldEntry != null)
                     {
+                        if (sFieldAmb != null)
+                        {
+                            icSlot.BranchKind = 0;
+                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                                $"ambiguous extension field '{sFieldEntry.Descriptor.Name}' on '{instance.Definition.StructName}' — declared in two imported modules:\n  - {sFieldEntry.FormatSource()}\n  - {sFieldAmb.FormatSource()}",
+                                context,
+                                code: DiagnosticCode.RuntimeGeneric));
+                        }
                         icSlot.TargetType = target.Type;
                         icSlot.Shape = instance.Definition;
                         icSlot.BranchKind = BR_EXT_FIELD;
+                        icSlot.ExtRegistry = context.Extensions;
                         icSlot.FieldIndex = sFieldEntry.Descriptor.SlotIndex;
                         icSlot.CachedAux = sFieldEntry;
                         return ExtensionDispatch.DispatchFieldGet(instance, sFieldEntry, context, node.PositionStart, node.PositionEnd);
@@ -521,6 +552,7 @@ namespace RaLanguage.Interpreter.Runtime
                     icSlot.TargetType = RuntimeValueType.StructInstance;
                     icSlot.Shape = instance.Definition;
                     icSlot.BranchKind = BR_STRUCT_EXT;
+                    icSlot.ExtRegistry = context.Extensions;
                     return res.Success(new BoundExtensionMethodGroupValue(instance, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
 
@@ -603,12 +635,21 @@ namespace RaLanguage.Interpreter.Runtime
                 }
 
                 {
-                    var cFieldEntry = context.Extensions.ResolveFieldEntry(instance, memberName);
+                    var cFieldEntry = context.Extensions.ResolveFieldEntry(instance, memberName, out var cFieldAmb);
                     if (cFieldEntry != null)
                     {
+                        if (cFieldAmb != null)
+                        {
+                            icSlot.BranchKind = 0;
+                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                                $"ambiguous extension field '{cFieldEntry.Descriptor.Name}' on '{instance.Definition.ClassName}' — declared in two imported modules:\n  - {cFieldEntry.FormatSource()}\n  - {cFieldAmb.FormatSource()}",
+                                context,
+                                code: DiagnosticCode.RuntimeGeneric));
+                        }
                         icSlot.TargetType = RuntimeValueType.ClassInstance;
                         icSlot.Shape = instance.Definition;
                         icSlot.BranchKind = BR_EXT_FIELD;
+                        icSlot.ExtRegistry = context.Extensions;
                         icSlot.FieldIndex = cFieldEntry.Descriptor.SlotIndex;
                         icSlot.CachedAux = cFieldEntry;
                         return ExtensionDispatch.DispatchFieldGet(instance, cFieldEntry, context, node.PositionStart, node.PositionEnd);
@@ -633,6 +674,7 @@ namespace RaLanguage.Interpreter.Runtime
                     icSlot.TargetType = RuntimeValueType.ClassInstance;
                     icSlot.Shape = instance.Definition;
                     icSlot.BranchKind = BR_CLASS_EXT;
+                    icSlot.ExtRegistry = context.Extensions;
                     return res.Success(new BoundExtensionMethodGroupValue(instance, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
 
@@ -848,6 +890,7 @@ namespace RaLanguage.Interpreter.Runtime
                     icSlot.TargetType = target.Type;
                     icSlot.Shape = target.GetType();
                     icSlot.BranchKind = BR_PRIMITIVE_EXT;
+                    icSlot.ExtRegistry = context.Extensions;
                     return res.Success(new BoundExtensionMethodGroupValue(target, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
             }

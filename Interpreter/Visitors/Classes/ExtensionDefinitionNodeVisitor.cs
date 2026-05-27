@@ -44,6 +44,10 @@ namespace RaLanguage.Interpreter.Visitors.Extensions
             bool blockPublic = node.IsPublic;
             string? declaringModule = context.DisplayName;
             var targetTypeDescriptor = node.TargetType;
+            // Anchor every entry on the surrounding `extend` block
+            // position so cross-module ambiguity diagnostics can point
+            // at the actual source line, not just the file path.
+            RaLanguage.Lexer.Position? extendSrcPos = node.PositionStart;
 
             // Collect indexer method names so the bare method list
             // gets filtered. Indexer-marked methods are excluded from
@@ -61,7 +65,8 @@ namespace RaLanguage.Interpreter.Visitors.Extensions
                     isBlockPublic: blockPublic,
                     isLocal: true,
                     declaringModule: declaringModule,
-                    targetType: targetTypeDescriptor);
+                    targetType: targetTypeDescriptor,
+                    sourcePosition: extendSrcPos);
             }
 
             foreach (var (method, isSetter) in node.Indexers)
@@ -72,7 +77,8 @@ namespace RaLanguage.Interpreter.Visitors.Extensions
                     isBlockPublic: blockPublic,
                     isLocal: true,
                     declaringModule: declaringModule,
-                    targetType: targetTypeDescriptor));
+                    targetType: targetTypeDescriptor,
+                    sourcePosition: extendSrcPos));
             }
 
             foreach (var prop in node.Properties)
@@ -98,7 +104,8 @@ namespace RaLanguage.Interpreter.Visitors.Extensions
                         isLocal: true,
                         declaringModule: declaringModule,
                         out var dupErr,
-                        targetType: targetTypeDescriptor))
+                        targetType: targetTypeDescriptor,
+                        sourcePosition: extendSrcPos))
                 {
                     return res.Failure(new RuntimeError(prop.PositionStart, prop.PositionEnd,
                         dupErr ?? "duplicate extension property",
@@ -114,7 +121,8 @@ namespace RaLanguage.Interpreter.Visitors.Extensions
                     isBlockPublic: blockPublic,
                     isLocal: true,
                     declaringModule: declaringModule,
-                    targetType: targetTypeDescriptor);
+                    targetType: targetTypeDescriptor,
+                    sourcePosition: extendSrcPos);
             }
 
             foreach (var ev in node.Events)
@@ -142,7 +150,8 @@ namespace RaLanguage.Interpreter.Visitors.Extensions
                         isLocal: true,
                         declaringModule: declaringModule,
                         out var dupErr,
-                        targetType: targetTypeDescriptor))
+                        targetType: targetTypeDescriptor,
+                        sourcePosition: extendSrcPos))
                 {
                     return res.Failure(new RuntimeError(ev.PositionStart, ev.PositionEnd,
                         dupErr ?? "duplicate extension event",
@@ -182,7 +191,8 @@ namespace RaLanguage.Interpreter.Visitors.Extensions
                         isLocal: true,
                         declaringModule: declaringModule,
                         out var dupErr,
-                        targetType: fieldDecl.IsStaticField ? null : targetTypeDescriptor))
+                        targetType: fieldDecl.IsStaticField ? null : targetTypeDescriptor,
+                        sourcePosition: extendSrcPos))
                 {
                     return res.Failure(new RuntimeError(field.PositionStart, field.PositionEnd,
                         dupErr ?? "duplicate extension field",

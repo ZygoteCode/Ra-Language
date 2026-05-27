@@ -27,11 +27,22 @@ namespace RaLanguage.Interpreter.Runtime
             Position posEnd,
             out RuntimeResult result)
         {
-            var entry = context.Extensions.ResolvePropertyEntry(target, memberName);
+            var entry = context.Extensions.ResolvePropertyEntry(target, memberName, out var ambiguous);
             if (entry == null)
             {
                 result = default!;
                 return false;
+            }
+
+            if (ambiguous != null)
+            {
+                var resAmb = new RuntimeResult();
+                result = resAmb.Failure(new RuntimeError(posStart, posEnd,
+                    BuildAmbiguityMessage("property", entry.Descriptor.Name, entry.FormatSource(), ambiguous.FormatSource()),
+                    context,
+                    code: Errors.DiagnosticCode.RuntimeGeneric,
+                    help: "shadow the conflict with a local 'extend' declaration, or refer to the member through a specific module alias"));
+                return true;
             }
 
             // Local extensions are treated as "inside" so per-accessor
@@ -41,6 +52,11 @@ namespace RaLanguage.Interpreter.Runtime
             bool isInside = entry.IsLocal;
             result = PropertyAccessOps.Get(target, entry.Descriptor, context, posStart, posEnd, isInside);
             return true;
+        }
+
+        private static string BuildAmbiguityMessage(string kind, string memberName, string sourceA, string sourceB)
+        {
+            return $"ambiguous extension {kind} '{memberName}' — declared in two imported modules:\n  - {sourceA}\n  - {sourceB}";
         }
 
         // Attempts a write on an extension property. Mirrors
@@ -54,9 +70,18 @@ namespace RaLanguage.Interpreter.Runtime
             Position posStart,
             Position posEnd)
         {
-            var entry = context.Extensions.ResolvePropertyEntry(target, memberName);
+            var entry = context.Extensions.ResolvePropertyEntry(target, memberName, out var ambiguous);
             if (entry == null)
                 return (false, default!);
+
+            if (ambiguous != null)
+            {
+                var resAmb = new RuntimeResult();
+                return (true, resAmb.Failure(new RuntimeError(posStart, posEnd,
+                    BuildAmbiguityMessage("property", entry.Descriptor.Name, entry.FormatSource(), ambiguous.FormatSource()),
+                    context,
+                    code: Errors.DiagnosticCode.RuntimeGeneric)));
+            }
 
             bool isInside = entry.IsLocal;
             var r = await PropertyAccessOps.Set(target, entry.Descriptor, value, context, posStart, posEnd, isInside, isInitContext: false);
@@ -75,11 +100,21 @@ namespace RaLanguage.Interpreter.Runtime
             Position posEnd,
             out RuntimeResult result)
         {
-            var entry = context.Extensions.ResolvePropertyEntry(target, memberName);
+            var entry = context.Extensions.ResolvePropertyEntry(target, memberName, out var ambiguous);
             if (entry == null)
             {
                 result = default!;
                 return false;
+            }
+
+            if (ambiguous != null)
+            {
+                var resAmb = new RuntimeResult();
+                result = resAmb.Failure(new RuntimeError(posStart, posEnd,
+                    BuildAmbiguityMessage("property", entry.Descriptor.Name, entry.FormatSource(), ambiguous.FormatSource()),
+                    context,
+                    code: Errors.DiagnosticCode.RuntimeGeneric));
+                return true;
             }
 
             bool isInside = entry.IsLocal;
@@ -107,11 +142,20 @@ namespace RaLanguage.Interpreter.Runtime
             Position posEnd,
             out RuntimeResult result)
         {
-            var entry = context.Extensions.ResolveFieldEntry(target, memberName);
+            var entry = context.Extensions.ResolveFieldEntry(target, memberName, out var ambiguous);
             if (entry == null)
             {
                 result = default!;
                 return false;
+            }
+            if (ambiguous != null)
+            {
+                var resAmb = new RuntimeResult();
+                result = resAmb.Failure(new RuntimeError(posStart, posEnd,
+                    BuildAmbiguityMessage("field", entry.Descriptor.Name, entry.FormatSource(), ambiguous.FormatSource()),
+                    context,
+                    code: Errors.DiagnosticCode.RuntimeGeneric));
+                return true;
             }
             result = DispatchFieldGet(target, entry, context, posStart, posEnd);
             return true;
@@ -213,11 +257,20 @@ namespace RaLanguage.Interpreter.Runtime
             Position posEnd,
             out RuntimeResult result)
         {
-            var entry = context.Extensions.ResolveFieldEntry(target, memberName);
+            var entry = context.Extensions.ResolveFieldEntry(target, memberName, out var ambiguous);
             if (entry == null)
             {
                 result = default!;
                 return false;
+            }
+            if (ambiguous != null)
+            {
+                var resAmb = new RuntimeResult();
+                result = resAmb.Failure(new RuntimeError(posStart, posEnd,
+                    BuildAmbiguityMessage("field", entry.Descriptor.Name, entry.FormatSource(), ambiguous.FormatSource()),
+                    context,
+                    code: Errors.DiagnosticCode.RuntimeGeneric));
+                return true;
             }
 
             var desc = entry.Descriptor;
@@ -280,11 +333,20 @@ namespace RaLanguage.Interpreter.Runtime
             Position posEnd,
             out RuntimeResult result)
         {
-            var entry = context.Extensions.ResolveEventEntry(target, memberName);
+            var entry = context.Extensions.ResolveEventEntry(target, memberName, out var ambiguous);
             if (entry == null)
             {
                 result = default!;
                 return false;
+            }
+            if (ambiguous != null)
+            {
+                var resAmb = new RuntimeResult();
+                result = resAmb.Failure(new RuntimeError(posStart, posEnd,
+                    BuildAmbiguityMessage("event", entry.Descriptor.Name, entry.FormatSource(), ambiguous.FormatSource()),
+                    context,
+                    code: Errors.DiagnosticCode.RuntimeGeneric));
+                return true;
             }
 
             // Visibility: imported events with non-public subscribe

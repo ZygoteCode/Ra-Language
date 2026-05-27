@@ -1,5 +1,6 @@
 using System.Threading.Tasks;
 using RaLanguage.Errors;
+using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime.Async;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Lexer.Tokens;
@@ -262,7 +263,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
         {
             if (Context?.Extensions != null)
             {
-                var entry = Context.Extensions.ResolveIndexerEntry(this, isAssignment: false);
+                var entry = Context.Extensions.ResolveIndexerEntry(this, isAssignment: false, out var amb);
+                if (entry != null && amb != null)
+                {
+                    return (null, new RuntimeError(PositionStart, PositionEnd,
+                        $"ambiguous extension indexer (get) on '{Definition.ClassName}' — declared in two imported modules:\n  - {entry.FormatSource()}\n  - {amb.FormatSource()}",
+                        Context));
+                }
                 if (entry != null)
                 {
                     var bound = new Classes.BoundExtensionMethodGroupValue(
@@ -282,7 +289,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
         {
             if (Context?.Extensions != null)
             {
-                var entry = Context.Extensions.ResolveIndexerEntry(this, isAssignment: true);
+                var entry = Context.Extensions.ResolveIndexerEntry(this, isAssignment: true, out var amb);
+                if (entry != null && amb != null)
+                {
+                    return (null, new RuntimeError(PositionStart, PositionEnd,
+                        $"ambiguous extension indexer (set) on '{Definition.ClassName}' — declared in two imported modules:\n  - {entry.FormatSource()}\n  - {amb.FormatSource()}",
+                        Context));
+                }
                 if (entry != null)
                 {
                     var bound = new Classes.BoundExtensionMethodGroupValue(

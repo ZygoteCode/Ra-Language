@@ -1361,7 +1361,13 @@ namespace RaLanguage.Interpreter.Values
                 // `operator OP(rhs: T)` declared in an `extend` block.
                 if (op == null && Context?.Extensions != null)
                 {
-                    var ext = Context.Extensions.ResolveOperatorEntry(this, operatorType, parameterTypeName);
+                    var ext = Context.Extensions.ResolveOperatorEntry(this, operatorType, parameterTypeName, out var ambOp);
+                    if (ext != null && ambOp != null)
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd,
+                            $"ambiguous extension operator '{ext.Operator.OperatorTok.Value}' for '{type.ClassName}' and rhs '{parameterTypeName}' — declared in two imported modules:\n  - {ext.FormatSource()}\n  - {ambOp.FormatSource()}",
+                            Context));
+                    }
                     if (ext != null) op = ext.Operator;
                 }
                 if (op != null)
@@ -1426,7 +1432,13 @@ namespace RaLanguage.Interpreter.Values
                 var op = type.ResolveOperator(operatorType, parameterTypeName);
                 if (op == null && Context?.Extensions != null)
                 {
-                    var ext = Context.Extensions.ResolveOperatorEntry(this, operatorType, parameterTypeName);
+                    var ext = Context.Extensions.ResolveOperatorEntry(this, operatorType, parameterTypeName, out var ambOp);
+                    if (ext != null && ambOp != null)
+                    {
+                        return (null, new RuntimeError(PositionStart, PositionEnd,
+                            $"ambiguous extension operator '{ext.Operator.OperatorTok.Value}' for '{type.StructName}' and rhs '{parameterTypeName}' — declared in two imported modules:\n  - {ext.FormatSource()}\n  - {ambOp.FormatSource()}",
+                            Context));
+                    }
                     if (ext != null) op = ext.Operator;
                 }
                 if (op != null)
