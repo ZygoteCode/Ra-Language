@@ -439,6 +439,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Add: case Opcode.Sub: case Opcode.Mul:
                 case Opcode.Div: case Opcode.Mod: case Opcode.Pow:
                 case Opcode.Shl: case Opcode.Shr:
+                case Opcode.Ushr: case Opcode.Rol: case Opcode.Ror:
                 case Opcode.BAnd: case Opcode.BOr: case Opcode.BXor:
                 case Opcode.AddNN: case Opcode.SubNN: case Opcode.MulNN:
                 case Opcode.Neg: case Opcode.Not: case Opcode.BNot:
@@ -484,6 +485,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 // M68 extended II/FF writes A.
                 case Opcode.DivII: case Opcode.ModII:
                 case Opcode.ShlII: case Opcode.ShrII:
+                case Opcode.UshrII: case Opcode.RolII: case Opcode.RorII:
                 case Opcode.BAndII: case Opcode.BOrII: case Opcode.BXorII:
                 case Opcode.NegI: case Opcode.NegF:
                 // M80 typed Pow writes A.
@@ -538,6 +540,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Add: case Opcode.Sub: case Opcode.Mul:
                 case Opcode.Div: case Opcode.Mod: case Opcode.Pow:
                 case Opcode.Shl: case Opcode.Shr:
+                case Opcode.Ushr: case Opcode.Rol: case Opcode.Ror:
                 case Opcode.BAnd: case Opcode.BOr: case Opcode.BXor:
                 case Opcode.AddNN: case Opcode.SubNN: case Opcode.MulNN:
                 case Opcode.Eq: case Opcode.Ne:
@@ -562,6 +565,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 // M68: extended II 3-address ops.
                 case Opcode.DivII: case Opcode.ModII:
                 case Opcode.ShlII: case Opcode.ShrII:
+                case Opcode.UshrII: case Opcode.RolII: case Opcode.RorII:
                 case Opcode.BAndII: case Opcode.BOrII: case Opcode.BXorII:
                 // M80: typed Pow.
                 case Opcode.PowII: case Opcode.PowFF:

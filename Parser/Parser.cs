@@ -62,6 +62,10 @@ namespace RaLanguage.Parser
             TokenType.BITWISE_OR_EQ,
             TokenType.BITWISE_LEFT_SHIFT_EQ,
             TokenType.BITWISE_RIGHT_SHIFT_EQ,
+            TokenType.BITWISE_LOGICAL_LEFT_SHIFT_EQ,
+            TokenType.BITWISE_LOGICAL_RIGHT_SHIFT_EQ,
+            TokenType.BITWISE_ROTATE_LEFT_EQ,
+            TokenType.BITWISE_ROTATE_RIGHT_EQ,
             TokenType.POW_EQ,
             TokenType.AND_EQ,
             TokenType.OR_EQ,
@@ -172,6 +176,10 @@ namespace RaLanguage.Parser
                 case TokenType.BITWISE_OR:
                 case TokenType.BITWISE_LEFT_SHIFT:
                 case TokenType.BITWISE_RIGHT_SHIFT:
+                case TokenType.BITWISE_LOGICAL_LEFT_SHIFT:
+                case TokenType.BITWISE_LOGICAL_RIGHT_SHIFT:
+                case TokenType.BITWISE_ROTATE_LEFT:
+                case TokenType.BITWISE_ROTATE_RIGHT:
                     return true;
                 case TokenType.KEYWORD:
                     // Allow specific postfix-friendly keywords (operators / scope-end).
@@ -223,7 +231,11 @@ namespace RaLanguage.Parser
                 TokenType.BITWISE_AND or
                 TokenType.BITWISE_OR or
                 TokenType.BITWISE_LEFT_SHIFT or
-                TokenType.BITWISE_RIGHT_SHIFT => true,
+                TokenType.BITWISE_RIGHT_SHIFT or
+                TokenType.BITWISE_LOGICAL_LEFT_SHIFT or
+                TokenType.BITWISE_LOGICAL_RIGHT_SHIFT or
+                TokenType.BITWISE_ROTATE_LEFT or
+                TokenType.BITWISE_ROTATE_RIGHT => true,
                 _ => false
             };
         }
@@ -263,6 +275,10 @@ namespace RaLanguage.Parser
         {
             (TokenType.BITWISE_LEFT_SHIFT, null),
             (TokenType.BITWISE_RIGHT_SHIFT, null),
+            (TokenType.BITWISE_LOGICAL_LEFT_SHIFT, null),
+            (TokenType.BITWISE_LOGICAL_RIGHT_SHIFT, null),
+            (TokenType.BITWISE_ROTATE_LEFT, null),
+            (TokenType.BITWISE_ROTATE_RIGHT, null),
         };
         private static readonly (TokenType, Keyword?)[] s_opsArith = new (TokenType, Keyword?)[]
         {

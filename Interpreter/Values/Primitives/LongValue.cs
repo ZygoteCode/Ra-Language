@@ -431,6 +431,46 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.BitwiseOredBy(other);
         }
 
+        public sealed override ValueResult BitwiseXoredBy(RuntimeValue other)
+        {
+            if (other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Integer
+                || other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Double
+                || other.Type == RuntimeValueType.UnsignedInteger || other.Type == RuntimeValueType.UnsignedLong
+                || other.Type == RuntimeValueType.Short || other.Type == RuntimeValueType.UnsignedShort
+                || other.Type == RuntimeValueType.Int128 || other.Type == RuntimeValueType.UnsignedInt128
+                || other.Type == RuntimeValueType.Decimal || other.Type == RuntimeValueType.Byte)
+            {
+                var o = Promote(other);
+                return (new LongValue(Value ^ o.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            return base.BitwiseXoredBy(other);
+        }
+
+        public sealed override ValueResult BitwiseUnsignedRightShiftedBy(RuntimeValue other)
+        {
+            var err = ShiftCount.TryGet(other, width: 64, PositionStart, PositionEnd, Context, out int n);
+            if (err != null) return (null, err);
+            long result = (long)((ulong)Value >> n);
+            return (new LongValue(result).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+        }
+
+        public sealed override ValueResult BitwiseRotateLeftedBy(RuntimeValue other)
+        {
+            var err = ShiftCount.TryGet(other, width: 64, PositionStart, PositionEnd, Context, out int n);
+            if (err != null) return (null, err);
+            ulong rotated = System.Numerics.BitOperations.RotateLeft((ulong)Value, n);
+            return (new LongValue(unchecked((long)rotated)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+        }
+
+        public sealed override ValueResult BitwiseRotateRightedBy(RuntimeValue other)
+        {
+            var err = ShiftCount.TryGet(other, width: 64, PositionStart, PositionEnd, Context, out int n);
+            if (err != null) return (null, err);
+            ulong rotated = System.Numerics.BitOperations.RotateRight((ulong)Value, n);
+            return (new LongValue(unchecked((long)rotated)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+        }
+
         public sealed override ValueResult Notted()
         {
             return (new LongValue(Value == 0 ? 1L : 0L).SetContext(Context).SetPos(PositionStart, PositionEnd), null);

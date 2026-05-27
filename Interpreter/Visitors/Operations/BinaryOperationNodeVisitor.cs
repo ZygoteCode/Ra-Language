@@ -93,6 +93,13 @@ namespace RaLanguage.Interpreter.Visitors.Operations
                 case TokenType.KEYWORD when ((Keyword)node.OpTok.Value) == Keyword.Or: (result, error) = left.OredBy(right); break;
                 case TokenType.BITWISE_LEFT_SHIFT: (result, error) = left.BitwiseLeftShiftedBy(right); break;
                 case TokenType.BITWISE_RIGHT_SHIFT: (result, error) = left.BitwiseRightShiftedBy(right); break;
+                // `<<<` — logical left shift. Identical bit pattern to `<<`
+                // for fixed-width and arbitrary-precision integers alike; the
+                // distinct token preserves user intent for diagnostics.
+                case TokenType.BITWISE_LOGICAL_LEFT_SHIFT: (result, error) = left.BitwiseLeftShiftedBy(right); break;
+                case TokenType.BITWISE_LOGICAL_RIGHT_SHIFT: (result, error) = left.BitwiseUnsignedRightShiftedBy(right); break;
+                case TokenType.BITWISE_ROTATE_LEFT: (result, error) = left.BitwiseRotateLeftedBy(right); break;
+                case TokenType.BITWISE_ROTATE_RIGHT: (result, error) = left.BitwiseRotateRightedBy(right); break;
                 case TokenType.MODULO: (result, error) = left.ModuledBy(right); break;
                 case TokenType.BITWISE_AND: (result, error) = left.BitwiseAndedBy(right); break;
                 case TokenType.BITWISE_OR: (result, error) = left.BitwiseOredBy(right); break;
@@ -157,6 +164,29 @@ namespace RaLanguage.Interpreter.Visitors.Operations
                     case TokenType.BITWISE_OR: return (IntegerValue.Of(l | r), null);
                     case TokenType.BITWISE_LEFT_SHIFT: return (IntegerValue.Of(l << r), null);
                     case TokenType.BITWISE_RIGHT_SHIFT: return (IntegerValue.Of(l >> r), null);
+                    // Extended shift family. The IntegerValue fast path
+                    // matches the boxed override exactly: count is masked
+                    // to [0, 31] via `r & 31` (C# `<<` / `>>` on int
+                    // already does this); unsigned right shift uses the
+                    // (uint) cast to opt out of sign extension; rotates
+                    // delegate to `BitOperations` which masks the count
+                    // modulo width for us. Negative counts on this fast
+                    // path would technically work due to C# masking but
+                    // are routed to the boxed virtual for the uniform
+                    // "negative count" diagnostic — falling through to
+                    // the slow path is the simplest way to preserve that.
+                    case TokenType.BITWISE_LOGICAL_LEFT_SHIFT:
+                        if (r < 0) return null;
+                        return (IntegerValue.Of(l << r), null);
+                    case TokenType.BITWISE_LOGICAL_RIGHT_SHIFT:
+                        if (r < 0) return null;
+                        return (IntegerValue.Of(unchecked((int)((uint)l >> r))), null);
+                    case TokenType.BITWISE_ROTATE_LEFT:
+                        if (r < 0) return null;
+                        return (IntegerValue.Of(unchecked((int)System.Numerics.BitOperations.RotateLeft((uint)l, r))), null);
+                    case TokenType.BITWISE_ROTATE_RIGHT:
+                        if (r < 0) return null;
+                        return (IntegerValue.Of(unchecked((int)System.Numerics.BitOperations.RotateRight((uint)l, r))), null);
                 }
                 return null;
             }

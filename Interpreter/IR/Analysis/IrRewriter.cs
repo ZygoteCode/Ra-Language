@@ -352,6 +352,9 @@ namespace RaLanguage.Interpreter.IR.Analysis
                         Opcode.Mod   => Opcode.ModII,
                         Opcode.Shl   => Opcode.ShlII,
                         Opcode.Shr   => Opcode.ShrII,
+                        Opcode.Ushr  => Opcode.UshrII,
+                        Opcode.Rol   => Opcode.RolII,
+                        Opcode.Ror   => Opcode.RorII,
                         Opcode.BAnd  => Opcode.BAndII,
                         Opcode.BOr   => Opcode.BOrII,
                         Opcode.BXor  => Opcode.BXorII,
@@ -408,6 +411,9 @@ namespace RaLanguage.Interpreter.IR.Analysis
                         Opcode.ModII      => Opcode.ModII,
                         Opcode.ShlII      => Opcode.ShlII,
                         Opcode.ShrII      => Opcode.ShrII,
+                        Opcode.UshrII     => Opcode.UshrII,
+                        Opcode.RolII      => Opcode.RolII,
+                        Opcode.RorII      => Opcode.RorII,
                         Opcode.BAndII     => Opcode.BAndII,
                         Opcode.BOrII      => Opcode.BOrII,
                         Opcode.BXorII     => Opcode.BXorII,
@@ -837,6 +843,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
             // M68 extended II/FF long-like producers.
             || op == Opcode.DivII || op == Opcode.ModII
             || op == Opcode.ShlII || op == Opcode.ShrII
+            || op == Opcode.UshrII || op == Opcode.RolII || op == Opcode.RorII
             || op == Opcode.BAndII || op == Opcode.BOrII || op == Opcode.BXorII
             || op == Opcode.NegI || op == Opcode.NegF
             // M80 — typed Pow.
@@ -872,6 +879,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.AddII: case Opcode.SubII: case Opcode.MulII:
                 case Opcode.DivII: case Opcode.ModII:
                 case Opcode.ShlII: case Opcode.ShrII:
+                case Opcode.UshrII: case Opcode.RolII: case Opcode.RorII:
                 case Opcode.BAndII: case Opcode.BOrII: case Opcode.BXorII:
                 case Opcode.NegI:
                 case Opcode.PowII:
@@ -900,6 +908,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.AddII: case Opcode.SubII: case Opcode.MulII:
                 case Opcode.DivII: case Opcode.ModII:
                 case Opcode.ShlII: case Opcode.ShrII:
+                case Opcode.UshrII: case Opcode.RolII: case Opcode.RorII:
                 case Opcode.BAndII: case Opcode.BOrII: case Opcode.BXorII:
                 case Opcode.NegI:
                 case Opcode.PowII:
@@ -938,6 +947,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.LoadIntS:
                 case Opcode.Add: case Opcode.Sub: case Opcode.Mul:
                 case Opcode.Shl: case Opcode.Shr:
+                case Opcode.Ushr: case Opcode.Rol: case Opcode.Ror:
                 case Opcode.BAnd: case Opcode.BOr: case Opcode.BXor:
                 case Opcode.AddNN: case Opcode.SubNN: case Opcode.MulNN:
                 case Opcode.Neg: case Opcode.Not: case Opcode.BNot:
@@ -1042,6 +1052,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Add: case Opcode.Sub: case Opcode.Mul:
                 case Opcode.Div: case Opcode.Mod: case Opcode.Pow:
                 case Opcode.Shl: case Opcode.Shr:
+                case Opcode.Ushr: case Opcode.Rol: case Opcode.Ror:
                 case Opcode.BAnd: case Opcode.BOr: case Opcode.BXor:
                 case Opcode.AddNN: case Opcode.SubNN: case Opcode.MulNN:
                 case Opcode.Neg: case Opcode.Not: case Opcode.BNot:
@@ -1083,6 +1094,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.AddII: case Opcode.SubII: case Opcode.MulII:
                 case Opcode.DivII: case Opcode.ModII:
                 case Opcode.ShlII: case Opcode.ShrII:
+                case Opcode.UshrII: case Opcode.RolII: case Opcode.RorII:
                 case Opcode.BAndII: case Opcode.BOrII: case Opcode.BXorII:
                 case Opcode.LtII:  case Opcode.LeII:
                 case Opcode.GtII:  case Opcode.GeII:

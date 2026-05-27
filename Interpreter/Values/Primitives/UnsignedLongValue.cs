@@ -471,6 +471,40 @@ namespace RaLanguage.Interpreter.Values.Primitives
             }
         }
 
+        public sealed override ValueResult BitwiseXoredBy(RuntimeValue other)
+        {
+            try
+            {
+                ulong rhs = ToUlongChecked(other);
+                return (new UnsignedLongValue(Value ^ rhs).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+            catch
+            {
+                return (null, new RuntimeError(other.PositionStart, other.PositionEnd, "Bitwise operations require non-negative integer-like values", Context));
+            }
+        }
+
+        public sealed override ValueResult BitwiseUnsignedRightShiftedBy(RuntimeValue other)
+        {
+            var err = ShiftCount.TryGet(other, width: 64, PositionStart, PositionEnd, Context, out int n);
+            if (err != null) return (null, err);
+            return (new UnsignedLongValue(Value >> n).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+        }
+
+        public sealed override ValueResult BitwiseRotateLeftedBy(RuntimeValue other)
+        {
+            var err = ShiftCount.TryGet(other, width: 64, PositionStart, PositionEnd, Context, out int n);
+            if (err != null) return (null, err);
+            return (new UnsignedLongValue(System.Numerics.BitOperations.RotateLeft(Value, n)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+        }
+
+        public sealed override ValueResult BitwiseRotateRightedBy(RuntimeValue other)
+        {
+            var err = ShiftCount.TryGet(other, width: 64, PositionStart, PositionEnd, Context, out int n);
+            if (err != null) return (null, err);
+            return (new UnsignedLongValue(System.Numerics.BitOperations.RotateRight(Value, n)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+        }
+
         public sealed override ValueResult Notted()
         {
             return (new UnsignedLongValue(Value == 0 ? 1UL : 0UL).SetContext(Context).SetPos(PositionStart, PositionEnd), null);

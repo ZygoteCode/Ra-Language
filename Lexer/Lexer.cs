@@ -450,7 +450,37 @@ namespace RaLanguage.Lexer
                 if (span[_idx] == '=') { Advance(span[_idx]); tokens.Add(new Token(TokenType.LTE, null, posStart, GetPos())); return; }
                 if (span[_idx] == '<')
                 {
+                    // Longest-match scan over the `<<` / `<<<` / `<<<<` family,
+                    // each with an optional trailing `=` for the compound-assign
+                    // variant. Ordering matters: never emit a shorter token when
+                    // a longer one is reachable on the same lookahead window.
                     Advance(span[_idx]);
+                    if (_idx < span.Length && span[_idx] == '<')
+                    {
+                        // We are at `<<<` so far.
+                        Advance(span[_idx]);
+                        if (_idx < span.Length && span[_idx] == '<')
+                        {
+                            // `<<<<` — rotate-left.
+                            Advance(span[_idx]);
+                            if (_idx < span.Length && span[_idx] == '=')
+                            {
+                                Advance(span[_idx]);
+                                tokens.Add(new Token(TokenType.BITWISE_ROTATE_LEFT_EQ, null, posStart, GetPos()));
+                                return;
+                            }
+                            tokens.Add(new Token(TokenType.BITWISE_ROTATE_LEFT, null, posStart, GetPos()));
+                            return;
+                        }
+                        if (_idx < span.Length && span[_idx] == '=')
+                        {
+                            Advance(span[_idx]);
+                            tokens.Add(new Token(TokenType.BITWISE_LOGICAL_LEFT_SHIFT_EQ, null, posStart, GetPos()));
+                            return;
+                        }
+                        tokens.Add(new Token(TokenType.BITWISE_LOGICAL_LEFT_SHIFT, null, posStart, GetPos()));
+                        return;
+                    }
                     if (_idx < span.Length && span[_idx] == '=')
                     {
                         Advance(span[_idx]);
@@ -510,7 +540,35 @@ namespace RaLanguage.Lexer
                 if (span[_idx] == '=') { Advance(span[_idx]); tokens.Add(new Token(TokenType.GTE, null, posStart, GetPos())); return; }
                 if (span[_idx] == '>')
                 {
+                    // Longest-match scan: `>>` → `>>>` → `>>>>`, each with an
+                    // optional trailing `=`. The arrow-count ladder is locked
+                    // — see RA_SHIFTS_DESIGN.md §1 for the canonical semantics.
                     Advance(span[_idx]);
+                    if (_idx < span.Length && span[_idx] == '>')
+                    {
+                        Advance(span[_idx]);
+                        if (_idx < span.Length && span[_idx] == '>')
+                        {
+                            // `>>>>` — rotate-right.
+                            Advance(span[_idx]);
+                            if (_idx < span.Length && span[_idx] == '=')
+                            {
+                                Advance(span[_idx]);
+                                tokens.Add(new Token(TokenType.BITWISE_ROTATE_RIGHT_EQ, null, posStart, GetPos()));
+                                return;
+                            }
+                            tokens.Add(new Token(TokenType.BITWISE_ROTATE_RIGHT, null, posStart, GetPos()));
+                            return;
+                        }
+                        if (_idx < span.Length && span[_idx] == '=')
+                        {
+                            Advance(span[_idx]);
+                            tokens.Add(new Token(TokenType.BITWISE_LOGICAL_RIGHT_SHIFT_EQ, null, posStart, GetPos()));
+                            return;
+                        }
+                        tokens.Add(new Token(TokenType.BITWISE_LOGICAL_RIGHT_SHIFT, null, posStart, GetPos()));
+                        return;
+                    }
                     if (_idx < span.Length && span[_idx] == '=')
                     {
                         Advance(span[_idx]);

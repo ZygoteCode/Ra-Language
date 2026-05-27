@@ -303,6 +303,9 @@ namespace RaLanguage.Interpreter.Vm
                     case Opcode.ModII:
                     case Opcode.ShlII:
                     case Opcode.ShrII:
+                    case Opcode.UshrII:
+                    case Opcode.RolII:
+                    case Opcode.RorII:
                     case Opcode.BAndII:
                     case Opcode.BOrII:
                     case Opcode.BXorII:
@@ -2080,6 +2083,9 @@ namespace RaLanguage.Interpreter.Vm
                     case Opcode.Pow: { var r = Binary(locals, instr, BinOp.Pow); if (r.Error != null) throw new RaUserError(r.Error); break; }
                     case Opcode.Shl: { var r = Binary(locals, instr, BinOp.Shl); if (r.Error != null) throw new RaUserError(r.Error); break; }
                     case Opcode.Shr: { var r = Binary(locals, instr, BinOp.Shr); if (r.Error != null) throw new RaUserError(r.Error); break; }
+                    case Opcode.Ushr: { var r = Binary(locals, instr, BinOp.Ushr); if (r.Error != null) throw new RaUserError(r.Error); break; }
+                    case Opcode.Rol:  { var r = Binary(locals, instr, BinOp.Rol);  if (r.Error != null) throw new RaUserError(r.Error); break; }
+                    case Opcode.Ror:  { var r = Binary(locals, instr, BinOp.Ror);  if (r.Error != null) throw new RaUserError(r.Error); break; }
                     case Opcode.BAnd: { var r = Binary(locals, instr, BinOp.BAnd); if (r.Error != null) throw new RaUserError(r.Error); break; }
                     case Opcode.BOr: { var r = Binary(locals, instr, BinOp.BOr); if (r.Error != null) throw new RaUserError(r.Error); break; }
                     case Opcode.BXor: { var r = Binary(locals, instr, BinOp.BXor); if (r.Error != null) throw new RaUserError(r.Error); break; }
@@ -3009,6 +3015,59 @@ namespace RaLanguage.Interpreter.Vm
                     sa.Ref = null;
                     return;
                 }
+                // Logical right shift on int64. The C# `>>` on `ulong` is the
+                // zero-extending operation; we cast to `ulong`, shift, and
+                // re-tag. Negative or oversized counts deopt to the boxed
+                // `Ushr` path so the per-type semantics on a Number or
+                // fixed-width type stay intact.
+                case Opcode.UshrII:
+                {
+                    byte b = Encoding.B(instr);
+                    byte c = Encoding.C(instr);
+                    if (!TryReadAsLong(f, locals, b, out long lv) || !TryReadAsLong(f, locals, c, out long rv))
+                    { DeoptBinaryExtII(f, locals, a, b, c, Opcode.Ushr); return; }
+                    if (rv < 0 || rv >= 64)
+                    { DeoptBinaryExtII(f, locals, a, b, c, Opcode.Ushr); return; }
+                    ref var sa = ref f.Slots[a];
+                    sa.Tag = ValueSlotTag.Int64;
+                    sa.Bits = unchecked((long)((ulong)lv >> (int)rv));
+                    sa.Ref = null;
+                    return;
+                }
+                // Rotate-left on int64 — width = 64. BitOperations.RotateLeft
+                // already masks the count modulo 64, but we keep the explicit
+                // out-of-range deopt for parity with ShlII/ShrII (a count of
+                // exactly 64 should NOT silently rotate back to the original
+                // value at the typed layer; defer to the boxed `Rol` which
+                // surfaces a uniform diagnostic).
+                case Opcode.RolII:
+                {
+                    byte b = Encoding.B(instr);
+                    byte c = Encoding.C(instr);
+                    if (!TryReadAsLong(f, locals, b, out long lv) || !TryReadAsLong(f, locals, c, out long rv))
+                    { DeoptBinaryExtII(f, locals, a, b, c, Opcode.Rol); return; }
+                    if (rv < 0 || rv >= 64)
+                    { DeoptBinaryExtII(f, locals, a, b, c, Opcode.Rol); return; }
+                    ref var sa = ref f.Slots[a];
+                    sa.Tag = ValueSlotTag.Int64;
+                    sa.Bits = unchecked((long)System.Numerics.BitOperations.RotateLeft((ulong)lv, (int)rv));
+                    sa.Ref = null;
+                    return;
+                }
+                case Opcode.RorII:
+                {
+                    byte b = Encoding.B(instr);
+                    byte c = Encoding.C(instr);
+                    if (!TryReadAsLong(f, locals, b, out long lv) || !TryReadAsLong(f, locals, c, out long rv))
+                    { DeoptBinaryExtII(f, locals, a, b, c, Opcode.Ror); return; }
+                    if (rv < 0 || rv >= 64)
+                    { DeoptBinaryExtII(f, locals, a, b, c, Opcode.Ror); return; }
+                    ref var sa = ref f.Slots[a];
+                    sa.Tag = ValueSlotTag.Int64;
+                    sa.Bits = unchecked((long)System.Numerics.BitOperations.RotateRight((ulong)lv, (int)rv));
+                    sa.Ref = null;
+                    return;
+                }
                 case Opcode.BAndII:
                 {
                     byte b = Encoding.B(instr);
@@ -3148,6 +3207,9 @@ namespace RaLanguage.Interpreter.Vm
                 Opcode.Mod  => BinOp.Mod,
                 Opcode.Shl  => BinOp.Shl,
                 Opcode.Shr  => BinOp.Shr,
+                Opcode.Ushr => BinOp.Ushr,
+                Opcode.Rol  => BinOp.Rol,
+                Opcode.Ror  => BinOp.Ror,
                 Opcode.BAnd => BinOp.BAnd,
                 Opcode.BOr  => BinOp.BOr,
                 Opcode.BXor => BinOp.BXor,
@@ -3301,9 +3363,16 @@ namespace RaLanguage.Interpreter.Vm
                 BinOp.Pow  => left.PowedBy(right),
                 BinOp.Shl  => left.BitwiseLeftShiftedBy(right),
                 BinOp.Shr  => left.BitwiseRightShiftedBy(right),
+                BinOp.Ushr => left.BitwiseUnsignedRightShiftedBy(right),
+                BinOp.Rol  => left.BitwiseRotateLeftedBy(right),
+                BinOp.Ror  => left.BitwiseRotateRightedBy(right),
                 BinOp.BAnd => left.BitwiseAndedBy(right),
                 BinOp.BOr  => left.BitwiseOredBy(right),
-                BinOp.BXor => left.BitwiseAndedBy(right), // XOR not part of M2; placeholder
+                // BXor used to dispatch to BitwiseAndedBy — a long-standing
+                // typo that was reachable only via IR-internal rewrites
+                // (no user-visible token maps to XOR today; `^` is exponent
+                // in Ra). Now routes to the dedicated BitwiseXoredBy virtual.
+                BinOp.BXor => left.BitwiseXoredBy(right),
                 BinOp.Eq   => left.GetComparisonEq(right),
                 BinOp.Ne   => left.GetComparisonNe(right),
                 BinOp.SEq  => left.GetComparisonStrictEq(right),
@@ -3566,6 +3635,7 @@ namespace RaLanguage.Interpreter.Vm
             Mark(Opcode.Add); Mark(Opcode.Sub); Mark(Opcode.Mul);
             Mark(Opcode.Div); Mark(Opcode.Mod); Mark(Opcode.Pow);
             Mark(Opcode.Shl); Mark(Opcode.Shr);
+            Mark(Opcode.Ushr); Mark(Opcode.Rol); Mark(Opcode.Ror);
             Mark(Opcode.BAnd); Mark(Opcode.BOr); Mark(Opcode.BXor);
             Mark(Opcode.AddNN); Mark(Opcode.SubNN); Mark(Opcode.MulNN);
             Mark(Opcode.Neg); Mark(Opcode.Not); Mark(Opcode.BNot);
@@ -3623,6 +3693,9 @@ namespace RaLanguage.Interpreter.Vm
         private enum BinOp
         {
             Add, Sub, Mul, Div, Mod, Pow, Shl, Shr, BAnd, BOr, BXor,
+            // Extended bitwise — `>>>`, `<<<<`, `>>>>`. The logical LEFT shift
+            // (`<<<`) shares Shl: identical bit pattern, distinct token only.
+            Ushr, Rol, Ror,
             Eq, Ne, SEq, SNe, Lt, Le, Gt, Ge,
         }
 

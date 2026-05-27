@@ -1126,24 +1126,78 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public sealed override ValueResult BitwiseLeftShiftedBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Number)
-            {
-                NumberValue n = (NumberValue)other;
-                return (new NumberValue(BigNumber.LeftShift(Value, n.Value)).SetContext(Context), null);
-            }
-
-            return base.AddedTo(other);
+            // Accept any numeric count, not just NumberValue. width=0 selects
+            // the arbitrary-precision path: count is taken as-is (capped at
+            // Int32.MaxValue inside BigNumber.LeftShift).
+            var err = ShiftCount.TryGet(other, width: 0, PositionStart, PositionEnd, Context, out int n);
+            if (err != null) return (null, err);
+            return (new NumberValue(BigNumber.LeftShift(Value,
+                new BigNumber((System.Numerics.BigInteger)n, System.Numerics.BigInteger.Zero))).SetContext(Context), null);
         }
 
         public sealed override ValueResult BitwiseRightShiftedBy(RuntimeValue other)
         {
+            var err = ShiftCount.TryGet(other, width: 0, PositionStart, PositionEnd, Context, out int n);
+            if (err != null) return (null, err);
+            return (new NumberValue(BigNumber.RightShift(Value,
+                new BigNumber((System.Numerics.BigInteger)n, System.Numerics.BigInteger.Zero))).SetContext(Context), null);
+        }
+
+        public sealed override ValueResult BitwiseUnsignedRightShiftedBy(RuntimeValue other)
+        {
+            // Logical right shift on an arbitrary-precision integer is only
+            // defined for non-negative operands — there is no fixed width to
+            // "zero-fill" into, so a negative magnitude has no canonical
+            // unsigned bit pattern. We surface a precise diagnostic so callers
+            // know to use a fixed-width type (e.g. `long`, `int`) instead.
+            var err = ShiftCount.TryGet(other, width: 0, PositionStart, PositionEnd, Context, out int n);
+            if (err != null) return (null, err);
+            var bi = Value.ToBigInteger();
+            if (bi.Sign < 0)
+            {
+                return (null, new RuntimeError(PositionStart, PositionEnd,
+                    "logical right shift (`>>>`) is undefined on a negative arbitrary-precision 'number'",
+                    Context,
+                    code: DiagnosticCode.RuntimeGeneric,
+                    primaryLabel: "operand has no canonical unsigned bit pattern",
+                    help: "cast to a fixed-width integer (`long`, `int`, `int128`, …) before applying `>>>`"));
+            }
+            // For non-negative values, logical and arithmetic right shifts
+            // agree. Delegate to BigNumber.RightShift so the cap-at-Int32.MaxValue
+            // policy stays centralised.
+            return (new NumberValue(BigNumber.RightShift(Value,
+                new BigNumber((System.Numerics.BigInteger)n, System.Numerics.BigInteger.Zero))).SetContext(Context), null);
+        }
+
+        public sealed override ValueResult BitwiseRotateLeftedBy(RuntimeValue other)
+        {
+            return (null, new RuntimeError(PositionStart, PositionEnd,
+                "rotate-left (`<<<<`) is undefined on arbitrary-precision 'number'",
+                Context,
+                code: DiagnosticCode.RuntimeGeneric,
+                primaryLabel: "no fixed bit-width to rotate within",
+                help: "cast the value to a fixed-width integer (`long`, `int`, `int128`, `byte`, …) before applying `<<<<`"));
+        }
+
+        public sealed override ValueResult BitwiseRotateRightedBy(RuntimeValue other)
+        {
+            return (null, new RuntimeError(PositionStart, PositionEnd,
+                "rotate-right (`>>>>`) is undefined on arbitrary-precision 'number'",
+                Context,
+                code: DiagnosticCode.RuntimeGeneric,
+                primaryLabel: "no fixed bit-width to rotate within",
+                help: "cast the value to a fixed-width integer (`long`, `int`, `int128`, `byte`, …) before applying `>>>>`"));
+        }
+
+        public sealed override ValueResult BitwiseXoredBy(RuntimeValue other)
+        {
             if (other.Type == RuntimeValueType.Number)
             {
                 NumberValue n = (NumberValue)other;
-                return (new NumberValue(BigNumber.RightShift(Value, n.Value)).SetContext(Context), null);
+                return (new NumberValue(BigNumber.BitwiseXor(Value, n.Value)).SetContext(Context), null);
             }
 
-            return base.AddedTo(other);
+            return base.BitwiseXoredBy(other);
         }
 
         public sealed override ValueResult ModuledBy(RuntimeValue other)

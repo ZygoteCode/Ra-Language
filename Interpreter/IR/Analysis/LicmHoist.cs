@@ -347,11 +347,17 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 // Bitwise binary ops. Pure, no overflow/throw paths.
                 case Opcode.Shl:
                 case Opcode.Shr:
+                case Opcode.Ushr:
+                case Opcode.Rol:
+                case Opcode.Ror:
                 case Opcode.BAnd:
                 case Opcode.BOr:
                 case Opcode.BXor:
                 case Opcode.ShlII:
                 case Opcode.ShrII:
+                case Opcode.UshrII:
+                case Opcode.RolII:
+                case Opcode.RorII:
                 case Opcode.BAndII:
                 case Opcode.BOrII:
                 case Opcode.BXorII:
@@ -478,8 +484,10 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.AddII: case Opcode.SubII: case Opcode.MulII:
                 case Opcode.AddFF: case Opcode.SubFF: case Opcode.MulFF: case Opcode.DivFF:
                 case Opcode.Shl: case Opcode.Shr:
+                case Opcode.Ushr: case Opcode.Rol: case Opcode.Ror:
                 case Opcode.BAnd: case Opcode.BOr: case Opcode.BXor:
                 case Opcode.ShlII: case Opcode.ShrII:
+                case Opcode.UshrII: case Opcode.RolII: case Opcode.RorII:
                 case Opcode.BAndII: case Opcode.BOrII: case Opcode.BXorII:
                     yield return (Encoding.B(instr), true);
                     yield return (Encoding.C(instr), true);
@@ -661,11 +669,13 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Add: case Opcode.Sub: case Opcode.Mul:
                 case Opcode.Div: case Opcode.Mod: case Opcode.Pow:
                 case Opcode.Shl: case Opcode.Shr:
+                case Opcode.Ushr: case Opcode.Rol: case Opcode.Ror:
                 case Opcode.BAnd: case Opcode.BOr: case Opcode.BXor:
                 case Opcode.AddNN: case Opcode.SubNN: case Opcode.MulNN:
                 case Opcode.AddII: case Opcode.SubII: case Opcode.MulII:
                 case Opcode.DivII: case Opcode.ModII:
                 case Opcode.ShlII: case Opcode.ShrII:
+                case Opcode.UshrII: case Opcode.RolII: case Opcode.RorII:
                 case Opcode.BAndII: case Opcode.BOrII: case Opcode.BXorII:
                 case Opcode.LtII: case Opcode.LeII:
                 case Opcode.GtII: case Opcode.GeII:

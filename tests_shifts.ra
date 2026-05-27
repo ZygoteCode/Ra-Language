@@ -1,0 +1,114 @@
+// Ra Language -- bitwise shift / rotate operator regression suite.
+//
+// Covers the arrow ladder defined in RA_SHIFTS_DESIGN.md:
+//   <<     arithmetic left shift
+//   >>     arithmetic right shift  (sign-extending for signed types)
+//   <<<    logical / unsigned left shift   (identical bit pattern to <<)
+//   >>>    logical / unsigned right shift  (zero-fill)
+//   <<<<   rotate-left  (fixed-width only)
+//   >>>>   rotate-right (fixed-width only)
+//   + every compound-assign form (<<=, >>=, <<<=, >>>=, <<<<=, >>>>=)
+//
+// Type model:
+//   Untyped integer literals (e.g. `1`) are arbitrary-precision `number`.
+//   Typed bindings (`var x: int = ...`) and the `i` / `l` / `s` suffixes
+//   produce fixed-width integers (int32, int64, int16). Fixed-width shifts
+//   mask the count modulo the type's width; arbitrary-precision shifts let
+//   the value grow without bound.
+
+fn assert_eq<T>(label: string, actual: T, expected: T) {
+    if actual == expected {
+        print("OK  " + label)
+    } else {
+        print("FAIL " + label + "  got: " + (actual as string) + ", expected: " + (expected as string))
+    }
+}
+
+print("=== arbitrary-precision shifts on number ===")
+assert_eq("num << 0",   1 << 0,   1)
+assert_eq("num << 1",   1 << 1,   2)
+assert_eq("num << 30",  1 << 30,  1073741824)
+assert_eq("num << 31",  1 << 31,  2147483648)
+assert_eq("num >> 0",   8 >> 0,   8)
+assert_eq("num >> 2",   8 >> 2,   2)
+assert_eq("bigshift",   1 << 200, 1606938044258990275541962092341162602522202993782792835301376)
+
+print("=== fixed-width int (32-bit) shifts ===")
+assert_eq("int << 30", 1i << 30, 1073741824i)
+// `1i << 33` is masked & 31 → equivalent to `1i << 1`.
+assert_eq("int << 33 (masked & 31)", 1i << 33, 2i)
+// Use a typed binding to obtain the int.MinValue bit pattern without
+// relying on negative-literal parsing (which Ra promotes through Number).
+var int_min: int = 0
+int_min = 1i << 31
+assert_eq("int_min == 1i << 31", int_min, (1i << 31))
+
+var minus_one: int = -1
+assert_eq("int >> 31 sign-extends (-1)", minus_one >> 31, minus_one)
+
+print("=== logical right shift (>>>) ===")
+assert_eq("int >>> 31 (-1)", minus_one >>> 31, 1i)
+var minus_two: int = -2
+assert_eq("int >>> 1 (-2) -> int.MaxValue", minus_two >>> 1, 2147483647i)
+assert_eq("int >>> 2 positive", 8i >>> 2, 2i)
+
+print("=== logical left shift (<<<) -- identical to << ===")
+assert_eq("num <<< 1",  1 <<< 1, 2)
+assert_eq("int <<< 30", 1i <<< 30, 1073741824i)
+
+print("=== rotates (<<<<, >>>>) fixed-width only ===")
+assert_eq("int rol 0", 1i <<<< 0, 1i)
+assert_eq("int rol 1", 1i <<<< 1, 2i)
+assert_eq("int rol 31 -> sign-bit", 1i <<<< 31, int_min)
+assert_eq("int rol 32 = identity",  1i <<<< 32, 1i)
+assert_eq("int ror 0", 1i >>>> 0, 1i)
+assert_eq("int ror 1 -> sign-bit",  1i >>>> 1, int_min)
+assert_eq("int ror 31",             1i >>>> 31, 2i)
+assert_eq("int ror 32 = identity",  1i >>>> 32, 1i)
+
+// Rotate composition: rol n + ror n must be identity for any pattern.
+var pattern: int = 305419896
+assert_eq("rol+ror cancels", (pattern <<<< 5) >>>> 5, pattern)
+assert_eq("ror+rol cancels", (pattern >>>> 7) <<<< 7, pattern)
+
+print("=== compound-assign forms ===")
+var x: int = 1
+x <<= 4
+assert_eq("x <<= 4", x, 16i)
+x >>= 2
+assert_eq("x >>= 2", x, 4i)
+
+var y: int = -2
+y >>>= 1
+assert_eq("y >>>= 1", y, 2147483647i)
+
+var rl: int = 1
+rl <<<<= 31
+assert_eq("rl <<<<= 31", rl, int_min)
+
+var rr: int = 1
+rr >>>>= 1
+assert_eq("rr >>>>= 1", rr, int_min)
+
+var ll: int = 1
+ll <<<= 3
+assert_eq("ll <<<= 3", ll, 8i)
+
+print("=== precedence / associativity ===")
+// `1 + 2 << 3` should parse as `(1 + 2) << 3 = 24`
+assert_eq("prec: + below <<", 1 + 2 << 3, 24)
+// Left-associative chain
+assert_eq("left-assoc >>", 16 >> 1 >> 1, 4)
+assert_eq("mixed shift chain", 1 << 3 >> 1, 4)
+assert_eq("mixed shift/ushr",  4i <<< 2 >>> 1, 8i)
+
+print("=== dynamic shift counts ===")
+var n: int = 4
+assert_eq("dynamic count",     1 << n,    16)
+assert_eq("dynamic ror count", 1i <<<< n, 16i)
+
+print("=== rotates rejected on `number` (no fixed width) ===")
+let rot_num_result = try { 1 <<<< 4; "no throw" } catch (e) { "rejected" }
+assert_eq("rol on number rejected", rot_num_result, "rejected")
+
+print("all shift tests passed")
