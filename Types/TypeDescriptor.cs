@@ -83,6 +83,19 @@ namespace RaLanguage.Types
         public List<TypeDescriptor>? FunctionParamTypes { get; }
         public TypeDescriptor? FunctionReturnType { get; }
 
+        // Structural union-type metadata. A union descriptor names a set of
+        // alternatives; a value matches the union iff it matches at least one
+        // member. Construction flattens nested unions, deduplicates members,
+        // and collapses singleton unions to the bare member (via the Union()
+        // factory). Members are stored in first-seen order so diagnostics
+        // remain stable and predictable.
+        //
+        //   IsUnionType: fast tag check the type system fast-paths against.
+        //   UnionMembers: ordered, deduplicated list of alternatives; null on
+        //     non-union descriptors. Never empty when IsUnionType is true.
+        public bool IsUnionType { get; }
+        public List<TypeDescriptor>? UnionMembers { get; }
+
         public TypeDescriptor(string name, List<TypeDescriptor>? genericArgs = null, bool isRefType = false, TypeDescriptor? refElementType = null, bool isMutableRef = false, string? lifetime = null)
         {
             Name = name;
@@ -97,6 +110,8 @@ namespace RaLanguage.Types
             IsFunctionType = false;
             FunctionParamTypes = null;
             FunctionReturnType = null;
+            IsUnionType = false;
+            UnionMembers = null;
         }
 
         private TypeDescriptor(List<TypeDescriptor> paramTypes, TypeDescriptor? returnType)
@@ -113,10 +128,79 @@ namespace RaLanguage.Types
             IsFunctionType = true;
             FunctionParamTypes = paramTypes ?? new List<TypeDescriptor>();
             FunctionReturnType = returnType;
+            IsUnionType = false;
+            UnionMembers = null;
         }
 
         public static TypeDescriptor FunctionType(List<TypeDescriptor> paramTypes, TypeDescriptor? returnType)
             => new TypeDescriptor(paramTypes, returnType);
+
+        // Private union-only constructor. The Union() factory is the only
+        // caller — it performs normalization (flatten, dedup, singleton
+        // collapse) before deciding whether a real union descriptor is
+        // warranted. By the time we get here, members has >= 2 entries and
+        // is already in the desired order.
+        private TypeDescriptor(List<TypeDescriptor> unionMembers)
+        {
+            Name = "union";
+            GenericArgs = new List<TypeDescriptor>();
+            IsTypeParameter = false;
+            TypeParameterName = null;
+            IsRefType = false;
+            RefElementType = null;
+            IsMutableRef = false;
+            Lifetime = null;
+            PrimitiveKind = PrimitiveTypeKind.None;
+            IsFunctionType = false;
+            FunctionParamTypes = null;
+            FunctionReturnType = null;
+            IsUnionType = true;
+            UnionMembers = unionMembers;
+        }
+
+        // Public factory: build a union from N member descriptors.
+        //
+        //   - Null / empty / single-member input is unwrapped to its only
+        //     element (or `any` for the empty case — a union with no
+        //     alternatives is the unconstrained type by construction).
+        //   - Nested unions flatten one level at a time recursively so
+        //     `(A | B) | C` collapses to `A | B | C`.
+        //   - Members are deduplicated by structural Equals; first-seen
+        //     order is preserved so diagnostics print in source order.
+        //   - `any` short-circuits: a union containing `any` *is* `any`,
+        //     because `any` already subsumes every alternative.
+        public static TypeDescriptor Union(IEnumerable<TypeDescriptor> members)
+        {
+            if (members == null) return new TypeDescriptor("any");
+            var flat = new List<TypeDescriptor>();
+            foreach (var m in members)
+            {
+                if (m == null) continue;
+                if (m.IsUnionType && m.UnionMembers != null)
+                {
+                    foreach (var inner in m.UnionMembers) AddUnique(flat, inner);
+                }
+                else
+                {
+                    AddUnique(flat, m);
+                }
+            }
+            if (flat.Count == 0) return new TypeDescriptor("any");
+            for (int i = 0; i < flat.Count; i++)
+            {
+                if (string.Equals(flat[i].Name, "any", StringComparison.Ordinal) && !flat[i].IsTypeParameter)
+                    return new TypeDescriptor("any");
+            }
+            if (flat.Count == 1) return flat[0];
+            return new TypeDescriptor(flat);
+        }
+
+        private static void AddUnique(List<TypeDescriptor> list, TypeDescriptor candidate)
+        {
+            for (int i = 0; i < list.Count; i++)
+                if (list[i].Equals(candidate)) return;
+            list.Add(candidate);
+        }
 
         private TypeDescriptor(string typeParamName, bool isTypeParam)
         {
@@ -129,6 +213,11 @@ namespace RaLanguage.Types
             IsMutableRef = false;
             Lifetime = null;
             PrimitiveKind = PrimitiveTypeKind.None;
+            IsFunctionType = false;
+            FunctionParamTypes = null;
+            FunctionReturnType = null;
+            IsUnionType = false;
+            UnionMembers = null;
         }
 
         private static PrimitiveTypeKind ResolvePrimitive(string? name)
@@ -206,6 +295,14 @@ namespace RaLanguage.Types
         public override string ToString()
         {
             if (IsTypeParameter) return TypeParameterName;
+            if (IsUnionType && UnionMembers != null)
+            {
+                // Render members in their stored (first-seen) order so the
+                // string output matches how the user wrote it. Function-typed
+                // members get parenthesised so `fn() -> int | string` cannot
+                // be misread as `fn() -> int` unioned with `string`.
+                return string.Join(" | ", UnionMembers.Select(m => m.IsFunctionType ? $"({m})" : m.ToString()));
+            }
             if (IsFunctionType)
             {
                 var ps = FunctionParamTypes ?? new List<TypeDescriptor>();
@@ -224,6 +321,28 @@ namespace RaLanguage.Types
             if (IsTypeParameter && other.IsTypeParameter)
                 return string.Equals(TypeParameterName, other.TypeParameterName, StringComparison.Ordinal);
             if (IsTypeParameter || other.IsTypeParameter) return false;
+            // Union equality is set equality on the (already deduplicated)
+            // member list — two unions are equal when each side's members
+            // appear in the other, regardless of declaration order. This is
+            // what makes `int | string` and `string | int` interchangeable
+            // for type checks, generic unification, and exhaustiveness.
+            if (IsUnionType || other.IsUnionType)
+            {
+                if (IsUnionType != other.IsUnionType) return false;
+                var lm = UnionMembers!;
+                var rm = other.UnionMembers!;
+                if (lm.Count != rm.Count) return false;
+                for (int i = 0; i < lm.Count; i++)
+                {
+                    bool found = false;
+                    for (int j = 0; j < rm.Count; j++)
+                    {
+                        if (lm[i].Equals(rm[j])) { found = true; break; }
+                    }
+                    if (!found) return false;
+                }
+                return true;
+            }
             if (IsFunctionType || other.IsFunctionType)
             {
                 if (IsFunctionType != other.IsFunctionType) return false;
@@ -250,6 +369,16 @@ namespace RaLanguage.Types
             unchecked
             {
                 int h = (IsTypeParameter ? TypeParameterName : Name).GetHashCode();
+                if (IsUnionType && UnionMembers != null)
+                {
+                    // Order-independent hash so `int | string` and
+                    // `string | int` hash identically (they Equals identically
+                    // too — see set-equality logic in Equals). XOR is the
+                    // canonical commutative combiner here.
+                    int unionHash = 0;
+                    foreach (var m in UnionMembers) unionHash ^= m?.GetHashCode() ?? 0;
+                    return h ^ unionHash;
+                }
                 if (IsFunctionType)
                 {
                     var ps = FunctionParamTypes;
@@ -268,6 +397,14 @@ namespace RaLanguage.Types
             {
                 if (bindings.TryGetValue(TypeParameterName, out var bound)) return bound;
                 return this;
+            }
+            if (IsUnionType && UnionMembers != null)
+            {
+                // Substitute each member then re-normalize: a substitution
+                // can collapse two distinct members to the same concrete
+                // type (e.g. `T | U` with T=U=int becomes just `int`).
+                var newMembers = UnionMembers.Select(m => m.Substitute(bindings));
+                return Union(newMembers);
             }
             if (IsRefType && RefElementType != null)
             {
@@ -295,6 +432,12 @@ namespace RaLanguage.Types
         private bool ReferencesAny(HashSet<string> set)
         {
             if (IsTypeParameter) return set.Contains(TypeParameterName);
+            if (IsUnionType && UnionMembers != null)
+            {
+                foreach (var m in UnionMembers)
+                    if (m.ReferencesAny(set)) return true;
+                return false;
+            }
             if (RefElementType != null && RefElementType.ReferencesAny(set)) return true;
             if (IsFunctionType)
             {

@@ -138,6 +138,7 @@ namespace RaLanguage.Interpreter
             _visitors[(int)AstNodeType.EventDefinition] = new EventDefinitionNodeVisitor().Visit;
             _visitors[(int)AstNodeType.EventAccessor] = new EventAccessorNodeVisitor().Visit;
             _visitors[(int)AstNodeType.DelegateDefinition] = new RaLanguage.Interpreter.Visitors.Functions.DelegateDefinitionNodeVisitor().Visit;
+            _visitors[(int)AstNodeType.IsType] = new IsTypeNodeVisitor().Visit;
         }
 
         public ValueTask<RuntimeResult> Visit(AstNode node, Context context)

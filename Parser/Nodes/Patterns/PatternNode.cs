@@ -111,4 +111,22 @@ namespace RaLanguage.Parser.Nodes.Patterns
             BindName = bindName;
         }
     }
+
+    // Type-test pattern. `case Type [as binder] -> body`. Matches when the
+    // scrutinee's runtime type is compatible with TestedType under the same
+    // rules as the `is` operator (TypeSystem.IsRuntimeTypeMatch), and
+    // optionally binds the scrutinee to `BinderName` inside the arm with
+    // its newly-narrowed type. This is the canonical way to enumerate the
+    // alternatives of a structural union in a match — its exhaustiveness
+    // coverage is what the static analyzer reasons about.
+    public sealed class TypePatternNode : PatternNode
+    {
+        public Types.TypeDescriptor TestedType { get; }
+        public string? BinderName { get; }
+        public TypePatternNode(Types.TypeDescriptor testedType, string? binderName, Position s, Position e) : base(s, e)
+        {
+            TestedType = testedType;
+            BinderName = binderName;
+        }
+    }
 }

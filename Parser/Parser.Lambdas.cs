@@ -200,7 +200,15 @@ namespace RaLanguage.Parser
                                 Advance();
                             }
 
-                            var parsed = ParseType(res);
+                            // Bar-lambda parameter types use ParseTypeAtom
+                            // rather than the union-aware ParseType: the
+                            // closing `|` of the param list would otherwise
+                            // be eaten by the union folder. Users who need
+                            // a union here parenthesise it — `|x: (int |
+                            // string)| body` — which the LPAREN branch in
+                            // ParseTypeAtom now treats as grouping (not a
+                            // 1-tuple) so the union survives intact.
+                            var parsed = ParseTypeAtom(res);
                             if (parsed == null)
                             {
                                 return res.Failure(ParserDiagnostics.ExpectedTypeAfterColon(_currentToken,

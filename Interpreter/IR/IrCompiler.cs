@@ -1640,6 +1640,7 @@ namespace RaLanguage.Interpreter.IR
                 case AstNodeType.Nameof:
                 case AstNodeType.Dereference:
                 case AstNodeType.Cast:
+                case AstNodeType.IsType:
                 case AstNodeType.Ternary:
                 case AstNodeType.NullCoalescing:
                 case AstNodeType.Range:
@@ -4337,6 +4338,7 @@ namespace RaLanguage.Interpreter.IR
                 case AstNodeType.FormattedInterpolation:
                 case AstNodeType.Yield:
                 case AstNodeType.AnnotationApplication:
+                case AstNodeType.IsType:
                 {
                     if (st.DefineRefs.Count > ushort.MaxValue)
                         throw new IrCompileException("DefineRefs overflow (>65535)");
@@ -6298,6 +6300,11 @@ namespace RaLanguage.Interpreter.IR
                     var cn = (Parser.Nodes.Operations.CastNode)node;
                     return CountVariableAccess(cn.Expression, name);
                 }
+                case AstNodeType.IsType:
+                {
+                    var ist = (Parser.Nodes.Operations.IsTypeNode)node;
+                    return CountVariableAccess(ist.Expression, name);
+                }
                 case AstNodeType.Range:
                 {
                     var rn = (Parser.Nodes.Operations.RangeNode)node;
@@ -6533,6 +6540,11 @@ namespace RaLanguage.Interpreter.IR
                 {
                     var cn = (Parser.Nodes.Operations.CastNode)node;
                     return BodyReadsBinding(cn.Expression, name);
+                }
+                case AstNodeType.IsType:
+                {
+                    var ist = (Parser.Nodes.Operations.IsTypeNode)node;
+                    return BodyReadsBinding(ist.Expression, name);
                 }
                 case AstNodeType.Range:
                 {
