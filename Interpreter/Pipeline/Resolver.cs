@@ -435,10 +435,21 @@ namespace RaLanguage.Interpreter.Pipeline
 
         // Extension methods are FunctionDefinitionNodes; reuse WalkFunction so
         // their FrameId / ParamBindings / capture analysis happens normally.
+        // Operators get a method-frame walk (single arg + self); property
+        // bodies and event payloads route through the regular AST walker
+        // (PropertyAccessOps spins up a fresh Interpreter for each
+        // dispatch, so no FrameId is required for accessor bodies).
         private static void WalkExtension(ExtensionDefinitionNode ext, State s)
         {
             foreach (var m in ext.Methods)
                 WalkFunction(m, s);
+
+            foreach (var op in ext.Operators)
+            {
+                var paramBindings = WalkMethodLikeBody(op.BodyNode, new[] { op.ArgNameTok }, s, out int frameId);
+                op.FrameId = frameId;
+                op.ParamBindings = paramBindings;
+            }
         }
 
         private static void WalkStruct(StructDefinitionNode str, State s)

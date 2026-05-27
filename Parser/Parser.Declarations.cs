@@ -56,6 +56,10 @@ namespace RaLanguage.Parser
             Advance();
 
             var methods = new List<FunctionDefinitionNode>();
+            var properties = new List<RaLanguage.Parser.Nodes.Properties.PropertyDefinitionNode>();
+            var operators = new List<OperatorDefinitionNode>();
+            var events = new List<RaLanguage.Parser.Nodes.Events.EventDefinitionNode>();
+            var fields = new List<ExtensionFieldDeclaration>();
 
             while (_currentToken.Type != TokenType.RBRACKET)
             {
@@ -68,20 +72,146 @@ namespace RaLanguage.Parser
                 if (_currentToken.Type == TokenType.RBRACKET)
                     break;
 
-                bool methodPublic = false;
-                if (_currentToken.Matches(Keyword.Pub))
+                bool memberPublic = false;
+                bool memberStatic = false;
+                bool memberLazy = false;
+                while (true)
                 {
-                    methodPublic = true;
-                    res.RegisterAdvancement();
-                    Advance();
+                    if (_currentToken.Matches(Keyword.Pub))
+                    {
+                        memberPublic = true;
+                        res.RegisterAdvancement();
+                        Advance();
+                        continue;
+                    }
+                    if (_currentToken.Matches(Keyword.Static))
+                    {
+                        memberStatic = true;
+                        res.RegisterAdvancement();
+                        Advance();
+                        continue;
+                    }
+                    if (_currentToken.Matches(Keyword.Lazy))
+                    {
+                        memberLazy = true;
+                        res.RegisterAdvancement();
+                        Advance();
+                        continue;
+                    }
+                    break;
+                }
+
+                // Extension fields: `[pub] [static] [lazy] (var|let|const|final) NAME[: T] [= default]`.
+                // Side-mapped per receiver — see RA_EXTENSIONS_DESIGN.md §10.
+                // The shape of the receiver is unchanged; storage lives in
+                // `ExtensionFieldStorage` keyed by a global slot index that
+                // travels with the (target, generic-spec, fieldName) triple.
+                // `static` flips storage onto the ClassTypeValue / StructType;
+                // `lazy` defers default eval until first read.
+                if (_currentToken.Matches(Keyword.Var) ||
+                    _currentToken.Matches(Keyword.Const) ||
+                    _currentToken.Matches(Keyword.Final) ||
+                    _currentToken.Matches(Keyword.Let))
+                {
+                    var declRes = ParseVariableDeclaration(memberPublic, memberStatic);
+                    if (declRes.Error != null) return declRes;
+
+                    var declNode = (RaLanguage.Parser.Nodes.Variables.VariableDeclarationNode)declRes.Node!;
+                    foreach (var d in declNode.Declarations)
+                    {
+                        var fieldNode = new RaLanguage.Parser.Nodes.Structs.StructFieldDefinitionNode(
+                            memberPublic,
+                            d.Item1,
+                            d.Item3,
+                            d.Item2,
+                            isStatic: memberStatic,
+                            isAbstract: false,
+                            isOverride: false,
+                            declarationType: declNode.DeclarationType
+                        );
+                        fields.Add(new ExtensionFieldDeclaration(fieldNode, memberStatic, memberLazy));
+                    }
+
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                    continue;
+                }
+
+                // Extension property: `[pub] prop NAME[: T] (=>expr | { get/set })`.
+                // Stored / backing-slot properties (auto getters,
+                // observers, init, lazy) are forbidden: the receiver's
+                // shape cannot grow at runtime. Computed get / get+set
+                // are the supported forms.
+                if (_currentToken.Matches(Keyword.Prop))
+                {
+                    var propRes = ParsePropertyDeclaration(
+                        isPublic: memberPublic,
+                        isStatic: false,
+                        isAbstract: false,
+                        isOverride: false,
+                        isLazy: false);
+                    if (propRes.Error != null) return propRes;
+
+                    var propNode = (RaLanguage.Parser.Nodes.Properties.PropertyDefinitionNode)propRes.Node!;
+                    properties.Add(propNode);
+
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                    continue;
+                }
+
+                // Extension operator: `[pub] operator OP(rhs: T): R { ... }`.
+                // Resolution falls through to the ext-registry when
+                // the receiver's native type has no matching op.
+                if (_currentToken.Matches(Keyword.Operator))
+                {
+                    var opRes = ParseOperatorDefinition(isPublic: memberPublic);
+                    if (opRes.Error != null) return opRes;
+                    operators.Add((OperatorDefinitionNode)opRes.Node!);
+
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                    continue;
+                }
+
+                // Extension event: `[pub] event NAME(params)`. Side-
+                // mapped subscribers — extensions cannot grow the
+                // receiver's storage, so subscriber lists live in
+                // a per-registry weak table keyed by the instance.
+                if (_currentToken.Matches(Keyword.Event))
+                {
+                    var evRes = ParseEventDeclaration(
+                        isPublic: memberPublic,
+                        isStatic: false,
+                        isAbstract: false,
+                        isOverride: false,
+                        isCancellable: false);
+                    if (evRes.Error != null) return evRes;
+                    events.Add((RaLanguage.Parser.Nodes.Events.EventDefinitionNode)evRes.Node!);
+
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                    continue;
                 }
 
                 if (!_currentToken.Matches(Keyword.Fn))
                     return res.Failure(ParserDiagnostics.ExpectedKeyword(_currentToken, "fn",
-                        context: "to declare an extension method",
-                        help: "only 'fn' declarations are allowed inside an extension body"));
+                        context: "to declare an extension member",
+                        help: "an extension body accepts 'fn' (method), 'prop' (property), 'operator' (operator overload), or 'event' (event) declarations"));
 
-                var fnRes = ParseFunctionDefinition(isPublic: methodPublic);
+                var fnRes = ParseFunctionDefinition(isPublic: memberPublic);
                 if (fnRes.Error != null) return fnRes;
 
                 var fnNode = (FunctionDefinitionNode)fnRes.Node!;
@@ -107,7 +237,22 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            return res.Success(new ExtensionDefinitionNode(targetType, isPublic, methods));
+            // Indexer entries — surface `op_index` / `op_index_set`
+            // method names as ExtensionIndexerEntry so they route
+            // through `obj[i]` / `obj[i] = v` instead of dot-access.
+            // The methods stay in the method bucket as well so users
+            // can still call them by name when ambiguity arises.
+            var indexers = new List<(FunctionDefinitionNode, bool)>();
+            foreach (var m in methods)
+            {
+                var n = m.VarNameTok?.Value?.ToString();
+                if (string.Equals(n, "op_index", StringComparison.Ordinal))
+                    indexers.Add((m, false));
+                else if (string.Equals(n, "op_index_set", StringComparison.Ordinal))
+                    indexers.Add((m, true));
+            }
+
+            return res.Success(new ExtensionDefinitionNode(targetType, isPublic, methods, properties, operators, events, indexers, fields));
         }
 
 

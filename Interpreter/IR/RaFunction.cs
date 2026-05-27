@@ -113,6 +113,17 @@ namespace RaLanguage.Interpreter.IR
         // alloc and falls through to the uncached `Apply` dispatch
         // (megamorphic).
         public MemberAccessIcEntry[]? Pic;
+        // v2.5: extension dispatch keying. For every ext-branched
+        // resolution (BR_*_EXT / BR_EXT_FIELD) the IC also pins the
+        // calling context's ExtensionRegistry reference. Two contexts
+        // that share the same receiver Definition but distinct
+        // registries (different module Contexts) MUST NOT share IC
+        // resolutions — the cached entry points into one registry's
+        // tables and the slot index lives in the global allocator but
+        // the field's *visibility* in the second registry isn't
+        // guaranteed. ReferenceEquals comparison; null for non-ext
+        // branches so native paths keep their fast-path.
+        public object? ExtRegistry;
     }
 
     // M42: single PIC entry. Mirrors the cacheable fields of
@@ -125,6 +136,7 @@ namespace RaLanguage.Interpreter.IR
         public object? CachedAux;
         public Values.RuntimeValue? CachedResult;
         public int FieldIndex;
+        public object? ExtRegistry;
     }
 
     // M28.2 per-PC inline cache shared with OP_CALL. The pattern

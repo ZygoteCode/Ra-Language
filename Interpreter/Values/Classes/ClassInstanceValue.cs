@@ -1,5 +1,6 @@
 using System.Threading.Tasks;
 using RaLanguage.Errors;
+using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Runtime.Async;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Lexer.Tokens;
@@ -42,6 +43,24 @@ namespace RaLanguage.Interpreter.Values.Primitives
         // subscriptions pay zero overhead. Keyed by event name; values
         // are mutable subscriber lists, not snapshots.
         public Dictionary<string, RaLanguage.Interpreter.Runtime.Events.EventSubscriberList>? EventSubs;
+
+        // Extension-field storage. Lazy-allocated on first write of
+        // any ext-field. Indexed by the global slot returned by
+        // `ExtensionFieldStorage.AllocateSlot`. Null means "this
+        // instance has never been touched by an ext-field" — common
+        // path pays zero allocation. See RA_EXTENSIONS_DESIGN.md §10.
+        public RuntimeValue?[]? ExtFieldSlots;
+        // Initialisation bitset paralleling ExtFieldSlots. Required to
+        // tell "explicitly assigned null" from "never assigned", which
+        // gates the let/final/const single-shot write rules and the
+        // lazy default-value evaluation on first read.
+        public ulong[]? ExtFieldInitBits;
+        // Lazy-initialisation re-entrancy guard. A slot is "lazy
+        // initialising" between the moment its default eval begins
+        // and the moment the result is stored back. Reading the same
+        // field from within its own default expression raises an
+        // explicit error instead of looping forever.
+        public ulong[]? ExtFieldLazyBits;
 
         public override RuntimeValueType Type => RuntimeValueType.ClassInstance;
         public override bool IsCopy => false;
@@ -234,5 +253,62 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public override string ToString()
             => $"{Definition.ClassName}{{{string.Join(", ", Fields.Select(kv => $"{kv.Key}: {kv.Value}"))}}}";
+
+        // Extension indexer dispatch. `obj[idx]` on a class instance
+        // routes through the registered `op_index` extension method
+        // when no native indexer exists. Async setter / getter bodies
+        // collapse via SyncAwait — same pattern used for to_string
+        // dispatch above.
+        public override ValueResult ListAccess(RuntimeValue other)
+        {
+            if (Context?.Extensions != null)
+            {
+                var entry = Context.Extensions.ResolveIndexerEntry(this, isAssignment: false, out var amb);
+                if (entry != null && amb != null)
+                {
+                    return (null, new RuntimeError(PositionStart, PositionEnd,
+                        $"ambiguous extension indexer (get) on '{Definition.ClassName}' — declared in two imported modules:\n  - {entry.FormatSource()}\n  - {amb.FormatSource()}",
+                        Context));
+                }
+                if (entry != null)
+                {
+                    var bound = new Classes.BoundExtensionMethodGroupValue(
+                        this,
+                        new System.Collections.Generic.List<Parser.Nodes.Functions.FunctionDefinitionNode> { entry.Method })
+                        .SetContext(Context)
+                        .SetPos(PositionStart, PositionEnd);
+                    var r = SyncAwait.Get(bound.Execute(new System.Collections.Generic.List<RuntimeValue> { other }));
+                    if (r.Error != null) return (null, r.Error);
+                    return (r.Value, null);
+                }
+            }
+            return (null, IllegalOperation(other));
+        }
+
+        public override ValueResult ListSet(RuntimeValue index, RuntimeValue value)
+        {
+            if (Context?.Extensions != null)
+            {
+                var entry = Context.Extensions.ResolveIndexerEntry(this, isAssignment: true, out var amb);
+                if (entry != null && amb != null)
+                {
+                    return (null, new RuntimeError(PositionStart, PositionEnd,
+                        $"ambiguous extension indexer (set) on '{Definition.ClassName}' — declared in two imported modules:\n  - {entry.FormatSource()}\n  - {amb.FormatSource()}",
+                        Context));
+                }
+                if (entry != null)
+                {
+                    var bound = new Classes.BoundExtensionMethodGroupValue(
+                        this,
+                        new System.Collections.Generic.List<Parser.Nodes.Functions.FunctionDefinitionNode> { entry.Method })
+                        .SetContext(Context)
+                        .SetPos(PositionStart, PositionEnd);
+                    var r = SyncAwait.Get(bound.Execute(new System.Collections.Generic.List<RuntimeValue> { index, value }));
+                    if (r.Error != null) return (null, r.Error);
+                    return (r.Value ?? value, null);
+                }
+            }
+            return (null, IllegalOperation(this));
+        }
     }
 }

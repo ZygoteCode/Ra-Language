@@ -92,6 +92,13 @@ namespace RaLanguage
             // previous run's loaded modules do not over-constrain the
             // next run's LICM. Same lifetime as `MetadataRegistry.Global`.
             Interpreter.Modules.ModuleManager.GlobalMutatedNames.Clear();
+            // Wipe the process-wide extension-field slot allocator +
+            // descriptor table. Without this, menu mode [2]/[3] cycles
+            // would re-run the same `extend T { var x }` block on each
+            // iteration and mint fresh slot indices — they climb
+            // unbounded, ExtFieldSlots arrays grow proportionally, and
+            // per-instance footprint balloons. Reset() is idempotent.
+            Interpreter.Runtime.ExtensionFieldStorage.Reset();
 
             GlobalSymbolTable = new SymbolTable(BuiltinSymbolTable);
 

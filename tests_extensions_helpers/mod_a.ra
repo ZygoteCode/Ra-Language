@@ -1,0 +1,6 @@
+// Module A — declares an extension field `conflict` on SharedAmbig.
+import "shared.ra";
+
+extend SharedAmbig {
+    pub var conflict: int = 100;
+}

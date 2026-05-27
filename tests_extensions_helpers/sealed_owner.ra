@@ -1,0 +1,7 @@
+// Module that seals SharedAmbig downstream. Once any importer
+// pulls this in, further extensions on SharedAmbig are forbidden.
+import "shared.ra";
+
+@sealed extend SharedAmbig {
+    pub fn locked_method(): int { ret 7; }
+}

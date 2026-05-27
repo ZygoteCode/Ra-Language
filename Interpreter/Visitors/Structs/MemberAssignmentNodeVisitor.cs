@@ -36,7 +36,14 @@ namespace RaLanguage.Interpreter.Visitors.Members
             {
                 var instance = (StructInstanceValue)owner;
                 if (!instance.HasField(memberName))
+                {
+                    if (RaLanguage.Interpreter.Runtime.ExtensionDispatch.TrySetField(instance, memberName, value, context, node.PositionStart, node.PositionEnd, out var sExtFieldSetV))
+                        return sExtFieldSetV;
+
+                    if (RaLanguage.Interpreter.Runtime.ExtensionDispatch.TrySetProperty(instance, memberName, value, context, node.PositionStart, node.PositionEnd, out var sExtSetV))
+                        return sExtSetV;
                     return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"{(owner.Type == RuntimeValueType.RecordInstance ? "Record" : "Struct")} '{instance.Definition.StructName}' has no field '{memberName}'", context));
+                }
 
                 var fieldDeclType = instance.GetFieldDeclarationType(memberName);
                 if (fieldDeclType == VariableDeclarationType.CONST)
@@ -93,6 +100,12 @@ namespace RaLanguage.Interpreter.Visitors.Members
                     instance.Definition.SetStaticField(memberName, value, instance.Definition.IsStaticFieldPublic(memberName), fieldType);
                     return res.Success(value.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
+
+                if (RaLanguage.Interpreter.Runtime.ExtensionDispatch.TrySetField(instance, memberName, value, context, node.PositionStart, node.PositionEnd, out var cExtFieldSetV))
+                    return cExtFieldSetV;
+
+                if (RaLanguage.Interpreter.Runtime.ExtensionDispatch.TrySetProperty(instance, memberName, value, context, node.PositionStart, node.PositionEnd, out var cExtSetV))
+                    return cExtSetV;
 
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Class '{instance.Definition.ClassName}' has no field or static field '{memberName}'", context));
             }

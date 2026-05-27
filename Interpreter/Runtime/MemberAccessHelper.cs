@@ -42,6 +42,14 @@ namespace RaLanguage.Interpreter.Runtime
         private const byte BR_EVENT_INSTANCE     = 14;
         private const byte BR_EVENT_STATIC       = 15;
         private const byte BR_EVENT_REF          = 16;
+        // v2.3 extension field IC branch. Caches:
+        //   FieldIndex  -> global slot index from ExtensionFieldStorage
+        //   CachedAux   -> ExtensionFieldDescriptor (for lazy default
+        //                  evaluation when the slot is still empty)
+        // The hit path indexes ExtFieldSlots directly when the init
+        // bit is set; misses fall back to ApplyAndPrime which runs
+        // the slow registry resolution + default eval and re-primes.
+        private const byte BR_EXT_FIELD          = 17;
 
         // M28.1 IC-aware entry point used by OP_GET_MEMBER. Falls back to the
         // unconditional Apply for first-hit (BranchKind = 0) and every miss.
@@ -90,6 +98,7 @@ namespace RaLanguage.Interpreter.Runtime
                                     CachedAux = icSlot.CachedAux,
                                     CachedResult = icSlot.CachedResult,
                                     FieldIndex = icSlot.FieldIndex,
+                                    ExtRegistry = icSlot.ExtRegistry,
                                 };
                                 icSlot.TargetType = picEntry.TargetType;
                                 icSlot.Shape = picEntry.Shape;
@@ -97,6 +106,7 @@ namespace RaLanguage.Interpreter.Runtime
                                 icSlot.CachedAux = picEntry.CachedAux;
                                 icSlot.CachedResult = picEntry.CachedResult;
                                 icSlot.FieldIndex = picEntry.FieldIndex;
+                                icSlot.ExtRegistry = picEntry.ExtRegistry;
                                 picEntry = saved;
                                 curShape = icSlot.Shape; // refresh after promote
                                 break;
@@ -104,7 +114,15 @@ namespace RaLanguage.Interpreter.Runtime
                         }
                     }
                 }
-                if (ReferenceEquals(icSlot.Shape, curShape))
+                // v2.5: for extension-routed branches the IC is also
+                // keyed on the calling context's ExtensionRegistry —
+                // two contexts that share a Definition but ship
+                // different registries must not cross-pollinate
+                // cached resolutions. Native branches set ExtRegistry
+                // to null at prime time, so the check is a no-op.
+                bool extRegistryMatch = !IsExtensionBranch(icSlot.BranchKind)
+                    || ReferenceEquals(icSlot.ExtRegistry, context.Extensions);
+                if (ReferenceEquals(icSlot.Shape, curShape) && extRegistryMatch)
                 {
                     switch (icSlot.BranchKind)
                     {
@@ -157,9 +175,39 @@ namespace RaLanguage.Interpreter.Runtime
                         case BR_CLASS_EXT:
                         case BR_PRIMITIVE_EXT:
                         {
-                            var ext = context.Extensions.Resolve(target, memberName);
+                            var ext = context.Extensions.ResolveMethodEntries(target, memberName);
                             if (ext.Count == 0) break; // refresh — extension table mutated
                             return res.Success(new BoundExtensionMethodGroupValue(target, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                        }
+                        case BR_EXT_FIELD:
+                        {
+                            // Fast path: read ExtFieldSlots[slot]
+                            // directly when the init bit is set —
+                            // the common steady-state for a hot field.
+                            int slot = icSlot.FieldIndex;
+                            RuntimeValue?[]? slots = null;
+                            if (target is ClassInstanceValue ciFast) slots = ciFast.ExtFieldSlots;
+                            else if (target is StructInstanceValue siFast) slots = siFast.ExtFieldSlots;
+                            else if (target is ClassTypeValue ctFast) slots = ctFast.StaticExtFieldSlots;
+                            if (slots != null && (uint)slot < (uint)slots.Length
+                                && ExtensionFieldStorage.IsInitialized(target, slot))
+                            {
+                                var v = slots[slot];
+                                if (v != null)
+                                {
+                                    var ret = v.IsCopy ? v.Copy() : v;
+                                    return res.Success(ret.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                                }
+                            }
+                            // Uninitialised slot: re-run dispatch from
+                            // the cached entry. This still skips the
+                            // registry walk (CachedAux is the
+                            // pre-resolved ExtensionFieldEntry), so the
+                            // "first read with default expr" path stays
+                            // single-traversal even after IC priming.
+                            if (icSlot.CachedAux is ExtensionFieldEntry fieldEntry)
+                                return ExtensionDispatch.DispatchFieldGet(target, fieldEntry, context, node.PositionStart, node.PositionEnd);
+                            break;
                         }
                         case BR_RECORD_DECONSTRUCT:
                         {
@@ -269,7 +317,7 @@ namespace RaLanguage.Interpreter.Runtime
                         case BR_MODULE:
                         {
                             var moduleWrapper = (ModuleWrapperValue)target;
-                            var ext = moduleWrapper.Module.Extensions.Resolve(target, memberName);
+                            var ext = moduleWrapper.Module.Extensions.ResolveMethodEntries(target, memberName);
                             if (ext.Count > 0)
                                 return res.Success(new BoundExtensionMethodGroupValue(target, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                             return res.Success(moduleWrapper.Module.SymbolTable.Get(memberName));
@@ -302,10 +350,22 @@ namespace RaLanguage.Interpreter.Runtime
                     CachedAux = icSlot.CachedAux,
                     CachedResult = icSlot.CachedResult,
                     FieldIndex = icSlot.FieldIndex,
+                    ExtRegistry = icSlot.ExtRegistry,
                 };
             }
             // Slow path: full chain dispatch with IC prime on success.
             return ApplyAndPrime(node, context, target, memberName, ref icSlot);
+        }
+
+        private static bool IsExtensionBranch(byte kind)
+            => kind == BR_STRUCT_EXT
+            || kind == BR_CLASS_EXT
+            || kind == BR_PRIMITIVE_EXT
+            || kind == BR_EXT_FIELD;
+
+        private static void SetExtRegistry(ref MemberAccessIcSlot icSlot, Context context)
+        {
+            icSlot.ExtRegistry = context.Extensions;
         }
 
         // Materialises the resolution shape used as the IC key. For
@@ -438,12 +498,61 @@ namespace RaLanguage.Interpreter.Runtime
                     return res.Success(new BoundStructMethodValue(instance.Definition, instance, method).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
 
-                var ext = context.Extensions.Resolve(instance, memberName);
+                // Extension field — side-mapped O(1) lookup. Comes
+                // before events/properties/methods because fields
+                // surface as direct values (no callable wrapping).
+                // Slow-path here primes BR_EXT_FIELD so subsequent
+                // visits skip the registry walk entirely; the IC
+                // hit path reads ExtFieldSlots[slot] directly.
+                {
+                    var sFieldEntry = context.Extensions.ResolveFieldEntry(instance, memberName, out var sFieldAmb);
+                    if (sFieldEntry != null)
+                    {
+                        if (sFieldAmb != null)
+                        {
+                            icSlot.BranchKind = 0;
+                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                                $"ambiguous extension field '{sFieldEntry.Descriptor.Name}' on '{instance.Definition.StructName}' — declared in two imported modules:\n  - {sFieldEntry.FormatSource()}\n  - {sFieldAmb.FormatSource()}",
+                                context,
+                                code: DiagnosticCode.RuntimeGeneric));
+                        }
+                        icSlot.TargetType = target.Type;
+                        icSlot.Shape = instance.Definition;
+                        icSlot.BranchKind = BR_EXT_FIELD;
+                        icSlot.ExtRegistry = context.Extensions;
+                        icSlot.FieldIndex = sFieldEntry.Descriptor.SlotIndex;
+                        icSlot.CachedAux = sFieldEntry;
+                        return ExtensionDispatch.DispatchFieldGet(instance, sFieldEntry, context, node.PositionStart, node.PositionEnd);
+                    }
+                }
+
+                // Extension event — surface as EventSubscriptionValue
+                // so `obj.ExtEvent.on(...)` etc. work identically to
+                // native events. Subscribers piggy-back on
+                // `instance.EventSubs[name]` so the storage is unified.
+                if (ExtensionDispatch.TryGetEvent(instance, memberName, context, node.PositionStart, node.PositionEnd, out var sExtEv))
+                {
+                    icSlot.BranchKind = 0;
+                    return sExtEv;
+                }
+
+                // Extension property — bypasses IC: property results
+                // are value-dependent and the existing IC machinery
+                // already opts out for native properties for the same
+                // reason. Keep parity here.
+                if (ExtensionDispatch.TryGetProperty(instance, memberName, context, node.PositionStart, node.PositionEnd, out var sExtProp))
+                {
+                    icSlot.BranchKind = 0;
+                    return sExtProp;
+                }
+
+                var ext = context.Extensions.ResolveMethodEntries(instance, memberName);
                 if (ext.Count > 0)
                 {
                     icSlot.TargetType = RuntimeValueType.StructInstance;
                     icSlot.Shape = instance.Definition;
                     icSlot.BranchKind = BR_STRUCT_EXT;
+                    icSlot.ExtRegistry = context.Extensions;
                     return res.Success(new BoundExtensionMethodGroupValue(instance, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
 
@@ -525,12 +634,47 @@ namespace RaLanguage.Interpreter.Runtime
                     return res.Success(new BoundClassMethodGroupValue(instance.Definition, instance, native).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
 
-                var ext = context.Extensions.Resolve(instance, memberName);
+                {
+                    var cFieldEntry = context.Extensions.ResolveFieldEntry(instance, memberName, out var cFieldAmb);
+                    if (cFieldEntry != null)
+                    {
+                        if (cFieldAmb != null)
+                        {
+                            icSlot.BranchKind = 0;
+                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                                $"ambiguous extension field '{cFieldEntry.Descriptor.Name}' on '{instance.Definition.ClassName}' — declared in two imported modules:\n  - {cFieldEntry.FormatSource()}\n  - {cFieldAmb.FormatSource()}",
+                                context,
+                                code: DiagnosticCode.RuntimeGeneric));
+                        }
+                        icSlot.TargetType = RuntimeValueType.ClassInstance;
+                        icSlot.Shape = instance.Definition;
+                        icSlot.BranchKind = BR_EXT_FIELD;
+                        icSlot.ExtRegistry = context.Extensions;
+                        icSlot.FieldIndex = cFieldEntry.Descriptor.SlotIndex;
+                        icSlot.CachedAux = cFieldEntry;
+                        return ExtensionDispatch.DispatchFieldGet(instance, cFieldEntry, context, node.PositionStart, node.PositionEnd);
+                    }
+                }
+
+                if (ExtensionDispatch.TryGetEvent(instance, memberName, context, node.PositionStart, node.PositionEnd, out var cExtEv))
+                {
+                    icSlot.BranchKind = 0;
+                    return cExtEv;
+                }
+
+                if (ExtensionDispatch.TryGetProperty(instance, memberName, context, node.PositionStart, node.PositionEnd, out var cExtProp))
+                {
+                    icSlot.BranchKind = 0;
+                    return cExtProp;
+                }
+
+                var ext = context.Extensions.ResolveMethodEntries(instance, memberName);
                 if (ext.Count > 0)
                 {
                     icSlot.TargetType = RuntimeValueType.ClassInstance;
                     icSlot.Shape = instance.Definition;
                     icSlot.BranchKind = BR_CLASS_EXT;
+                    icSlot.ExtRegistry = context.Extensions;
                     return res.Success(new BoundExtensionMethodGroupValue(instance, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
 
@@ -581,6 +725,12 @@ namespace RaLanguage.Interpreter.Runtime
                     icSlot.BranchKind = BR_CLASSTYPE_STATIC;
                     icSlot.CachedResult = null;
                     return res.Success(classType.StaticFields[memberName].SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                }
+                // Static ext-field probe — `extend T { static var X }`.
+                if (ExtensionDispatch.TryGetField(classType, memberName, context, node.PositionStart, node.PositionEnd, out var staticExtField))
+                {
+                    icSlot.BranchKind = 0;
+                    return staticExtField;
                 }
                 if (classType.TryGetStaticMethodOwner(memberName, out var owner, out var method) && method != null)
                 {
@@ -702,7 +852,7 @@ namespace RaLanguage.Interpreter.Runtime
             if (target.Type == RuntimeValueType.ModuleWrapper)
             {
                 var moduleWrapper = (ModuleWrapperValue)target;
-                var ext = moduleWrapper.Module.Extensions.Resolve(target, memberName);
+                var ext = moduleWrapper.Module.Extensions.ResolveMethodEntries(target, memberName);
                 if (ext.Count > 0)
                 {
                     icSlot.TargetType = RuntimeValueType.ModuleWrapper;
@@ -729,12 +879,18 @@ namespace RaLanguage.Interpreter.Runtime
                 target.Type == RuntimeValueType.Map || target.Type == RuntimeValueType.Tuple ||
                 target.Type == RuntimeValueType.Boolean || target.Type == RuntimeValueType.Null)
             {
-                var ext = context.Extensions.Resolve(target, memberName);
+                if (ExtensionDispatch.TryGetProperty(target, memberName, context, node.PositionStart, node.PositionEnd, out var pExtProp))
+                {
+                    icSlot.BranchKind = 0;
+                    return pExtProp;
+                }
+                var ext = context.Extensions.ResolveMethodEntries(target, memberName);
                 if (ext.Count > 0)
                 {
                     icSlot.TargetType = target.Type;
                     icSlot.Shape = target.GetType();
                     icSlot.BranchKind = BR_PRIMITIVE_EXT;
+                    icSlot.ExtRegistry = context.Extensions;
                     return res.Success(new BoundExtensionMethodGroupValue(target, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
             }
@@ -811,7 +967,16 @@ namespace RaLanguage.Interpreter.Runtime
                     return res.Success(new BoundStructMethodValue(instance.Definition, instance, method).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
 
-                var ext = context.Extensions.Resolve(instance, memberName);
+                if (ExtensionDispatch.TryGetField(instance, memberName, context, node.PositionStart, node.PositionEnd, out var sExtField2))
+                    return sExtField2;
+
+                if (ExtensionDispatch.TryGetEvent(instance, memberName, context, node.PositionStart, node.PositionEnd, out var sExtEv2))
+                    return sExtEv2;
+
+                if (ExtensionDispatch.TryGetProperty(instance, memberName, context, node.PositionStart, node.PositionEnd, out var sExtProp2))
+                    return sExtProp2;
+
+                var ext = context.Extensions.ResolveMethodEntries(instance, memberName);
                 if (ext.Count > 0)
                     return res.Success(new BoundExtensionMethodGroupValue(instance, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
 
@@ -857,7 +1022,16 @@ namespace RaLanguage.Interpreter.Runtime
                 if (native.Count > 0)
                     return res.Success(new BoundClassMethodGroupValue(instance.Definition, instance, native).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
 
-                var ext = context.Extensions.Resolve(instance, memberName);
+                if (ExtensionDispatch.TryGetField(instance, memberName, context, node.PositionStart, node.PositionEnd, out var cExtField2))
+                    return cExtField2;
+
+                if (ExtensionDispatch.TryGetEvent(instance, memberName, context, node.PositionStart, node.PositionEnd, out var cExtEv2))
+                    return cExtEv2;
+
+                if (ExtensionDispatch.TryGetProperty(instance, memberName, context, node.PositionStart, node.PositionEnd, out var cExtProp2))
+                    return cExtProp2;
+
+                var ext = context.Extensions.ResolveMethodEntries(instance, memberName);
                 if (ext.Count > 0)
                     return res.Success(new BoundExtensionMethodGroupValue(instance, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
 
@@ -900,6 +1074,8 @@ namespace RaLanguage.Interpreter.Runtime
                 var classType = (ClassTypeValue)target;
                 if (classType.HasStaticField(memberName))
                     return res.Success(classType.StaticFields[memberName].SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                if (ExtensionDispatch.TryGetField(classType, memberName, context, node.PositionStart, node.PositionEnd, out var staticExtField2))
+                    return staticExtField2;
                 if (classType.TryGetStaticMethodOwner(memberName, out var owner, out var method) && method != null)
                     return res.Success(new BoundClassMethodValue(owner, null, method, isStatic: true).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 var evOnType2 = classType.GetEvent(memberName);
@@ -995,7 +1171,7 @@ namespace RaLanguage.Interpreter.Runtime
             if (target.Type == RuntimeValueType.ModuleWrapper)
             {
                 var moduleWrapper = (ModuleWrapperValue)target;
-                var ext = moduleWrapper.Module.Extensions.Resolve(target, memberName);
+                var ext = moduleWrapper.Module.Extensions.ResolveMethodEntries(target, memberName);
                 if (ext.Count > 0)
                     return res.Success(new BoundExtensionMethodGroupValue(target, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 return res.Success(moduleWrapper.Module.SymbolTable.Get(memberName));
@@ -1014,7 +1190,10 @@ namespace RaLanguage.Interpreter.Runtime
                 target.Type == RuntimeValueType.Map || target.Type == RuntimeValueType.Tuple ||
                 target.Type == RuntimeValueType.Boolean || target.Type == RuntimeValueType.Null)
             {
-                var ext = context.Extensions.Resolve(target, memberName);
+                if (ExtensionDispatch.TryGetProperty(target, memberName, context, node.PositionStart, node.PositionEnd, out var pExtProp2))
+                    return pExtProp2;
+
+                var ext = context.Extensions.ResolveMethodEntries(target, memberName);
                 if (ext.Count > 0)
                     return res.Success(new BoundExtensionMethodGroupValue(target, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
             }

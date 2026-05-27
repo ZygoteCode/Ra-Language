@@ -55,6 +55,15 @@ namespace RaLanguage.Interpreter.Values.Primitives
         public Dictionary<string, bool> StaticFieldPublicity { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, TypeDescriptor?> StaticFieldTypes { get; } = new(StringComparer.Ordinal);
 
+        // Extension-field storage on the type itself (`static var` in
+        // an `extend` block). Mirrors the per-instance ExtFieldSlots
+        // shape on ClassInstanceValue but keyed off the type, so a
+        // `static` ext-field is shared by every instance and survives
+        // independent of any specific receiver.
+        public RuntimeValue?[]? StaticExtFieldSlots;
+        public ulong[]? StaticExtFieldInitBits;
+        public ulong[]? StaticExtFieldLazyBits;
+
         public override bool IsCopy => false;
         public override RuntimeValue Copy() => this;
 
