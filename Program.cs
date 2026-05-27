@@ -178,6 +178,15 @@ namespace RaLanguage
 
             DeriveTransformer.Apply(parseResult.Node);
 
+            // M89: lower "simple" match expressions to equivalent
+            // if/elif/else chains. The IR compiler optimises if-chains
+            // aggressively (jump-table layout, typed-accumulator merging,
+            // peephole on comparisons); the visitor path for match pays
+            // per-arm dispatch + a fresh SymbolTable. Eligibility is
+            // conservative — see MatchSimplifier — so any pattern with
+            // bindings / guards / nominal shape stays on the visitor path.
+            Interpreter.Runtime.Patterns.MatchSimplifier.Apply(parseResult.Node);
+
             // Resolver pass: assigns a BindingId / BindingKind to every identifier
             // node in the tree and computes static closure captures on each
             // FunctionDefinitionNode. Annotations are advisory — runtime visitors

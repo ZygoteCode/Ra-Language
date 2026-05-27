@@ -2215,6 +2215,19 @@ namespace RaLanguage.Parser
             Token? varArgNameTok = null;
             TypeDescriptor? varArgType = null;
 
+            // Pattern-parameter destructuring:
+            //   fn f((a, b): (int, int)) { ... }
+            //   fn f([h, ..t]: list<int>) { ... }
+            //   fn f(User { name, age }) { ... }
+            //   fn f({ "k": v, .. }) { ... }
+            //
+            // For each pattern parameter we mint a fresh synthetic ident
+            // (so the resolver / runtime see a normal parameter slot) and
+            // remember the pattern. After the body is parsed we prepend
+            // `let pattern_i = $$argN` statements so the body opens with
+            // the user-visible bindings.
+            var paramDestructures = new List<(Token Synth, RaLanguage.Parser.Nodes.Patterns.PatternNode Pattern)>();
+
             bool sawDefault = false;
 
             if (_currentToken.Type == TokenType.RPAREN)
@@ -2222,7 +2235,13 @@ namespace RaLanguage.Parser
                 goto otherRparen;
             }
 
-            if (_currentToken.Type == TokenType.IDENTIFIER || _currentToken.Type == TokenType.SPREAD || _currentToken.Matches(Keyword.Ref) || _currentToken.Type == TokenType.AT_SIGN)
+            if (_currentToken.Type == TokenType.IDENTIFIER
+                || _currentToken.Type == TokenType.SPREAD
+                || _currentToken.Matches(Keyword.Ref)
+                || _currentToken.Type == TokenType.AT_SIGN
+                || _currentToken.Type == TokenType.LPAREN
+                || _currentToken.Type == TokenType.LSQUARE
+                || _currentToken.Type == TokenType.LBRACKET)
             {
                 while (true)
                 {
@@ -2309,6 +2328,75 @@ namespace RaLanguage.Parser
                                 res.RegisterAdvancement();
                                 Advance();
                             }
+                        }
+
+                        // Pattern-parameter detection. A pattern parameter
+                        // starts with '(', '[', '{', or 'IDENT {'. Bare
+                        // IDENT followed by ':' / '=' / ',' / ')' is the
+                        // classic name+type form.
+                        bool isPatternParam =
+                            _currentToken.Type == TokenType.LPAREN
+                            || _currentToken.Type == TokenType.LSQUARE
+                            || _currentToken.Type == TokenType.LBRACKET
+                            || (_currentToken.Type == TokenType.IDENTIFIER
+                                && _tokenIndex + 1 < _tokens.Count
+                                && _tokens[_tokenIndex + 1].Type == TokenType.LBRACKET);
+
+                        if (isPatternParam)
+                        {
+                            if (isRef)
+                            {
+                                return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                                    "a parameter name after 'ref'",
+                                    contextHint: "'ref' modifies a bare identifier parameter; destructuring patterns are bound by value"));
+                            }
+
+                            var patStartPos = _currentToken.PositionStart;
+                            // Use ParseBasePattern (no or-pattern / alias
+                            // trailer): destructuring parameters must be
+                            // irrefutable; or-patterns are refutable and a
+                            // trailing 'as' would clash with the param's
+                            // ':' type annotation.
+                            var pattern = ParseBasePattern(res);
+                            if (res.Error != null) return res;
+                            if (pattern == null)
+                                return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken, "a pattern in the parameter list"));
+
+                            // Mint synthetic param name.
+                            string synthName = "$$param$" + paramDestructures.Count.ToString();
+                            var synthTok = new Token(TokenType.IDENTIFIER, synthName, patStartPos, patStartPos);
+                            argNameToks.Add(synthTok);
+                            paramAnnotations.Add(pendingParamAnnotations);
+                            paramDestructures.Add((synthTok, pattern));
+
+                            // Optional ': Type' annotation on the pattern
+                            // — applies to the synthetic param so the
+                            // signature still type-checks.
+                            TypeDescriptor? patType = null;
+                            while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+                            if (_currentToken.Type == TokenType.COLON)
+                            {
+                                res.RegisterAdvancement();
+                                Advance();
+                                while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+                                var parsedT = ParseType(res);
+                                if (parsedT == null) return res.Failure(ParserDiagnostics.ExpectedTypeAfterColon(_currentToken));
+                                patType = parsedT;
+                            }
+                            argTypes.Add(patType);
+                            isRefParams.Add(false);
+                            paramDefaults.Add(null);
+
+                            while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+                            if (_currentToken.Type == TokenType.COMMA)
+                            {
+                                res.RegisterAdvancement();
+                                Advance();
+                                while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+                                if (_currentToken.Type == TokenType.RPAREN) break;
+                                continue;
+                            }
+                            break;
                         }
 
                         if (_currentToken.Type != TokenType.IDENTIFIER)
@@ -2491,6 +2579,8 @@ namespace RaLanguage.Parser
                 var body = res.Register(ParseExpression());
                 if (res.Error != null) return res;
 
+                AstNode wrappedBody = WrapBodyWithDestructures(body, paramDestructures);
+
                 return res.Success(new FunctionDefinitionNode(
                     varNameTok,
                     argNameToks,
@@ -2501,8 +2591,8 @@ namespace RaLanguage.Parser
                     varArgNameTok,
                     varArgType,
                     returnType,
-                    body,
-                    true,
+                    wrappedBody,
+                    paramDestructures.Count == 0,
                     genericTypeParams,
                     isPublic,
                     isConstructor,
@@ -2559,6 +2649,8 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
+            AstNode wrappedBlockBody = WrapBodyWithDestructures(bodyStmts, paramDestructures);
+
             return res.Success(new FunctionDefinitionNode(
                 varNameTok,
                 argNameToks,
@@ -2569,7 +2661,7 @@ namespace RaLanguage.Parser
                 varArgNameTok,
                 varArgType,
                 returnType,
-                bodyStmts,
+                wrappedBlockBody,
                 false,
                 genericTypeParams,
                 isPublic,
@@ -2585,6 +2677,44 @@ namespace RaLanguage.Parser
             finally
             {
                 PopGenericScope();
+            }
+        }
+
+        // Splice DestructuringDeclarationNode statements at the head of a
+        // function body for every pattern parameter, in source order. The
+        // synthetic parameter name flows in as the initializer's VariableAccess.
+        // For arrow bodies (single expression), we wrap the expression as
+        // the last statement of a ScopeNode; for block bodies (already a
+        // ScopeNode), we prepend in place.
+        private static AstNode WrapBodyWithDestructures(
+            AstNode body,
+            List<(Token Synth, RaLanguage.Parser.Nodes.Patterns.PatternNode Pattern)> destructures)
+        {
+            if (destructures == null || destructures.Count == 0) return body;
+
+            var prelude = new List<AstNode>(destructures.Count);
+            foreach (var (synth, pat) in destructures)
+            {
+                var access = new RaLanguage.Parser.Nodes.Variables.VariableAccessNode(synth);
+                var decl = new RaLanguage.Parser.Nodes.Patterns.DestructuringDeclarationNode(
+                    pat, access, RaLanguage.Parser.Nodes.Variables.VariableDeclarationType.LET, null,
+                    pat.PositionStart, pat.PositionEnd);
+                prelude.Add(decl);
+            }
+
+            if (body is RaLanguage.Parser.Nodes.Special.ScopeNode existing)
+            {
+                var merged = new List<AstNode>(prelude.Count + existing.Nodes.Count);
+                merged.AddRange(prelude);
+                merged.AddRange(existing.Nodes);
+                return new RaLanguage.Parser.Nodes.Special.ScopeNode(merged, existing.PositionStart, existing.PositionEnd);
+            }
+            else
+            {
+                var stmts = new List<AstNode>(prelude.Count + 1);
+                stmts.AddRange(prelude);
+                stmts.Add(body);
+                return new RaLanguage.Parser.Nodes.Special.ScopeNode(stmts, body.PositionStart, body.PositionEnd);
             }
         }
 
@@ -3479,6 +3609,8 @@ namespace RaLanguage.Parser
             ParserResult res = new ParserResult();
             VariableDeclarationType variableDeclarationType = VariableDeclarationType.VARIABLE;
 
+            var declStart = _currentToken.PositionStart;
+
             if (_currentToken.Matches(Keyword.Const))
             {
                 variableDeclarationType = VariableDeclarationType.CONST;
@@ -3512,6 +3644,26 @@ namespace RaLanguage.Parser
                     res.RegisterAdvancement();
                     Advance();
                 }
+            }
+
+            // Destructuring declaration head:
+            //   let (a, b) = expr        — tuple pattern
+            //   let [h, ..t] = expr      — list pattern
+            //   let { "k": v, .. } = expr — map pattern
+            //   let User { x, y } = expr — struct/class/record pattern
+            //
+            // We dispatch as soon as the token after the optional modifier
+            // begins a pattern shape that is *not* a bare identifier list.
+            // For 'IDENT {' we look one token ahead; everything else is
+            // disambiguated by the current token alone.
+            if (_currentToken.Type == TokenType.LPAREN
+                || _currentToken.Type == TokenType.LSQUARE
+                || _currentToken.Type == TokenType.LBRACKET
+                || (_currentToken.Type == TokenType.IDENTIFIER
+                    && _tokenIndex + 1 < _tokens.Count
+                    && _tokens[_tokenIndex + 1].Type == TokenType.LBRACKET))
+            {
+                return ParseDestructuringDeclaration(res, variableDeclarationType, isPublic, isStatic, declStart);
             }
 
             List<(Token, AstNode?, TypeDescriptor?)> declarations = new List<(Token, AstNode?, TypeDescriptor?)>();

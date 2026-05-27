@@ -39,8 +39,21 @@ namespace RaLanguage.Interpreter.Visitors.Special
             if (node.CatchBody != null)
             {
                 var catchCtx = context.Copy();
-                string errMsg = originalError.ToString();
-                var errVal = new StringValue(errMsg).SetContext(catchCtx).SetPos(node.PositionStart, node.PositionEnd);
+
+                // Prefer the original RuntimeValue thrown by user code so
+                // pattern-based catch clauses can destructure it. Fall
+                // back to a StringValue rendering of the diagnostic when
+                // the error is system-raised (no ThrownValue).
+                RaLanguage.Interpreter.Values.RuntimeValue errVal;
+                if (originalError is RaLanguage.Errors.Types.RuntimeError rerr && rerr.ThrownValue != null)
+                {
+                    errVal = rerr.ThrownValue;
+                }
+                else
+                {
+                    string errMsg = originalError.ToString();
+                    errVal = new StringValue(errMsg).SetContext(catchCtx).SetPos(node.PositionStart, node.PositionEnd);
+                }
 
                 if (node.CatchVarTok != null)
                 {

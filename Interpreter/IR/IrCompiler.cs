@@ -1566,6 +1566,7 @@ namespace RaLanguage.Interpreter.IR
                 case AstNodeType.ImportSelective:
                 case AstNodeType.ImportAlias:
                 case AstNodeType.Match:
+                case AstNodeType.DestructuringDeclaration:
                 case AstNodeType.TryUnwrap:
                 case AstNodeType.Await:
                 case AstNodeType.Spawn:
@@ -1794,6 +1795,7 @@ namespace RaLanguage.Interpreter.IR
                 case AstNodeType.ImportSelective:
                 case AstNodeType.ImportAlias:
                 case AstNodeType.Match:
+                case AstNodeType.DestructuringDeclaration:
                 case AstNodeType.TryUnwrap:
                 case AstNodeType.Await:
                 case AstNodeType.Spawn:
@@ -4324,6 +4326,7 @@ namespace RaLanguage.Interpreter.IR
                 // VM calls the visitor's static Apply directly, never
                 // hitting interpreter._visitors[].
                 case AstNodeType.Match:
+                case AstNodeType.DestructuringDeclaration:
                 case AstNodeType.TryUnwrap:
                 case AstNodeType.Await:
                 case AstNodeType.Spawn:

@@ -102,8 +102,11 @@ namespace RaLanguage.Interpreter.Visitors.Patterns
         // Pattern engine
         // --------------------------------------------------------------
 
-        private static bool TryMatch(PatternNode pattern, RuntimeValue scrutinee, Context context,
-                                     List<(string, RuntimeValue)> bindings, out Error? error)
+        // Public entry point so other visitors (destructuring let, if-let
+        // sugar etc.) can drive the engine against an arbitrary scrutinee
+        // value without duplicating the dispatch table.
+        internal static bool TryMatch(PatternNode pattern, RuntimeValue scrutinee, Context context,
+                                      List<(string, RuntimeValue)> bindings, out Error? error)
         {
             error = null;
             switch (pattern)
@@ -137,6 +140,27 @@ namespace RaLanguage.Interpreter.Visitors.Patterns
                 case TypePatternNode tpn:
                     return TryMatchTypePattern(tpn, scrutinee, context, bindings);
 
+                case OrPatternNode opn:
+                    return TryMatchOr(opn, scrutinee, context, bindings, out error);
+
+                case AndPatternNode andn:
+                    return TryMatchAnd(andn, scrutinee, context, bindings, out error);
+
+                case NotPatternNode notn:
+                    return TryMatchNot(notn, scrutinee, context, bindings, out error);
+
+                case AliasPatternNode apn:
+                    return TryMatchAlias(apn, scrutinee, context, bindings, out error);
+
+                case RangePatternNode rpn:
+                    return TryMatchRange(rpn, scrutinee, context, out error);
+
+                case RelationalPatternNode rop:
+                    return TryMatchRelational(rop, scrutinee, context, out error);
+
+                case MapPatternNode mp:
+                    return TryMatchMap(mp, scrutinee, context, bindings, out error);
+
                 case RestPatternNode _:
                     error = new RuntimeError(pattern.PositionStart, pattern.PositionEnd,
                         "'..' rest pattern only valid inside a list pattern",
@@ -149,6 +173,207 @@ namespace RaLanguage.Interpreter.Visitors.Patterns
                         context, code: DiagnosticCode.RuntimeTypeMismatch);
                     return false;
             }
+        }
+
+        // Disjunction. Each alternative is tried in source order. Bindings
+        // pushed by a failing alternative are rolled back before the next
+        // one is tried, so the alternatives are isolated from each other.
+        private static bool TryMatchOr(OrPatternNode op, RuntimeValue scrutinee, Context context,
+                                       List<(string, RuntimeValue)> bindings, out Error? error)
+        {
+            error = null;
+            int snapshot = bindings.Count;
+            for (int i = 0; i < op.Alternatives.Count; i++)
+            {
+                bindings.RemoveRange(snapshot, bindings.Count - snapshot);
+                if (TryMatch(op.Alternatives[i], scrutinee, context, bindings, out error)) return true;
+                if (error != null) return false;
+            }
+            bindings.RemoveRange(snapshot, bindings.Count - snapshot);
+            return false;
+        }
+
+        // 'P as n' alias trailer. Try the inner pattern; on success, also
+        // bind the whole scrutinee at this position to the alias name.
+        private static bool TryMatchAlias(AliasPatternNode ap, RuntimeValue scrutinee, Context context,
+                                          List<(string, RuntimeValue)> bindings, out Error? error)
+        {
+            if (!TryMatch(ap.Inner, scrutinee, context, bindings, out error)) return false;
+            bindings.Add((ap.BinderName, scrutinee));
+            return true;
+        }
+
+        // Conjunction. All conjuncts must succeed. Bindings from each
+        // conjunct accumulate into the shared list; if any conjunct fails
+        // the prior accumulated bindings (from this AndPattern only) are
+        // rolled back to the snapshot taken on entry.
+        private static bool TryMatchAnd(AndPatternNode ap, RuntimeValue scrutinee, Context context,
+                                        List<(string, RuntimeValue)> bindings, out Error? error)
+        {
+            error = null;
+            int snapshot = bindings.Count;
+            foreach (var conj in ap.Conjuncts)
+            {
+                if (!TryMatch(conj, scrutinee, context, bindings, out error))
+                {
+                    bindings.RemoveRange(snapshot, bindings.Count - snapshot);
+                    return false;
+                }
+                if (error != null)
+                {
+                    bindings.RemoveRange(snapshot, bindings.Count - snapshot);
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // Negation. Tries the inner pattern in an isolated bindings
+        // sandbox (so any speculative bindings the inner pattern produced
+        // are discarded). Succeeds iff the inner pattern fails.
+        private static bool TryMatchNot(NotPatternNode np, RuntimeValue scrutinee, Context context,
+                                        List<(string, RuntimeValue)> bindings, out Error? error)
+        {
+            error = null;
+            var sink = new List<(string, RuntimeValue)>();
+            bool innerOk = TryMatch(np.Inner, scrutinee, context, sink, out error);
+            if (error != null) return false;
+            return !innerOk;
+        }
+
+        // Range pattern: numeric/string-ordered bounded match.
+        //   Lo..Hi   -> Lo <= scrutinee < Hi
+        //   Lo..=Hi  -> Lo <= scrutinee <= Hi
+        //   Lo..     -> scrutinee >= Lo
+        //   ..Hi     -> scrutinee < Hi
+        //   ..=Hi    -> scrutinee <= Hi
+        private static bool TryMatchRange(RangePatternNode rp, RuntimeValue scrutinee, Context context, out Error? error)
+        {
+            error = null;
+            if (rp.Lo != null)
+            {
+                var loVal = EvaluatePatternLiteral(rp.Lo, context);
+                if (loVal == null)
+                {
+                    error = new RuntimeError(rp.PositionStart, rp.PositionEnd,
+                        "range pattern low bound must be a numeric or string literal",
+                        context, code: DiagnosticCode.RuntimeTypeMismatch);
+                    return false;
+                }
+                var (gteVal, gteErr) = scrutinee.GetComparisonGte(loVal);
+                if (gteErr != null) { error = gteErr; return false; }
+                if (!(gteVal is BooleanValue gb && gb.Value)) return false;
+            }
+            if (rp.Hi != null)
+            {
+                var hiVal = EvaluatePatternLiteral(rp.Hi, context);
+                if (hiVal == null)
+                {
+                    error = new RuntimeError(rp.PositionStart, rp.PositionEnd,
+                        "range pattern high bound must be a numeric or string literal",
+                        context, code: DiagnosticCode.RuntimeTypeMismatch);
+                    return false;
+                }
+                if (rp.IsInclusive)
+                {
+                    var (lteVal, lteErr) = scrutinee.GetComparisonLte(hiVal);
+                    if (lteErr != null) { error = lteErr; return false; }
+                    if (!(lteVal is BooleanValue lb && lb.Value)) return false;
+                }
+                else
+                {
+                    var (ltVal, ltErr) = scrutinee.GetComparisonLt(hiVal);
+                    if (ltErr != null) { error = ltErr; return false; }
+                    if (!(ltVal is BooleanValue lb && lb.Value)) return false;
+                }
+            }
+            return true;
+        }
+
+        // Comparison against a single literal at pattern position.
+        private static bool TryMatchRelational(RelationalPatternNode rp, RuntimeValue scrutinee, Context context, out Error? error)
+        {
+            error = null;
+            var operand = EvaluatePatternLiteral(rp.Operand, context);
+            if (operand == null)
+            {
+                error = new RuntimeError(rp.PositionStart, rp.PositionEnd,
+                    "relational pattern operand must be a numeric, string, boolean or null literal",
+                    context, code: DiagnosticCode.RuntimeTypeMismatch);
+                return false;
+            }
+
+            ValueResult cmp = rp.Op switch
+            {
+                Lexer.Tokens.TokenType.LT => scrutinee.GetComparisonLt(operand),
+                Lexer.Tokens.TokenType.LTE => scrutinee.GetComparisonLte(operand),
+                Lexer.Tokens.TokenType.GT => scrutinee.GetComparisonGt(operand),
+                Lexer.Tokens.TokenType.GTE => scrutinee.GetComparisonGte(operand),
+                Lexer.Tokens.TokenType.EE => scrutinee.GetComparisonEq(operand),
+                Lexer.Tokens.TokenType.NE => scrutinee.GetComparisonNe(operand),
+                _ => new ValueResult(null, new RuntimeError(rp.PositionStart, rp.PositionEnd,
+                    "unsupported relational operator in pattern", context, code: DiagnosticCode.RuntimeTypeMismatch))
+            };
+            if (cmp.Error != null) { error = cmp.Error; return false; }
+            return cmp.Value is BooleanValue b && b.Value;
+        }
+
+        // Map pattern. Scrutinee must be a MapValue. Each entry's key
+        // expression is evaluated as a pure literal and looked up using
+        // structural equality (the same rule MapValue uses for lookups).
+        // The 'HasOpenRest' flag (set when the pattern ends in '..') lets
+        // the scrutinee carry extra keys; otherwise the pattern's key set
+        // must equal the scrutinee's key set.
+        private static bool TryMatchMap(MapPatternNode mp, RuntimeValue scrutinee, Context context,
+                                        List<(string, RuntimeValue)> bindings, out Error? error)
+        {
+            error = null;
+            if (scrutinee is not RaLanguage.Interpreter.Values.Primitives.MapValue mv) return false;
+
+            // Optional closed-set arity check up front for fast failure
+            // without walking the entries.
+            if (!mp.HasOpenRest && mv.Pairs.Count != mp.Entries.Count) return false;
+
+            for (int i = 0; i < mp.Entries.Count; i++)
+            {
+                var (keyExpr, valuePat) = mp.Entries[i];
+                var keyVal = EvaluatePatternLiteral(keyExpr, context);
+                if (keyVal == null)
+                {
+                    error = new RuntimeError(keyExpr.PositionStart, keyExpr.PositionEnd,
+                        "map pattern key must be a numeric, string, boolean or null literal",
+                        context, code: DiagnosticCode.RuntimeTypeMismatch);
+                    return false;
+                }
+
+                if (!TryMapLookup(mv, keyVal, out var foundValue, out var lookupErr))
+                {
+                    if (lookupErr != null) { error = lookupErr; return false; }
+                    return false;
+                }
+
+                if (!TryMatch(valuePat, foundValue!, context, bindings, out error)) return false;
+                if (error != null) return false;
+            }
+            return true;
+        }
+
+        private static bool TryMapLookup(RaLanguage.Interpreter.Values.Primitives.MapValue mv,
+                                         RuntimeValue key, out RuntimeValue? value, out Error? error)
+        {
+            value = null;
+            error = null;
+            for (int i = 0; i < mv.Pairs.Count; i++)
+            {
+                var (eqVal, eqErr) = mv.Pairs[i].Key.GetComparisonEq(key);
+                if (eqErr != null) { error = eqErr; return false; }
+                if (eqVal is BooleanValue b && b.Value)
+                {
+                    value = mv.Pairs[i].Value;
+                    return true;
+                }
+            }
+            return false;
         }
 
         private static bool TryMatchVariableOrZeroArityVariant(VariablePatternNode vp, RuntimeValue scrutinee, Context context,
@@ -204,6 +429,13 @@ namespace RaLanguage.Interpreter.Visitors.Patterns
                     context, code: DiagnosticCode.RuntimeTypeMismatch);
                 return false;
             }
+
+            // Null match: avoid routing through GetComparisonEq because most
+            // primitive operators raise 'Illegal operation' against null
+            // rather than returning false. Identity check is the right
+            // semantics here regardless.
+            if (literalValue is NullValue) return scrutinee is NullValue;
+            if (scrutinee is NullValue) return false;
 
             var (eqVal, eqErr) = scrutinee.GetComparisonEq(literalValue);
             if (eqErr != null)
@@ -407,31 +639,86 @@ namespace RaLanguage.Interpreter.Visitors.Patterns
                                           List<(string, RuntimeValue)> bindings, out Error? error)
         {
             error = null;
-            if (scrutinee is not StructInstanceValue siv) return false;
-            if (!string.Equals(siv.Definition.StructName, sp.StructName, System.StringComparison.Ordinal)) return false;
-
-            foreach (var (fieldName, fieldPattern) in sp.Fields)
+            // Struct instance: nominal name match + field walk.
+            if (scrutinee is StructInstanceValue siv)
             {
-                if (!siv.HasField(fieldName))
+                if (!string.Equals(siv.Definition.StructName, sp.StructName, System.StringComparison.Ordinal)) return false;
+                foreach (var (fieldName, fieldPattern) in sp.Fields)
                 {
-                    error = new RuntimeError(sp.PositionStart, sp.PositionEnd,
-                        $"struct '{siv.Definition.StructName}' has no field '{fieldName}'",
-                        context,
-                        code: DiagnosticCode.RuntimeTypeMismatch);
-                    return false;
+                    if (!siv.HasField(fieldName))
+                    {
+                        error = new RuntimeError(sp.PositionStart, sp.PositionEnd,
+                            $"struct '{siv.Definition.StructName}' has no field '{fieldName}'",
+                            context,
+                            code: DiagnosticCode.RuntimeTypeMismatch);
+                        return false;
+                    }
+                    var fieldValue = siv.GetField(fieldName);
+                    if (fieldPattern == null) bindings.Add((fieldName, fieldValue));
+                    else
+                    {
+                        if (!TryMatch(fieldPattern, fieldValue, context, bindings, out error)) return false;
+                        if (error != null) return false;
+                    }
                 }
-                var fieldValue = siv.GetField(fieldName);
-                if (fieldPattern == null)
-                {
-                    bindings.Add((fieldName, fieldValue));
-                }
-                else
-                {
-                    if (!TryMatch(fieldPattern, fieldValue, context, bindings, out error)) return false;
-                    if (error != null) return false;
-                }
+                return true;
             }
-            return true;
+
+            // Class instance: same by-name field destructuring. Nominal
+            // identity uses the class type's declared name. Allows
+            // 'case User { name, age } -> ...' against a class as well as
+            // against a struct.
+            if (scrutinee is RaLanguage.Interpreter.Values.Primitives.ClassInstanceValue civ)
+            {
+                if (!string.Equals(civ.Definition.ClassName, sp.StructName, System.StringComparison.Ordinal)) return false;
+                foreach (var (fieldName, fieldPattern) in sp.Fields)
+                {
+                    if (!civ.HasField(fieldName))
+                    {
+                        error = new RuntimeError(sp.PositionStart, sp.PositionEnd,
+                            $"class '{civ.Definition.ClassName}' has no field '{fieldName}'",
+                            context,
+                            code: DiagnosticCode.RuntimeTypeMismatch);
+                        return false;
+                    }
+                    var fieldValue = civ.GetField(fieldName);
+                    if (fieldPattern == null) bindings.Add((fieldName, fieldValue));
+                    else
+                    {
+                        if (!TryMatch(fieldPattern, fieldValue, context, bindings, out error)) return false;
+                        if (error != null) return false;
+                    }
+                }
+                return true;
+            }
+
+            // Record instance: nominal + by-name. Record positional
+            // destructuring continues to flow through TryMatchVariant.
+            if (scrutinee is RaLanguage.Interpreter.Values.Records.RecordInstanceValue riv)
+            {
+                if (!string.Equals(riv.Definition.StructName, sp.StructName, System.StringComparison.Ordinal)) return false;
+                foreach (var (fieldName, fieldPattern) in sp.Fields)
+                {
+                    if (!riv.HasField(fieldName))
+                    {
+                        error = new RuntimeError(sp.PositionStart, sp.PositionEnd,
+                            $"record '{riv.Definition.StructName}' has no field '{fieldName}'",
+                            context,
+                            code: DiagnosticCode.RuntimeTypeMismatch);
+                        return false;
+                    }
+                    var fieldValue = riv.GetField(fieldName);
+                    if (fieldPattern == null) bindings.Add((fieldName, fieldValue));
+                    else
+                    {
+                        if (!TryMatch(fieldPattern, fieldValue, context, bindings, out error)) return false;
+                        if (error != null) return false;
+                    }
+                }
+                return true;
+            }
+
+            return false;
         }
     }
 }

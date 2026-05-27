@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using RaLanguage.Interpreter.Runtime;
+using RaLanguage.Interpreter.Values;
 using RaLanguage.Lexer;
 
 namespace RaLanguage.Errors.Types
@@ -7,6 +8,13 @@ namespace RaLanguage.Errors.Types
     public class RuntimeError : Error
     {
         public Context Context { get; }
+
+        // When set, the original RuntimeValue carried by a `throw`
+        // statement. The catch handler picks this up so pattern-based
+        // catch clauses can destructure the thrown value (variant, struct,
+        // record, etc.). Null for system-raised errors that have no
+        // user-visible value.
+        public RuntimeValue? ThrownValue { get; internal set; }
 
         public RuntimeError(Position positionStart, Position positionEnd, string details, Context context)
             : base(BuildDiagnostic(positionStart, positionEnd, details, context, DiagnosticCode.RuntimeGeneric, null, null, null))

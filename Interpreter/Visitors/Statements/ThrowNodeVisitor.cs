@@ -20,11 +20,16 @@ namespace RaLanguage.Interpreter.Visitors.Statements
             if (res.ShouldReturn()) return res;
 
             string message = value == null ? "<null>" : value.ToString() ?? "<null>";
-            return res.Failure(new RuntimeError(
+            var err = new RuntimeError(
                 node.PositionStart,
                 node.PositionEnd,
                 message,
-                context));
+                context);
+            // Preserve the raw thrown value so a 'catch (Pattern)' clause
+            // can destructure it. Lost on system-raised errors, which is
+            // what the StringValue catch fallback in TryNodeVisitor covers.
+            err.ThrownValue = value;
+            return res.Failure(err);
         }
     }
 }
