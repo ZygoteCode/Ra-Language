@@ -1,0 +1,62 @@
+// Microbenchmark: bar-lambda call cost vs named-fn call cost.
+//
+// Both routines repeat the same body (`x + 1`) N times. The expectation
+// is that a zero-capture bar-lambda is indistinguishable from a named
+// function at the dispatch level — both go through the same
+// `OP_DefineFunction` -> `FunctionValue.Execute` -> `VmExecutor` path.
+//
+// Run with the release binary:
+//   dotnet build -c Release
+//   bin\Release\net10.0\RaLanguage.exe bench_lambdas.ra
+
+fn named_inc(x: int): int { ret x + 1 }
+
+fn time_named(iter: int): int {
+    var sum = 0
+    for (var i = 0; i < iter; i = i + 1) {
+        sum = sum + named_inc(i)
+    }
+    ret sum
+}
+
+fn time_lambda_nocap(iter: int): int {
+    let inc = |x: int| -> int x + 1
+    var sum = 0
+    for (var i = 0; i < iter; i = i + 1) {
+        sum = sum + inc(i)
+    }
+    ret sum
+}
+
+fn time_lambda_implicit_cap(iter: int): int {
+    let bias = 1
+    let inc = |x: int| -> int x + bias
+    var sum = 0
+    for (var i = 0; i < iter; i = i + 1) {
+        sum = sum + inc(i)
+    }
+    ret sum
+}
+
+fn time_lambda_explicit_cap(iter: int): int {
+    let bias = 1
+    let inc = [bias] |x: int| -> int x + bias
+    var sum = 0
+    for (var i = 0; i < iter; i = i + 1) {
+        sum = sum + inc(i)
+    }
+    ret sum
+}
+
+let N = 1000000
+
+let s_named         = time_named(N)
+let s_lam_nocap     = time_lambda_nocap(N)
+let s_lam_imp_cap   = time_lambda_implicit_cap(N)
+let s_lam_exp_cap   = time_lambda_explicit_cap(N)
+
+print($"named         sum = ${s_named}")
+print($"lambda nocap  sum = ${s_lam_nocap}")
+print($"lambda implicit-cap sum = ${s_lam_imp_cap}")
+print($"lambda explicit-cap sum = ${s_lam_exp_cap}")
+print("done")
