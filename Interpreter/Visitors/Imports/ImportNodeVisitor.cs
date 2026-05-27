@@ -173,13 +173,110 @@ namespace RaLanguage.Interpreter.Visitors.Imports
         private static void MergeExtensions(ExtensionRegistry target, ExtensionRegistry source)
         {
             if (target == null || source == null || ReferenceEquals(target, source)) return;
-            foreach (var kvp in source.AllMethods)
+
+            foreach (var kvp in source.AllMethodEntries)
             {
-                foreach (var method in kvp.Value)
+                if (target.IsSealed(kvp.Key)) continue;
+                foreach (var entry in kvp.Value)
                 {
-                    target.Register(kvp.Key, method);
+                    if (!entry.IsEffectivelyPublic) continue;
+                    target.RegisterMethod(
+                        kvp.Key,
+                        entry.Method,
+                        isBlockPublic: entry.IsBlockPublic,
+                        isLocal: false,
+                        declaringModule: entry.DeclaringModule,
+                        targetType: entry.TargetType);
                 }
             }
+
+            foreach (var kvp in source.AllPropertyEntries)
+            {
+                if (target.IsSealed(kvp.Key)) continue;
+                foreach (var entry in kvp.Value)
+                {
+                    if (!entry.IsEffectivelyPublic) continue;
+                    target.RegisterProperty(
+                        kvp.Key,
+                        entry.Descriptor,
+                        isBlockPublic: entry.IsBlockPublic,
+                        isLocal: false,
+                        declaringModule: entry.DeclaringModule,
+                        out _,
+                        targetType: entry.TargetType);
+                }
+            }
+
+            foreach (var kvp in source.AllOperatorEntries)
+            {
+                if (target.IsSealed(kvp.Key)) continue;
+                foreach (var entry in kvp.Value)
+                {
+                    if (!entry.IsEffectivelyPublic) continue;
+                    target.RegisterOperator(
+                        kvp.Key,
+                        entry.Operator,
+                        isBlockPublic: entry.IsBlockPublic,
+                        isLocal: false,
+                        declaringModule: entry.DeclaringModule,
+                        targetType: entry.TargetType);
+                }
+            }
+
+            foreach (var kvp in source.AllIndexerEntries)
+            {
+                if (target.IsSealed(kvp.Key)) continue;
+                foreach (var entry in kvp.Value)
+                {
+                    if (!entry.IsEffectivelyPublic) continue;
+                    target.RegisterIndexer(kvp.Key, new ExtensionIndexerEntry(
+                        entry.Method,
+                        entry.IsSetter,
+                        isBlockPublic: entry.IsBlockPublic,
+                        isLocal: false,
+                        declaringModule: entry.DeclaringModule,
+                        targetType: entry.TargetType));
+                }
+            }
+
+            foreach (var kvp in source.AllEventEntries)
+            {
+                if (target.IsSealed(kvp.Key)) continue;
+                foreach (var entry in kvp.Value)
+                {
+                    if (!entry.IsEffectivelyPublic) continue;
+                    target.RegisterEvent(
+                        kvp.Key,
+                        entry.Descriptor,
+                        isBlockPublic: entry.IsBlockPublic,
+                        isLocal: false,
+                        declaringModule: entry.DeclaringModule,
+                        out _,
+                        targetType: entry.TargetType);
+                }
+            }
+
+            foreach (var kvp in source.AllFieldEntries)
+            {
+                if (target.IsSealed(kvp.Key)) continue;
+                foreach (var entry in kvp.Value)
+                {
+                    if (!entry.IsEffectivelyPublic) continue;
+                    target.RegisterField(
+                        kvp.Key,
+                        entry.Descriptor,
+                        isBlockPublic: entry.IsBlockPublic,
+                        isLocal: false,
+                        declaringModule: entry.DeclaringModule,
+                        out _,
+                        targetType: entry.TargetType);
+                }
+            }
+
+            // Sealed targets propagate — once a target is sealed in
+            // the source module, the importer adopts the seal too.
+            foreach (var key in source.SealedTargets)
+                target.MarkSealed(key);
         }
     }
 

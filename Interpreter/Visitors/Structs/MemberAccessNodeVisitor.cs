@@ -70,7 +70,16 @@ namespace RaLanguage.Interpreter.Visitors.Members
                     return res.Success(new BoundStructMethodValue(instance.Definition, instance, method).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
 
-                var ext = context.Extensions.Resolve(instance, memberName);
+                if (Runtime.ExtensionDispatch.TryGetField(instance, memberName, context, node.PositionStart, node.PositionEnd, out var sExtField))
+                    return sExtField;
+
+                if (Runtime.ExtensionDispatch.TryGetEvent(instance, memberName, context, node.PositionStart, node.PositionEnd, out var sExtEv))
+                    return sExtEv;
+
+                if (Runtime.ExtensionDispatch.TryGetProperty(instance, memberName, context, node.PositionStart, node.PositionEnd, out var sExtProp))
+                    return sExtProp;
+
+                var ext = context.Extensions.ResolveMethodEntries(instance, memberName);
                 if (ext.Count > 0)
                     return res.Success(new BoundExtensionMethodGroupValue(instance, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
 
@@ -93,7 +102,16 @@ namespace RaLanguage.Interpreter.Visitors.Members
                 if (native.Count > 0)
                     return res.Success(new BoundClassMethodGroupValue(instance.Definition, instance, native).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
 
-                var ext = context.Extensions.Resolve(instance, memberName);
+                if (Runtime.ExtensionDispatch.TryGetField(instance, memberName, context, node.PositionStart, node.PositionEnd, out var cExtField))
+                    return cExtField;
+
+                if (Runtime.ExtensionDispatch.TryGetEvent(instance, memberName, context, node.PositionStart, node.PositionEnd, out var cExtEv))
+                    return cExtEv;
+
+                if (Runtime.ExtensionDispatch.TryGetProperty(instance, memberName, context, node.PositionStart, node.PositionEnd, out var cExtProp))
+                    return cExtProp;
+
+                var ext = context.Extensions.ResolveMethodEntries(instance, memberName);
                 if (ext.Count > 0)
                     return res.Success(new BoundExtensionMethodGroupValue(instance, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
 
@@ -177,7 +195,7 @@ namespace RaLanguage.Interpreter.Visitors.Members
             if (target.Type == RuntimeValueType.ModuleWrapper)
             {
                 var moduleWrapper = (ModuleWrapperValue)target;
-                var ext = moduleWrapper.Module.Extensions.Resolve(target, memberName);
+                var ext = moduleWrapper.Module.Extensions.ResolveMethodEntries(target, memberName);
 
                 if (ext.Count > 0)
                     return res.Success(new BoundExtensionMethodGroupValue(target, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
@@ -197,7 +215,10 @@ namespace RaLanguage.Interpreter.Visitors.Members
                 target.Type == RuntimeValueType.Map || target.Type == RuntimeValueType.Tuple ||
                 target.Type == RuntimeValueType.Boolean || target.Type == RuntimeValueType.Null)
             {
-                var ext = context.Extensions.Resolve(target, memberName);
+                if (Runtime.ExtensionDispatch.TryGetProperty(target, memberName, context, node.PositionStart, node.PositionEnd, out var pExtProp))
+                    return pExtProp;
+
+                var ext = context.Extensions.ResolveMethodEntries(target, memberName);
 
                 if (ext.Count > 0)
                     return res.Success(new BoundExtensionMethodGroupValue(target, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));

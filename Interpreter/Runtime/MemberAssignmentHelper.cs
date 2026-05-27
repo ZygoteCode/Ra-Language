@@ -39,6 +39,12 @@ namespace RaLanguage.Interpreter.Runtime
                     return setTask.IsCompletedSuccessfully ? setTask.Result : SyncAwait.Get(setTask);
                 }
 
+                if (ExtensionDispatch.TrySetField(instance, memberName, value, context, node.PositionStart, node.PositionEnd, out var sExtFieldSet))
+                    return sExtFieldSet;
+
+                if (ExtensionDispatch.TrySetProperty(instance, memberName, value, context, node.PositionStart, node.PositionEnd, out var sExtSet))
+                    return sExtSet;
+
                 if (!instance.HasField(memberName))
                     return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
                         $"{(owner.Type == RuntimeValueType.RecordInstance ? "Record" : "Struct")} '{instance.Definition.StructName}' has no field '{memberName}'", context));
@@ -74,6 +80,20 @@ namespace RaLanguage.Interpreter.Runtime
                         node.PositionStart, node.PositionEnd, isInside, context.IsInConstructor);
                     return setTask.IsCompletedSuccessfully ? setTask.Result : SyncAwait.Get(setTask);
                 }
+
+                // Extension field set — checked before native field
+                // path? No: native field wins. Place after the native
+                // HasField check but before the static-field fallback.
+                if (!instance.HasField(memberName)
+                    && ExtensionDispatch.TrySetField(instance, memberName, value, context, node.PositionStart, node.PositionEnd, out var cExtFieldSet))
+                    return cExtFieldSet;
+
+                // Extension property setters lose to native fields
+                // (which take precedence at the resolution chain) but
+                // win over the static-field fallback below.
+                if (!instance.HasField(memberName)
+                    && ExtensionDispatch.TrySetProperty(instance, memberName, value, context, node.PositionStart, node.PositionEnd, out var cExtSet))
+                    return cExtSet;
 
                 if (instance.HasField(memberName))
                 {
@@ -154,6 +174,8 @@ namespace RaLanguage.Interpreter.Runtime
                     classType.SetStaticField(memberName, value, classType.IsStaticFieldPublic(memberName), fieldType);
                     return res.Success(value.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
+                if (ExtensionDispatch.TrySetField(classType, memberName, value, context, node.PositionStart, node.PositionEnd, out var staticExtFieldSet))
+                    return staticExtFieldSet;
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Class '{classType.ClassName}' has no static field '{memberName}'", context));
             }
 

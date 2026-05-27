@@ -31,6 +31,13 @@ namespace RaLanguage.Interpreter.Values.Structs
         // declarations are rejected at parse time.
         public Dictionary<string, RaLanguage.Interpreter.Runtime.Events.EventSubscriberList>? EventSubs;
 
+        // Extension-field storage. See ClassInstanceValue for the
+        // contract. Null until the first ext-field write hits this
+        // instance.
+        public RuntimeValue?[]? ExtFieldSlots;
+        public ulong[]? ExtFieldInitBits;
+        public ulong[]? ExtFieldLazyBits;
+
         public override RuntimeValueType Type => RuntimeValueType.StructInstance;
         public override bool IsCopy => true;
 
@@ -175,5 +182,49 @@ namespace RaLanguage.Interpreter.Values.Structs
 
         public override string ToString()
             => $"{Definition.StructName}{{{string.Join(", ", Fields.Select(kv => $"{kv.Key}: {kv.Value}"))}}}";
+
+        // Extension indexer dispatch on struct receivers. See the
+        // matching override on ClassInstanceValue for the contract;
+        // the only difference is the surrounding type wrapper used
+        // for diagnostics.
+        public override ValueResult ListAccess(RuntimeValue other)
+        {
+            if (Context?.Extensions != null)
+            {
+                var entry = Context.Extensions.ResolveIndexerEntry(this, isAssignment: false);
+                if (entry != null)
+                {
+                    var bound = new Classes.BoundExtensionMethodGroupValue(
+                        this,
+                        new System.Collections.Generic.List<Parser.Nodes.Functions.FunctionDefinitionNode> { entry.Method })
+                        .SetContext(Context)
+                        .SetPos(PositionStart, PositionEnd);
+                    var r = SyncAwait.Get(bound.Execute(new System.Collections.Generic.List<RuntimeValue> { other }));
+                    if (r.Error != null) return (null, r.Error);
+                    return (r.Value, null);
+                }
+            }
+            return (null, IllegalOperation(other));
+        }
+
+        public override ValueResult ListSet(RuntimeValue index, RuntimeValue value)
+        {
+            if (Context?.Extensions != null)
+            {
+                var entry = Context.Extensions.ResolveIndexerEntry(this, isAssignment: true);
+                if (entry != null)
+                {
+                    var bound = new Classes.BoundExtensionMethodGroupValue(
+                        this,
+                        new System.Collections.Generic.List<Parser.Nodes.Functions.FunctionDefinitionNode> { entry.Method })
+                        .SetContext(Context)
+                        .SetPos(PositionStart, PositionEnd);
+                    var r = SyncAwait.Get(bound.Execute(new System.Collections.Generic.List<RuntimeValue> { index, value }));
+                    if (r.Error != null) return (null, r.Error);
+                    return (r.Value ?? value, null);
+                }
+            }
+            return (null, IllegalOperation(this));
+        }
     }
 }

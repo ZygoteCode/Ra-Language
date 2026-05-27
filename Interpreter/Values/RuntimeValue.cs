@@ -1357,6 +1357,13 @@ namespace RaLanguage.Interpreter.Values
                 var parameterTypeName = GetTypeName(other);
 
                 var op = type.ResolveOperator(operatorType, parameterTypeName);
+                // Native miss: probe the extension registry for an
+                // `operator OP(rhs: T)` declared in an `extend` block.
+                if (op == null && Context?.Extensions != null)
+                {
+                    var ext = Context.Extensions.ResolveOperatorEntry(this, operatorType, parameterTypeName);
+                    if (ext != null) op = ext.Operator;
+                }
                 if (op != null)
                 {
                     if (IsComparisonOperator(operatorType) && op.ReturnType != null &&
@@ -1417,6 +1424,11 @@ namespace RaLanguage.Interpreter.Values
                 var parameterTypeName = GetTypeName(other);
 
                 var op = type.ResolveOperator(operatorType, parameterTypeName);
+                if (op == null && Context?.Extensions != null)
+                {
+                    var ext = Context.Extensions.ResolveOperatorEntry(this, operatorType, parameterTypeName);
+                    if (ext != null) op = ext.Operator;
+                }
                 if (op != null)
                 {
                     if (IsComparisonOperator(operatorType) && op.ReturnType != null &&
