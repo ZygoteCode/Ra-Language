@@ -406,6 +406,41 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.BitwiseOredBy(other);
         }
 
+        public sealed override ValueResult BitwiseXoredBy(RuntimeValue other)
+        {
+            if (other.Type == RuntimeValueType.Float || other.Type == RuntimeValueType.Double || other.Type == RuntimeValueType.Number)
+                return base.BitwiseXoredBy(other);
+
+            if (TryAsBigInteger(other, out var rhs))
+                return (PromoteBigInteger(BigInteger.Parse(Value.ToString()) ^ rhs), null);
+
+            return base.BitwiseXoredBy(other);
+        }
+
+        public sealed override ValueResult BitwiseUnsignedRightShiftedBy(RuntimeValue other)
+        {
+            // Unsigned by definition — same bit pattern as `>>`.
+            var err = ShiftCount.TryGet(other, width: 128, PositionStart, PositionEnd, Context, out int n);
+            if (err != null) return (null, err);
+            return (new UnsignedInt128Value(Value >> n).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+        }
+
+        public sealed override ValueResult BitwiseRotateLeftedBy(RuntimeValue other)
+        {
+            var err = ShiftCount.TryGet(other, width: 128, PositionStart, PositionEnd, Context, out int n);
+            if (err != null) return (null, err);
+            UInt128 rotated = n == 0 ? Value : (Value << n) | (Value >> (128 - n));
+            return (new UnsignedInt128Value(rotated).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+        }
+
+        public sealed override ValueResult BitwiseRotateRightedBy(RuntimeValue other)
+        {
+            var err = ShiftCount.TryGet(other, width: 128, PositionStart, PositionEnd, Context, out int n);
+            if (err != null) return (null, err);
+            UInt128 rotated = n == 0 ? Value : (Value >> n) | (Value << (128 - n));
+            return (new UnsignedInt128Value(rotated).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+        }
+
         public sealed override ValueResult Notted()
         {
             return (new UnsignedInt128Value(Value == 0 ? (UInt128)1 : (UInt128)0).SetContext(Context).SetPos(PositionStart, PositionEnd), null);

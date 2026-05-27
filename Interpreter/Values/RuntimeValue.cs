@@ -116,8 +116,24 @@ namespace RaLanguage.Interpreter.Values
         public virtual ValueResult ModuledBy(RuntimeValue other) => (null, IllegalOperation(other));
         public virtual ValueResult BitwiseLeftShiftedBy(RuntimeValue other) => (null, IllegalOperation(other));
         public virtual ValueResult BitwiseRightShiftedBy(RuntimeValue other) => (null, IllegalOperation(other));
+        // Logical / unsigned right shift (`>>>`). Zero-fills the vacated high
+        // bits regardless of operand sign. For fixed-width integers the shift
+        // count is masked modulo the width; for arbitrary-precision `number`
+        // it is rejected on negative operands (no canonical bit-pattern).
+        public virtual ValueResult BitwiseUnsignedRightShiftedBy(RuntimeValue other) => (null, IllegalOperation(other));
+        // Rotate-left (`<<<<`). Bits that fall off the high end re-enter on
+        // the low end of the value's fixed width. Only defined for fixed-width
+        // integer families; arbitrary-precision `number` errors out.
+        public virtual ValueResult BitwiseRotateLeftedBy(RuntimeValue other) => (null, IllegalOperation(other));
+        // Rotate-right (`>>>>`). Symmetric counterpart to BitwiseRotateLeftedBy.
+        public virtual ValueResult BitwiseRotateRightedBy(RuntimeValue other) => (null, IllegalOperation(other));
         public virtual ValueResult BitwiseAndedBy(RuntimeValue other) => (null, IllegalOperation(other));
         public virtual ValueResult BitwiseOredBy(RuntimeValue other) => (null, IllegalOperation(other));
+        // Bitwise XOR. A long-standing bug had BinOp.BXor in the VM dispatcher
+        // routing to the AND virtual; the entry now exists so dispatch resolves
+        // correctly. No user-visible token maps to XOR today (`^` is exponent
+        // in Ra), so this method is reachable only through IR-internal rewrites.
+        public virtual ValueResult BitwiseXoredBy(RuntimeValue other) => (null, IllegalOperation(other));
         public virtual ValueResult ListAccess(RuntimeValue other) => (null, IllegalOperation(other));
 
         public virtual ValueResult GetComparisonEq(RuntimeValue other)

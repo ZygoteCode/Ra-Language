@@ -1093,6 +1093,7 @@ namespace RaLanguage.Interpreter.IR
                 case Opcode.LoadIntS64:
                 case Opcode.Add: case Opcode.Sub: case Opcode.Mul:
                 case Opcode.Shl: case Opcode.Shr:
+                case Opcode.Ushr: case Opcode.Rol: case Opcode.Ror:
                 case Opcode.BAnd: case Opcode.BOr: case Opcode.BXor:
                 case Opcode.AddNN: case Opcode.SubNN: case Opcode.MulNN:
                 case Opcode.AddII: case Opcode.SubII: case Opcode.MulII:
@@ -1101,6 +1102,7 @@ namespace RaLanguage.Interpreter.IR
                 case Opcode.Neg: case Opcode.Not: case Opcode.BNot:
                 case Opcode.NegI: case Opcode.NegF:
                 case Opcode.ShlII: case Opcode.ShrII:
+                case Opcode.UshrII: case Opcode.RolII: case Opcode.RorII:
                 case Opcode.BAndII: case Opcode.BOrII: case Opcode.BXorII:
                 case Opcode.Eq: case Opcode.Ne:
                 case Opcode.SEq: case Opcode.SNe:
@@ -1163,6 +1165,9 @@ namespace RaLanguage.Interpreter.IR
                     case Opcode.Pow:
                     case Opcode.Shl:
                     case Opcode.Shr:
+                    case Opcode.Ushr:
+                    case Opcode.Rol:
+                    case Opcode.Ror:
                     case Opcode.BAnd:
                     case Opcode.BOr:
                     case Opcode.BXor:
@@ -4523,6 +4528,13 @@ namespace RaLanguage.Interpreter.IR
                 TokenType.POW               => Opcode.Pow,
                 TokenType.BITWISE_LEFT_SHIFT  => Opcode.Shl,
                 TokenType.BITWISE_RIGHT_SHIFT => Opcode.Shr,
+                // `<<<` shares Opcode.Shl — identical bit pattern, distinct
+                // only at the token level so the parser can preserve the
+                // unsigned intent for diagnostics. (See RA_SHIFTS_DESIGN.md.)
+                TokenType.BITWISE_LOGICAL_LEFT_SHIFT  => Opcode.Shl,
+                TokenType.BITWISE_LOGICAL_RIGHT_SHIFT => Opcode.Ushr,
+                TokenType.BITWISE_ROTATE_LEFT         => Opcode.Rol,
+                TokenType.BITWISE_ROTATE_RIGHT        => Opcode.Ror,
                 TokenType.BITWISE_AND       => Opcode.BAnd,
                 TokenType.BITWISE_OR        => Opcode.BOr,
                 TokenType.EE                => Opcode.Eq,
@@ -4754,6 +4766,10 @@ namespace RaLanguage.Interpreter.IR
                         || opT == Lexer.Tokens.TokenType.MUL
                         || opT == Lexer.Tokens.TokenType.BITWISE_LEFT_SHIFT
                         || opT == Lexer.Tokens.TokenType.BITWISE_RIGHT_SHIFT
+                        || opT == Lexer.Tokens.TokenType.BITWISE_LOGICAL_LEFT_SHIFT
+                        || opT == Lexer.Tokens.TokenType.BITWISE_LOGICAL_RIGHT_SHIFT
+                        || opT == Lexer.Tokens.TokenType.BITWISE_ROTATE_LEFT
+                        || opT == Lexer.Tokens.TokenType.BITWISE_ROTATE_RIGHT
                         || opT == Lexer.Tokens.TokenType.BITWISE_AND
                         || opT == Lexer.Tokens.TokenType.BITWISE_OR;
                     // M88 (#29): Div / Mod / Pow admit only when the
@@ -5347,6 +5363,20 @@ namespace RaLanguage.Interpreter.IR
                 || t == Lexer.Tokens.TokenType.BITWISE_OR
                 || t == Lexer.Tokens.TokenType.BITWISE_LEFT_SHIFT
                 || t == Lexer.Tokens.TokenType.BITWISE_RIGHT_SHIFT
+                // `<<<` (logical left) shares ShlII with `<<` — identical bit
+                // pattern, no semantic divergence on the typed path.
+                || t == Lexer.Tokens.TokenType.BITWISE_LOGICAL_LEFT_SHIFT
+                // `>>>`, `<<<<`, `>>>>` are intentionally EXCLUDED from the
+                // typed-Int64 promotion. Their semantics differ from `>>` /
+                // `<<` for the same bit pattern (logical vs arithmetic right
+                // shift; rotate vs shift) AND the boxed NumberValue path
+                // surfaces specific diagnostics ("rotate undefined on number",
+                // "logical right shift undefined on negative number"). Forcing
+                // the typed promotion at the IR level would silently swap a
+                // 64-bit rotation for those diagnostics on small literals like
+                // `1 <<<< 4`. Users who want the int64 fast path cast to `long`
+                // explicitly — the LongValue overload then routes to the
+                // boxed-path-equivalent 64-bit operation.
                 || t == Lexer.Tokens.TokenType.POW
                 || IsTypedComparableOp(t);
         }
@@ -5364,6 +5394,10 @@ namespace RaLanguage.Interpreter.IR
                 Lexer.Tokens.TokenType.BITWISE_OR            => Opcode.BOrII,
                 Lexer.Tokens.TokenType.BITWISE_LEFT_SHIFT    => Opcode.ShlII,
                 Lexer.Tokens.TokenType.BITWISE_RIGHT_SHIFT   => Opcode.ShrII,
+                // `<<<` shares the ShlII opcode (same bit pattern as `<<`).
+                // `>>>`, `<<<<`, `>>>>` deliberately have no typed-II mapping
+                // — see IsTypedBinaryOp for the rationale.
+                Lexer.Tokens.TokenType.BITWISE_LOGICAL_LEFT_SHIFT  => Opcode.ShlII,
                 Lexer.Tokens.TokenType.POW                   => Opcode.PowII,
                 Lexer.Tokens.TokenType.EE                    => Opcode.EqII,
                 Lexer.Tokens.TokenType.NE                    => Opcode.NeII,

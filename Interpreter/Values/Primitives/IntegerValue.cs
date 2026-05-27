@@ -662,24 +662,20 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         public sealed override ValueResult BitwiseLeftShiftedBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Integer)
-            {
-                var i = (IntegerValue)other;
-                return (new IntegerValue(Value << i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
-            }
-
-            return base.BitwiseLeftShiftedBy(other);
+            // Accept any numeric count, not just IntegerValue. ShiftCount masks
+            // the count modulo 32 (matching C# `int << int` semantics) and
+            // produces a uniform "negative count" / "non-integer count"
+            // diagnostic — same path the new extended-shift operators use.
+            var err = ShiftCount.TryGet(other, width: 32, PositionStart, PositionEnd, Context, out int n);
+            if (err != null) return (null, err);
+            return (IntegerValue.Of(Value << n).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
         }
 
         public sealed override ValueResult BitwiseRightShiftedBy(RuntimeValue other)
         {
-            if (other.Type == RuntimeValueType.Integer)
-            {
-                var i = (IntegerValue)other;
-                return (new IntegerValue(Value >> i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
-            }
-
-            return base.BitwiseRightShiftedBy(other);
+            var err = ShiftCount.TryGet(other, width: 32, PositionStart, PositionEnd, Context, out int n);
+            if (err != null) return (null, err);
+            return (IntegerValue.Of(Value >> n).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
         }
 
         public sealed override ValueResult BitwiseAndedBy(RuntimeValue other)
@@ -702,6 +698,42 @@ namespace RaLanguage.Interpreter.Values.Primitives
             }
 
             return base.BitwiseOredBy(other);
+        }
+
+        public sealed override ValueResult BitwiseXoredBy(RuntimeValue other)
+        {
+            if (other.Type == RuntimeValueType.Integer)
+            {
+                var i = (IntegerValue)other;
+                return (new IntegerValue(Value ^ i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            return base.BitwiseXoredBy(other);
+        }
+
+        public sealed override ValueResult BitwiseUnsignedRightShiftedBy(RuntimeValue other)
+        {
+            var err = ShiftCount.TryGet(other, width: 32, PositionStart, PositionEnd, Context, out int n);
+            if (err != null) return (null, err);
+            // (uint) cast to opt out of sign-extension on the shift.
+            int result = (int)((uint)Value >> n);
+            return (IntegerValue.Of(result).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+        }
+
+        public sealed override ValueResult BitwiseRotateLeftedBy(RuntimeValue other)
+        {
+            var err = ShiftCount.TryGet(other, width: 32, PositionStart, PositionEnd, Context, out int n);
+            if (err != null) return (null, err);
+            uint rotated = System.Numerics.BitOperations.RotateLeft((uint)Value, n);
+            return (IntegerValue.Of(unchecked((int)rotated)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+        }
+
+        public sealed override ValueResult BitwiseRotateRightedBy(RuntimeValue other)
+        {
+            var err = ShiftCount.TryGet(other, width: 32, PositionStart, PositionEnd, Context, out int n);
+            if (err != null) return (null, err);
+            uint rotated = System.Numerics.BitOperations.RotateRight((uint)Value, n);
+            return (IntegerValue.Of(unchecked((int)rotated)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
         }
 
         public sealed override ValueResult Notted()

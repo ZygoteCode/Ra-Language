@@ -58,6 +58,10 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                     case TokenType.BITWISE_OR_EQ: (result, error) = currentValue.BitwiseOredBy(valueToAssign); break;
                     case TokenType.BITWISE_LEFT_SHIFT_EQ: (result, error) = currentValue.BitwiseLeftShiftedBy(valueToAssign); break;
                     case TokenType.BITWISE_RIGHT_SHIFT_EQ: (result, error) = currentValue.BitwiseRightShiftedBy(valueToAssign); break;
+                    case TokenType.BITWISE_LOGICAL_LEFT_SHIFT_EQ: (result, error) = currentValue.BitwiseLeftShiftedBy(valueToAssign); break;
+                    case TokenType.BITWISE_LOGICAL_RIGHT_SHIFT_EQ: (result, error) = currentValue.BitwiseUnsignedRightShiftedBy(valueToAssign); break;
+                    case TokenType.BITWISE_ROTATE_LEFT_EQ: (result, error) = currentValue.BitwiseRotateLeftedBy(valueToAssign); break;
+                    case TokenType.BITWISE_ROTATE_RIGHT_EQ: (result, error) = currentValue.BitwiseRotateRightedBy(valueToAssign); break;
                     case TokenType.POW_EQ: (result, error) = currentValue.PowedBy(valueToAssign); break;
                     case TokenType.AND_EQ: (result, error) = currentValue.AndedBy(valueToAssign); break;
                     case TokenType.OR_EQ: (result, error) = currentValue.OredBy(valueToAssign); break;

@@ -73,6 +73,10 @@ namespace RaLanguage.Interpreter.Runtime
                 case TokenType.BITWISE_OR_EQ: (result, error) = operationTarget.BitwiseOredBy(value); break;
                 case TokenType.BITWISE_LEFT_SHIFT_EQ: (result, error) = operationTarget.BitwiseLeftShiftedBy(value); break;
                 case TokenType.BITWISE_RIGHT_SHIFT_EQ: (result, error) = operationTarget.BitwiseRightShiftedBy(value); break;
+                case TokenType.BITWISE_LOGICAL_LEFT_SHIFT_EQ: (result, error) = operationTarget.BitwiseLeftShiftedBy(value); break;
+                case TokenType.BITWISE_LOGICAL_RIGHT_SHIFT_EQ: (result, error) = operationTarget.BitwiseUnsignedRightShiftedBy(value); break;
+                case TokenType.BITWISE_ROTATE_LEFT_EQ: (result, error) = operationTarget.BitwiseRotateLeftedBy(value); break;
+                case TokenType.BITWISE_ROTATE_RIGHT_EQ: (result, error) = operationTarget.BitwiseRotateRightedBy(value); break;
                 case TokenType.POW_EQ: (result, error) = operationTarget.PowedBy(value); break;
                 case TokenType.AND_EQ: (result, error) = operationTarget.AndedBy(value); break;
                 case TokenType.OR_EQ: (result, error) = operationTarget.OredBy(value); break;

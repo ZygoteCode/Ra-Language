@@ -429,6 +429,26 @@ namespace RaLanguage.Interpreter.IR
         LeaveTry        = 0xA2,   // _, handlerIdx:u16
         FinallyEnd      = 0xA3,
 
+        // --- extended bitwise shifts (boxed) ---
+        //
+        // Boxed dispatch for the arrow-family shifts. Encoding matches the
+        // core arithmetic / shift opcodes:
+        //   [op][a:dst][b:lhs][c:rhs]
+        //
+        // Semantics (RA_SHIFTS_DESIGN.md §1):
+        //   Ushr  — logical / unsigned right shift (`>>>`)
+        //   Rol   — rotate-left  (`<<<<`)
+        //   Ror   — rotate-right (`>>>>`)
+        //
+        // The logical LEFT shift (`<<<`) shares Opcode.Shl with `<<` because
+        // for two's-complement integers the bit pattern is identical (zero-
+        // fill on the low end). Keeping a separate token (vs opcode) lets the
+        // parser preserve the unsigned intent in diagnostics while avoiding
+        // a redundant VM dispatch case.
+        Ushr            = 0xA4,
+        Rol             = 0xA5,
+        Ror             = 0xA6,
+
         // --- async ---
         Await           = 0xB0,   // a (dst), b (src)
         Spawn           = 0xB1,   // a (dst), b (fn), c (argBase)  + ext: argCount
@@ -518,6 +538,23 @@ namespace RaLanguage.Interpreter.IR
         //     System.Math.Pow(b, c). IEEE-754 semantics — never throws.
         PowII           = 0xDB,
         PowFF           = 0xDC,
+
+        // --- typed Int64 extended bitwise shifts ---
+        //
+        // Counterparts to the M68 II family. Operands are read as int64 from
+        // the typed long-slot side of the tagged union; deopt to the boxed
+        // Ushr / Rol / Ror on tag-mismatch or out-of-range shift count.
+        //
+        // Encoding identical to ShlII / ShrII:
+        //   UshrII / RolII / RorII   [op][a:dst][b:lhs][c:rhs]
+        //
+        // Width is fixed at 64 — matches the Int64 tagged-union representation.
+        // Smaller fixed-width integers (Int32, Int16, …) box up to the slow
+        // path so the per-type masking semantics in
+        // BitwiseRotate{Left,Right}edBy on the boxed value class always wins.
+        UshrII          = 0xDD,
+        RolII           = 0xDE,
+        RorII           = 0xDF,
 
         // --- inline asm ---
         AsmInvoke       = 0xE0,   // a (retBase), b (argsBase), regionId:u8 (c)  + ext: argsCount|retCount

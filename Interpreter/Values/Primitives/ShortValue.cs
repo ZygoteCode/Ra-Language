@@ -464,6 +464,46 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.BitwiseOredBy(other);
         }
 
+        public sealed override ValueResult BitwiseXoredBy(RuntimeValue other)
+        {
+            if (other.Type == RuntimeValueType.Short)
+                return (new ShortValue((short)(Value ^ ((ShortValue)other).Value)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+
+            if (other.Type == RuntimeValueType.Integer || other.Type == RuntimeValueType.UnsignedInteger
+                || other.Type == RuntimeValueType.Long || other.Type == RuntimeValueType.Int128
+                || other.Type == RuntimeValueType.UnsignedLong || other.Type == RuntimeValueType.UnsignedInt128
+                || other.Type == RuntimeValueType.Byte)
+                return (new LongValue((long)Value ^ AsLong(other)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+
+            return base.BitwiseXoredBy(other);
+        }
+
+        public sealed override ValueResult BitwiseUnsignedRightShiftedBy(RuntimeValue other)
+        {
+            var err = ShiftCount.TryGet(other, width: 16, PositionStart, PositionEnd, Context, out int n);
+            if (err != null) return (null, err);
+            ushort result = (ushort)((ushort)Value >> n);
+            return (new ShortValue(unchecked((short)result)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+        }
+
+        public sealed override ValueResult BitwiseRotateLeftedBy(RuntimeValue other)
+        {
+            var err = ShiftCount.TryGet(other, width: 16, PositionStart, PositionEnd, Context, out int n);
+            if (err != null) return (null, err);
+            ushort u = (ushort)Value;
+            ushort rotated = n == 0 ? u : (ushort)((u << n) | (u >> (16 - n)));
+            return (new ShortValue(unchecked((short)rotated)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+        }
+
+        public sealed override ValueResult BitwiseRotateRightedBy(RuntimeValue other)
+        {
+            var err = ShiftCount.TryGet(other, width: 16, PositionStart, PositionEnd, Context, out int n);
+            if (err != null) return (null, err);
+            ushort u = (ushort)Value;
+            ushort rotated = n == 0 ? u : (ushort)((u >> n) | (u << (16 - n)));
+            return (new ShortValue(unchecked((short)rotated)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+        }
+
         public sealed override ValueResult Notted()
         {
             return (new ShortValue(Value == 0 ? (short)1 : (short)0).SetContext(Context).SetPos(PositionStart, PositionEnd), null);

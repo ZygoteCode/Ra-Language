@@ -56,6 +56,21 @@
         BITWISE_OR,
         BITWISE_LEFT_SHIFT,
         BITWISE_RIGHT_SHIFT,
+        // `<<<` — logical / unsigned left shift. Identical bit pattern to `<<`
+        // for two's-complement integers (left shift is naturally zero-fill on
+        // the low end), but flagged distinctly so the IR and any future type
+        // narrowing can preserve "the programmer asked for an unsigned shift".
+        BITWISE_LOGICAL_LEFT_SHIFT,
+        // `>>>` — logical / unsigned right shift. Zero-fills the vacated high
+        // bits regardless of operand sign — mirrors the Java / JavaScript
+        // semantics and is distinct from `>>` (arithmetic, sign-extending).
+        BITWISE_LOGICAL_RIGHT_SHIFT,
+        // `<<<<` — rotate-left through the value's fixed width.
+        // Width-aware: defined for every fixed-width integer family; rejected
+        // on arbitrary-precision `number` (no canonical width).
+        BITWISE_ROTATE_LEFT,
+        // `>>>>` — rotate-right through the value's fixed width.
+        BITWISE_ROTATE_RIGHT,
         MODULO,
         BITWISE_NOT,
 
@@ -70,6 +85,10 @@
         BITWISE_OR_EQ,
         BITWISE_LEFT_SHIFT_EQ,
         BITWISE_RIGHT_SHIFT_EQ,
+        BITWISE_LOGICAL_LEFT_SHIFT_EQ,   // `<<<=`
+        BITWISE_LOGICAL_RIGHT_SHIFT_EQ,  // `>>>=`
+        BITWISE_ROTATE_LEFT_EQ,          // `<<<<=`
+        BITWISE_ROTATE_RIGHT_EQ,         // `>>>>=`
         POW_EQ,
 
         COMMA,

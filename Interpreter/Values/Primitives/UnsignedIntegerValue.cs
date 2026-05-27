@@ -815,6 +815,38 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return base.BitwiseOredBy(other);
         }
 
+        public sealed override ValueResult BitwiseXoredBy(RuntimeValue other)
+        {
+            if (other.Type == RuntimeValueType.UnsignedInteger)
+            {
+                var o = (UnsignedIntegerValue)other;
+                return (new UnsignedIntegerValue(Value ^ o.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+
+            return base.BitwiseXoredBy(other);
+        }
+
+        public sealed override ValueResult BitwiseUnsignedRightShiftedBy(RuntimeValue other)
+        {
+            var err = ShiftCount.TryGet(other, width: 32, PositionStart, PositionEnd, Context, out int n);
+            if (err != null) return (null, err);
+            return (new UnsignedIntegerValue(Value >> n).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+        }
+
+        public sealed override ValueResult BitwiseRotateLeftedBy(RuntimeValue other)
+        {
+            var err = ShiftCount.TryGet(other, width: 32, PositionStart, PositionEnd, Context, out int n);
+            if (err != null) return (null, err);
+            return (new UnsignedIntegerValue(System.Numerics.BitOperations.RotateLeft(Value, n)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+        }
+
+        public sealed override ValueResult BitwiseRotateRightedBy(RuntimeValue other)
+        {
+            var err = ShiftCount.TryGet(other, width: 32, PositionStart, PositionEnd, Context, out int n);
+            if (err != null) return (null, err);
+            return (new UnsignedIntegerValue(System.Numerics.BitOperations.RotateRight(Value, n)).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+        }
+
         public sealed override ValueResult Notted()
         {
             return (new UnsignedIntegerValue(Value == 0 ? 1u : 0u).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
