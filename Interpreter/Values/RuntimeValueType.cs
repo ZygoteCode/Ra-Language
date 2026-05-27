@@ -49,6 +49,10 @@
         RecordInstance,
         EventSubscription,
         Subscription,
-        EventRef
+        EventRef,
+        DelegateType,
+        MulticastDelegate,
+        PartialFunction,
+        ComposedFunction
     }
 }

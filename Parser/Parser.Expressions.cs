@@ -1097,6 +1097,10 @@ namespace RaLanguage.Parser
                     var annDef = res.Register(ParseAnnotationDefinition(false));
                     if (res.Error != null) return res;
                     return res.Success(annDef);
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Delegate:
+                    var delDef = res.Register(ParseDelegateDefinition(false));
+                    if (res.Error != null) return res;
+                    return res.Success(delDef);
                 case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Asm:
                     var asmBlk = res.Register(ParseAsmBlock());
                     if (res.Error != null) return res;

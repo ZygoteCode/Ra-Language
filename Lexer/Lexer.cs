@@ -1319,7 +1319,8 @@ namespace RaLanguage.Lexer
                 { "record", Keyword.Record },
                 { "prop", Keyword.Prop },
                 { "lazy", Keyword.Lazy },
-                { "event", Keyword.Event }
+                { "event", Keyword.Event },
+                { "delegate", Keyword.Delegate }
             };
         }
 

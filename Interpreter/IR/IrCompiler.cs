@@ -1811,6 +1811,7 @@ namespace RaLanguage.Interpreter.IR
                 case AstNodeType.AnnotationApplication:
                 case AstNodeType.WithExpression:
                 case AstNodeType.Switch:
+                case AstNodeType.DelegateDefinition:
                 {
                     if (st.DefineRefs.Count > ushort.MaxValue)
                         throw new IrCompileException("DefineRefs overflow (>65535)");

@@ -1067,8 +1067,175 @@ namespace RaLanguage.Parser
                 if (res.Error != null) return res;
                 return res.Success(annDef);
             }
+            else if (_currentToken.Matches(Keyword.Delegate))
+            {
+                var delDef = res.Register(ParseDelegateDefinition(true));
+                if (res.Error != null) return res;
+                return res.Success(delDef);
+            }
 
             return res.Failure(ParserDiagnostics.ExpectedOneOfKeywords(_currentToken, new[] { "struct", "class" }, context: "after the access / modifier list"));
+        }
+
+        // Parses `delegate Name [<T...>] = fn(...) -> R;`
+        // or the equivalent short form `delegate Name [<T...>] (P...) -> R;`.
+        // Both shapes produce a DelegateDefinitionNode whose SignatureType
+        // is a structural fn TypeDescriptor (TypeDescriptor.IsFunctionType).
+        private ParserResult ParseDelegateDefinition(bool isPublic)
+        {
+            var res = new ParserResult();
+
+            if (!_currentToken.Matches(Keyword.Delegate))
+                return res.Failure(ParserDiagnostics.ExpectedKeyword(_currentToken, "delegate",
+                    context: "to start a delegate alias declaration"));
+
+            res.RegisterAdvancement();
+            Advance();
+
+            while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+
+            if (_currentToken.Type != TokenType.IDENTIFIER)
+                return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
+                    after: "'delegate'",
+                    help: "delegate declarations begin with a name, e.g. 'delegate Predicate<T> = fn(T) -> bool;'"));
+
+            var nameTok = _currentToken;
+            res.RegisterAdvancement();
+            Advance();
+
+            List<string> genericTypeParams;
+            res.Register(ParseOptionalGenericTypeParameters(out genericTypeParams));
+            if (res.Error != null) return res;
+
+            PushGenericScope(genericTypeParams);
+            try
+            {
+                while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+
+                TypeDescriptor? signature = null;
+
+                if (_currentToken.Type == TokenType.EQ)
+                {
+                    // `delegate Name = fn(...) -> R` — explicit form. Right
+                    // side must produce a structural fn type.
+                    res.RegisterAdvancement();
+                    Advance();
+                    while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+
+                    signature = ParseType(res);
+                    if (signature == null)
+                        return res.Failure(ParserDiagnostics.ExpectedTypeAfterColon(_currentToken,
+                            where: "the right-hand side of a delegate alias"));
+
+                    if (!signature.IsFunctionType)
+                        return res.Failure(new InvalidSyntaxError(
+                            nameTok.PositionStart, _currentToken.PositionEnd,
+                            "delegate alias must point at a function type",
+                            DiagnosticCode.ParserInvalidSyntax,
+                            primaryLabel: "right-hand side is not a 'fn(...) -> R' shape",
+                            help: "use the form 'delegate Name = fn(int) -> bool;' or the short form 'delegate Name(int) -> bool;'"));
+                }
+                else if (_currentToken.Type == TokenType.LPAREN)
+                {
+                    // Short form: `delegate Name(P1, P2) -> R`.
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    var paramTypes = new List<TypeDescriptor>();
+                    if (_currentToken.Type != TokenType.RPAREN)
+                    {
+                        while (true)
+                        {
+                            var p = ParseType(res);
+                            if (p == null)
+                                return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
+                                    after: "delegate parameter list",
+                                    help: "delegate parameter types are written like normal type annotations"));
+                            paramTypes.Add(p);
+                            if (_currentToken.Type == TokenType.COMMA)
+                            {
+                                res.RegisterAdvancement();
+                                Advance();
+                                continue;
+                            }
+                            break;
+                        }
+                    }
+
+                    if (_currentToken.Type != TokenType.RPAREN)
+                        return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, ')', '(',
+                            context: "the delegate parameter list"));
+                    res.RegisterAdvancement();
+                    Advance();
+
+                    TypeDescriptor? retType = null;
+                    if (_currentToken.Type == TokenType.ARROW_RIGHT)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                        if (_currentToken.Type == TokenType.IDENTIFIER
+                            && string.Equals(_currentToken.Value?.ToString(), "void", System.StringComparison.Ordinal))
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                            retType = null;
+                        }
+                        else
+                        {
+                            retType = ParseType(res);
+                            if (retType == null)
+                                return res.Failure(ParserDiagnostics.ExpectedTypeAfterColon(_currentToken,
+                                    where: "the delegate return type"));
+                        }
+                    }
+
+                    signature = TypeDescriptor.FunctionType(paramTypes, retType);
+                }
+                else
+                {
+                    return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                        "'=' or '('",
+                        contextHint: "delegate declarations are 'delegate Name = fn(...) -> R;' or 'delegate Name(...) -> R;'"));
+                }
+
+                var whereConstraints = new List<WhereConstraintNode>();
+                // Only attempt where-clause parsing when there are generic
+                // params AND the `where` keyword actually follows on the
+                // same / next line. Peek past inline newlines without
+                // committing so the statement terminator survives when no
+                // where-clause is present.
+                if (genericTypeParams.Count > 0)
+                {
+                    int saved = _tokenIndex;
+                    var savedTok = _currentToken;
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+                    if (_currentToken.Matches(Keyword.Where))
+                    {
+                        res.Register(ParseOptionalWhereClause(genericTypeParams, out whereConstraints));
+                        if (res.Error != null) return res;
+                    }
+                    else
+                    {
+                        _tokenIndex = saved;
+                        _currentToken = savedTok;
+                    }
+                }
+
+                return res.Success(new DelegateDefinitionNode(
+                    nameTok,
+                    genericTypeParams,
+                    whereConstraints,
+                    signature,
+                    isPublic));
+            }
+            finally
+            {
+                PopGenericScope();
+            }
         }
 
 

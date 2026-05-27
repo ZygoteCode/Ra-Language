@@ -1448,6 +1448,10 @@ namespace RaLanguage.Interpreter.Vm
                                 sub = await Visitors.Variables.ListAssignmentNodeVisitor.Apply(
                                     (Parser.Nodes.Variables.ListAssignmentNode)node, ctx, _interpreter).ConfigureAwait(false);
                                 break;
+                            case AstNodeType.DelegateDefinition:
+                                sub = Visitors.Functions.DelegateDefinitionNodeVisitor.Apply(
+                                    (Parser.Nodes.Functions.DelegateDefinitionNode)node, ctx);
+                                break;
                             default:
                                 throw new RaUserError(MakeIcError(ctx,
                                     $"VM: NativeDefine unsupported NodeType {node.NodeType}"));

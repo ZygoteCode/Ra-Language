@@ -93,6 +93,74 @@ namespace RaLanguage.Parser
                 return TypeDescriptor.Tuple(elements);
             }
 
+            // Structural function-type literal: `fn(T1, T2, ...) -> R`. Recognised
+            // in any type position. The return-type arrow `-> R` is optional —
+            // omitting it (or writing `-> void`) yields a delegate whose return
+            // type slot is unconstrained ("any"). The `void` keyword is matched
+            // textually as an identifier so we don't have to add a token type.
+            if (_currentToken.Matches(Keyword.Fn))
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                if (_currentToken.Type != TokenType.LPAREN)
+                {
+                    // Treat as the bare nominal "fn" — fall through to the
+                    // identifier path with `fn` as the type name. Unlikely
+                    // in practice, but keeps parser robustness.
+                    return new TypeDescriptor("function");
+                }
+
+                res.RegisterAdvancement();
+                Advance();
+
+                var paramTypes = new List<TypeDescriptor>();
+                if (_currentToken.Type != TokenType.RPAREN)
+                {
+                    while (true)
+                    {
+                        var p = ParseType(res);
+                        if (p == null) return null;
+                        paramTypes.Add(p);
+
+                        if (_currentToken.Type == TokenType.COMMA)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                            continue;
+                        }
+                        break;
+                    }
+                }
+
+                if (_currentToken.Type != TokenType.RPAREN) return null;
+                res.RegisterAdvancement();
+                Advance();
+
+                TypeDescriptor? retType = null;
+                if (_currentToken.Type == TokenType.ARROW_RIGHT)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                    if (_currentToken.Type == TokenType.IDENTIFIER
+                        && string.Equals(_currentToken.Value?.ToString(), "void", System.StringComparison.Ordinal))
+                    {
+                        // `-> void` is sugar for "no specific return type". Same
+                        // shape as omitting the arrow entirely.
+                        res.RegisterAdvancement();
+                        Advance();
+                        retType = null;
+                    }
+                    else
+                    {
+                        retType = ParseType(res);
+                        if (retType == null) return null;
+                    }
+                }
+
+                return TypeDescriptor.FunctionType(paramTypes, retType);
+            }
+
             if (!(_currentToken.Type == TokenType.IDENTIFIER || _currentToken.Type == TokenType.KEYWORD))
             {
                 return null;

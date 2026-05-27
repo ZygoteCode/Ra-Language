@@ -94,6 +94,7 @@
         PropertyDefinition,
         PropertyAccessor,
         EventDefinition,
-        EventAccessor
+        EventAccessor,
+        DelegateDefinition
     }
 }
