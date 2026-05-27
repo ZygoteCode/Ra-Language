@@ -24,13 +24,49 @@ namespace RaLanguage.Parser
 {
     public partial class Parser
     {
+        // Top-level type entry. Parses one primary type (`ParseTypeAtom`) and
+        // then folds any number of `T | U | V` alternatives on the right into a
+        // structural union descriptor. `|` (BITWISE_OR) is the lowest-precedence
+        // type operator — prefix forms like `&T` or `*T` bind tighter so
+        // `&A | B` reads as `(&A) | B`. To request `&(A | B)` users wrap the
+        // union in parens. Tuples, generics, fn params, and fn return slots
+        // recurse through ParseType, so unions work naturally inside them.
         private TypeDescriptor? ParseType(ParserResult res)
+        {
+            var first = ParseTypeAtom(res);
+            if (first == null) return null;
+            if (_currentToken.Type != TokenType.BITWISE_OR) return first;
+
+            var members = new List<TypeDescriptor> { first };
+            while (_currentToken.Type == TokenType.BITWISE_OR)
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                while (_currentToken.Type == TokenType.NEWLINE)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                var next = ParseTypeAtom(res);
+                if (next == null) return null;
+                members.Add(next);
+            }
+
+            return TypeDescriptor.Union(members);
+        }
+
+        private TypeDescriptor? ParseTypeAtom(ParserResult res)
         {
             // Reference type syntax: `&T`, `&mut T`, `&'a T`, `&'a mut T`.
             // Mirrors the borrow-expression grammar in ParseFactor. The result is a
             // TypeDescriptor created via RefType so the existing IsAssignable path
             // continues to enforce ref-vs-non-ref checks; the new IsMutableRef +
             // Lifetime fields are consumed by the borrow checker.
+            //
+            // Ref reads an atom (not a full union) so `&A | B` is `(&A) | B`.
+            // Users who want `&(A | B)` write the parens explicitly.
             if (_currentToken.Type == TokenType.BITWISE_AND)
             {
                 res.RegisterAdvancement();
@@ -52,7 +88,7 @@ namespace RaLanguage.Parser
                     Advance();
                 }
 
-                var inner = ParseType(res);
+                var inner = ParseTypeAtom(res);
                 if (inner == null) return null;
                 return TypeDescriptor.RefType(inner, isMut, lifetime);
             }
@@ -71,6 +107,7 @@ namespace RaLanguage.Parser
                     return TypeDescriptor.Tuple(elements);
                 }
 
+                bool sawTrailingComma = false;
                 while (true)
                 {
                     var elem = ParseType(res);
@@ -81,14 +118,30 @@ namespace RaLanguage.Parser
                     {
                         res.RegisterAdvancement();
                         Advance();
+                        if (_currentToken.Type == TokenType.RPAREN)
+                        {
+                            sawTrailingComma = true;
+                            break;
+                        }
                         continue;
                     }
 
                     if (_currentToken.Type != TokenType.RPAREN) return null;
-                    res.RegisterAdvancement();
-                    Advance();
                     break;
                 }
+
+                // Consume the `)`.
+                res.RegisterAdvancement();
+                Advance();
+
+                // Grouping rule: `(T)` is just `T` (parenthesised — handy
+                // for forcing precedence around union members inside bar-
+                // lambda parameter lists, where the surrounding `|` would
+                // otherwise terminate the param list before the union).
+                // `(T,)` is the 1-tuple. `(A, B, ...)` is the N-tuple, and
+                // `()` (handled above) is the unit / empty tuple.
+                if (elements.Count == 1 && !sawTrailingComma)
+                    return elements[0];
 
                 return TypeDescriptor.Tuple(elements);
             }
@@ -166,7 +219,28 @@ namespace RaLanguage.Parser
                 return null;
             }
 
-            var baseName = _currentToken.Value?.ToString() ?? _currentToken.ToString();
+            // Most type names are plain identifiers and Token.Value.ToString()
+            // already yields the source-form lowercase string. A few keywords
+            // are also valid type names (`null` is the canonical one — it
+            // shows up in `T | null` for the nullable shortcut). For those we
+            // map the PascalCase enum form to the Ra-source lowercase form so
+            // the TypeDescriptor name lines up with what IsAssignable /
+            // IsRuntimeTypeMatch compare against.
+            string baseName;
+            if (_currentToken.Type == TokenType.KEYWORD && _currentToken.Value is Keyword kwTy)
+            {
+                baseName = kwTy switch
+                {
+                    Keyword.Null => "null",
+                    Keyword.True => "bool",
+                    Keyword.False => "bool",
+                    _ => kwTy.ToString()
+                };
+            }
+            else
+            {
+                baseName = _currentToken.Value?.ToString() ?? _currentToken.ToString();
+            }
 
             res.RegisterAdvancement();
             Advance();

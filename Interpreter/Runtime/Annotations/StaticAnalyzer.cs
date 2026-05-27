@@ -224,6 +224,12 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
                     if (enumType != null && enumType.VariantsByName.TryGetValue(vp.Name, out var info) && !info.HasPayload)
                         return false;
                     return true;
+                case RaLanguage.Parser.Nodes.Patterns.TypePatternNode tpn:
+                    // `case is any -> ...` is a universal fallback. Other
+                    // type patterns are conditional, so don't classify
+                    // them as fallback here — union exhaustiveness in the
+                    // NarrowingAnalyzer pass handles that case specifically.
+                    return string.Equals(tpn.TestedType?.Name, "any", System.StringComparison.Ordinal);
                 default:
                     return false;
             }

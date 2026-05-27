@@ -134,6 +134,9 @@ namespace RaLanguage.Interpreter.Visitors.Patterns
                 case StructPatternNode sp:
                     return TryMatchStruct(sp, scrutinee, context, bindings, out error);
 
+                case TypePatternNode tpn:
+                    return TryMatchTypePattern(tpn, scrutinee, context, bindings);
+
                 case RestPatternNode _:
                     error = new RuntimeError(pattern.PositionStart, pattern.PositionEnd,
                         "'..' rest pattern only valid inside a list pattern",
@@ -381,6 +384,22 @@ namespace RaLanguage.Interpreter.Visitors.Patterns
                 for (int i = 0; i < restLen; i++) slice.Add(lv.Elements[prefixCount + i]);
                 bindings.Add((lp.Rest.BindName, new ListValue(slice)));
             }
+            return true;
+        }
+
+        // `case is Type [as binder] -> body`. Matches when the scrutinee's
+        // runtime type is compatible with the pattern's TestedType under the
+        // same rules as the `is` operator. When a binder is present, the
+        // scrutinee is introduced into the arm body bound to that name —
+        // already narrowed by the type test that just succeeded, so member
+        // access on the binder works statically inside the arm.
+        private static bool TryMatchTypePattern(TypePatternNode tpn, RuntimeValue scrutinee, Context context,
+                                                List<(string, RuntimeValue)> bindings)
+        {
+            if (!Types.TypeSystem.IsRuntimeTypeMatch(context, tpn.TestedType, scrutinee))
+                return false;
+            if (!string.IsNullOrEmpty(tpn.BinderName))
+                bindings.Add((tpn.BinderName!, scrutinee));
             return true;
         }
 

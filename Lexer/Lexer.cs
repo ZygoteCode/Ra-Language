@@ -1324,6 +1324,19 @@ namespace RaLanguage.Lexer
             };
         }
 
+        // Word-boundary check: the position is past the end of the source,
+        // or holds a character that cannot continue an identifier. Used by
+        // the multi-word lookahead in `is in` / `is not in` / `not in` so
+        // those keywords cannot accidentally consume the first chars of a
+        // longer identifier (`int`, `notify`, `infix`, …).
+        private static bool IsWordBoundaryAt(ReadOnlySpan<char> span, int idx)
+        {
+            if (idx >= span.Length) return true;
+            char c = span[idx];
+            if (c < 128) return !s_isLetterOrDigit[c];
+            return false;
+        }
+
         private void ProcessIdentifier(ReadOnlySpan<char> span, List<Token> tokens)
         {
             var posStart = GetPos();
@@ -1338,32 +1351,51 @@ namespace RaLanguage.Lexer
 
             if (idSpan.Length == 2 && idSpan.SequenceEqual("is"))
             {
+                // Lookahead for the multi-word forms `is in`, `is not in`,
+                // `is not <Type>`. Each `in` / `not` consumption now requires
+                // a word boundary after it, so `is int` cannot be misread as
+                // `is in` + leftover `t` (the bug that blocked typed unions).
+                //
+                // Plain `is` is emitted as Keyword.Is — the type-test
+                // operator consumed by the cast-precedence layer. The legacy
+                // SQL-style `is` → `==` and `is not` → `!=` aliases retired
+                // here: they had no in-tree users and the type-test reading
+                // is the one that lines up with mainstream languages.
                 int peekIdx = _idx;
                 while (peekIdx < span.Length && (span[peekIdx] == ' ' || span[peekIdx] == '\t')) peekIdx++;
 
-                if (peekIdx + 2 < span.Length && span.Slice(peekIdx, 3).SequenceEqual("not"))
+                if (peekIdx + 2 < span.Length
+                    && span.Slice(peekIdx, 3).SequenceEqual("not")
+                    && IsWordBoundaryAt(span, peekIdx + 3))
                 {
                     int afterNot = peekIdx + 3;
                     while (afterNot < span.Length && (span[afterNot] == ' ' || span[afterNot] == '\t')) afterNot++;
-                    if (afterNot + 1 < span.Length && span.Slice(afterNot, 2).SequenceEqual("in"))
+                    if (afterNot + 1 < span.Length
+                        && span.Slice(afterNot, 2).SequenceEqual("in")
+                        && IsWordBoundaryAt(span, afterNot + 2))
                     {
                         AdvanceMultiple(afterNot + 2 - _idx, span);
                         tokens.Add(new Token(TokenType.KEYWORD, Keyword.NotIn, posStart, GetPos()));
                         return;
                     }
-                    AdvanceMultiple(peekIdx + 3 - _idx, span);
-                    tokens.Add(new Token(TokenType.NE, null, posStart, GetPos()));
+                    // `is not <something else>` — the parser handles the
+                    // negation as part of the `is`-expression grammar, so
+                    // emit a single `is` keyword and let the next call
+                    // tokenise the `not` separately.
+                    tokens.Add(new Token(TokenType.KEYWORD, Keyword.Is, posStart, GetPos()));
                     return;
                 }
 
-                if (peekIdx + 1 < span.Length && span.Slice(peekIdx, 2).SequenceEqual("in"))
+                if (peekIdx + 1 < span.Length
+                    && span.Slice(peekIdx, 2).SequenceEqual("in")
+                    && IsWordBoundaryAt(span, peekIdx + 2))
                 {
                     AdvanceMultiple(peekIdx + 2 - _idx, span);
                     tokens.Add(new Token(TokenType.KEYWORD, Keyword.In, posStart, GetPos()));
                     return;
                 }
 
-                tokens.Add(new Token(TokenType.EE, null, posStart, GetPos()));
+                tokens.Add(new Token(TokenType.KEYWORD, Keyword.Is, posStart, GetPos()));
                 return;
             }
 
@@ -1372,7 +1404,9 @@ namespace RaLanguage.Lexer
                 int peekIdx = _idx;
                 while (peekIdx < span.Length && (span[peekIdx] == ' ' || span[peekIdx] == '\t')) peekIdx++;
 
-                if (peekIdx + 1 < span.Length && span.Slice(peekIdx, 2).SequenceEqual("in"))
+                if (peekIdx + 1 < span.Length
+                    && span.Slice(peekIdx, 2).SequenceEqual("in")
+                    && IsWordBoundaryAt(span, peekIdx + 2))
                 {
                     AdvanceMultiple(peekIdx + 2 - _idx, span);
                     tokens.Add(new Token(TokenType.KEYWORD, Keyword.NotIn, posStart, GetPos()));

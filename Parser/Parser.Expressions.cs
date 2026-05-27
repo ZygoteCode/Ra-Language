@@ -377,7 +377,14 @@ namespace RaLanguage.Parser
                 return res.Success(new UnaryOperationNode(opTok, node));
             }
 
-            var b_node = res.Register(ParseBinaryOperation(ParseNullCoalescing, s_opsComparison));
+            // Comparison operands now go through ParseNullCoalescingThenIs,
+            // which binds `expr is Type` / `expr is not Type` tighter than
+            // `==` / `!=` / `<` / `>` but looser than additive / shift /
+            // null-coalescing operators. The placement matches mainstream
+            // languages (C# 'is' at relational precedence) and lets the
+            // common pattern `if x is int and y is string` parse without
+            // parentheses.
+            var b_node = res.Register(ParseBinaryOperation(ParseNullCoalescingThenIs, s_opsComparison));
 
             if (res.Error != null)
             {
@@ -388,6 +395,45 @@ namespace RaLanguage.Parser
             }
 
             return res.Success(b_node);
+        }
+
+        // Wraps ParseNullCoalescing with a postfix `is Type` / `is not Type`
+        // loop. Kept as its own helper so the cast layer (handling `as`) and
+        // the comparison layer (handling `is`) stay textually separate, and
+        // so the chain through ParseBinaryOperation has a single call-site
+        // for the "operand at the level just below comparison" notion.
+        private ParserResult ParseNullCoalescingThenIs()
+        {
+            var res = new ParserResult();
+            var left = res.Register(ParseNullCoalescing());
+            if (res.Error != null) return res;
+
+            while (_currentToken.Matches(Keyword.Is))
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                bool negated = false;
+                if (_currentToken.Matches(Keyword.Not))
+                {
+                    negated = true;
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                var testedType = ParseType(res);
+                if (testedType == null)
+                {
+                    return res.Failure(ParserDiagnostics.ExpectedTypeName(_currentToken, after: negated ? "'is not'" : "'is'"));
+                }
+
+                var isNode = new IsTypeNode(left, testedType, negated);
+                isNode.PositionStart = left.PositionStart;
+                isNode.PositionEnd = _currentToken.PositionEnd;
+                left = isNode;
+            }
+
+            return res.Success(left);
         }
 
         private ParserResult ParseShiftExpression()

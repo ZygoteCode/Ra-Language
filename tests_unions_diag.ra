@@ -1,0 +1,22 @@
+// Exercises NarrowingAnalyzer diagnostics. Expected outputs (warnings):
+//   * `x is string` with x: int  -> always false  (impossible)
+//   * `x is int` with x: int      -> always true   (trivial)
+//   * `x is any` with x: int      -> always true
+//   * non-exhaustive match on union: missing 'bool'
+fn diag1() {
+    let x: int = 5;
+    let a = x is string;   // impossible
+    let b = x is int;      // trivially true
+    let c = x is any;      // trivially true
+    print(a);
+    print(b);
+    print(c);
+
+    let u: int | string | bool = 1;
+    let r = match u {
+        case is int -> "int"
+        case is string -> "string"
+    };
+    print(r);
+}
+diag1();

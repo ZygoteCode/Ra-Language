@@ -16,6 +16,19 @@ namespace RaLanguage.Types
             if (string.Equals(target.Name, "any", StringComparison.Ordinal)) return true;
             if (target.IsTypeParameter) return true;
 
+            // Union targets accept a value when at least one alternative
+            // accepts it. Walking the member list short-circuits on first
+            // match, so the cost is proportional to the chosen branch, not
+            // the union's arity. `null` is treated as a regular runtime
+            // value here — a union has to include a null-permitting member
+            // (typically `null`) for null values to land cleanly.
+            if (target.IsUnionType && target.UnionMembers != null)
+            {
+                for (int i = 0; i < target.UnionMembers.Count; i++)
+                    if (IsAssignable(context, target.UnionMembers[i], value)) return true;
+                return false;
+            }
+
             // Structural function-type check. Any BaseFunctionValue qualifies
             // for the arity check; declared parameter / return types apply
             // contravariant (params) / covariant (return) rules. Unknown slots
@@ -297,13 +310,33 @@ namespace RaLanguage.Types
         // Type-vs-type assignability for callable variance checks. Mirrors
         // IsAssignable(Context, TypeDescriptor, RuntimeValue) but with the
         // RHS being a TypeDescriptor — no runtime value to inspect.
-        private static bool IsAssignableType(Context context, TypeDescriptor target, TypeDescriptor source)
+        public static bool IsAssignableType(Context context, TypeDescriptor target, TypeDescriptor source)
         {
             if (target == null || source == null) return true;
             if (target.Equals(source)) return true;
             if (string.Equals(target.Name, "any", StringComparison.Ordinal)) return true;
             if (string.Equals(source.Name, "any", StringComparison.Ordinal)) return true;
             if (target.IsTypeParameter || source.IsTypeParameter) return true;
+
+            // Union-vs-anything subtyping:
+            //   - source = T1 | ... | Tn  ⇒  target must accept *every* alternative;
+            //   - target = U1 | ... | Um  ⇒  source must fit *some* alternative.
+            // The source side is checked first because that yields the
+            // strongest type guarantee — if every alternative of a union
+            // source fits the target, the target is at least as wide as the
+            // source for any concrete value in it.
+            if (source.IsUnionType && source.UnionMembers != null)
+            {
+                foreach (var s in source.UnionMembers)
+                    if (!IsAssignableType(context, target, s)) return false;
+                return true;
+            }
+            if (target.IsUnionType && target.UnionMembers != null)
+            {
+                foreach (var t in target.UnionMembers)
+                    if (IsAssignableType(context, t, source)) return true;
+                return false;
+            }
 
             // Structural fn-vs-fn (full variance walk).
             if (target.IsFunctionType && source.IsFunctionType)
@@ -495,6 +528,249 @@ namespace RaLanguage.Types
             return null;
         }
 
+        // Runtime type test — the semantics of `x is T`. Stricter than
+        // IsAssignable, which is calibrated for declaration sites and
+        // intentionally lets numeric primitives interchange, lets `string`
+        // sponge anything (Ra coerces via ToString), and lets `null` flow
+        // into any slot. None of those are correct for a runtime test: a
+        // user writing `x is int` wants false for `"hello"`, false for a
+        // float, false for null.
+        //
+        // Rules:
+        //   target = any                       ⇒ true
+        //   target = null                      ⇒ value.Type == Null
+        //   target = primitive (int, …)        ⇒ matching RuntimeValueType
+        //   target = string                    ⇒ value.Type == String
+        //   target = bool                      ⇒ value.Type == Boolean
+        //   target = class C                   ⇒ value is ClassInstance and
+        //                                        its definition inherits from C
+        //   target = struct/record/enum/trait/
+        //            interface                 ⇒ existing nominal check from
+        //                                        IsAssignable (no permissive
+        //                                        widening to worry about)
+        //   target = list/set/map/tuple        ⇒ container shape match,
+        //                                        recursively element-wise
+        //   target = fn(...)                   ⇒ structural fn-type check
+        //   target = T (type parameter)        ⇒ conservative true (caller
+        //                                        decides — at narrowing time
+        //                                        we already know the param is
+        //                                        unbound)
+        //   target = U1 | U2 | …               ⇒ any member matches
+        //
+        // Numeric primitives match by exact runtime tag — `5 is float` is
+        // false, `5.0 is int` is false. The interchangeable-numerics
+        // behavior stays in IsAssignable for declarations.
+        public static bool IsRuntimeTypeMatch(Context context, TypeDescriptor target, RuntimeValue value)
+        {
+            if (target == null) return true;
+            if (string.Equals(target.Name, "any", StringComparison.Ordinal)) return true;
+            if (target.IsTypeParameter) return true;
+
+            if (target.IsUnionType && target.UnionMembers != null)
+            {
+                for (int i = 0; i < target.UnionMembers.Count; i++)
+                    if (IsRuntimeTypeMatch(context, target.UnionMembers[i], value)) return true;
+                return false;
+            }
+
+            if (target.IsFunctionType)
+            {
+                return IsAssignableToFunctionType(context, target, value);
+            }
+
+            // Null is its own type — only the null value matches `null`.
+            if (string.Equals(target.Name, "null", StringComparison.Ordinal))
+                return value.Type == RuntimeValueType.Null;
+
+            // Null value: matches only the `null` type at runtime. The
+            // declaration-time permissiveness ("null fits anywhere") would
+            // make `x is int` true for null, which is never what users mean.
+            if (value.Type == RuntimeValueType.Null) return false;
+
+            // Strict primitive matching by runtime tag. Note that the wide
+            // `Number` runtime tag (Ra's BigNumber container for literals
+            // without an explicit numeric suffix) also passes every concrete
+            // numeric target — without this rule the very common pattern
+            //   let x = 42; x is int   (true expected, but x is Number)
+            // would surprise users. The trade-off is that `5 is float` is
+            // also true, which is consistent with how Ra freely interchanges
+            // numeric primitives in IsAssignable.
+            switch (target.PrimitiveKind)
+            {
+                case PrimitiveTypeKind.Int: return value.Type == RuntimeValueType.Integer || value.Type == RuntimeValueType.Number;
+                case PrimitiveTypeKind.Long: return value.Type == RuntimeValueType.Long || value.Type == RuntimeValueType.Number;
+                case PrimitiveTypeKind.Float: return value.Type == RuntimeValueType.Float || value.Type == RuntimeValueType.Number;
+                case PrimitiveTypeKind.Double: return value.Type == RuntimeValueType.Double || value.Type == RuntimeValueType.Number;
+                case PrimitiveTypeKind.UInt: return value.Type == RuntimeValueType.UnsignedInteger || value.Type == RuntimeValueType.Number;
+                case PrimitiveTypeKind.ULong: return value.Type == RuntimeValueType.UnsignedLong || value.Type == RuntimeValueType.Number;
+                case PrimitiveTypeKind.Short: return value.Type == RuntimeValueType.Short || value.Type == RuntimeValueType.Number;
+                case PrimitiveTypeKind.UShort: return value.Type == RuntimeValueType.UnsignedShort || value.Type == RuntimeValueType.Number;
+                case PrimitiveTypeKind.Int128: return value.Type == RuntimeValueType.Int128 || value.Type == RuntimeValueType.Number;
+                case PrimitiveTypeKind.UInt128: return value.Type == RuntimeValueType.UnsignedInt128 || value.Type == RuntimeValueType.Number;
+                case PrimitiveTypeKind.Decimal: return value.Type == RuntimeValueType.Decimal || value.Type == RuntimeValueType.Number;
+                case PrimitiveTypeKind.Byte: return value.Type == RuntimeValueType.Byte || value.Type == RuntimeValueType.Number;
+                case PrimitiveTypeKind.Bool: return value.Type == RuntimeValueType.Boolean;
+                case PrimitiveTypeKind.String: return value.Type == RuntimeValueType.String;
+                case PrimitiveTypeKind.Number:
+                    // `number` is Ra's wide-numeric tag — matches every
+                    // numeric runtime value (Number/Integer/Long/…/Decimal).
+                    return value.Type == RuntimeValueType.Number
+                        || value.Type == RuntimeValueType.Integer
+                        || value.Type == RuntimeValueType.Long
+                        || value.Type == RuntimeValueType.Float
+                        || value.Type == RuntimeValueType.Double
+                        || value.Type == RuntimeValueType.UnsignedInteger
+                        || value.Type == RuntimeValueType.UnsignedLong
+                        || value.Type == RuntimeValueType.Short
+                        || value.Type == RuntimeValueType.UnsignedShort
+                        || value.Type == RuntimeValueType.Int128
+                        || value.Type == RuntimeValueType.UnsignedInt128
+                        || value.Type == RuntimeValueType.Decimal
+                        || value.Type == RuntimeValueType.Byte;
+            }
+
+            // Container shape match: `[1,2,3] is list<int>` requires the
+            // value to be a list and every element to match. We delegate to
+            // IsAssignable for the structural recursion since the
+            // permissive primitive rules don't matter once we're inside a
+            // typed container — the container element type was provided by
+            // the user and is enforced strictly there.
+            switch (target.Name)
+            {
+                case "list":
+                    if (value.Type != RuntimeValueType.List) return false;
+                    return target.GenericArgs.Count == 0
+                        || IsAssignable(context, target, value);
+                case "set":
+                    if (value.Type != RuntimeValueType.Set) return false;
+                    return target.GenericArgs.Count == 0
+                        || IsAssignable(context, target, value);
+                case "map":
+                    if (value.Type != RuntimeValueType.Map) return false;
+                    return target.GenericArgs.Count == 0
+                        || IsAssignable(context, target, value);
+                case "tuple":
+                    if (value.Type != RuntimeValueType.Tuple) return false;
+                    return target.GenericArgs.Count == 0
+                        || IsAssignable(context, target, value);
+                case "function":
+                    return value.Type == RuntimeValueType.Function;
+                case "task":
+                    return value.Type == RuntimeValueType.Task;
+                case "channel":
+                    return value.Type == RuntimeValueType.Channel;
+                case "stream":
+                    return value.Type == RuntimeValueType.Stream;
+            }
+
+            // Nominal user types — reuse the existing assignability path,
+            // which already handles class hierarchy walk, struct / record /
+            // enum name matching, and interface / trait satisfaction. None
+            // of these have permissive widening that would confuse the test.
+            return IsAssignable(context, target, value);
+        }
+
+        // Narrow `declared` to the subset compatible with `tested`. Used by
+        // the flow analyzer to refine a variable's type in a branch where
+        // `x is Tested` is known to hold. Rules:
+        //   - declared = any                       ⇒ tested
+        //   - declared = U1 | ... | Un             ⇒ Union(Ui where Ui ⊑ tested)
+        //   - declared ⊑ tested                    ⇒ declared (already narrow)
+        //   - tested ⊑ declared                    ⇒ tested  (concrete refinement)
+        //   - otherwise                            ⇒ tested  (assume the runtime
+        //                                            test confirmed the witness)
+        // Returns null when the intersection is provably empty — callers
+        // surface that as an "impossible narrowing" diagnostic.
+        public static TypeDescriptor? NarrowToType(Context context, TypeDescriptor declared, TypeDescriptor tested)
+        {
+            if (declared == null) return tested;
+            if (tested == null) return declared;
+            if (string.Equals(declared.Name, "any", StringComparison.Ordinal)) return tested;
+            if (declared.Equals(tested)) return declared;
+
+            if (declared.IsUnionType && declared.UnionMembers != null)
+            {
+                var hits = new List<TypeDescriptor>();
+                foreach (var m in declared.UnionMembers)
+                {
+                    if (IsAssignableType(context, tested, m))
+                    {
+                        hits.Add(m);
+                    }
+                    else if (IsAssignableType(context, m, tested))
+                    {
+                        hits.Add(tested);
+                    }
+                }
+                if (hits.Count == 0) return null;
+                return TypeDescriptor.Union(hits);
+            }
+
+            if (IsAssignableType(context, tested, declared)) return declared;
+            if (IsAssignableType(context, declared, tested)) return tested;
+            return null;
+        }
+
+        // Narrow `declared` to the subset *incompatible* with `tested`. Used
+        // for the `else` branch of an `is` test, or for sequential refinement
+        // after an early `return` inside an `is` guard.
+        //   - declared = U1 | ... | Un  ⇒ Union(Ui where !(Ui ⊑ tested))
+        //   - declared ⊑ tested         ⇒ null  (no value survives the negation)
+        //   - declared and tested disjoint ⇒ declared
+        // Returns null when no alternative survives — callers surface that
+        // as "this branch is unreachable" or fall back to the declared type
+        // depending on context.
+        public static TypeDescriptor? NarrowAwayFromType(Context context, TypeDescriptor declared, TypeDescriptor tested)
+        {
+            if (declared == null) return null;
+            if (tested == null) return declared;
+            if (string.Equals(declared.Name, "any", StringComparison.Ordinal)) return declared;
+
+            if (declared.IsUnionType && declared.UnionMembers != null)
+            {
+                var survivors = new List<TypeDescriptor>();
+                foreach (var m in declared.UnionMembers)
+                {
+                    if (!IsAssignableType(context, tested, m))
+                    {
+                        survivors.Add(m);
+                    }
+                }
+                if (survivors.Count == 0) return null;
+                return TypeDescriptor.Union(survivors);
+            }
+
+            if (IsAssignableType(context, tested, declared)) return null;
+            return declared;
+        }
+
+        // Reports whether two descriptors share at least one common value
+        // shape — i.e. the narrowing intersection is non-empty. Used to
+        // detect "this `is` test can never succeed" cases at analysis time.
+        public static bool TypesOverlap(Context context, TypeDescriptor a, TypeDescriptor b)
+        {
+            if (a == null || b == null) return true;
+            if (string.Equals(a.Name, "any", StringComparison.Ordinal)) return true;
+            if (string.Equals(b.Name, "any", StringComparison.Ordinal)) return true;
+            if (a.IsTypeParameter || b.IsTypeParameter) return true;
+
+            if (a.IsUnionType && a.UnionMembers != null)
+            {
+                foreach (var m in a.UnionMembers)
+                    if (TypesOverlap(context, m, b)) return true;
+                return false;
+            }
+            if (b.IsUnionType && b.UnionMembers != null)
+            {
+                foreach (var m in b.UnionMembers)
+                    if (TypesOverlap(context, a, m)) return true;
+                return false;
+            }
+
+            // Concrete-vs-concrete: overlap iff either one assigns into the other.
+            return IsAssignableType(context, a, b) || IsAssignableType(context, b, a);
+        }
+
         public static bool StrictTypeEquals(TypeDescriptor a, TypeDescriptor b)
         {
             if (a == null || b == null) return false;
@@ -503,6 +779,15 @@ namespace RaLanguage.Types
                 if (a.IsTypeParameter && b.IsTypeParameter)
                     return string.Equals(a.TypeParameterName, b.TypeParameterName, StringComparison.Ordinal);
                 return false;
+            }
+
+            // Union descriptors all share the synthetic name "union" but the
+            // set-equality test on members is the actual identity test.
+            // Delegate to Equals which already implements set equality on
+            // the normalized member list.
+            if (a.IsUnionType || b.IsUnionType)
+            {
+                return a.Equals(b);
             }
 
             if (!string.Equals(a.Name, b.Name, StringComparison.Ordinal)) return false;

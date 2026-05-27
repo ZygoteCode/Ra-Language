@@ -1013,6 +1013,46 @@ namespace RaLanguage.Parser
         {
             var tok = _currentToken;
 
+            // Type-test pattern: `case is Type [as binder] -> body`. The
+            // `is` prefix disambiguates this form from a bare-identifier
+            // binding (which would otherwise capture `case int -> ...` as
+            // "bind anything to `int`"). The binder, when present, is
+            // introduced into the arm scope already narrowed to the matched
+            // alternative.
+            if (tok.Type == TokenType.KEYWORD && tok.Value is Lexer.Tokens.Keyword kwTokForPat && kwTokForPat == Lexer.Tokens.Keyword.Is)
+            {
+                res.RegisterAdvancement();
+                Advance();
+
+                var ttype = ParseType(res);
+                if (ttype == null)
+                {
+                    res.Failure(ParserDiagnostics.ExpectedTypeName(_currentToken, after: "'is' in a match pattern"));
+                    return null;
+                }
+
+                string? binder = null;
+                Position endPos = _currentToken.PositionStart;
+                if (_currentToken.Matches(Lexer.Tokens.Keyword.As))
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                    if (_currentToken.Type != TokenType.IDENTIFIER)
+                    {
+                        res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
+                            after: "'as' in a type pattern",
+                            help: "the binder name introduces the matched value into the arm body, narrowed to the matched type"));
+                        return null;
+                    }
+                    binder = _currentToken.Value?.ToString();
+                    endPos = _currentToken.PositionEnd;
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
+                return new RaLanguage.Parser.Nodes.Patterns.TypePatternNode(ttype, binder, tok.PositionStart, endPos);
+            }
+
             switch (tok.Type)
             {
                 case TokenType.IDENTIFIER:

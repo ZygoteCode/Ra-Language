@@ -194,6 +194,14 @@ namespace RaLanguage
                 foreach (var d in staticDiagnostics) Console.WriteLine(d);
             }
 
+            var narrowingDiagnostics = Interpreter.Runtime.Narrowing.NarrowingAnalyzer.Analyze(parseResult.Node);
+            if (narrowingDiagnostics.Count > 0)
+            {
+                Console.WriteLine($"[NarrowingAnalyzer] {narrowingDiagnostics.Count} warning(s) found:");
+                foreach (var d in narrowingDiagnostics)
+                    Console.WriteLine(d.ToString().Replace("[StaticAnalyzer]", "[NarrowingAnalyzer]"));
+            }
+
             var borrowDiagnostics = Interpreter.Runtime.Borrowing.BorrowChecker.Analyze(parseResult.Node);
             if (borrowDiagnostics.Count > 0)
             {
