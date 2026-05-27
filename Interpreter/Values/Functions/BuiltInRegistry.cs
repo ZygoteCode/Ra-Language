@@ -66,6 +66,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                 DebugBuiltins.Register();
                 AsmBuiltins.Register();
                 RegexBuiltins.Register();
+                DelegateBuiltins.Register();
                 _initialized = true;
             }
         }

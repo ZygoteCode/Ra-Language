@@ -66,6 +66,23 @@ namespace RaLanguage.Types
         public bool IsMutableRef { get; }
         public string? Lifetime { get; }
 
+        // Structural function-type metadata. Set when ParseType reads
+        // `fn(P1, P2, ...) -> R`. The descriptor name is the literal "fn"
+        // so existing nominal-name dispatch keeps working; the structural
+        // payload below is what TypeSystem.IsAssignable consults for
+        // variance-aware compatibility against any BaseFunctionValue.
+        //
+        //   FunctionParamTypes: declared parameter types, in order. `any`
+        //     anywhere means "accept anything in this slot."
+        //   FunctionReturnType: declared return type. Null or `any` for
+        //     "any return type". `void` is normalised to `any` at parse
+        //     time so `fn(int)` and `fn(int) -> void` describe the same
+        //     shape.
+        //   IsFunctionType: cheap tag-check the type system can fast-path.
+        public bool IsFunctionType { get; }
+        public List<TypeDescriptor>? FunctionParamTypes { get; }
+        public TypeDescriptor? FunctionReturnType { get; }
+
         public TypeDescriptor(string name, List<TypeDescriptor>? genericArgs = null, bool isRefType = false, TypeDescriptor? refElementType = null, bool isMutableRef = false, string? lifetime = null)
         {
             Name = name;
@@ -77,7 +94,29 @@ namespace RaLanguage.Types
             IsMutableRef = isMutableRef;
             Lifetime = lifetime;
             PrimitiveKind = ResolvePrimitive(name);
+            IsFunctionType = false;
+            FunctionParamTypes = null;
+            FunctionReturnType = null;
         }
+
+        private TypeDescriptor(List<TypeDescriptor> paramTypes, TypeDescriptor? returnType)
+        {
+            Name = "fn";
+            GenericArgs = new List<TypeDescriptor>();
+            IsTypeParameter = false;
+            TypeParameterName = null;
+            IsRefType = false;
+            RefElementType = null;
+            IsMutableRef = false;
+            Lifetime = null;
+            PrimitiveKind = PrimitiveTypeKind.None;
+            IsFunctionType = true;
+            FunctionParamTypes = paramTypes ?? new List<TypeDescriptor>();
+            FunctionReturnType = returnType;
+        }
+
+        public static TypeDescriptor FunctionType(List<TypeDescriptor> paramTypes, TypeDescriptor? returnType)
+            => new TypeDescriptor(paramTypes, returnType);
 
         private TypeDescriptor(string typeParamName, bool isTypeParam)
         {
@@ -167,6 +206,13 @@ namespace RaLanguage.Types
         public override string ToString()
         {
             if (IsTypeParameter) return TypeParameterName;
+            if (IsFunctionType)
+            {
+                var ps = FunctionParamTypes ?? new List<TypeDescriptor>();
+                var paramsStr = string.Join(", ", ps.Select(p => p.ToString()));
+                if (FunctionReturnType == null) return $"fn({paramsStr})";
+                return $"fn({paramsStr}) -> {FunctionReturnType}";
+            }
             if (IsTupleType) return $"({string.Join(", ", GenericArgs.Select(a => a.ToString()))})";
             if (GenericArgs.Count == 0) return Name;
             return $"{Name}<{string.Join(", ", GenericArgs.Select(a => a.ToString()))}>";
@@ -178,6 +224,18 @@ namespace RaLanguage.Types
             if (IsTypeParameter && other.IsTypeParameter)
                 return string.Equals(TypeParameterName, other.TypeParameterName, StringComparison.Ordinal);
             if (IsTypeParameter || other.IsTypeParameter) return false;
+            if (IsFunctionType || other.IsFunctionType)
+            {
+                if (IsFunctionType != other.IsFunctionType) return false;
+                var lp = FunctionParamTypes ?? new List<TypeDescriptor>();
+                var rp = other.FunctionParamTypes ?? new List<TypeDescriptor>();
+                if (lp.Count != rp.Count) return false;
+                for (int i = 0; i < lp.Count; i++)
+                    if (!lp[i].Equals(rp[i])) return false;
+                if ((FunctionReturnType == null) != (other.FunctionReturnType == null)) return false;
+                if (FunctionReturnType != null && !FunctionReturnType.Equals(other.FunctionReturnType!)) return false;
+                return true;
+            }
             if (!string.Equals(Name, other.Name, StringComparison.Ordinal)) return false;
             if (GenericArgs.Count != other.GenericArgs.Count) return false;
             for (int i = 0; i < GenericArgs.Count; i++)
@@ -192,6 +250,13 @@ namespace RaLanguage.Types
             unchecked
             {
                 int h = (IsTypeParameter ? TypeParameterName : Name).GetHashCode();
+                if (IsFunctionType)
+                {
+                    var ps = FunctionParamTypes;
+                    if (ps != null) foreach (var p in ps) h = h * 31 + (p?.GetHashCode() ?? 0);
+                    h = h * 31 + (FunctionReturnType?.GetHashCode() ?? 0);
+                    return h;
+                }
                 foreach (var a in GenericArgs) h = h * 31 + (a?.GetHashCode() ?? 0);
                 return h;
             }
@@ -209,6 +274,13 @@ namespace RaLanguage.Types
                 var substitutedElement = RefElementType.Substitute(bindings);
                 return RefType(substitutedElement, IsMutableRef, Lifetime);
             }
+            if (IsFunctionType)
+            {
+                var newParams = (FunctionParamTypes ?? new List<TypeDescriptor>())
+                    .Select(p => p.Substitute(bindings)).ToList();
+                var newRet = FunctionReturnType?.Substitute(bindings);
+                return FunctionType(newParams, newRet);
+            }
             if (GenericArgs.Count == 0) return this;
             var substituted = GenericArgs.Select(a => a.Substitute(bindings)).ToList();
             return new TypeDescriptor(Name, substituted);
@@ -224,6 +296,14 @@ namespace RaLanguage.Types
         {
             if (IsTypeParameter) return set.Contains(TypeParameterName);
             if (RefElementType != null && RefElementType.ReferencesAny(set)) return true;
+            if (IsFunctionType)
+            {
+                if (FunctionParamTypes != null)
+                    foreach (var p in FunctionParamTypes)
+                        if (p.ReferencesAny(set)) return true;
+                if (FunctionReturnType != null && FunctionReturnType.ReferencesAny(set)) return true;
+                return false;
+            }
             foreach (var a in GenericArgs)
                 if (a.ReferencesAny(set)) return true;
             return false;

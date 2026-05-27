@@ -1,0 +1,165 @@
+// Ra Delegates — feature test suite.
+// Each test prints "[DNN] OK" on success.
+
+// ----- D1: structural fn-type variable holds a named function -----
+fn add(a: int, b: int): int { ret a + b }
+let plus: fn(int, int) -> int = add
+print(plus(2, 3))
+print("[D1] OK")
+
+// ----- D2: structural fn-type variable holds a lambda -----
+let dbl: fn(int) -> int = fn(x: int): int { ret x * 2 }
+print(dbl(7))
+print("[D2] OK")
+
+// ----- D3: arrow-form lambda assigns to fn(...)->... slot -----
+let inc: fn(int) -> int = fn(x: int): int => x + 1
+print(inc(10))
+print("[D3] OK")
+
+// ----- D4: delegate alias (explicit form) -----
+delegate IntOp = fn(int, int) -> int
+let mul: IntOp = fn(a: int, b: int): int { ret a * b }
+print(mul(4, 5))
+print("[D4] OK")
+
+// ----- D5: delegate short form -----
+delegate Predicate2(int) -> bool
+let positive: Predicate2 = fn(x: int): bool { ret x > 0 }
+print(positive(3))
+print(positive(-1))
+print("[D5] OK")
+
+// ----- D6: delegate alias with void shape -----
+delegate Action = fn() -> void
+var counter = 0
+let bump: Action = fn() { counter = counter + 1 }
+bump()
+bump()
+bump()
+print(counter)
+print("[D6] OK")
+
+// ----- D7: closure / capture into a delegate -----
+fn make_adder(n: int): fn(int) -> int {
+    ret fn(x: int): int => x + n
+}
+let add10 = make_adder(10)
+print(add10(5))
+print(add10(100))
+print("[D7] OK")
+
+// ----- D8: passing delegates as function parameters -----
+fn map_list(xs: list, f: fn(int) -> int): list {
+    var out = []
+    for i = 0 to len(xs) - 1 step 1 {
+        list_push(out, f(xs[i]))
+    }
+    ret out
+}
+let xs = [1, 2, 3, 4]
+let doubled = map_list(xs, fn(x: int): int => x * 2)
+print(doubled)
+print("[D8] OK")
+
+// ----- D9: multicast via + -----
+fn h_a(x: int) { print($"a:${x}") }
+fn h_b(x: int) { print($"b:${x}") }
+fn h_c(x: int) { print($"c:${x}") }
+
+var bus = h_a
+bus = bus + h_b
+bus = bus + h_c
+bus(42)
+print(handler_count(bus))
+print("[D9] OK")
+
+// ----- D10: multicast subtraction -----
+bus = bus - h_b
+bus(7)
+print(handler_count(bus))
+print("[D10] OK")
+
+// ----- D11: multicast subtraction down to singleton + null -----
+bus = bus - h_a
+bus = bus - h_c
+print(bus == null)
+print("[D11] OK")
+
+// ----- D12: partial application -----
+fn add3(a: int, b: int, c: int): int { ret a + b + c }
+let add_1_2 = partial(add3, 1, 2)
+print(add_1_2(10))
+let add_only_1 = partial(add3, 1)
+print(add_only_1(20, 30))
+print("[D12] OK")
+
+// ----- D13: composition: compose(f, g)(x) == g(f(x)) -----
+let times2: fn(int) -> int = fn(x: int): int => x * 2
+let plus5:  fn(int) -> int = fn(x: int): int => x + 5
+let pipeline = compose(times2, plus5)
+print(pipeline(3))
+print("[D13] OK")
+
+// ----- D14: combine() folds a sequence of handlers into one delegate -----
+let combined = combine(h_a, h_b, h_c)
+combined(99)
+print(handler_count(combined))
+print("[D14] OK")
+
+// ----- D15: invoke() runs a callable from a runtime args list -----
+let r = invoke(add, [12, 30])
+print(r)
+print("[D15] OK")
+
+// ----- D16: callable parameter with `function` nominal accepts a lambda -----
+fn run_now(f: function) {
+    let r = invoke(f, [])
+    print(r)
+}
+run_now(fn() => 100)
+print("[D16] OK")
+
+// ----- D17: bound method on a class instance is a first-class callable -----
+record class Counter(mut n: int) {
+    pub fn bump_by(by: int) { self.n = self.n + by }
+    pub fn read(): int { ret self.n }
+}
+let cnt = Counter(0)
+let step_fn: fn(int) = cnt.bump_by
+step_fn(3)
+step_fn(4)
+step_fn(5)
+print(cnt.read())
+print("[D17] OK")
+
+// ----- D18: delegate alias propagates through nested generics -----
+delegate Mapper<T, U> = fn(T) -> U
+let to_str: Mapper<int, string> = fn(x: int): string => $"n=${x}"
+print(to_str(42))
+print("[D18] OK")
+
+// ----- D19: multicast on bound class methods -----
+record class Logger() {
+    pub fn log(msg: string) { print($"log:${msg}") }
+}
+record class Audit() {
+    pub fn write(msg: string) { print($"audit:${msg}") }
+}
+let lg = Logger()
+let au = Audit()
+var sink = lg.log
+sink = sink + au.write
+sink("hello")
+print(handler_count(sink))
+print("[D19] OK")
+
+// ----- D20: delegate value passed across function boundaries keeps shape -----
+fn invoke_twice(f: fn(int) -> int, x: int): int {
+    ret f(f(x))
+}
+print(invoke_twice(fn(x: int): int => x + 1, 10))
+print(invoke_twice(times2, 5))
+print("[D20] OK")
+
+print("ALL DELEGATE TESTS DONE")

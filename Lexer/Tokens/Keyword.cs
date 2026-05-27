@@ -79,5 +79,6 @@
         Prop,
         Lazy,
         Event,
+        Delegate,
     }
 }

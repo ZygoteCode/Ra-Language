@@ -410,6 +410,70 @@ namespace RaLanguage.Interpreter.Values.Functions
                 : MetadataTarget.BuildKey(AnnotationTargetKind.Function, null, owner);
         }
 
+        // Delegate combination operators. `+` produces a flat
+        // MulticastDelegateValue (singleton fast path collapses to the
+        // raw callable; existing multicasts splice). `-` removes the
+        // last occurrence of `other` (identity first, then by name) and
+        // returns either the surviving multicast, the lone handler, or
+        // NullValue when every handler was removed.
+        public sealed override ValueResult AddedTo(RuntimeValue other)
+        {
+            if (other == null || other.Type == RuntimeValueType.Null) return (this, null);
+            if (other is BaseFunctionValue ofn)
+            {
+                var combined = new List<BaseFunctionValue>(4);
+                AppendHandlers(this, combined);
+                AppendHandlers(ofn, combined);
+                if (combined.Count == 1) return (combined[0], null);
+                return (new MulticastDelegateValue(combined).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+            return (null, IllegalOperation(other));
+        }
+
+        public sealed override ValueResult SubbedBy(RuntimeValue other)
+        {
+            if (other == null || other.Type == RuntimeValueType.Null) return (this, null);
+            if (other is BaseFunctionValue ofn)
+            {
+                var current = new List<BaseFunctionValue>(4);
+                AppendHandlers(this, current);
+
+                var targets = new List<BaseFunctionValue>(2);
+                AppendHandlers(ofn, targets);
+
+                for (int t = targets.Count - 1; t >= 0; t--)
+                {
+                    var tgt = targets[t];
+                    int idx = -1;
+                    for (int i = current.Count - 1; i >= 0; i--)
+                    {
+                        if (ReferenceEquals(current[i], tgt)
+                            || string.Equals(current[i].Name, tgt.Name, System.StringComparison.Ordinal))
+                        {
+                            idx = i; break;
+                        }
+                    }
+                    if (idx >= 0) current.RemoveAt(idx);
+                }
+
+                if (current.Count == 0)
+                    return (RaLanguage.Interpreter.Values.Primitives.NullValue.Null.SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+                if (current.Count == 1) return (current[0], null);
+                return (new MulticastDelegateValue(current).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
+            }
+            return (null, IllegalOperation(other));
+        }
+
+        private static void AppendHandlers(BaseFunctionValue v, List<BaseFunctionValue> sink)
+        {
+            if (v is MulticastDelegateValue mc)
+            {
+                for (int i = 0; i < mc.Handlers.Count; i++) sink.Add(mc.Handlers[i]);
+                return;
+            }
+            sink.Add(v);
+        }
+
         public RuntimeResult CheckAndPopulateArgs(
             List<string> argNames,
             List<RuntimeValue> args,
