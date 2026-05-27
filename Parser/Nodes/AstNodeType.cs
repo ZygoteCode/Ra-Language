@@ -96,6 +96,7 @@
         EventDefinition,
         EventAccessor,
         DelegateDefinition,
-        IsType
+        IsType,
+        DestructuringDeclaration
     }
 }

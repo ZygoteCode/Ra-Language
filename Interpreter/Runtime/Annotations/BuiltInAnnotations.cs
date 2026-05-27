@@ -276,8 +276,18 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
 
         private static AnnotationTypeValue MakeSealed()
         {
+            // '@sealed' is a dual-purpose marker:
+            //   * on an annotation declaration it forbids user-defined
+            //     subtype annotations from extending it;
+            //   * on a class declaration it closes the inheritance set,
+            //     enabling pattern-matching exhaustiveness over the
+            //     known subclasses.
             var ann = new AnnotationTypeValue(Sealed, true, new List<AnnotationParameterNode>(), isBuiltIn: true);
-            ann.AllowedTargets = new HashSet<AnnotationTargetKind> { AnnotationTargetKind.Annotation };
+            ann.AllowedTargets = new HashSet<AnnotationTargetKind>
+            {
+                AnnotationTargetKind.Annotation,
+                AnnotationTargetKind.Class,
+            };
             return ann;
         }
 

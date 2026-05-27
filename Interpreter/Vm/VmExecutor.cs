@@ -1145,8 +1145,14 @@ namespace RaLanguage.Interpreter.Vm
                         byte src = Encoding.A(instr);
                         var v = locals[src];
                         string message = v == null ? "<null>" : v.ToString() ?? "<null>";
-                        throw new RaUserError(new Errors.Types.RuntimeError(
-                            DummyPos(ctx), DummyPos(ctx), message, ctx));
+                        var thrown = new Errors.Types.RuntimeError(
+                            DummyPos(ctx), DummyPos(ctx), message, ctx);
+                        // Preserve the raw value for pattern-based catch
+                        // clauses (`catch (Pattern) { ... }`). System-raised
+                        // VM errors leave ThrownValue null and the catch
+                        // falls back to a StringValue rendering.
+                        thrown.ThrownValue = v;
+                        throw new RaUserError(thrown);
                     }
 
                     // -------- introspection / refs (M9) --------
@@ -1295,6 +1301,10 @@ namespace RaLanguage.Interpreter.Vm
                             case AstNodeType.Match:
                                 sub = await Visitors.Patterns.MatchNodeVisitor.Apply(
                                     (Parser.Nodes.Patterns.MatchNode)node, ctx, _interpreter).ConfigureAwait(false);
+                                break;
+                            case AstNodeType.DestructuringDeclaration:
+                                sub = await Visitors.Patterns.DestructuringDeclarationNodeVisitor.Apply(
+                                    (Parser.Nodes.Patterns.DestructuringDeclarationNode)node, ctx, _interpreter).ConfigureAwait(false);
                                 break;
                             case AstNodeType.TryUnwrap:
                                 sub = await Visitors.Patterns.TryUnwrapNodeVisitor.Apply(
@@ -2263,21 +2273,26 @@ namespace RaLanguage.Interpreter.Vm
                             ctx = ctx.Parent;
                             f.CtxDepth--;
                         }
-                        string msg = ue.Err.Diagnostic?.Message ?? ue.Err.ToString() ?? "<error>";
+                        // Prefer the raw thrown value carried by a user
+                        // `throw expr` so pattern-based catch clauses can
+                        // destructure the original (typed) value.
+                        // System-raised errors leave ThrownValue null and
+                        // fall back to a StringValue rendering.
+                        RaLanguage.Interpreter.Values.RuntimeValue catchValue;
+                        if (ue.Err is RaLanguage.Errors.Types.RuntimeError rerr && rerr.ThrownValue != null)
+                        {
+                            catchValue = rerr.ThrownValue;
+                        }
+                        else
+                        {
+                            string msg = ue.Err.Diagnostic?.Message ?? ue.Err.ToString() ?? "<error>";
+                            catchValue = new StringValue(msg).SetContext(ctx);
+                        }
                         // M83 — explicit catch-slot tag normalisation.
-                        // The dispatch-loop pre-clear bitmap is keyed on
-                        // an instruction's `A` byte. The catch slot is
-                        // chosen at IR-compile time by the try/catch
-                        // lowering and may differ from any in-stream
-                        // opcode's A — so the bitmap doesn't guarantee
-                        // Tag=Ref here. The LocalsView setter currently
-                        // forces Tag=Ref + Ref=value, which keeps this
-                        // code correct, but defending in depth: clear
-                        // the slot's typed-tag payload explicitly
-                        // before the boxed write so a future helper
-                        // rewrite (or a direct-write fast path) cannot
-                        // accidentally leave stale Int64/Float64/Bool
-                        // bits live for the catch handler to read.
+                        // See original comment block: the catch slot may
+                        // not have been pre-cleared by the dispatch
+                        // loop's bitmap, so we explicitly normalise to
+                        // a Ref slot before the boxed write.
                         if ((uint)h.CatchSlot < (uint)f.Slots.Length)
                         {
                             ref var catchSlot = ref f.Slots[h.CatchSlot];
@@ -2285,7 +2300,7 @@ namespace RaLanguage.Interpreter.Vm
                             catchSlot.Bits = 0;
                             catchSlot.Ref = null;
                         }
-                        locals[h.CatchSlot] = new StringValue(msg).SetContext(ctx);
+                        locals[h.CatchSlot] = catchValue;
                         pc = h.CatchPc;
                     }
                     else

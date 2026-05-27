@@ -1,0 +1,545 @@
+// Pattern Matching + Destructuring — regression suite.
+//
+// Covers: literal, wildcard, variable, type, variant, struct, record,
+// tuple, list, range, relational, alias, or, map patterns; if-let,
+// while-let, for-let sugar; destructuring let.
+
+print("=== Pattern Matching regression suite ===")
+
+// ============================================================
+// P1: literal + wildcard
+// ============================================================
+fn p1() {
+    let r = match 7 {
+        case 1 -> "one"
+        case 7 -> "seven"
+        case _ -> "other"
+    }
+    if r == "seven" { print("[P1] OK") } else { print("[P1] FAIL: " + r) }
+}
+p1()
+
+// ============================================================
+// P2: range pattern (exclusive + inclusive + open-ended)
+// ============================================================
+fn p2() {
+    fn classify(n: int): string {
+        ret match n {
+            case ..0     -> "neg"
+            case 0       -> "zero"
+            case 1..10   -> "small"
+            case 10..=99 -> "medium"
+            case _       -> "big"
+        }
+    }
+    let ok = classify(-3) == "neg" and classify(0) == "zero" and classify(5) == "small" and classify(9) == "small" and classify(10) == "medium" and classify(99) == "medium" and classify(100) == "big"
+    if ok { print("[P2] OK") } else { print("[P2] FAIL") }
+}
+p2()
+
+// ============================================================
+// P3: relational pattern
+// ============================================================
+fn p3() {
+    fn sign(n: int): string {
+        ret match n {
+            case < 0  -> "neg"
+            case == 0 -> "zero"
+            case > 0  -> "pos"
+        }
+    }
+    let ok = sign(-1) == "neg" and sign(0) == "zero" and sign(7) == "pos"
+    if ok { print("[P3] OK") } else { print("[P3] FAIL") }
+}
+p3()
+
+// ============================================================
+// P4: or-pattern
+// ============================================================
+fn p4() {
+    fn day(n: int): string {
+        ret match n {
+            case 1 | 2 | 3 | 4 | 5 -> "week"
+            case 6 | 7             -> "weekend"
+            case _                 -> "?"
+        }
+    }
+    let ok = day(1) == "week" and day(5) == "week" and day(6) == "weekend" and day(0) == "?"
+    if ok { print("[P4] OK") } else { print("[P4] FAIL") }
+}
+p4()
+
+// ============================================================
+// P5: alias 'as' over a composite pattern
+// ============================================================
+fn p5() {
+    let r = match 42 {
+        case (10..=99) as n -> "two-digit: " + n
+        case _              -> "other"
+    }
+    if r == "two-digit: 42" { print("[P5] OK") } else { print("[P5] FAIL: " + r) }
+}
+p5()
+
+// ============================================================
+// P6: tuple destructuring in match
+// ============================================================
+fn p6() {
+    let pt = (3, 4)
+    let r = match pt {
+        case (0, 0) -> "origin"
+        case (x, 0) -> "x-axis " + x
+        case (0, y) -> "y-axis " + y
+        case (x, y) -> "point " + x + "," + y
+    }
+    if r == "point 3,4" { print("[P6] OK") } else { print("[P6] FAIL: " + r) }
+}
+p6()
+
+// ============================================================
+// P7: list patterns with rest
+// ============================================================
+fn p7() {
+    fn label(xs: list<int>): string {
+        ret match xs {
+            case []          -> "empty"
+            case [a]         -> "one"
+            case [a, b]      -> "two"
+            case [h, ..t]    -> "head=" + h + " tailcount=" + len(t)
+        }
+    }
+    let ok = label([]) == "empty" and label([5]) == "one" and label([5, 6]) == "two" and label([5, 6, 7, 8]) == "head=5 tailcount=3"
+    if ok { print("[P7] OK") } else { print("[P7] FAIL") }
+}
+p7()
+
+// ============================================================
+// P8: struct destructuring
+// ============================================================
+struct User {
+    pub var name: string
+    pub var age: int
+    fn User(n: string, a: int) { self.name = n; self.age = a; }
+}
+fn p8() {
+    let u = User("Ada", 36)
+    let r = match u {
+        case User { name: "Ada", age: a } -> "ada " + a
+        case User { name, age }           -> name + " " + age
+    }
+    if r == "ada 36" { print("[P8] OK") } else { print("[P8] FAIL: " + r) }
+}
+p8()
+
+// ============================================================
+// P9: type pattern + narrowing alias
+// ============================================================
+fn p9() {
+    fn descr(x: int | string): string {
+        ret match x {
+            case is int as n    -> "int " + n
+            case is string as s -> "str " + s
+        }
+    }
+    let ok = descr(7) == "int 7" and descr("hi") == "str hi"
+    if ok { print("[P9] OK") } else { print("[P9] FAIL") }
+}
+p9()
+
+// ============================================================
+// P10: enum variant pattern
+// ============================================================
+fn p10() {
+    enum Shape {
+        Circle(int),
+        Rect(int, int),
+        Empty,
+    }
+
+    fn area(s: Shape): int {
+        ret match s {
+            case Circle(r)    -> r * r * 3
+            case Rect(w, h)   -> w * h
+            case Empty        -> 0
+        }
+    }
+    let ok = area(Shape.Circle(2)) == 12 and area(Shape.Rect(3, 4)) == 12 and area(Shape.Empty) == 0
+    if ok { print("[P10] OK") } else { print("[P10] FAIL") }
+}
+p10()
+
+// ============================================================
+// P11: nested patterns
+// ============================================================
+fn p11() {
+    enum Tree { Leaf(int), Node(int, int) }
+    let t = Tree.Node(7, 11)
+    let r = match t {
+        case Node(a, b) -> a + b
+        case Leaf(x)    -> x
+    }
+    if r == 18 { print("[P11] OK") } else { print("[P11] FAIL: " + r) }
+}
+p11()
+
+// ============================================================
+// P12: destructuring let (tuple)
+// ============================================================
+fn p12() {
+    let (a, b, c) = (10, 20, 30)
+    if a == 10 and b == 20 and c == 30 { print("[P12] OK") } else { print("[P12] FAIL") }
+}
+p12()
+
+// ============================================================
+// P13: destructuring let (list head/tail)
+// ============================================================
+fn p13() {
+    let [h, ..t] = [1, 2, 3, 4, 5]
+    if h == 1 and len(t) == 4 and t[0] == 2 { print("[P13] OK") } else { print("[P13] FAIL") }
+}
+p13()
+
+// ============================================================
+// P14: destructuring let (struct fields)
+// ============================================================
+struct PointP14 {
+    pub var x: int
+    pub var y: int
+    fn PointP14(xv: int, yv: int) { self.x = xv; self.y = yv; }
+}
+fn p14() {
+    let pt = PointP14(9, 16)
+    let PointP14 { x, y } = pt
+    if x == 9 and y == 16 { print("[P14] OK") } else { print("[P14] FAIL") }
+}
+p14()
+
+// ============================================================
+// P15: if let — happy path
+// ============================================================
+fn p15() {
+    let v: int | string = 7
+    if let is int as n = v {
+        if n == 7 { print("[P15] OK") } else { print("[P15] FAIL inner") }
+    } else {
+        print("[P15] FAIL else taken")
+    }
+}
+p15()
+
+// ============================================================
+// P16: if let — else branch
+// ============================================================
+fn p16() {
+    let v: int | string = "hello"
+    if let is int as n = v {
+        print("[P16] FAIL then taken")
+    } else {
+        print("[P16] OK")
+    }
+}
+p16()
+
+// ============================================================
+// P17: while let
+// ============================================================
+fn p17() {
+    var xs = [1, 2, 3]
+    var count = 0
+    while let [h, ..t] = xs {
+        count = count + h
+        xs = t
+    }
+    if count == 6 { print("[P17] OK") } else { print("[P17] FAIL: " + count) }
+}
+p17()
+
+// ============================================================
+// P18: for let — destructuring tuple-list
+// ============================================================
+fn p18() {
+    let pts = [(1, 2), (3, 4), (5, 6)]
+    var total = 0
+    for let (a, b) in pts {
+        total = total + a + b
+    }
+    if total == 21 { print("[P18] OK") } else { print("[P18] FAIL: " + total) }
+}
+p18()
+
+// ============================================================
+// P19: map pattern (closed)
+// ============================================================
+fn p19() {
+    let cfg = { "host": "ra", "port": 8080 }
+    let r = match cfg {
+        case { "host": h, "port": p } -> h + ":" + p
+        case _ -> "no"
+    }
+    if r == "ra:8080" { print("[P19] OK") } else { print("[P19] FAIL: " + r) }
+}
+p19()
+
+// ============================================================
+// P20: map pattern (open rest)
+// ============================================================
+fn p20() {
+    let m = { "a": 1, "b": 2, "c": 3 }
+    let r = match m {
+        case { "a": x, .. } -> x
+        case _ -> -1
+    }
+    if r == 1 { print("[P20] OK") } else { print("[P20] FAIL: " + r) }
+}
+p20()
+
+// ============================================================
+// P21: or-pattern with shared binding (alternatives bind same name)
+// ============================================================
+fn p21() {
+    enum Either { L(int), R(int) }
+    fn pick(e: Either): int {
+        ret match e {
+            case L(x) | R(x) -> x
+        }
+    }
+    let ok = pick(Either.L(7)) == 7 and pick(Either.R(11)) == 11
+    if ok { print("[P21] OK") } else { print("[P21] FAIL") }
+}
+p21()
+
+// ============================================================
+// P22: guard
+// ============================================================
+fn p22() {
+    let r = match 7 {
+        case n if n < 5  -> "low"
+        case n if n < 10 -> "mid"
+        case _           -> "hi"
+    }
+    if r == "mid" { print("[P22] OK") } else { print("[P22] FAIL: " + r) }
+}
+p22()
+
+// ============================================================
+// P23: nested or + range + alias
+// ============================================================
+fn p23() {
+    fn rank(n: int): string {
+        ret match n {
+            case 0 | 1 | 2          -> "tiny"
+            case (3..10) as x       -> "small[" + x + "]"
+            case (10..=50) as x     -> "mid[" + x + "]"
+            case _                  -> "big"
+        }
+    }
+    let ok = rank(0) == "tiny" and rank(2) == "tiny" and rank(7) == "small[7]" and rank(25) == "mid[25]" and rank(50) == "mid[50]" and rank(100) == "big"
+    if ok { print("[P23] OK") } else { print("[P23] FAIL") }
+}
+p23()
+
+// ============================================================
+// P24: fn parameter destructuring
+// ============================================================
+fn p24() {
+    fn first_pair((a, b): (int, int)): int { ret a }
+    fn sum_head([h, ..t]: list<int>): int { ret h }
+    if first_pair((10, 20)) == 10 and sum_head([7, 8, 9]) == 7 {
+        print("[P24] OK")
+    } else {
+        print("[P24] FAIL")
+    }
+}
+p24()
+
+// ============================================================
+// P25: lambda parameter destructuring
+// ============================================================
+fn p25() {
+    let pair_sum = |(a, b)| a + b
+    let head = |[h, ..t]| h
+    if pair_sum((3, 4)) == 7 and head([100, 200]) == 100 {
+        print("[P25] OK")
+    } else {
+        print("[P25] FAIL")
+    }
+}
+p25()
+
+// ============================================================
+// P26: deep nesting
+// ============================================================
+fn p26() {
+    enum NodeP26 { Leaf(int), Branch(int, int) }
+    let xs = [NodeP26.Leaf(1), NodeP26.Branch(2, 3), NodeP26.Leaf(4)]
+    var total = 0
+    for let x in xs {
+        total = total + match x {
+            case Leaf(v) -> v
+            case Branch(a, b) -> a * b
+        }
+    }
+    if total == (1 + 6 + 4) { print("[P26] OK") } else { print("[P26] FAIL: " + total) }
+}
+p26()
+
+// ============================================================
+// P27: Option<T> pattern (built-in ADT)
+// ============================================================
+fn p27() {
+    fn unwrap_or(o: Option<int>, dflt: int): int {
+        ret match o {
+            case Some(v) -> v
+            case None    -> dflt
+        }
+    }
+    if unwrap_or(Option.Some(42), 0) == 42 and unwrap_or(Option.None, 99) == 99 {
+        print("[P27] OK")
+    } else {
+        print("[P27] FAIL")
+    }
+}
+p27()
+
+// ============================================================
+// P28: Result<T, E> with `?` (try-unwrap interaction)
+// ============================================================
+fn p28() {
+    fn parse_ok(): Result<int, string> { ret Result.Ok(7) }
+    let r = match parse_ok() {
+        case Ok(v)  -> "got " + v
+        case Err(e) -> "err " + e
+    }
+    if r == "got 7" { print("[P28] OK") } else { print("[P28] FAIL: " + r) }
+}
+p28()
+
+// ============================================================
+// P29: nested tuple destructuring let
+// ============================================================
+fn p29() {
+    let ((a, b), c) = ((1, 2), 3)
+    if a == 1 and b == 2 and c == 3 { print("[P29] OK") } else { print("[P29] FAIL") }
+}
+p29()
+
+// ============================================================
+// P30: range with string lexicographic
+// ============================================================
+fn p30() {
+    fn rank(s: string): string {
+        ret match s {
+            case "a".."m" -> "low"
+            case _        -> "high"
+        }
+    }
+    if rank("apple") == "low" and rank("zebra") == "high" {
+        print("[P30] OK")
+    } else {
+        print("[P30] FAIL")
+    }
+}
+p30()
+
+// ============================================================
+// P31: class destructuring
+// ============================================================
+class Person {
+    pub var name: string
+    pub var age: int
+    fn Person(n: string, a: int) { self.name = n; self.age = a }
+}
+fn p31() {
+    let pp = Person("Ada", 36)
+    let r = match pp {
+        case Person { name: "Ada", age } -> "ada=" + age
+        case Person { name, age }        -> name + "/" + age
+    }
+    if r == "ada=36" { print("[P31] OK") } else { print("[P31] FAIL: " + r) }
+}
+p31()
+
+// ============================================================
+// P32: class destructuring in let
+// ============================================================
+fn p32() {
+    let pp = Person("Bob", 21)
+    let Person { name, age } = pp
+    if name == "Bob" and age == 21 { print("[P32] OK") } else { print("[P32] FAIL") }
+}
+p32()
+
+// ============================================================
+// P33: null pattern in or-pattern
+// ============================================================
+fn p33() {
+    fn nm(x: int | null): string {
+        ret match x {
+            case null -> "nope"
+            case _    -> "ok"
+        }
+    }
+    if nm(null) == "nope" and nm(5) == "ok" {
+        print("[P33] OK")
+    } else {
+        print("[P33] FAIL")
+    }
+}
+p33()
+
+// ============================================================
+// P34: not / and pattern
+// ============================================================
+fn p34() {
+    fn k(n: int): string {
+        ret match n {
+            case not 0 & < 100 -> "small-nonzero"
+            case 0             -> "zero"
+            case _             -> "big"
+        }
+    }
+    let ok = k(0) == "zero" and k(5) == "small-nonzero" and k(200) == "big"
+    if ok { print("[P34] OK") } else { print("[P34] FAIL") }
+}
+p34()
+
+// ============================================================
+// P35: catch with variant pattern
+// ============================================================
+enum AppErr35 { NotFound(string), Denied(int) }
+fn p35() {
+    var caught = ""
+    try {
+        throw AppErr35.NotFound("config")
+    } catch (NotFound(path)) {
+        caught = "missing-" + path
+    }
+    if caught == "missing-config" { print("[P35] OK") } else { print("[P35] FAIL: " + caught) }
+}
+p35()
+
+// ============================================================
+// P36: sealed class exhaustiveness — runtime path with all variants
+// ============================================================
+@sealed
+class ShapeP36 { fn ShapeP36() { pass } }
+class CircleP36: ShapeP36 { fn CircleP36() { pass } }
+class SquareP36: ShapeP36 { fn SquareP36() { pass } }
+
+fn p36() {
+    fn name(sh: ShapeP36): string {
+        ret match sh {
+            case is CircleP36 -> "c"
+            case is SquareP36 -> "s"
+        }
+    }
+    if name(CircleP36()) == "c" and name(SquareP36()) == "s" {
+        print("[P36] OK")
+    } else {
+        print("[P36] FAIL")
+    }
+}
+p36()
+
+print("=== ALL PATTERN TESTS DONE ===")

@@ -115,6 +115,12 @@ namespace RaLanguage.Parser
             var isRefParams = new List<bool>();
             var paramDefaults = new List<AstNode?>();
             var paramAnnotations = new List<List<AnnotationApplicationNode>?>();
+            // Lambda-parameter destructuring: `|(a, b)| body`, `|[h, ..t]| body`,
+            // `|User { name }| body`, `|{ "k": v }| body`. Each pattern
+            // parameter is replaced by a synthetic name; the matching
+            // 'let pattern_i = $$lambda_i' declarations are spliced at the
+            // head of the body so the user-visible names exist inside it.
+            var paramDestructures = new List<(Token Synth, RaLanguage.Parser.Nodes.Patterns.PatternNode Pattern)>();
 
             // `||` lexes as a single Keyword.Or token. At atom position it
             // can never be a logical-or, so we reinterpret it as an empty
@@ -167,6 +173,62 @@ namespace RaLanguage.Parser
                                 res.RegisterAdvancement();
                                 Advance();
                             }
+                        }
+
+                        // Pattern-parameter detection inside the bar list.
+                        // Same shapes as fn() params: '(', '[', '{',
+                        // and 'IDENT {'.
+                        bool isPatternParam =
+                            !isRef && (
+                                _currentToken.Type == TokenType.LPAREN
+                                || _currentToken.Type == TokenType.LSQUARE
+                                || _currentToken.Type == TokenType.LBRACKET
+                                || (_currentToken.Type == TokenType.IDENTIFIER
+                                    && _tokenIndex + 1 < _tokens.Count
+                                    && _tokens[_tokenIndex + 1].Type == TokenType.LBRACKET));
+
+                        if (isPatternParam)
+                        {
+                            var patStart = _currentToken.PositionStart;
+                            // Use ParseBasePattern (no or / alias trailer) so
+                            // the closing bar '|' of the parameter list is
+                            // not eaten as a pattern alternation.
+                            var pattern = ParseBasePattern(res);
+                            if (res.Error != null) return res;
+                            if (pattern == null) return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken,
+                                "a pattern in the lambda parameter list"));
+
+                            string synthName = "$$lambda$" + paramDestructures.Count.ToString();
+                            var synthTok = new Token(TokenType.IDENTIFIER, synthName, patStart, patStart);
+                            argNameToks.Add(synthTok);
+                            paramAnnotations.Add(null);
+                            paramDestructures.Add((synthTok, pattern));
+
+                            while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+
+                            TypeDescriptor? patType = null;
+                            if (_currentToken.Type == TokenType.COLON)
+                            {
+                                res.RegisterAdvancement();
+                                Advance();
+                                while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+                                var parsedT = ParseTypeAtom(res);
+                                if (parsedT == null) return res.Failure(ParserDiagnostics.ExpectedTypeAfterColon(_currentToken,
+                                    where: "the lambda destructuring parameter type"));
+                                patType = parsedT;
+                            }
+                            argTypes.Add(patType);
+                            isRefParams.Add(false);
+                            paramDefaults.Add(null);
+
+                            while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+                            if (_currentToken.Type == TokenType.COMMA)
+                            {
+                                res.RegisterAdvancement();
+                                Advance();
+                                continue;
+                            }
+                            break;
                         }
 
                         if (_currentToken.Type != TokenType.IDENTIFIER)
@@ -330,6 +392,33 @@ namespace RaLanguage.Parser
                 shouldAutoReturn = true;
             }
 
+            // Splice destructuring declarations at body head when the
+            // lambda uses pattern parameters. Expression-body lambdas
+            // get rewritten as a block { let pat = $$lambda; ret expr; }
+            // so the destructure can run before evaluating the body.
+            AstNode? finalBody = bodyNode;
+            bool finalAutoReturn = shouldAutoReturn;
+            if (paramDestructures.Count > 0 && finalBody != null)
+            {
+                finalBody = WrapBodyWithDestructures(finalBody, paramDestructures);
+                finalAutoReturn = shouldAutoReturn && paramDestructures.Count == 0;
+                if (shouldAutoReturn)
+                {
+                    // The wrapper produced a ScopeNode; auto-return cannot
+                    // propagate through a multi-statement body, so emit an
+                    // explicit return on the last statement (the original
+                    // expression).
+                    if (finalBody is RaLanguage.Parser.Nodes.Special.ScopeNode sc && sc.Nodes.Count > 0)
+                    {
+                        int lastIdx = sc.Nodes.Count - 1;
+                        var lastExpr = sc.Nodes[lastIdx];
+                        sc.Nodes[lastIdx] = new RaLanguage.Parser.Nodes.Functions.ReturnNode(
+                            lastExpr, lastExpr.PositionStart, lastExpr.PositionEnd);
+                    }
+                    finalAutoReturn = false;
+                }
+            }
+
             var node = new FunctionDefinitionNode(
                 varNameTok: null,
                 argNameToks: argNameToks,
@@ -340,8 +429,8 @@ namespace RaLanguage.Parser
                 varArgNameTok: null,
                 varArgType: null,
                 returnType: returnType,
-                bodyNode: bodyNode,
-                shouldAutoReturn: shouldAutoReturn,
+                bodyNode: finalBody,
+                shouldAutoReturn: finalAutoReturn,
                 genericTypeParams: null,
                 isPublic: false,
                 isConstructor: false,

@@ -1,0 +1,148 @@
+// Pattern Matching diagnostic suite — exercises the analyzer warnings
+// for unreachable arms, duplicate literals, and boolean exhaustiveness.
+// The expected output is a NarrowingAnalyzer warning section followed by
+// the visible "tests done" line. No runtime FAILures should occur.
+
+print("=== Pattern diagnostic suite (warnings expected above) ===")
+
+// D1: arm after a wildcard fallback is unreachable.
+fn d1() {
+    let _ = match 1 {
+        case _ -> "any"
+        case 2 -> "two"   // unreachable
+    }
+}
+d1()
+
+// D2: duplicate literal arm.
+fn d2() {
+    let _ = match 1 {
+        case 1 -> "one"
+        case 2 -> "two"
+        case 1 -> "again"   // unreachable: duplicate literal
+        case _ -> "other"
+    }
+}
+d2()
+
+// D3: bool match missing 'false'.
+fn d3() {
+    let b: bool = true
+    let _ = match b {
+        case true -> "t"
+        // missing 'false' — analyzer should warn
+    }
+}
+d3()
+
+// D4: bool match covers both via or-pattern (no warning expected).
+fn d4() {
+    let b: bool = false
+    let _ = match b {
+        case true | false -> "any"
+    }
+}
+d4()
+
+// D5: arm after an unconditional bare-variable binder is unreachable.
+fn d5() {
+    let _ = match 5 {
+        case n -> "captured"
+        case 5 -> "five"   // unreachable
+    }
+}
+d5()
+
+// D6: enum exhaustiveness — missing variant 'Empty'.
+enum ShapeD6 {
+    Circle(int),
+    Rect(int, int),
+    Empty,
+}
+fn d6() {
+    let s: ShapeD6 = ShapeD6.Circle(2)
+    let _ = match s {
+        case Circle(r)  -> "c"
+        case Rect(w, h) -> "r"
+        // missing Empty — analyzer should warn
+    }
+}
+d6()
+
+// D8: range overlap.
+fn d8() {
+    let _ = match 5 {
+        case 1..10  -> "a"
+        case 5..20  -> "b"   // overlaps 1..10
+        case _      -> "c"
+    }
+}
+d8()
+
+// D9: literal inside earlier range — unreachable.
+fn d9() {
+    let _ = match 5 {
+        case 0..100 -> "r"
+        case 5      -> "lit"  // unreachable
+        case _      -> "x"
+    }
+}
+d9()
+
+// D10: range covers earlier literal — partial overlap warn.
+fn d10() {
+    let _ = match 7 {
+        case 7      -> "lit"
+        case 0..100 -> "r"   // includes earlier literal arm
+        case _      -> "x"
+    }
+}
+d10()
+
+// D11: generic enum payload narrowing — Result<int,string>.
+fn d11() {
+    let r: Result<int, string> = Result.Ok(7)
+    let _ = match r {
+        case Ok(n)  -> n is string    // analyzer: always false (n: int)
+        case Err(e) -> e is int       // analyzer: always false (e: string)
+    }
+}
+d11()
+
+// D12: or-pattern binding coherence — name set mismatch.
+enum E12 { L(int), R(int, int) }
+fn d12() {
+    let v = E12.L(5)
+    let _ = match v {
+        case L(x) | R(x, y) -> "mixed"   // 'y' missing in left alt — warn
+        case _              -> "other"
+    }
+}
+d12()
+
+// D13: sealed class non-exhaustive.
+@sealed
+class ShapeD13 { fn ShapeD13() { pass } }
+class CircleD13: ShapeD13 { fn CircleD13() { pass } }
+class SquareD13: ShapeD13 { fn SquareD13() { pass } }
+class TriangleD13: ShapeD13 { fn TriangleD13() { pass } }
+
+fn d13(s: ShapeD13) {
+    let _ = match s {
+        case is CircleD13 -> "c"
+        case is SquareD13 -> "s"
+        // missing TriangleD13 — sealed exhaustiveness warning
+    }
+}
+
+// D7: enum exhaustiveness — covered via wildcard, no warning expected.
+fn d7() {
+    let s: ShapeD6 = ShapeD6.Empty
+    let _ = match s {
+        case Circle(r) -> "c"
+        case _         -> "rest"
+    }
+}
+d7()
+
+print("=== Pattern diagnostic suite done ===")

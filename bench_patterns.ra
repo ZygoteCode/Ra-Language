@@ -1,0 +1,68 @@
+// bench_patterns.ra — steady-state cost of the extended pattern engine.
+//
+// Compares two dispatchers performing the same numeric classification
+// on a hot inner loop: (a) chained 'if / elif' and (b) 'match' with
+// ranges, relationals, or-patterns and a wildcard fallback. Numbers
+// printed at the end are wall-clock totals over the same workload.
+
+const ITERS = 200000
+
+fn classify_if(n: int): int {
+    if n < 0 { ret -1 }
+    elif n == 0 { ret 0 }
+    elif n < 10 { ret 1 }
+    elif n < 100 { ret 2 }
+    elif n < 1000 { ret 3 }
+    else { ret 4 }
+}
+
+fn classify_match(n: int): int {
+    ret match n {
+        case < 0    -> -1
+        case 0      -> 0
+        case 1..10  -> 1
+        case 10..100 -> 2
+        case 100..1000 -> 3
+        case _      -> 4
+    }
+}
+
+fn warm() {
+    var i = 0
+    while i < 1000 {
+        classify_if(i)
+        classify_match(i)
+        i = i + 1
+    }
+}
+warm()
+
+// Wrap each bench loop in its own function: ra's module-level scope
+// reads variables through a slower (and currently sometimes stale)
+// path that obscures function-call arguments — the function-scope
+// path used here is the one we actually care about benchmarking.
+fn run_if(): int {
+    var i = 0
+    var sum = 0
+    while i < ITERS {
+        sum = sum + classify_if(i)
+        i = i + 1
+    }
+    ret sum
+}
+fn run_match(): int {
+    var i = 0
+    var sum = 0
+    while i < ITERS {
+        sum = sum + classify_match(i)
+        i = i + 1
+    }
+    ret sum
+}
+
+let sum_if = run_if()
+let sum_match = run_match()
+
+print("sum_if   ="); print(sum_if)
+print("sum_match="); print(sum_match)
+print("(timing shown by the host)")
