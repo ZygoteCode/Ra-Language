@@ -822,6 +822,26 @@ namespace RaLanguage.Parser
             var res = new ParserResult();
             var tok = _currentToken;
 
+            // Bar-style lambdas (`|x| body`, `||`, `[caps] |x| body`). Atom
+            // position cannot host a binary `|` (BITWISE_OR) or `||`
+            // (Keyword.Or) — no left operand exists — so reinterpreting them
+            // as lambda openers is unambiguous. The `[caps]` form rolls the
+            // token cursor back to LSQUARE on a non-match so list literals
+            // are unaffected.
+            if (IsBarLambdaOpener())
+            {
+                var lambda = res.Register(ParseBarLambda(capture: null));
+                if (res.Error != null) return res;
+                return res.Success(lambda);
+            }
+            if (tok.Type == TokenType.LSQUARE
+                && TryParseLambdaCaptureClause(res, out var capList))
+            {
+                var lambda = res.Register(ParseBarLambda(capture: capList));
+                if (res.Error != null) return res;
+                return res.Success(lambda);
+            }
+
             switch (tok.Type)
             {
                 case TokenType.INT:
