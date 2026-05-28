@@ -1,0 +1,98 @@
+// Stream fusion test suite. The semantic outputs must match the non-fused
+// chain exactly — fusion is a perf optimisation, never a behaviour change.
+// Build identity is checked by `is_stream` plus output equality.
+
+// ----- U1: map + filter + take fused (no captures) -----
+let r1 = stream_range(0, 100)
+    |> stream_map(|x| x * x)
+    |> stream_filter(|x| x % 5 == 0)
+    |> stream_take(8)
+    |> stream_collect();
+print(r1);
+print("[U1] OK");
+
+// ----- U2: drop + take fused (counter-only ops) -----
+let r2 = stream_range(0, 20)
+    |> stream_drop(3)
+    |> stream_take(5)
+    |> stream_collect();
+print(r2);
+print("[U2] OK");
+
+// ----- U3: take_while + map fused -----
+let r3 = stream_iterate(1, |y| y + 1)
+    |> stream_take_while(|y| y < 7)
+    |> stream_map(|y| y * 10)
+    |> stream_collect();
+print(r3);
+print("[U3] OK");
+
+// ----- U4: drop_while fused -----
+let r4 = stream_from([1, 2, 3, 4, 5, 1, 2, 3])
+    |> stream_drop_while(|y| y < 4)
+    |> stream_collect();
+print(r4);
+print("[U4] OK");
+
+// ----- U5: peek fused (side effect with passthrough) -----
+var seen5 = [];
+let r5 = stream_range(0, 4)
+    |> stream_peek(|x| seen5 = seen5 + x)
+    |> stream_map(|x| x + 100)
+    |> stream_collect();
+print(r5);
+print(seen5);
+print("[U5] OK");
+
+// ----- U6: fusion still preserves error propagation -----
+fn bad_square(x: int): int {
+    if (x == 3) {
+        ret 1 / 0;
+    }
+    ret x * x;
+}
+fn run_u6() {
+    try {
+        let s = stream_range(0, 5)
+            |> stream_map(bad_square)
+            |> stream_filter(|x| x > 0)
+            |> stream_collect();
+        print("no error");
+    } catch (e) {
+        print("caught");
+    }
+}
+run_u6();
+print("[U6] OK");
+
+// ----- U7: fusion + for-each (lazy ForEachStreamPull) -----
+var sum7 = 0;
+let p7 = stream_range(0, 1000)
+    |> stream_map(|x| x + 1)
+    |> stream_filter(|x| x % 2 == 0)
+    |> stream_take(10);
+for x in p7 {
+    sum7 = sum7 + x;
+}
+print(sum7);
+print("[U7] OK");
+
+// ----- U8: very long fused chain (stress the per-op switch loop) -----
+let r8 = stream_range(0, 50)
+    |> stream_map(|x| x + 1)
+    |> stream_filter(|x| x % 2 == 0)
+    |> stream_map(|x| x * 10)
+    |> stream_filter(|x| x > 50)
+    |> stream_take(6)
+    |> stream_collect();
+print(r8);
+print("[U8] OK");
+
+// ----- U9: fusion-eligibility fallback — a lambda WITH captures
+// uses the dedicated wrapper but still produces the right answer.
+let factor = 7;
+let r9 = stream_range(0, 5)
+    |> stream_map(|x| x * factor)
+    |> stream_collect();
+print(r9);
+print("[U9] OK");

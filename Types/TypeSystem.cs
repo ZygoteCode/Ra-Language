@@ -215,7 +215,11 @@ namespace RaLanguage.Types
                 case RuntimeValueType.Channel:
                     return string.Equals(target.Name, "channel", StringComparison.Ordinal);
                 case RuntimeValueType.Stream:
-                    return string.Equals(target.Name, "stream", StringComparison.Ordinal);
+                    return string.Equals(target.Name, "stream", StringComparison.Ordinal)
+                        || string.Equals(target.Name, "Stream", StringComparison.Ordinal);
+                case RuntimeValueType.AsyncStream:
+                    return string.Equals(target.Name, "async_stream", StringComparison.Ordinal)
+                        || string.Equals(target.Name, "AsyncStream", StringComparison.Ordinal);
                 default:
                     return false;
             }
@@ -660,7 +664,11 @@ namespace RaLanguage.Types
                 case "channel":
                     return value.Type == RuntimeValueType.Channel;
                 case "stream":
+                case "Stream":
                     return value.Type == RuntimeValueType.Stream;
+                case "async_stream":
+                case "AsyncStream":
+                    return value.Type == RuntimeValueType.AsyncStream;
             }
 
             // Nominal user types — reuse the existing assignability path,
@@ -865,6 +873,8 @@ namespace RaLanguage.Types
                     return new TypeDescriptor("channel");
                 case RuntimeValueType.Stream:
                     return new TypeDescriptor("stream");
+                case RuntimeValueType.AsyncStream:
+                    return new TypeDescriptor("async_stream");
                 case RuntimeValueType.ClassInstance:
                     return new TypeDescriptor(((ClassInstanceValue)val).Definition.ClassName);
                 case RuntimeValueType.ClassType:

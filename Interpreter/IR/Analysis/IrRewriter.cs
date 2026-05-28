@@ -1067,6 +1067,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Range:
                 case Opcode.GetMember: case Opcode.EnumAccess:
                 case Opcode.ForEachIterable: case Opcode.ListLen:
+                case Opcode.ForEachStreamPull:
                 case Opcode.Cast: case Opcode.Is:
                 case Opcode.Typeof: case Opcode.Nameof:
                 case Opcode.Closure: case Opcode.DefineFunction:

@@ -24,7 +24,7 @@ namespace RaLanguage.Interpreter.Visitors.Statements
             var collection = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.CollectionNode, loopContext, interpreter));
             if (res.Error != null) return res;
 
-            if (collection.Type != RuntimeValueType.List && collection.Type != RuntimeValueType.Set && collection.Type != RuntimeValueType.Map && collection.Type != RuntimeValueType.Tuple)
+            if (collection.Type != RuntimeValueType.List && collection.Type != RuntimeValueType.Set && collection.Type != RuntimeValueType.Map && collection.Type != RuntimeValueType.Tuple && collection.Type != RuntimeValueType.Stream)
             {
                 return res.Failure(new RuntimeError(
                     node.PositionStart, node.PositionEnd,
@@ -107,6 +107,30 @@ namespace RaLanguage.Interpreter.Visitors.Statements
                     if (res.LoopShouldBreak) { res.LoopShouldBreak = false; shouldBreak = true; continue; }
                     if (res.LoopShouldContinue) { res.LoopShouldContinue = false; continue; }
                 }
+            }
+            else if (collection.Type == RuntimeValueType.Stream)
+            {
+                // Sync stream: drive PullNext until Done. The body sees the
+                // element value bound to the iterator variable; errors
+                // surfaced by the pipeline (upstream OR user lambda inside
+                // map/filter/take_while/etc.) propagate to the loop and the
+                // stream is closed on break / return / error.
+                var stream = (RaLanguage.Interpreter.Values.Streams.StreamValue)collection;
+                while (!shouldBreak)
+                {
+                    var pull = await stream.PullNext(bodyContext);
+                    if (pull.Error != null) { stream.CloseSource(); return res.Failure(pull.Error); }
+                    if (pull.Done) break;
+                    iterEntry!.Value = pull.Value!;
+                    bodySymbols.Clear();
+                    bodyContext.ScopeSkipCopy = true;
+                    res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.BodyNode, bodyContext, interpreter));
+                    if (res.Error != null) { stream.CloseSource(); return res; }
+                    if (res.FuncReturnValue != null) { stream.CloseSource(); return res; }
+                    if (res.LoopShouldBreak) { res.LoopShouldBreak = false; shouldBreak = true; continue; }
+                    if (res.LoopShouldContinue) { res.LoopShouldContinue = false; continue; }
+                }
+                if (shouldBreak) stream.CloseSource();
             }
 
             return res.Success(NullValue.Null);

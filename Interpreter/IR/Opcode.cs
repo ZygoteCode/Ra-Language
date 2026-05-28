@@ -559,6 +559,32 @@ namespace RaLanguage.Interpreter.IR
         // --- inline asm ---
         AsmInvoke       = 0xE0,   // a (retBase), b (argsBase), regionId:u8 (c)  + ext: argsCount|retCount
 
+        // ---- streams (Streams runtime — see RA_STREAMS_DESIGN.md §10) ----
+        // Forward-jump opcode that branches if `locals[a]` is a sync stream
+        // (RuntimeValueType.Stream). Encoding mirrors `Opcode.JmpIfNot`:
+        // `[op:u8][a:u8][imm16: signed forward offset]`. Used at the top of
+        // `for x in expr { … }` to dispatch between the materializing IR
+        // fast-path and the lazy stream-pull path emitted right after it.
+        JmpIfStream     = 0xE1,
+
+        // Per-iteration lazy pull from a sync `StreamValue`. Encoding:
+        // `[op:u8][itemSlot:u8][streamSlot:u8][continueSlot:u8]`.
+        //
+        // Semantics:
+        //   * call stream.PullNext(ctx) synchronously (ValueTask short-circuit
+        //     on the steady-state hot path);
+        //   * on error → throw RaUserError;
+        //   * on done   → `locals[continueSlot] = BooleanValue.False`. itemSlot
+        //                 is left unchanged (the body's JmpIfNot exits before
+        //                 it would be read);
+        //   * on value  → `locals[itemSlot] = value` and
+        //                 `locals[continueSlot] = BooleanValue.True`.
+        //
+        // Pairs with `Opcode.JmpIfNot continueSlot, exitOffset` to form a
+        // single-allocation pull-and-test loop that supports infinite
+        // streams + body `break`.
+        ForEachStreamPull = 0xE2,
+
         // --- misc ---
         Pass            = 0xF0,
         Delete          = 0xF1,   // a (slot)

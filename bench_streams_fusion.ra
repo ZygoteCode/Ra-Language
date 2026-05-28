@@ -1,0 +1,60 @@
+// bench_streams_fusion.ra
+//
+// Measures the difference between a fused pipeline and the materialised
+// list-builtin equivalent. The fused path collapses N stream operators
+// into one IStreamSource — one virtual dispatch per pull and a tight
+// per-element op-loop in C# — versus the list-builtin path which builds
+// intermediate lists and walks them N times.
+//
+// The pipeline: range -> map(+1) -> filter(even) -> map(*3) -> take(5000).
+// 1M candidates upstream, 5K elements downstream — long enough that
+// per-element overhead dominates.
+
+let LIMIT = 1000000;
+let TAKE  = 5000;
+
+// ---- Warmup (JIT primes the dispatch loop + lambda call paths) ----
+let _ = stream_range(0, 1000) |> stream_map(|x| x + 1) |> stream_filter(|x| x % 2 == 0) |> stream_map(|x| x * 3) |> stream_take(100) |> stream_collect();
+
+// ---- Fused stream pipeline ----
+let t_start = monotonic_ms();
+let res_stream = stream_range(0, LIMIT)
+    |> stream_map(|x| x + 1)
+    |> stream_filter(|x| x % 2 == 0)
+    |> stream_map(|x| x * 3)
+    |> stream_take(TAKE)
+    |> stream_collect();
+let t_end = monotonic_ms();
+print("[BENCH] fused stream pipeline: " + (t_end - t_start) + "ms, len=" + len(res_stream));
+
+// ---- list builtin chain ----
+let lt_start = monotonic_ms();
+let huge = list_range(0, LIMIT);
+var added = [];
+var i = 0;
+while i < len(huge) {
+    let v = huge[i] + 1;
+    if (v % 2 == 0) {
+        added = added + [v * 3];
+        if (len(added) >= TAKE) {
+            break
+        }
+    }
+    i = i + 1;
+}
+let lt_end = monotonic_ms();
+print("[BENCH] list materialised + manual loop: " + (lt_end - lt_start) + "ms, len=" + len(added));
+
+// ---- Fused for-each (lazy iteration via ForEachStreamPull) ----
+let f_start = monotonic_ms();
+var fcount = 0;
+let p = stream_range(0, LIMIT)
+    |> stream_map(|x| x + 1)
+    |> stream_filter(|x| x % 2 == 0)
+    |> stream_map(|x| x * 3)
+    |> stream_take(TAKE);
+for x in p {
+    fcount = fcount + 1;
+}
+let f_end = monotonic_ms();
+print("[BENCH] fused stream + for-each: " + (f_end - f_start) + "ms, count=" + fcount);

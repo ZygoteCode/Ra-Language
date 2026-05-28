@@ -50,6 +50,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             BuiltInRegistry.Register("is_task", v => v.Type == RuntimeValueType.Task);
             BuiltInRegistry.Register("is_channel", v => v.Type == RuntimeValueType.Channel);
             BuiltInRegistry.Register("is_stream", v => v.Type == RuntimeValueType.Stream);
+            BuiltInRegistry.Register("is_async_stream", v => v.Type == RuntimeValueType.AsyncStream);
             BuiltInRegistry.Register("is_annotation", v => v.Type == RuntimeValueType.AnnotationInstance);
             BuiltInRegistry.Register("is_annotation_type", v => v.Type == RuntimeValueType.AnnotationType);
             BuiltInRegistry.Register("is_reference", v => v.Type == RuntimeValueType.Reference);

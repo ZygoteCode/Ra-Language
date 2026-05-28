@@ -208,6 +208,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
                 case RuntimeValueType.Task: return "task";
                 case RuntimeValueType.Channel: return "channel";
                 case RuntimeValueType.Stream: return "stream";
+                case RuntimeValueType.AsyncStream: return "async_stream";
                 case RuntimeValueType.Namespace: return "namespace";
                 case RuntimeValueType.Reference: return "reference";
                 case RuntimeValueType.ModuleWrapper: return "module";

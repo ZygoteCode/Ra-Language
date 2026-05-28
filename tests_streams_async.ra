@@ -1,0 +1,107 @@
+// Ra Async Streams test suite.
+// Pairs with tests_streams.ra; covers AsyncStream<T> built on async stream fn,
+// the astream_* operator family, and the to_async() bridge from sync streams.
+// Every test prints "[ANn] OK" on success.
+
+async stream fn produce_ints(n: int) {
+    for i in stream_range(0, n) {
+        emit i;
+    }
+}
+
+async stream fn one_to_five() {
+    for i in stream_range(1, 6) {
+        emit i;
+    }
+}
+
+// ----- AN1: astream_collect -----
+async fn t_an1() {
+    let s = produce_ints(5);
+    let lst = await astream_collect(s);
+    print(lst);
+}
+await t_an1();
+print("[AN1] OK")
+
+// ----- AN2: astream_map + astream_collect -----
+async fn t_an2() {
+    let lst = await produce_ints(5) |> astream_map(|x| x * 10) |> astream_collect();
+    print(lst);
+}
+await t_an2();
+print("[AN2] OK")
+
+// ----- AN3: astream_filter -----
+async fn t_an3() {
+    let lst = await produce_ints(10) |> astream_filter(|x| x % 3 == 0) |> astream_collect();
+    print(lst);
+}
+await t_an3();
+print("[AN3] OK")
+
+// ----- AN4: astream_take -----
+async fn t_an4() {
+    let lst = await produce_ints(100) |> astream_take(4) |> astream_collect();
+    print(lst);
+}
+await t_an4();
+print("[AN4] OK")
+
+// ----- AN5: astream_drop -----
+async fn t_an5() {
+    let lst = await produce_ints(7) |> astream_drop(4) |> astream_collect();
+    print(lst);
+}
+await t_an5();
+print("[AN5] OK")
+
+// ----- AN6: astream_reduce -----
+async fn t_an6() {
+    let s = await one_to_five() |> astream_reduce(0, |acc, x| acc + x);
+    print(s);
+}
+await t_an6();
+print("[AN6] OK")
+
+// ----- AN7: astream_for_each side-effect -----
+var sink7 = 0;
+async fn t_an7() {
+    await one_to_five() |> astream_for_each(|x| {
+        sink7 = sink7 + x;
+    });
+}
+await t_an7();
+print(sink7);
+print("[AN7] OK")
+
+// ----- AN8: to_async bridge -----
+async fn t_an8() {
+    let lst = await stream_range(0, 4) |> to_async() |> astream_map(|x| x + 100) |> astream_collect();
+    print(lst);
+}
+await t_an8();
+print("[AN8] OK")
+
+// ----- AN9: composition map -> filter -> take -----
+async fn t_an9() {
+    let lst = await produce_ints(20)
+        |> astream_map(|x| x * x)
+        |> astream_filter(|x| x % 2 == 0)
+        |> astream_take(3)
+        |> astream_collect();
+    print(lst);
+}
+await t_an9();
+print("[AN9] OK")
+
+// ----- AN10: for-await iteration -----
+async fn t_an10() {
+    var sum = 0;
+    for await x in one_to_five() {
+        sum = sum + x;
+    }
+    print(sum);
+}
+await t_an10();
+print("[AN10] OK")

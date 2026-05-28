@@ -3187,6 +3187,26 @@ namespace RaLanguage.Interpreter.IR
 
             EmitPushScope(st); // iter scope
 
+            // Iter-name binding placeholder shared between both code paths.
+            byte nullSlot = AllocTemp(ref topSlot);
+            st.Code.Emit3(Opcode.LoadNull, nullSlot, 0, 0);
+            st.Code.Emit2(Opcode.SetLocalDirect, nullSlot, iterNameIdx);
+
+            // M82-streams: runtime dispatch between two foreach shapes —
+            //   * fall-through  →  materialising IR fast path (List/Set/Map/
+            //                      Tuple). Cheap when the collection is
+            //                      already eager.
+            //   * stream branch →  per-iteration lazy pull through
+            //                      Opcode.ForEachStreamPull. Required for
+            //                      sync `StreamValue` so infinite producers
+            //                      + body `break` terminate without
+            //                      draining the source first.
+            // The body is emitted twice (once per path) because each path
+            // has its own break/continue exit labels; bytecode cost is
+            // bounded and avoids needing a polymorphic iterator object.
+            int streamBranchPc = st.Code.EmitForwardJump(Opcode.JmpIfStream, collSlot);
+
+            // ---- materialising path (List / Tuple / Set / Map) ----------
             byte iterListSlot = AllocTemp(ref topSlot);
             st.Code.Emit3(Opcode.ForEachIterable, iterListSlot, collSlot, 0);
 
@@ -3197,38 +3217,30 @@ namespace RaLanguage.Interpreter.IR
             ushort zeroIdx = st.Consts.Add(NumberValue.Zero);
             st.Code.Emit2(Opcode.LoadConst, idxSlot, zeroIdx);
 
-            // Bind the iteration variable in the iter scope with a null
-            // placeholder so the body's AssignBinding writes survive
-            // ClearScope. Mirrors loopSymbols.SetLocal(varName, NullValue.Null)
-            // in ForEachNodeVisitor.
-            byte nullSlot = AllocTemp(ref topSlot);
-            st.Code.Emit3(Opcode.LoadNull, nullSlot, 0, 0);
-            st.Code.Emit2(Opcode.SetLocalDirect, nullSlot, iterNameIdx);
-
             byte oneSlot = AllocTemp(ref topSlot);
             ushort oneIdx = st.Consts.Add(NumberValue.One);
             st.Code.Emit2(Opcode.LoadConst, oneSlot, oneIdx);
 
-            EmitPushScope(st); // body scope
-            int baselineDepth = st.ScopeDepth;
-            int loopTopPc = st.Code.Pc;
+            EmitPushScope(st); // body scope (materialising)
+            int baselineDepthMat = st.ScopeDepth;
+            int loopTopMatPc = st.Code.Pc;
             st.Code.Emit3(Opcode.ClearScope, 0, 0, 0);
 
             byte cmpSlot = AllocTemp(ref topSlot);
             st.Code.Emit3(Opcode.Lt, cmpSlot, idxSlot, lenSlot);
-            int exitJmp = st.Code.EmitForwardJump(Opcode.JmpIfNot, cmpSlot);
+            int exitJmpMat = st.Code.EmitForwardJump(Opcode.JmpIfNot, cmpSlot);
 
-            byte itemSlot = AllocTemp(ref topSlot);
-            st.Code.Emit3(Opcode.ListGet, itemSlot, iterListSlot, idxSlot);
-            st.Code.Emit2(Opcode.AssignBinding, itemSlot, iterNameIdx);
+            byte itemSlotMat = AllocTemp(ref topSlot);
+            st.Code.Emit3(Opcode.ListGet, itemSlotMat, iterListSlot, idxSlot);
+            st.Code.Emit2(Opcode.AssignBinding, itemSlotMat, iterNameIdx);
 
             // Increment BEFORE the body runs so `continue` (which jumps back
             // to loop_top) doesn't skip the iteration step. Mirrors the
             // For-loop fix that landed in M4.
             st.Code.Emit3(Opcode.Add, idxSlot, idxSlot, oneSlot);
 
-            var loop = new LoopContext(loopTopPc, baselineDepth);
-            st.Loops.Push(loop);
+            var loopMat = new LoopContext(loopTopMatPc, baselineDepthMat);
+            st.Loops.Push(loopMat);
             try
             {
                 CompileBodyStrictInline(node.BodyNode, st, ref topSlot, scratchSlot);
@@ -3238,14 +3250,53 @@ namespace RaLanguage.Interpreter.IR
                 st.Loops.Pop();
             }
 
-            st.Code.EmitBackwardJump(Opcode.Jmp, 0, loopTopPc);
+            st.Code.EmitBackwardJump(Opcode.Jmp, 0, loopTopMatPc);
 
-            st.Code.PatchJumpToHere(exitJmp);
-            foreach (var p in loop.BreakFixups) st.Code.PatchJumpToHere(p);
-            PatchJumpsBackward(st, loop.ContinueFixups, loopTopPc);
+            st.Code.PatchJumpToHere(exitJmpMat);
+            foreach (var p in loopMat.BreakFixups) st.Code.PatchJumpToHere(p);
+            PatchJumpsBackward(st, loopMat.ContinueFixups, loopTopMatPc);
 
-            EmitPopScope(st); // body
-            EmitPopScope(st); // iter
+            EmitPopScope(st); // body scope (materialising)
+
+            // Skip the lazy-stream path on the materialising fall-through.
+            int doneJmp = st.Code.EmitForwardJump(Opcode.Jmp);
+
+            // ---- lazy stream path ----------------------------------------
+            st.Code.PatchJumpToHere(streamBranchPc);
+
+            EmitPushScope(st); // body scope (stream)
+            int baselineDepthStream = st.ScopeDepth;
+            int loopTopStreamPc = st.Code.Pc;
+            st.Code.Emit3(Opcode.ClearScope, 0, 0, 0);
+
+            byte itemSlotStream = AllocTemp(ref topSlot);
+            byte continueSlot = AllocTemp(ref topSlot);
+            st.Code.Emit3(Opcode.ForEachStreamPull, itemSlotStream, collSlot, continueSlot);
+            int exitJmpStream = st.Code.EmitForwardJump(Opcode.JmpIfNot, continueSlot);
+            st.Code.Emit2(Opcode.AssignBinding, itemSlotStream, iterNameIdx);
+
+            var loopStream = new LoopContext(loopTopStreamPc, baselineDepthStream);
+            st.Loops.Push(loopStream);
+            try
+            {
+                CompileBodyStrictInline(node.BodyNode, st, ref topSlot, scratchSlot);
+            }
+            finally
+            {
+                st.Loops.Pop();
+            }
+
+            st.Code.EmitBackwardJump(Opcode.Jmp, 0, loopTopStreamPc);
+
+            st.Code.PatchJumpToHere(exitJmpStream);
+            foreach (var p in loopStream.BreakFixups) st.Code.PatchJumpToHere(p);
+            PatchJumpsBackward(st, loopStream.ContinueFixups, loopTopStreamPc);
+
+            EmitPopScope(st); // body scope (stream)
+
+            // ---- join point ---------------------------------------------
+            st.Code.PatchJumpToHere(doneJmp);
+            EmitPopScope(st); // iter scope
             MarkAllTypedAccsDirty(st);
         }
 

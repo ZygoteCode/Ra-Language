@@ -609,7 +609,8 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 || op == Opcode.JmpIfNot
                 || op == Opcode.AndJz
                 || op == Opcode.OrJnz
-                || op == Opcode.NCJz;
+                || op == Opcode.NCJz
+                || op == Opcode.JmpIfStream;
         }
 
         // M88: walk backward from the Call's PC inside the same basic
@@ -702,6 +703,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Range:
                 case Opcode.GetMember: case Opcode.EnumAccess:
                 case Opcode.ForEachIterable: case Opcode.ListLen:
+                case Opcode.ForEachStreamPull:
                 case Opcode.Cast: case Opcode.Is:
                 case Opcode.Typeof: case Opcode.Nameof:
                 case Opcode.Closure: case Opcode.DefineFunction:
