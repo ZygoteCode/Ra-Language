@@ -359,6 +359,37 @@ namespace RaLanguage
                     return;
                 }
 
+                // --dump-archive-source <file.rac> <module-index>
+                // Print the (possibly tree-shaken) source bytes of a
+                // bundled module to stdout. Tree-shake debugging.
+                if (args.Length == 3 && string.Equals(args[0], "--dump-archive-source", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (int.TryParse(args[2], out int mi))
+                    {
+                        DumpArchiveSourceCli(args[1], mi);
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[Ra Language] --dump-archive-source: '{args[2]}' is not an integer module index");
+                        Environment.ExitCode = 1;
+                    }
+                    return;
+                }
+
+                // --bench-archive-open <file.rac> [iter]
+                // Warm up + measure RacReader.Open over N iterations.
+                // Validates the v1.1 "<1ms open" target. Skips execution
+                // entirely; only the mmap + header + section-dir +
+                // manifest path is timed.
+                if (args.Length >= 2 && args.Length <= 3
+                    && string.Equals(args[0], "--bench-archive-open", StringComparison.OrdinalIgnoreCase))
+                {
+                    int iter = 1000;
+                    if (args.Length == 3 && int.TryParse(args[2], out int n) && n > 0) iter = n;
+                    BenchArchiveOpenCli(args[1], iter);
+                    return;
+                }
+
                 // --inspect-archive <file.rac>
                 // Pretty-prints the archive header + manifest + section
                 // directory.
@@ -683,6 +714,8 @@ namespace RaLanguage
             string? output = null;
             bool compress = true;
             bool verbose = false;
+            bool treeShake = true;
+            bool sharedConstPool = true;
 
             for (int i = 2; i < args.Length; i++)
             {
@@ -698,6 +731,14 @@ namespace RaLanguage
                 {
                     verbose = true;
                 }
+                else if (string.Equals(args[i], "--no-tree-shake", StringComparison.OrdinalIgnoreCase))
+                {
+                    treeShake = false;
+                }
+                else if (string.Equals(args[i], "--no-const-pool", StringComparison.OrdinalIgnoreCase))
+                {
+                    sharedConstPool = false;
+                }
                 else
                 {
                     Console.WriteLine($"[Ra Language] --compile: unknown flag '{args[i]}'");
@@ -711,6 +752,8 @@ namespace RaLanguage
                 OutputFile = output ?? "",
                 Compress = compress,
                 Verbose = verbose,
+                TreeShakeStd = treeShake,
+                SharedConstPoolEnabled = sharedConstPool,
             };
 
             var r = RacPackager.Build(opts);
@@ -755,7 +798,81 @@ namespace RaLanguage
                 Console.WriteLine(r.RuntimeError.ToString());
             }
             Console.WriteLine(
-                $"[Ra Language] Archive loaded in {r.LoadTime.TotalMilliseconds:F2}ms, executed in {r.ExecTime.TotalMilliseconds:F2}ms.");
+                $"[Ra Language] Archive opened in {r.ArchiveOpenTime.TotalMilliseconds:F2}ms, "
+                + $"loaded in {r.LoadTime.TotalMilliseconds:F2}ms, "
+                + $"executed in {r.ExecTime.TotalMilliseconds:F2}ms.");
+        }
+
+        // Dump-archive-source: prints raw module source bytes after any
+        // build-time rewrite (tree-shake).
+        private static void DumpArchiveSourceCli(string archivePath, int moduleIndex)
+        {
+            if (!File.Exists(archivePath))
+            {
+                Console.WriteLine($"[Ra Language] archive not found: {archivePath}");
+                Environment.ExitCode = 1;
+                return;
+            }
+            using var a = Interpreter.Archive.RacReader.Open(archivePath);
+            if (moduleIndex < 0 || moduleIndex >= a.Manifest.Modules.Count)
+            {
+                Console.WriteLine($"[Ra Language] module index {moduleIndex} out of range (0..{a.Manifest.Modules.Count - 1})");
+                Environment.ExitCode = 1;
+                return;
+            }
+            var m = a.Manifest.Modules[moduleIndex];
+            byte[] payload = a.ReadSection(m.SourceSectionIndex);
+            Console.Out.Write(System.Text.Encoding.UTF8.GetString(payload));
+        }
+
+        // Bench harness for `--bench-archive-open`. Times RacReader.Open
+        // in a tight loop after a brief warm-up so the JIT + AOT path
+        // stays primed across iterations. Reports best / median / mean
+        // / p95 / p99 in microseconds. Validates v1.1 (#4) "<1ms open"
+        // regardless of total archive size — for non-tiny archives the
+        // win shows up here.
+        private static void BenchArchiveOpenCli(string archivePath, int iter)
+        {
+            if (!File.Exists(archivePath))
+            {
+                Console.WriteLine($"[Ra Language] archive not found: {archivePath}");
+                Environment.ExitCode = 1;
+                return;
+            }
+            long size = new FileInfo(archivePath).Length;
+            Console.WriteLine($"[Ra Language] --bench-archive-open: {archivePath} ({size:N0} bytes), iter={iter}");
+
+            // Warm-up: 32 opens to prime the JIT + OS page cache.
+            for (int i = 0; i < 32; i++)
+            {
+                using var w = Interpreter.Archive.RacReader.Open(archivePath);
+            }
+
+            long[] tickArr = new long[iter];
+            for (int i = 0; i < iter; i++)
+            {
+                long t0 = Stopwatch.GetTimestamp();
+                using (var a = Interpreter.Archive.RacReader.Open(archivePath))
+                {
+                    // Dispose immediately — we measure open + close + manifest decode.
+                }
+                long t1 = Stopwatch.GetTimestamp();
+                tickArr[i] = t1 - t0;
+            }
+            Array.Sort(tickArr);
+            double tickToUs = 1_000_000.0 / Stopwatch.Frequency;
+            double best = tickArr[0] * tickToUs;
+            double median = tickArr[iter / 2] * tickToUs;
+            double p95 = tickArr[(int)(iter * 0.95)] * tickToUs;
+            double p99 = tickArr[(int)(iter * 0.99)] * tickToUs;
+            double sum = 0;
+            for (int i = 0; i < iter; i++) sum += tickArr[i] * tickToUs;
+            double mean = sum / iter;
+            Console.WriteLine($"  best  : {best:F2} us");
+            Console.WriteLine($"  median: {median:F2} us");
+            Console.WriteLine($"  mean  : {mean:F2} us");
+            Console.WriteLine($"  p95   : {p95:F2} us");
+            Console.WriteLine($"  p99   : {p99:F2} us");
         }
 
         // Archive CLI: `--inspect-archive <file.rac>`.

@@ -1,0 +1,22 @@
+// Synthetic std.io for the tree-shake smoke test. Three pub exports:
+// the entry uses `println` only — `printall` and `NEWLINE` must drop.
+
+pub fn println(msg) {
+    print(msg);
+}
+
+pub fn printall(items: list) {
+    for item in items {
+        print(item);
+    }
+}
+
+pub const NEWLINE = "\n";
+
+pub fn dead_helper_a(x) {
+    ret dead_helper_b(x) + 1;
+}
+
+fn dead_helper_b(x) {
+    ret x * 2;
+}

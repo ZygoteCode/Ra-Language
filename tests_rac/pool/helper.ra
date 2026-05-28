@@ -1,0 +1,17 @@
+// helper.ra — repeats the literals the entry uses.
+
+pub fn greet(name: string): string {
+    ret "[pool] greet hello " + name;
+}
+
+pub fn farewell(name: string): string {
+    ret "[pool] farewell goodbye " + name;
+}
+
+pub fn shout(name: string): string {
+    ret "[pool] greet hello " + name;
+}
+
+pub fn boom(name: string): string {
+    ret "[pool] farewell goodbye " + name;
+}

@@ -1,0 +1,19 @@
+// Heavy script-level const test. Many repeated long string literals
+// at module top-level (where the v2 bytecode actually serialises
+// them) — the pool should win cleanly here.
+
+import "./heavy_a.ra";
+import "./heavy_b.ra";
+
+print("[heavy-shared-prefix-that-repeats] one");
+print("[heavy-shared-prefix-that-repeats] two");
+print("[heavy-shared-prefix-that-repeats] three");
+print("[heavy-shared-prefix-that-repeats] four");
+print("[heavy-shared-prefix-that-repeats] five");
+print("[heavy-shared-prefix-that-repeats] " + a_label());
+print("[heavy-shared-prefix-that-repeats] " + b_label());
+print("[a-sister-prefix-also-long-and-repeated] alpha");
+print("[a-sister-prefix-also-long-and-repeated] beta");
+print("[a-sister-prefix-also-long-and-repeated] gamma");
+print("[a-sister-prefix-also-long-and-repeated] delta");
+print("[a-sister-prefix-also-long-and-repeated] epsilon");

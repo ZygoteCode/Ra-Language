@@ -1,0 +1,14 @@
+// Cross-module pool stress test: 5 modules, each calling 20 shared
+// helpers. Many literals overlap.
+
+import "./big_a.ra";
+import "./big_b.ra";
+import "./big_c.ra";
+import "./big_d.ra";
+
+print("[bench] start");
+a1(); a2(); a3(); a4();
+b1(); b2(); b3(); b4();
+c1(); c2(); c3(); c4();
+d1(); d2(); d3(); d4();
+print("[bench] done");

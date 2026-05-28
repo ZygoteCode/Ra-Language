@@ -1,0 +1,9 @@
+// Tree-shake smoke test entry. Uses `println` from std.io — the
+// shaker must keep `println` (and `print` which it references through
+// the builtin namespace), and drop `printall`, `NEWLINE`,
+// `dead_helper_a`, and `dead_helper_b`.
+
+import std.io;
+
+println("rac/treeshake: hello");
+println("rac/treeshake: done");

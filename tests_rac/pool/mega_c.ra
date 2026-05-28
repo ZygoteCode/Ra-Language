@@ -1,0 +1,13 @@
+print("[shared-long-prefix-AAAAAAAAAAAA] mega_c init1");
+print("[shared-long-prefix-AAAAAAAAAAAA] mega_c init2");
+print("[shared-long-prefix-AAAAAAAAAAAA] mega_c init3");
+print("[another-shared-long-prefix-BBBBB] mega_c init1");
+print("[another-shared-long-prefix-BBBBB] mega_c init2");
+print("[third-shared-long-prefix-CCCCCCC] mega_c init1");
+print("[third-shared-long-prefix-CCCCCCC] mega_c init2");
+print("[fourth-shared-prefix-DDDDDDDDDDD] mega_c init1");
+print("[fifth-shared-prefix-EEEEEEEEEEEE] mega_c init1");
+
+pub fn label_c(): string {
+    ret "label_c";
+}

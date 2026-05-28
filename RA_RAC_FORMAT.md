@@ -1,8 +1,9 @@
 # Ra Archive Container (`.rac`)
 
-> Status: **v1.0** (FormatMajor = 1, FormatMinor = 0). Stable on-disk
-> layout; payload model documented as the v1 baseline with a forward-
-> compatible reservation for a future direct-bytecode payload.
+> Status: **v1.1** (FormatMajor = 1, FormatMinor = 1). Stable on-disk
+> layout; v1.1 adds optional `ModuleBytecode` sections. v1.0 archives
+> continue to load unchanged; v1.0 loaders skip the new sections
+> silently (they are not `MustUnderstand`).
 
 The `.rac` file is the canonical distributable form of a Ra program: a
 single, integrity-checked, optionally-compressed binary archive that
@@ -105,11 +106,12 @@ not invalidate identity.
 | Kind         | Value      | Status             | Purpose                                   |
 | ------------ | ---------- | ------------------ | ----------------------------------------- |
 | Manifest     | `0x01`     | required           | Module list, entry, dependency graph      |
-| ModuleSource | `0x02`     | required (v1)      | UTF-8 source of a single `.ra` module     |
-| ModuleBytecode | `0x03`   | reserved (≥ 1.1)   | Serialised `RaFunction` + AST snapshot    |
+| ModuleSource | `0x02`     | required           | UTF-8 source of a single `.ra` module     |
+| ModuleBytecode | `0x03`   | optional (v1.1)    | Serialised `RaFunction` + AST snapshot    |
 | DebugInfo    | `0x04`     | reserved           | Source maps, line tables                  |
-| StdLibIndex  | `0x05`     | informational      | List of std refs the program touches      |
+| StdLibIndex  | `0x05`     | informational      | Std refs + v1.1 tree-shake report         |
 | Signature    | `0x06`     | reserved           | Detached signature payload                |
+| SharedConstPool | `0x07`  | optional (v1.1)    | Archive-level interned const pool         |
 | Custom       | `0xFFFFFFFF` | extension        | User-defined; loader skips unless opted-in |
 
 `MustUnderstand` sections of an unknown `Kind` cause the loader to
@@ -184,7 +186,16 @@ Entry: `dotnet run -- --run-archive <file.rac>` or simply
 Implementation: `Interpreter/Archive/RacRunner.cs`.
 
 1. `RacReader.Open` validates the header, runtime-version gate,
-   and section directory hash.
+   and section directory hash. v1.1 (#4): file-backed archives are
+   opened via `MemoryMappedFile` (`Interpreter/Archive/RacSource.cs::MappedRacSource`).
+   Only the header + section directory are page-faulted in eagerly
+   — everything else stays unread until a `ReadSection(index)` call
+   maps a per-call view over the section payload. Steady-state
+   open time is ~130 microseconds on a Windows host (1 KB to 1 MB
+   archives are indistinguishable — the cost is dominated by the
+   mmap + manifest decode, not by the total archive length). The
+   `--bench-archive-open <file.rac> [iter]` CLI flag exposes this
+   measurement.
 2. The Manifest section is decompressed and verified
    eagerly; per-source sections lazily on first access.
 3. For every module in the manifest the runner maps the
@@ -219,11 +230,61 @@ ships the program as **source + manifest + dependency graph**,
 where the manifest skips the import-discovery work that a disk
 load would otherwise repeat.
 
-The forward path is wired in: `RacSectionKind.ModuleBytecode` and
-each module's `BytecodeSectionIndex` are reserved in the format
-today. A future v1.1 loader can opportunistically prefer the
-bytecode payload when the AST-snapshot serialiser lands, with
-older v1 archives continuing to load unchanged.
+### v1.1 — `ModuleBytecode` payload
+
+v1.1 lands the direct-bytecode payload. Per-module sections of
+kind `ModuleBytecode` (`0x03`) carry the serialised `RaFunction`
+tree plus an AST snapshot for `AstRefs[]` / `CastRefs[]` /
+`MemberAccessRefs[]` / `FuncDefRefs[]` / etc. When present, the
+loader feeds the deserialised `RaFunction` straight into
+`VmExecutor` and skips lex/parse/IR-compile for the entry module.
+
+Wire format of the section payload (little-endian):
+
+```
+"RAFB"                u32 magic
+formatVersion: u16    = 1
+reserved:      u16    = 0
+
+RaFunction:
+  Name:                string
+  FrameId:             i32
+  LocalCount:          i32
+  Arity:               i32
+  ParamFlags:          u8
+  SlotCount:           i32
+  UsesUnboxedSlots:    u8 (bool)
+  HasImports:          u8 (bool)
+  Code:                i32 length + u32 * length
+  Consts:              i32 length + tagged RuntimeValue * length
+  Names:               i32 length + string * length
+  EhTable:             i32 length + (i32,i32,i32,i32,u8,i32) * length
+  Upvalues:            i32 length + (u8,u16) * length
+  SlotNames:           i32 length + string? * length
+  PcSpans:             u8 hasPc + (i32, i32*n, SourceSpan*n)?
+  DeclSlotByAstRef:    i32 length + i32 * length
+  MutatedNames:        u8 hasSet + (i32, string*n)?
+  AstRefs / CastRefs / MemberAccessRefs / MemberAssignRefs /
+  ListAssignRefs / EnumAccessRefs / TypeofRefs / NameofRefs /
+  DerefRefs / SuperRefs / FuncDefRefs / DefineRefs:
+    i32 length + AstNode * length    (polymorphic)
+```
+
+Inline caches (`LoadGlobalIc`, `EnumAccessIc`, `CastIc`,
+`MemberAccessIc`, `CallMethodIc`) and the IR analysis bundle are
+intentionally **not** serialised — they carry live `SymbolTable` /
+shape references and re-prime on the first execution after load.
+
+Coverage is incremental. The AST serialiser supports the common
+nodes that appear in straight-line scripts (primitives, control
+flow, function definitions / calls, imports, collections, member
+access, casts, etc.). When the packager meets an AST node or
+runtime value it cannot persist, it emits a build-time warning
+and drops the bytecode section for that module — the runner sees
+`BytecodeSectionIndex == -1` and falls back to the v1.0 source
+path automatically. The minor-version bump is purely additive:
+v1.0 loaders skip the new section kind silently (not
+`MustUnderstand`).
 
 ## Versioning
 
@@ -260,9 +321,11 @@ Versions are packed `(major:8 | minor:8 | patch:16)`.
 
 | Command                                                  | Action                                  |
 | -------------------------------------------------------- | --------------------------------------- |
-| `--compile <entry.ra> [-o out.rac] [--no-compress]`      | Build a `.rac` from a source entry.     |
+| `--compile <entry.ra> [-o out.rac] [--no-compress] [--no-tree-shake] [--no-const-pool]` | Build a `.rac` from a source entry.     |
 | `--run-archive <file.rac>`                               | Load and execute a `.rac`.              |
-| `--inspect-archive <file.rac>`                           | Pretty-print header + manifest + sections. |
+| `--inspect-archive <file.rac>`                           | Pretty-print header + manifest + sections + shake report. |
+| `--bench-archive-open <file.rac> [iter]`                 | Time `RacReader.Open` over N iterations (default 1000). |
+| `--dump-archive-source <file.rac> <module-idx>`          | Print a bundled module's source (post-tree-shake). |
 | `<file.rac>` (positional)                                | Auto-detected as `--run-archive`.       |
 
 Existing CLI flags (`--bench`, `--dump-ir`, `--dump-cfg`, `--repl`,
@@ -285,6 +348,12 @@ Interpreter/Archive/
   RacRunner.cs        .rac → VM execution pipeline
   RacInspector.cs     pretty-printer for --inspect-archive
   VirtualFs.cs        process-wide source overlay (used by ModuleResolver/Manager)
+  ModuleBytecodeIo.cs v1.1 RaFunction (de)serialiser
+  AstNodeSerializer.cs v1.1 polymorphic AstNode (de)serialiser
+  RacSource.cs        v1.1 (#4) RacSource / MappedRacSource (mmap) / StreamRacSource
+  StdLibTreeShaker.cs v1.1 (#6) tree-shake bundled std modules
+  StdLibIndexSection.cs v1.1 (#6) tagged StdLibIndex payload (shake report)
+  SharedConstPool.cs  v1.1 (#7) archive-level interned constant pool
 ```
 
 ## Smoke tests
@@ -307,11 +376,104 @@ Negative paths exercised:
 * `FormatMajor` mismatch → "incompatible format version Y.x".
 * Missing archive file → "archive not found".
 
+### v1.1 — Tree-shaking the bundled stdlib (#6)
+
+`StdLibIndex` (section kind `0x05`) is no longer a passive list of
+dotted refs. v1.1's packager walks every parsed module to gather every
+identifier-name reference, then for each module classified as
+`std/*` drops top-level decls whose names appear in nothing the
+program can reach. Implementation lives in
+`Interpreter/Archive/StdLibTreeShaker.cs`. The packager replaces the
+std module's source with the slimmed text *before* hashing it for
+the manifest's `SourceHash` field and emitting the `ModuleSource`
+section, so the integrity model passes through unchanged.
+
+Section payload format upgrades alongside: v1.1 emits a tagged
+variant (magic `"SLIX"` + u16 version) carrying the per-module shake
+report (kept names, dropped names, bytes-before / bytes-after).
+`RacInspector` decodes both the v1.0 bare form and the v1.1 tagged
+form, so v1.0 archives still inspect correctly.
+
+Conservative-by-design:
+* Only `RacModuleKind.StdLib` modules participate.
+* Any unknown top-level construct (extension blocks, namespace
+  decls, asm) opts the module out entirely.
+* A pub symbol is reachable when its **name** appears in any
+  non-std module's AST. The fixed point pulls in private helpers
+  via the reachable pubs' own ref sets.
+* Reflective resolution by string-literal name (`exists("foo")`,
+  etc.) is NOT introspected. Programs that rely on it should pass
+  `--no-tree-shake`.
+
+CLI: `--compile <...> [--no-tree-shake]` (default on). Run
+`--inspect-archive` to see the per-module kept/dropped lists.
+
+Measured on a synthetic 30-fn std module of which the entry
+references 3: archive shrinks from 4,634 → 3,569 bytes
+uncompressed (~23% reduction), 1,690 → 1,546 compressed
+(~9%, since deflate already compresses the redundancy well).
+
+### v1.1 — Shared cross-module constant pool (#7)
+
+`SharedConstPool` (section kind `0x07`) interns string / BigNumber /
+long / double constants that appear in two or more module
+`RaFunction.Consts[]` slots across the archive. v1 ModuleBytecode
+payloads inlined every value; v2 payloads route through a 5-byte
+pool ref (`u8 tag + u32 idx`) for shared values, dropping the
+length-prefixed payload from the per-module bytecode.
+
+Wire layout (little-endian):
+
+```
+"SCPL"  u32 magic
+u16 version = 1
+u16 reserved
+i32 stringCount  + (string * count)
+i32 numberCount  + (BigInteger Unscaled, BigInteger Scale) * count
+i32 integerCount + (i32 * count)     // currently unused, reserved
+i32 longCount    + (i64 * count)
+i32 doubleCount  + (u64 bit pattern * count)
+i32 floatCount   + (u32 bit pattern * count)
+```
+
+Builder discipline at pack time:
+
+* **Per-value cost gate.** A string is admitted to the pool only
+  when `N * (K - 1) > 4` (the per-value break-even between inline
+  and pool encoding, where `N` is UTF-8 byte length and `K` the
+  ref count). Long / double use `3 * (K - 1) > 8`. Int and float
+  are never pooled — their inline payload size matches the pool
+  ref size so pooling them only adds the pool-storage overhead.
+* **Section-overhead amortisation.** Total projected save across
+  all pooled values must clear `~100` bytes (section magic +
+  version + count headers + directory entry). Below that, the
+  pool is abandoned and the writer emits a v1 payload.
+* **Scope.** v1.1 (#7) observes the script-level `RaFunction.Consts[]`
+  of each module — i.e. the consts that the v2 bytecode actually
+  serialises. Nested function bodies are IR-compiled lazily at
+  runtime from their stored AST, so their consts are not visible
+  to the build-time pool. Widening this to nested bodies is
+  future work.
+
+ModuleBytecode payload bumps to **version 2** when the encoder
+emits a pool ref. v1 payloads stay v1 (no pool ref tags) and load
+unchanged in any v1.0/v1.1-#7 reader. The reader auto-detects via
+the `formatVersion` u16 in the payload header.
+
+CLI: `--compile <...> [--no-const-pool]` (default on).
+
+`--inspect-archive` decodes the pool and prints per-type counts
+plus a sample.
+
 ## Future evolution
 
-* **v1.1 — direct bytecode payload.** Land an AST-snapshot
-  serialiser, populate `ModuleBytecode` sections, prefer them at
-  load time. Older v1 archives keep working via the v1 source path.
+* **v1.x — widen bytecode coverage.** v1.1 supports the common-case
+  AST nodes (primitives, control flow, functions, imports, member
+  access, collections). Programs that use traits, structs, classes,
+  patterns, async, asm, etc. currently fall back to source. Future
+  PRs extend `AstNodeSerializer` to cover the remaining ~70 node
+  kinds; the wire format already routes them through the same
+  polymorphic dispatcher.
 * **v1.x — debug info.** Strippable `DebugInfo` sections with
   source maps + line tables for production stack traces on archives
   built with `--no-debug`.

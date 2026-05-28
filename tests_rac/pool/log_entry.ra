@@ -1,0 +1,13 @@
+import "./log_a.ra";
+import "./log_b.ra";
+
+print("INFO");
+print("WARN");
+print("ERROR");
+print("DEBUG");
+print("INFO");
+print("WARN");
+print("ERROR");
+print("DEBUG");
+print("INFO");
+print("WARN");

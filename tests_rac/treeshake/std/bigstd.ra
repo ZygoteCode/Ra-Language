@@ -1,0 +1,148 @@
+// Synthetic large std module — 30 pub functions, simulating a real
+// stdlib where the program touches only a small subset.
+
+pub fn add(a, b) {
+    ret a + b;
+}
+
+pub fn sub(a, b) {
+    ret a - b;
+}
+
+pub fn mul(a, b) {
+    ret a * b;
+}
+
+pub fn div2(a, b) {
+    ret a / b;
+}
+
+pub fn modulo(a, b) {
+    ret a % b;
+}
+
+pub fn pow_(a, b) {
+    ret a ** b;
+}
+
+pub fn neg(a) {
+    ret -a;
+}
+
+pub fn abs_val(a) {
+    if a < 0 {
+        ret -a;
+    } else {
+        ret a;
+    }
+}
+
+pub fn signum(a) {
+    if a < 0 {
+        ret -1;
+    } elif a > 0 {
+        ret 1;
+    } else {
+        ret 0;
+    }
+}
+
+pub fn min2(a, b) {
+    if a < b {
+        ret a;
+    } else {
+        ret b;
+    }
+}
+
+pub fn max2(a, b) {
+    if a > b {
+        ret a;
+    } else {
+        ret b;
+    }
+}
+
+pub fn clamp_(x, lo, hi) {
+    ret min2(max2(x, lo), hi);
+}
+
+pub fn lerp(a, b, t) {
+    ret a + (b - a) * t;
+}
+
+pub fn square(x) {
+    ret x * x;
+}
+
+pub fn cube(x) {
+    ret x * x * x;
+}
+
+pub fn double_(x) {
+    ret x + x;
+}
+
+pub fn triple(x) {
+    ret x + x + x;
+}
+
+pub fn is_even(x) {
+    ret x % 2 == 0;
+}
+
+pub fn is_odd(x) {
+    ret x % 2 != 0;
+}
+
+pub fn is_zero(x) {
+    ret x == 0;
+}
+
+pub fn is_positive(x) {
+    ret x > 0;
+}
+
+pub fn is_negative(x) {
+    ret x < 0;
+}
+
+pub fn fact(n) {
+    var r = 1;
+    for i = 1 to n + 1 {
+        r = r * i;
+    }
+    ret r;
+}
+
+pub fn fib(n) {
+    if n < 2 {
+        ret n;
+    }
+    ret fib(n - 1) + fib(n - 2);
+}
+
+pub fn gcd(a, b) {
+    while b != 0 {
+        var t = b;
+        b = a % b;
+        a = t;
+    }
+    ret a;
+}
+
+pub fn lcm(a, b) {
+    ret a * b / gcd(a, b);
+}
+
+pub fn id_(x) {
+    ret x;
+}
+
+pub fn k_(x, y) {
+    ret x;
+}
+
+pub const PI = 3;
+pub const E = 2;
+pub const ZERO = 0;
