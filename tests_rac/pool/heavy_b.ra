@@ -1,0 +1,8 @@
+print("[heavy-shared-prefix-that-repeats] heavy_b load");
+print("[heavy-shared-prefix-that-repeats] heavy_b init");
+print("[a-sister-prefix-also-long-and-repeated] gamma");
+print("[a-sister-prefix-also-long-and-repeated] delta");
+
+pub fn b_label(): string {
+    ret "b-label";
+}

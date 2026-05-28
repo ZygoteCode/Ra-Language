@@ -40,7 +40,9 @@ namespace RaLanguage.Interpreter.Archive
         // field). Bump FormatMinor on additive changes (new section
         // kinds, new flag bits) that older loaders can skip.
         public const ushort FormatMajor = 1;
-        public const ushort FormatMinor = 0;
+        // 1.1 (M1): optional ModuleBytecode sections. v1.0 archives keep
+        // loading unchanged — the minor-version bump is purely additive.
+        public const ushort FormatMinor = 1;
 
         // Ra runtime semver packed as (major:8 | minor:8 | patch:16).
         // The tree-walker pre-VM era is treated as 0.x; the current
@@ -109,6 +111,18 @@ namespace RaLanguage.Interpreter.Archive
         // Signature — RESERVED. Detached signature over the archive
         // hash (ed25519 / RSA-PSS).
         Signature       = 0x00000006,
+
+        // SharedConstPool — v1.1 (#7). Archive-level interned pools of
+        // strings / BigNumbers / int / long / double / float values
+        // shared across every module's ModuleBytecode Consts[] array.
+        // Modules' const tags reference this pool by u32 index, so the
+        // same string literal appearing in N modules costs one pool
+        // slot plus N×5-byte references instead of N inline copies.
+        // Not MustUnderstand: a loader without v1.1 (#7) support that
+        // somehow saw a v2 ModuleBytecode payload would still error,
+        // but PayloadVersion is the gate there — this section is just
+        // the pool storage.
+        SharedConstPool = 0x00000007,
 
         // Custom — user-defined sections. Loaders MUST skip unless
         // they explicitly opt in via a tool that understands the

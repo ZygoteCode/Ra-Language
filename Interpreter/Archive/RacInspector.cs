@@ -78,6 +78,89 @@ namespace RaLanguage.Interpreter.Archive
                 foreach (var s in m.StdReferences) sb.AppendLine($"  {s}");
             }
 
+            // v1.1 (#7) shared constant pool stats.
+            try
+            {
+                var pool = archive.SharedConstPool;
+                if (pool != null)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine("Shared const pool (v1.1)");
+                    sb.AppendLine(new string('-', 70));
+                    sb.AppendLine($"  strings : {pool.Strings.Count}");
+                    sb.AppendLine($"  numbers : {pool.Numbers.Count}");
+                    sb.AppendLine($"  ints    : {pool.Integers.Count}");
+                    sb.AppendLine($"  longs   : {pool.Longs.Count}");
+                    sb.AppendLine($"  doubles : {pool.Doubles.Count}");
+                    sb.AppendLine($"  floats  : {pool.Floats.Count}");
+                    sb.AppendLine($"  total   : {pool.TotalEntries}");
+                    int preview = System.Math.Min(pool.Strings.Count, 5);
+                    if (preview > 0)
+                    {
+                        sb.Append("  sample  : ");
+                        for (int k = 0; k < preview; k++)
+                        {
+                            if (k > 0) sb.Append(", ");
+                            string raw = pool.Strings[k] ?? "";
+                            string shown = raw.Length <= 24 ? raw : raw.Substring(0, 24) + "…";
+                            sb.Append('"').Append(shown.Replace("\"", "\\\"")).Append('"');
+                        }
+                        sb.AppendLine();
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                sb.AppendLine();
+                sb.AppendLine($"Shared const pool decode failed: {ex.Message}");
+            }
+
+            // v1.1 (#6) tree-shake report. Lives inside the StdLibIndex
+            // section payload — decoded lazily so older archives without
+            // the tagged form still print correctly.
+            for (int i = 0; i < archive.Sections.Count; i++)
+            {
+                if (archive.Sections[i].Kind != RacSectionKind.StdLibIndex) continue;
+                StdLibIndexSection.Decoded? decoded = null;
+                try { decoded = StdLibIndexSection.Decode(archive.ReadSection(i)); }
+                catch (System.Exception ex)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine($"StdLibIndex (#{i}) decode failed: {ex.Message}");
+                }
+                if (decoded != null && decoded.HasShakeReport && decoded.ShakenModules.Count > 0)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine("Tree-shake (v1.1)");
+                    sb.AppendLine(new string('-', 70));
+                    int totBefore = 0, totAfter = 0, totKept = 0, totDropped = 0;
+                    foreach (var sm in decoded.ShakenModules)
+                    {
+                        totBefore += sm.BytesBefore;
+                        totAfter += sm.BytesAfter;
+                        totKept += sm.Kept.Count;
+                        totDropped += sm.Dropped.Count;
+                    }
+                    sb.AppendLine(
+                        $"  modules: {decoded.ShakenModules.Count}   "
+                        + $"kept: {totKept}   dropped: {totDropped}   "
+                        + $"size: {totBefore:N0} → {totAfter:N0} bytes  "
+                        + $"(-{totBefore - totAfter:N0})");
+                    foreach (var sm in decoded.ShakenModules)
+                    {
+                        if (sm.Dropped.Count == 0 && sm.Kept.Count == 0) continue;
+                        sb.AppendLine($"  [{sm.Path}]   "
+                            + $"kept={sm.Kept.Count}  dropped={sm.Dropped.Count}  "
+                            + $"size: {sm.BytesBefore:N0} → {sm.BytesAfter:N0}");
+                        if (sm.Kept.Count > 0)
+                            sb.AppendLine($"    kept:    {string.Join(", ", sm.Kept)}");
+                        if (sm.Dropped.Count > 0)
+                            sb.AppendLine($"    dropped: {string.Join(", ", sm.Dropped)}");
+                    }
+                }
+                break;
+            }
+
             return sb.ToString();
         }
     }

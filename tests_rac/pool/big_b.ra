@@ -1,0 +1,4 @@
+pub fn b1() { print("[mod-b] hello-world"); print("[bench] tick"); }
+pub fn b2() { print("[mod-b] hello-world"); print("[bench] tick"); }
+pub fn b3() { print("[mod-b] hello-world"); print("[bench] tick"); }
+pub fn b4() { print("[mod-b] hello-world"); print("[bench] tick"); }

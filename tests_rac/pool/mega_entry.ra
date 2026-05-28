@@ -1,0 +1,24 @@
+// Larger multi-module test exercising script-level const overlap
+// across 6 modules. Each module has many long string literals at
+// script top-level; the entry uses them too.
+
+import "./mega_a.ra";
+import "./mega_b.ra";
+import "./mega_c.ra";
+import "./mega_d.ra";
+import "./mega_e.ra";
+
+print("[shared-long-prefix-AAAAAAAAAAAA] entry-1");
+print("[shared-long-prefix-AAAAAAAAAAAA] entry-2");
+print("[shared-long-prefix-AAAAAAAAAAAA] entry-3");
+print("[another-shared-long-prefix-BBBBB] entry-1");
+print("[another-shared-long-prefix-BBBBB] entry-2");
+print("[third-shared-long-prefix-CCCCCCC] entry-1");
+print("[third-shared-long-prefix-CCCCCCC] entry-2");
+print("[fourth-shared-prefix-DDDDDDDDDDD] entry-1");
+print("[fourth-shared-prefix-DDDDDDDDDDD] entry-2");
+print("[fifth-shared-prefix-EEEEEEEEEEEE] entry-1");
+print("[fifth-shared-prefix-EEEEEEEEEEEE] entry-2");
+print("[shared-long-prefix-AAAAAAAAAAAA] " + label_a());
+print("[another-shared-long-prefix-BBBBB] " + label_b());
+print("[third-shared-long-prefix-CCCCCCC] " + label_c());

@@ -4,10 +4,12 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using RaLanguage.Errors;
+using RaLanguage.Interpreter.IR;
 using RaLanguage.Interpreter.Modules;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Visitors.Imports;
+using RaLanguage.Interpreter.Vm;
 
 namespace RaLanguage.Interpreter.Archive
 {
@@ -22,6 +24,10 @@ namespace RaLanguage.Interpreter.Archive
         public bool Loaded { get; init; }
         public bool Executed { get; init; }
         public TimeSpan LoadTime { get; init; }
+        // Sub-timing: just the RacReader.Open call (mmap + header +
+        // section dir hash + manifest decode). v1.1 (#4) targets <1ms
+        // for this regardless of total archive size.
+        public TimeSpan ArchiveOpenTime { get; init; }
         public TimeSpan ExecTime { get; init; }
         public RuntimeValue? Value { get; init; }
         public Error? RuntimeError { get; init; }
@@ -49,12 +55,16 @@ namespace RaLanguage.Interpreter.Archive
         public static RacRunResult Run(RacRunOptions opts)
         {
             var loadSw = Stopwatch.StartNew();
+            var openSw = Stopwatch.StartNew();
             var errors = new List<string>();
+            TimeSpan archiveOpenElapsed = TimeSpan.Zero;
 
             RacArchive archive;
             try { archive = RacReader.Open(opts.ArchivePath); }
             catch (Exception ex)
             {
+                openSw.Stop();
+                archiveOpenElapsed = openSw.Elapsed;
                 errors.Add($"failed to open archive: {ex.Message}");
                 loadSw.Stop();
                 return new RacRunResult
@@ -62,9 +72,12 @@ namespace RaLanguage.Interpreter.Archive
                     Loaded = false,
                     Executed = false,
                     LoadTime = loadSw.Elapsed,
+                    ArchiveOpenTime = archiveOpenElapsed,
                     LoadErrors = errors,
                 };
             }
+            openSw.Stop();
+            archiveOpenElapsed = openSw.Elapsed;
 
             try
             {
@@ -72,7 +85,7 @@ namespace RaLanguage.Interpreter.Archive
                 if (manifest.Modules.Count == 0)
                 {
                     errors.Add("archive contains no modules");
-                    return Failed(loadSw, errors);
+                    return Failed(loadSw, errors, archiveOpenElapsed);
                 }
 
                 // Each module's virtual path may collide with real paths
@@ -100,7 +113,7 @@ namespace RaLanguage.Interpreter.Archive
                 if (entryHostPath == null)
                 {
                     errors.Add("archive has no entry module");
-                    return Failed(loadSw, errors);
+                    return Failed(loadSw, errors, archiveOpenElapsed);
                 }
 
                 // Read + verify each source section, then mount it into
@@ -112,7 +125,7 @@ namespace RaLanguage.Interpreter.Archive
                     if (m.SourceSectionIndex < 0)
                     {
                         errors.Add($"module #{i} ('{m.LogicalPath}') has no source section");
-                        return Failed(loadSw, errors);
+                        return Failed(loadSw, errors, archiveOpenElapsed);
                     }
                     byte[] payload = archive.ReadSection(m.SourceSectionIndex);
                     byte[] srcHash = RacIntegrity.Hash(payload);
@@ -120,9 +133,9 @@ namespace RaLanguage.Interpreter.Archive
                     {
                         errors.Add(
                             $"module #{i} ('{m.LogicalPath}') hash mismatch between section payload and manifest record");
-                        return Failed(loadSw, errors);
+                        return Failed(loadSw, errors, archiveOpenElapsed);
                     }
-                    string sourceText = Encoding.UTF8.GetString(payload);
+                    string sourceText = System.Text.Encoding.UTF8.GetString(payload);
                     string hostPath = remap[m.AbsoluteVirtualPath];
                     contents[hostPath] = sourceText;
                 }
@@ -151,12 +164,29 @@ namespace RaLanguage.Interpreter.Archive
                 // bundled in the archive are addressed by absolute
                 // host path anyway).
                 string virtualProject = Path.GetDirectoryName(entryHostPath) ?? virtualRoot;
+                // Locate the std root inside the overlay. MapToHost
+                // places std-classified modules under `<virtualRoot>/std/`
+                // (when their LogicalPath already has the `std/` prefix
+                // we strip the duplicate; otherwise we mount under
+                // `<virtualRoot>/src/`). The std root for ModuleResolver
+                // must point at the *same* directory we mounted into.
+                // VirtualFs.Exists is the authoritative check, not the
+                // on-disk Directory.Exists — the overlay never touches
+                // the real filesystem.
                 string virtualStd = Path.Combine(virtualRoot, "std");
-                if (!Directory.Exists(virtualStd))
+                bool overlayHasStd = false;
+                foreach (var mountedPath in contents.Keys)
                 {
-                    // The directory does not exist on the host disk;
-                    // that's fine — std modules resolve via the
-                    // overlay using their archived absolute path.
+                    if (mountedPath.StartsWith(virtualStd, StringComparison.OrdinalIgnoreCase))
+                    {
+                        overlayHasStd = true;
+                        break;
+                    }
+                }
+                if (!overlayHasStd)
+                {
+                    // No std modules in the overlay — point the resolver
+                    // at the virtual root so it still has a valid path.
                     virtualStd = virtualRoot;
                 }
                 ImportNodeVisitor.InitializeModuleManager(
@@ -166,11 +196,54 @@ namespace RaLanguage.Interpreter.Archive
                 ImportNodeVisitor.ResetCache();
 
                 string entrySource = contents[entryHostPath];
+
+                // v1.1: prefer the entry's ModuleBytecode payload when it
+                // is present. Skips lex/parse/IR-compile and feeds the
+                // deserialised RaFunction straight to the VM. Imported
+                // modules continue to flow through the source path —
+                // ModuleManager re-uses VirtualFs and the existing lex/
+                // parse/IR-compile pipeline for them. A future PR can
+                // teach ModuleManager about per-module bytecode payloads
+                // too; the manifest already records each module's
+                // BytecodeSectionIndex.
+                var entryModule = manifest.Modules[manifest.EntryModuleIndex];
+                RaFunction? entryBytecodeFn = null;
+                if (entryModule.BytecodeSectionIndex >= 0)
+                {
+                    try
+                    {
+                        byte[] bcPayload = archive.ReadSection(entryModule.BytecodeSectionIndex);
+                        // v1.1 (#7): hand the archive-level shared
+                        // const pool (if present) to the deserialiser
+                        // so v2 payload pool-ref tags resolve. v1
+                        // payloads ignore the pool argument.
+                        entryBytecodeFn = ModuleBytecodeIo.Deserialize(bcPayload, archive.SharedConstPool);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Bytecode payload corrupt / from an incompatible
+                        // build. Surface a warning but keep the source
+                        // path as a fall-back — it is exactly the v1.0
+                        // load story.
+                        if (opts.Diagnostics)
+                            Console.WriteLine(
+                                $"[Ra Language] entry bytecode payload unusable ({ex.Message}); falling back to source.");
+                        entryBytecodeFn = null;
+                    }
+                }
+
                 var execSw = Stopwatch.StartNew();
                 ValueResult run;
                 try
                 {
-                    run = Program.Run(entryHostPath, entrySource);
+                    if (entryBytecodeFn != null)
+                    {
+                        run = RunBytecode(entryBytecodeFn, entryHostPath);
+                    }
+                    else
+                    {
+                        run = Program.Run(entryHostPath, entrySource);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -181,6 +254,7 @@ namespace RaLanguage.Interpreter.Archive
                         Loaded = true,
                         Executed = false,
                         LoadTime = loadSw.Elapsed,
+                        ArchiveOpenTime = openSw.Elapsed,
                         ExecTime = execSw.Elapsed,
                         LoadErrors = errors,
                     };
@@ -192,6 +266,7 @@ namespace RaLanguage.Interpreter.Archive
                     Loaded = true,
                     Executed = true,
                     LoadTime = loadSw.Elapsed,
+                    ArchiveOpenTime = openSw.Elapsed,
                     ExecTime = execSw.Elapsed,
                     Value = run.Item1,
                     RuntimeError = run.Item2,
@@ -204,7 +279,21 @@ namespace RaLanguage.Interpreter.Archive
             }
         }
 
-        private static RacRunResult Failed(Stopwatch loadSw, List<string> errors)
+        // Drive a deserialised RaFunction through the VM without
+        // re-running lex/parse/IR-compile. Mirrors the tail of
+        // Program.Run() so semantics match exactly.
+        private static ValueResult RunBytecode(RaFunction script, string entryPath)
+        {
+            var interpreter = new Interpreter();
+            var context = new Context(entryPath);
+            context.SymbolTable = Program.GlobalSymbolTable;
+            var vm = new VmExecutor(interpreter);
+            var task = vm.RunScript(script, context);
+            var result = task.IsCompletedSuccessfully ? task.Result : task.AsTask().GetAwaiter().GetResult();
+            return (result.Value, result.Error);
+        }
+
+        private static RacRunResult Failed(Stopwatch loadSw, List<string> errors, TimeSpan openElapsed = default)
         {
             if (loadSw.IsRunning) loadSw.Stop();
             return new RacRunResult
@@ -212,6 +301,7 @@ namespace RaLanguage.Interpreter.Archive
                 Loaded = false,
                 Executed = false,
                 LoadTime = loadSw.Elapsed,
+                ArchiveOpenTime = openElapsed,
                 LoadErrors = errors,
             };
         }

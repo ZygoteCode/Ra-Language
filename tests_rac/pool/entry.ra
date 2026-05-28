@@ -1,0 +1,12 @@
+// Cross-module shared-const-pool smoke test. The entry and the
+// imported helper both reference a small, overlapping set of string
+// literals; the pool should dedup them.
+
+import "./helper.ra";
+
+print("[pool] cross-module shared constants test");
+print("[pool] " + greet("world"));
+print("[pool] " + greet("kitty"));
+print("[pool] " + farewell("world"));
+print("[pool] " + farewell("kitty"));
+print("[pool] DONE");

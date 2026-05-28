@@ -2,26 +2,37 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Security.Cryptography;
 
 namespace RaLanguage.Interpreter.Archive
 {
     // High-level archive loader. Validates the header, directory hash
     // and the Manifest section's own hash up-front. Other sections are
     // verified lazily on the first `ReadSection(index)` call so the
-    // startup cost stays proportional to the manifest size.
+    // startup cost stays proportional to the manifest size, regardless
+    // of how large the archive itself is.
+    //
+    // v1.1 (#4): file-backed archives are opened via MemoryMappedFile.
+    // The header (96 bytes) and section directory (64 bytes per entry)
+    // are the only regions touched at open; subsequent section reads
+    // open per-call view streams so the OS pages in payload bytes only
+    // when they are first accessed. A 100 MB archive of which the
+    // entry module is 4 KB now opens in roughly the time it takes the
+    // kernel to fault the first page of the file in — typically well
+    // under a millisecond.
     public static class RacReader
     {
         public static RacArchive Open(string path)
         {
             if (string.IsNullOrEmpty(path)) throw new ArgumentException("path", nameof(path));
-            var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            RacSource source = new MappedRacSource(path);
             try
             {
-                return OpenInternal(path, fs, ownsStream: true);
+                return OpenInternal(path, source);
             }
             catch
             {
-                fs.Dispose();
+                source.Dispose();
                 throw;
             }
         }
@@ -29,22 +40,36 @@ namespace RaLanguage.Interpreter.Archive
         public static RacArchive Open(Stream stream, string label = "<stream>")
         {
             if (stream == null) throw new ArgumentNullException(nameof(stream));
-            return OpenInternal(label, stream, ownsStream: false);
+            RacSource source = new StreamRacSource(stream, ownsStream: false);
+            try
+            {
+                return OpenInternal(label, source);
+            }
+            catch
+            {
+                source.Dispose();
+                throw;
+            }
         }
 
-        private static RacArchive OpenInternal(string path, Stream stream, bool ownsStream)
+        private static RacArchive OpenInternal(string path, RacSource source)
         {
-            if (!stream.CanSeek)
-                throw new InvalidDataException("rac: input stream must be seekable");
-            if (stream.Length > RacFormat.MaxArchiveSize)
+            if (source.Length > RacFormat.MaxArchiveSize)
                 throw new InvalidDataException(
-                    $"rac: archive too large ({stream.Length} bytes; max {RacFormat.MaxArchiveSize})");
-            if (stream.Length < RacFormat.FileHeaderSize)
+                    $"rac: archive too large ({source.Length} bytes; max {RacFormat.MaxArchiveSize})");
+            if (source.Length < RacFormat.FileHeaderSize)
                 throw new InvalidDataException("rac: file too small to contain a header");
 
-            stream.Position = 0;
-            var r = new RacBinaryReader(stream);
-            var header = RacHeader.ReadFrom(r);
+            // Read the 96-byte header from the source. This is the single
+            // mandatory upfront page-fault.
+            byte[] headerBytes = new byte[RacFormat.FileHeaderSize];
+            source.ReadExact(0, headerBytes);
+            RacHeader header;
+            using (var ms = new MemoryStream(headerBytes, writable: false))
+            {
+                var hr = new RacBinaryReader(ms);
+                header = RacHeader.ReadFrom(hr);
+            }
 
             if (header.FormatMajor != RacFormat.FormatMajor)
                 throw new InvalidDataException(
@@ -54,20 +79,21 @@ namespace RaLanguage.Interpreter.Archive
                 throw new InvalidDataException(
                     $"rac: archive requires Ra runtime {RacHeader.FormatSemver(header.RaRuntimeRequired)}, host is {RacHeader.FormatSemver(RacFormat.RaRuntimeVersion)}");
 
-            // Read the section directory whole and verify its hash.
+            // Section directory: parse + verify hash. We still hash the
+            // directory eagerly — its size is O(sectionCount * 64) and a
+            // tamper-detection failure here lets us bail before
+            // trusting any section offset / hash field.
             long dirOff = (long)header.SectionTableOffset;
             long dirSize = (long)header.SectionCount * RacFormat.SectionEntrySize;
-            if (dirOff <= 0 || dirOff + dirSize > stream.Length)
+            if (dirOff <= 0 || dirOff + dirSize > source.Length)
                 throw new InvalidDataException("rac: section directory offset/size out of range");
-
-            stream.Position = dirOff;
             byte[] dirBytes = new byte[dirSize];
-            r.ReadExact(dirBytes);
+            source.ReadExact(dirOff, dirBytes);
             byte[] dirHash = RacIntegrity.Hash(dirBytes);
             if (!RacIntegrity.Equal(dirHash, header.DirectoryHash))
                 throw new InvalidDataException("rac: section directory hash mismatch (archive corrupted)");
 
-            // Parse the directory.
+            // Parse the directory entries.
             var sections = new RacSectionEntry[header.SectionCount];
             using (var ms = new MemoryStream(dirBytes, writable: false))
             {
@@ -76,13 +102,13 @@ namespace RaLanguage.Interpreter.Archive
                 {
                     sections[i] = RacSectionEntry.ReadFrom(rd);
                     var e = sections[i];
-                    if ((long)e.Offset < 0 || (long)e.Offset >= stream.Length)
+                    if ((long)e.Offset < 0 || (long)e.Offset >= source.Length)
                         throw new InvalidDataException(
                             $"rac: section #{i} offset out of range ({e.Offset})");
                     if (e.StoredSize > (ulong)RacFormat.MaxSectionSize)
                         throw new InvalidDataException(
                             $"rac: section #{i} oversized ({e.StoredSize})");
-                    if ((long)e.Offset + (long)e.StoredSize > stream.Length)
+                    if ((long)e.Offset + (long)e.StoredSize > source.Length)
                         throw new InvalidDataException(
                             $"rac: section #{i} extends past archive end");
                 }
@@ -114,7 +140,7 @@ namespace RaLanguage.Interpreter.Archive
                         $"rac: section #{i} kind {(uint)sections[i].Kind:X8} is marked must-understand but unknown to this runtime");
             }
 
-            byte[] manifestPayload = ReadSectionPayload(stream, sections[manifestIdx]);
+            byte[] manifestPayload = ReadSectionPayload(source, sections[manifestIdx]);
             var manifest = RacManifest.Deserialize(manifestPayload);
             // Bind the section directory snapshot to the manifest so
             // RacInspector and RacRunner can correlate by index.
@@ -146,34 +172,34 @@ namespace RaLanguage.Interpreter.Archive
                 }
             }
 
-            return new RacArchive(path, stream, ownsStream, header, sections, manifest);
+            return new RacArchive(path, source, header, sections, manifest);
         }
 
         // Reads (and verifies) a single section's payload, performing
-        // decompression if needed. Stable to call multiple times — the
-        // archive carries the source stream until disposed.
-        internal static byte[] ReadSectionPayload(Stream stream, RacSectionEntry entry)
+        // decompression if needed. The reads stream through a per-call
+        // view over the underlying RacSource — for the mmap-backed
+        // source the OS pages in only the bytes that get touched.
+        internal static byte[] ReadSectionPayload(RacSource source, RacSectionEntry entry)
         {
-            stream.Position = (long)entry.Offset;
-            byte[] stored = new byte[(int)entry.StoredSize];
-            int total = 0;
-            while (total < stored.Length)
-            {
-                int n = stream.Read(stored, total, stored.Length - total);
-                if (n <= 0) throw new EndOfStreamException("rac: short read on section payload");
-                total += n;
-            }
-
+            long offset = (long)entry.Offset;
+            long stored = (long)entry.StoredSize;
+            long uncomp = (long)entry.UncompressedSize;
             byte[] uncompressed;
             if (entry.IsCompressed)
             {
-                uncompressed = DecompressDeflate(stored, (int)entry.UncompressedSize);
+                // Decompress straight out of the view stream. No
+                // intermediate `stored` buffer — DeflateStream consumes
+                // the view incrementally and we write directly into
+                // `uncompressed`.
+                using var view = source.OpenView(offset, stored);
+                uncompressed = DecompressDeflate(view, (int)uncomp);
             }
             else
             {
                 if (entry.StoredSize != entry.UncompressedSize)
                     throw new InvalidDataException("rac: uncompressed section has mismatched sizes");
-                uncompressed = stored;
+                uncompressed = new byte[(int)stored];
+                source.ReadExact(offset, uncompressed);
             }
 
             byte[] hash = RacIntegrity.Hash(uncompressed);
@@ -184,10 +210,9 @@ namespace RaLanguage.Interpreter.Archive
             return uncompressed;
         }
 
-        private static byte[] DecompressDeflate(byte[] compressed, int expectedSize)
+        private static byte[] DecompressDeflate(Stream compressed, int expectedSize)
         {
-            using var ms = new MemoryStream(compressed, writable: false);
-            using var ds = new DeflateStream(ms, CompressionMode.Decompress);
+            using var ds = new DeflateStream(compressed, CompressionMode.Decompress, leaveOpen: false);
             // Pre-size when we know the expected length — avoids the
             // copy-back of MemoryStream's growing buffer.
             byte[] outBuf = new byte[expectedSize];
@@ -216,6 +241,7 @@ namespace RaLanguage.Interpreter.Archive
                 || kind == RacSectionKind.DebugInfo
                 || kind == RacSectionKind.StdLibIndex
                 || kind == RacSectionKind.Signature
+                || kind == RacSectionKind.SharedConstPool
                 || kind == RacSectionKind.Custom;
         }
     }

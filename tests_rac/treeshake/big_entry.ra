@@ -1,0 +1,6 @@
+// Uses only 3 of the 50 std functions — the other 47 must drop.
+import std.bigstd;
+
+print(square(7));
+print(cube(3));
+print(fact(5));

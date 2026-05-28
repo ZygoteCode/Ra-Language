@@ -1,0 +1,11 @@
+// At script top-level — these consts go into the script's Consts[]
+// pool, which IS what the v2 pool ref tags reach.
+
+print("[heavy-shared-prefix-that-repeats] heavy_a load");
+print("[heavy-shared-prefix-that-repeats] heavy_a init");
+print("[a-sister-prefix-also-long-and-repeated] alpha");
+print("[a-sister-prefix-also-long-and-repeated] beta");
+
+pub fn a_label(): string {
+    ret "a-label";
+}
