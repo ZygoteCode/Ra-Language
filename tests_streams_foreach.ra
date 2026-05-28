@@ -1,0 +1,116 @@
+// Lazy for-each over streams via Opcode.ForEachStreamPull.
+// These tests exercise the dual-path emitted by CompileForEach (M82-streams):
+// every for-loop runs the JmpIfStream dispatch and lands in the lazy pull loop
+// when the source is a sync StreamValue.
+
+// ----- F1: finite stream — basic iteration -----
+var sum1 = 0;
+for x in stream_range(1, 6) {
+    sum1 = sum1 + x;
+}
+print(sum1);
+print("[F1] OK");
+
+// ----- F2: infinite stream + break (would hang under eager drain) -----
+var sum2 = 0;
+var iter2 = 0;
+for x in stream_iterate(0, |y| y + 1) {
+    if (x >= 100) {
+        break
+    }
+    sum2 = sum2 + x;
+    iter2 = iter2 + 1;
+}
+print(sum2);
+print(iter2);
+print("[F2] OK");
+
+// ----- F3: infinite stream + take(...) bound + for-loop -----
+var sum3 = 0;
+let pipe3 = stream_iterate(1, |y| y * 2) |> stream_take(10);
+for x in pipe3 {
+    sum3 = sum3 + x;
+}
+print(sum3);
+print("[F3] OK");
+
+// ----- F4: pipeline (filter + map) + for-loop, terminate via stream end -----
+var collected4 = [];
+let pipe4 = stream_range(0, 20) |> stream_filter(|y| y % 3 == 0) |> stream_map(|y| y * y);
+for x in pipe4 {
+    collected4 = collected4 + [x];
+}
+print(collected4);
+print("[F4] OK");
+
+// ----- F5: continue inside stream for-loop -----
+var sum5 = 0;
+for x in stream_range(0, 10) {
+    if (x % 2 == 0) {
+        continue
+    }
+    sum5 = sum5 + x;
+}
+print(sum5);
+print("[F5] OK");
+
+// ----- F6: nested streams (outer + inner each lazy) -----
+var sum6 = 0;
+for o in stream_range(0, 3) {
+    for i in stream_range(0, 3) {
+        sum6 = sum6 + o * 10 + i;
+    }
+}
+print(sum6);
+print("[F6] OK");
+
+// ----- F7: for over list (materializing path still works) -----
+var sum7 = 0;
+for x in [1, 2, 3, 4, 5] {
+    sum7 = sum7 + x;
+}
+print(sum7);
+print("[F7] OK");
+
+// ----- F8: stream + return from a function exits the for cleanly -----
+fn find_first_over(n: int): int {
+    let g = stream_iterate(0, |y| y + 1);
+    for x in g {
+        if (x > n) {
+            ret x;
+        }
+    }
+    ret -1;
+}
+print(find_first_over(42));
+print("[F8] OK");
+
+// ----- F9: error in stream source surfaces -----
+fn boom_on_5(x: int): int {
+    if (x == 5) {
+        ret 1 / 0;
+    }
+    ret x * 2;
+}
+fn try_iter_with_err() {
+    try {
+        var seen = 0;
+        let p = stream_range(0, 10) |> stream_map(boom_on_5);
+        for x in p {
+            seen = seen + 1;
+        }
+        print("no error");
+    } catch (e) {
+        print("caught");
+    }
+}
+try_iter_with_err();
+print("[F9] OK");
+
+// ----- F10: empty stream for-loop -----
+var count10 = 0;
+for x in stream_empty() {
+    count10 = count10 + 1;
+}
+print(count10);
+print("[F10] OK");

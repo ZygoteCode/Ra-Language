@@ -60,6 +60,26 @@ namespace RaLanguage
             "select"
         };
 
+        // Stream builtin names — registered alongside the static list above so
+        // that BuiltinSymbolTable always contains a BuiltInFunctionValue per
+        // user-visible name. Dispatch is routed by BuiltInFunctionValue.Execute
+        // through StreamBuiltins.Execute / AsyncStreamBuiltins.Execute.
+        private static readonly string[] _streamBuiltinNames = MergeNames(
+            RaLanguage.Interpreter.Values.Functions.Builtins.StreamBuiltins.Names,
+            RaLanguage.Interpreter.Values.Functions.Builtins.AsyncStreamBuiltins.Names);
+
+        private static string[] MergeNames(params string[][] groups)
+        {
+            int total = 0;
+            for (int i = 0; i < groups.Length; i++) total += groups[i].Length;
+            var dst = new string[total];
+            int j = 0;
+            for (int i = 0; i < groups.Length; i++)
+                for (int k = 0; k < groups[i].Length; k++)
+                    dst[j++] = groups[i][k];
+            return dst;
+        }
+
         static Program()
         {
             InitializeSymbolTable();
@@ -74,6 +94,11 @@ namespace RaLanguage
             foreach (string builtInFunction in _builtInFunctions)
             {
                 BuiltinSymbolTable.Set(builtInFunction, new BuiltInFunctionValue(builtInFunction));
+            }
+
+            foreach (string streamBuiltin in _streamBuiltinNames)
+            {
+                BuiltinSymbolTable.Set(streamBuiltin, new BuiltInFunctionValue(streamBuiltin));
             }
 
             BuiltInAnnotations.RegisterAll(BuiltinSymbolTable);

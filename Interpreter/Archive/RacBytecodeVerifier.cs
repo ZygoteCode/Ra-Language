@@ -504,6 +504,19 @@ namespace RaLanguage.Interpreter.Archive
                         // RaRuntimeRequired field.
                         break;
 
+                    case Opcode.JmpIfStream:
+                        // [op][a:slot][imm16: signed forward offset].
+                        CheckSlot(a, local, pc, opName, "a (cond)", diags, path);
+                        CheckJumpTarget(pc, simm16, codeLen, opName, diags, path);
+                        break;
+                    case Opcode.ForEachStreamPull:
+                        // [op][a:item][b:stream][c:continue]. Three slot
+                        // operands; no jump.
+                        CheckSlot(a, local, pc, opName, "a (item)", diags, path);
+                        CheckSlot(effB, local, pc, opName, "b (stream)", diags, path);
+                        CheckSlot(effC, local, pc, opName, "c (continue)", diags, path);
+                        break;
+
                     default:
                         diags.Add(new RacVerifyDiagnostic(path, pc, opName,
                             $"unknown opcode 0x{(byte)op:X2}"));

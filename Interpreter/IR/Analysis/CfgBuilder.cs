@@ -158,6 +158,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.NCJz:
                 case Opcode.ForTest:
                 case Opcode.ForEachNext:
+                case Opcode.JmpIfStream:
                     return TerminatorKind.CondJump;
                 case Opcode.Ret: return TerminatorKind.Return;
                 case Opcode.RetNull: return TerminatorKind.ReturnNull;
@@ -187,6 +188,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.NCJz:
                 case Opcode.ForTest:
                 case Opcode.ForEachNext:
+                case Opcode.JmpIfStream:
                     return pc + 1 + Encoding.SImm16(instr);
                 default: return null;
             }

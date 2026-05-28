@@ -1,0 +1,193 @@
+// Ra Streams -- sync stream test suite.
+// Every test prints "[Snn] OK" on success.
+
+// ----- S1: stream_range + stream_collect -----
+let s1 = stream_collect(stream_range(0, 5));
+print(s1);
+print("[S1] OK")
+
+// ----- S2: empty range -----
+let s2 = stream_collect(stream_range(5, 5));
+print(s2);
+print("[S2] OK")
+
+// ----- S3: stream_range with step -----
+let s3 = stream_collect(stream_range(0, 10, 2));
+print(s3);
+print("[S3] OK")
+
+// ----- S4: stream_range descending -----
+let s4 = stream_collect(stream_range(5, 0, -1));
+print(s4);
+print("[S4] OK")
+
+// ----- S5: pipeline map + filter -----
+let s5 = stream_range(0, 10) |> stream_filter(|x| x % 2 == 0) |> stream_map(|x| x * x) |> stream_collect();
+print(s5);
+print("[S5] OK")
+
+// ----- S6: take 0 -----
+let s6 = stream_range(0, 100) |> stream_take(0) |> stream_collect();
+print(s6);
+print("[S6] OK")
+
+// ----- S7: take from infinite stream (early stop) -----
+let s7 = stream_iterate(1, |x| x * 2) |> stream_take(6) |> stream_collect();
+print(s7);
+print("[S7] OK")
+
+// ----- S8: drop -----
+let s8 = stream_range(0, 10) |> stream_drop(7) |> stream_collect();
+print(s8);
+print("[S8] OK")
+
+// ----- S9: take_while + drop_while -----
+let s9a = stream_range(0, 10) |> stream_take_while(|x| x < 4) |> stream_collect();
+print(s9a);
+let s9b = stream_range(0, 10) |> stream_drop_while(|x| x < 4) |> stream_collect();
+print(s9b);
+print("[S9] OK")
+
+// ----- S10: chunk -----
+let s10 = stream_range(0, 7) |> stream_chunk(3) |> stream_collect();
+print(s10);
+print("[S10] OK")
+
+// ----- S11: window -----
+let s11 = stream_range(0, 5) |> stream_window(3) |> stream_collect();
+print(s11);
+print("[S11] OK")
+
+// ----- S12: distinct -----
+let s12 = stream_from([1, 1, 2, 3, 2, 4, 3, 5]) |> stream_distinct() |> stream_collect();
+print(s12);
+print("[S12] OK")
+
+// ----- S13: scan (running fold) -----
+let s13 = stream_range(1, 6) |> stream_scan(0, |acc, x| acc + x) |> stream_collect();
+print(s13);
+print("[S13] OK")
+
+// ----- S14: zip + enumerate -----
+let s14a = stream_zip(stream_range(0, 4), stream_from(["a", "b", "c"])) |> stream_collect();
+print(s14a);
+let s14b = stream_enumerate(stream_from(["x", "y", "z"])) |> stream_collect();
+print(s14b);
+print("[S14] OK")
+
+// ----- S15: concat -----
+let s15 = stream_concat(stream_range(0, 3), stream_range(10, 13)) |> stream_collect();
+print(s15);
+print("[S15] OK")
+
+// ----- S16: reduce + sum + count -----
+let s16a = stream_range(1, 6) |> stream_reduce(0, |acc, x| acc + x);
+print(s16a);
+let s16b = stream_range(1, 11) |> stream_sum();
+print(s16b);
+let s16c = stream_range(0, 42) |> stream_count();
+print(s16c);
+print("[S16] OK")
+
+// ----- S17: min / max -----
+let s17a = stream_from([5, 1, 4, 2, 8, 3]) |> stream_min();
+let s17b = stream_from([5, 1, 4, 2, 8, 3]) |> stream_max();
+print(s17a);
+print(s17b);
+print("[S17] OK")
+
+// ----- S18: first / last (Option) -----
+let s18a = stream_range(10, 20) |> stream_first();
+let s18b = stream_range(10, 20) |> stream_last();
+let s18c = stream_empty() |> stream_first();
+print(s18a);
+print(s18b);
+print(s18c);
+print("[S18] OK")
+
+// ----- S19: any / all -----
+let s19a = stream_range(0, 10) |> stream_any(|x| x > 5);
+let s19b = stream_range(0, 10) |> stream_all(|x| x >= 0);
+let s19c = stream_range(0, 10) |> stream_all(|x| x < 5);
+print(s19a);
+print(s19b);
+print(s19c);
+print("[S19] OK")
+
+// ----- S20: find -----
+let s20a = stream_range(0, 100) |> stream_find(|x| x > 42);
+let s20b = stream_range(0, 5) |> stream_find(|x| x > 100);
+print(s20a);
+print(s20b);
+print("[S20] OK")
+
+// ----- S21: for-loop iteration (finite stream — eager drain) -----
+var total = 0;
+for x in stream_range(1, 5) {
+    total = total + x;
+}
+print(total);
+print("[S21] OK")
+
+// ----- S22: lazy iteration on infinite stream via stream_for_each -----
+// for-loops eagerly materialise the stream (see RA_STREAMS_DESIGN.md §7);
+// stream_for_each pulls element-at-a-time so it composes with stream_take
+// to short-circuit infinite producers.
+var seen22 = 0;
+stream_iterate(0, |y| y + 1) |> stream_take(3) |> stream_for_each(|x| {
+    seen22 = seen22 + 1;
+});
+print(seen22);
+print("[S22] OK")
+
+// ----- S23: flat_map -----
+let s23 = stream_range(1, 4) |> stream_flat_map(|x| stream_range(0, x)) |> stream_collect();
+print(s23);
+print("[S23] OK")
+
+// ----- S24: stream_from a list -----
+let s24 = stream_from([10, 20, 30]) |> stream_map(|x| x + 1) |> stream_collect();
+print(s24);
+print("[S24] OK")
+
+// ----- S25: stream_from a string yields chars -----
+let s25 = stream_from("abc") |> stream_collect();
+print(s25);
+print("[S25] OK")
+
+// ----- S26: peek (side effect with passthrough) -----
+var seen = [];
+let s26 = stream_range(0, 3) |> stream_peek(|x| seen = seen + x) |> stream_collect();
+print(s26);
+print(seen);
+print("[S26] OK")
+
+// ----- S27: cancel -----
+let s27 = stream_range(0, 100);
+stream_cancel(s27);
+let s27res = stream_collect(s27);
+print(s27res);
+print(stream_is_done(s27));
+print("[S27] OK")
+
+// ----- S28: stream_repeat with limit -----
+let s28 = stream_repeat("x", 4) |> stream_collect();
+print(s28);
+print("[S28] OK")
+
+// ----- S29: stream_generate with Option (Some/None) -----
+var counter = 0;
+let s29 = stream_generate(|| {
+    counter = counter + 1;
+    if (counter > 5) {
+        ret Option.None;
+    }
+    ret Option.Some(counter * 10);
+}) |> stream_collect();
+print(s29);
+print("[S29] OK")
+
+// ----- S30: pipeline fusion sanity (large -> small early stop) -----
+let s30 = stream_range(0, 1000000) |> stream_filter(|x| x % 7 == 0) |> stream_take(5) |> stream_collect();
+print(s30);
+print("[S30] OK")

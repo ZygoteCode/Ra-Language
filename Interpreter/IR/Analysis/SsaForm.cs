@@ -357,6 +357,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                     case Opcode.NCJz:
                     case Opcode.ForTest:
                     case Opcode.ForEachNext:
+                    case Opcode.JmpIfStream:
                     {
                         short imm = Encoding.SImm16(instr);
                         if (imm < 0)
@@ -454,6 +455,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Range:
                 case Opcode.GetMember: case Opcode.EnumAccess:
                 case Opcode.ForEachIterable: case Opcode.ListLen:
+                case Opcode.ForEachStreamPull:
                 case Opcode.Cast: case Opcode.Is:
                 case Opcode.Typeof: case Opcode.Nameof:
                 case Opcode.Closure: case Opcode.DefineFunction:
@@ -642,7 +644,15 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.AndJz:
                 case Opcode.OrJnz:
                 case Opcode.NCJz:
+                case Opcode.JmpIfStream:
                     yield return (Encoding.A(instr), true);
+                    break;
+                case Opcode.ForEachStreamPull:
+                    // [op][itemSlot:a][streamSlot:b][continueSlot:c]. Reads
+                    // the stream slot. The item and continue slots are
+                    // outputs (written in WritesToSlot fixups below) — they
+                    // are not read here.
+                    yield return (Encoding.B(instr), true);
                     break;
                 // Variable-arity reads (`base..base+count-1`). Without
                 // enumerating these explicitly, DCE would treat their

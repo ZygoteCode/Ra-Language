@@ -1,0 +1,62 @@
+// bench_streams.ra
+//
+// Microbenchmark comparing the stream pipeline against:
+//   1. an equivalent imperative loop materialising into a list, and
+//   2. a hand-rolled `list_*` builtin chain (filter → map → take).
+//
+// All three compute the same thing: the first 1_000 squares of even numbers
+// drawn from a range of 1_000_000 candidates.
+//
+// The stream version is expected to win on early-stop: the filter sees only
+// ~2_000 elements before take(1_000) closes the upstream and the filter
+// stops asking the source. The list version pays the full upstream traversal.
+
+let LIMIT = 1000000;
+let TAKE  = 1000;
+
+// ---------------------------------------------------------------------------
+// 1. Stream pipeline (lazy, fused)
+// ---------------------------------------------------------------------------
+let t_start = monotonic_ms();
+let res_stream = stream_range(0, LIMIT)
+    |> stream_filter(|x| x % 2 == 0)
+    |> stream_map(|x| x * x)
+    |> stream_take(TAKE)
+    |> stream_collect();
+let t_end = monotonic_ms();
+print("[BENCH] stream pipeline: " + (t_end - t_start) + "ms, len=" + len(res_stream));
+
+// ---------------------------------------------------------------------------
+// 2. List builtins (eager — full traversal)
+// ---------------------------------------------------------------------------
+let lt_start = monotonic_ms();
+let huge = list_range(0, LIMIT);
+var evens = [];
+for x in huge {
+    if (x % 2 == 0) {
+        evens = evens + [x * x];
+        if (len(evens) >= TAKE) {
+            break
+        }
+    }
+}
+let lt_end = monotonic_ms();
+print("[BENCH] list materialised + early-break: " + (lt_end - lt_start) + "ms, len=" + len(evens));
+
+// ---------------------------------------------------------------------------
+// 3. Imperative inline loop (no list build, just count)
+// ---------------------------------------------------------------------------
+let it_start = monotonic_ms();
+var count_inline = 0;
+var i = 0;
+while i < LIMIT {
+    if (i % 2 == 0) {
+        count_inline = count_inline + 1;
+        if (count_inline >= TAKE) {
+            break
+        }
+    }
+    i = i + 1;
+}
+let it_end = monotonic_ms();
+print("[BENCH] inline imperative: " + (it_end - it_start) + "ms, count=" + count_inline);

@@ -1608,6 +1608,11 @@ namespace RaLanguage.Interpreter.Vm
                                 locals[dst] = new ListValue(pairs).SetContext(ctx);
                                 break;
                             }
+                            // Note: Stream is handled by the dedicated lazy
+                            // path emitted by CompileForEach (JmpIfStream +
+                            // ForEachStreamPull). If a Stream reaches this
+                            // opcode it means the dual-path emission was
+                            // bypassed somehow — fall through to the error.
                             default:
                                 throw new RaUserError(MakeIcError(ctx, "Must iter onto a collection"));
                         }
@@ -2154,6 +2159,48 @@ namespace RaLanguage.Interpreter.Vm
                             short offs = Encoding.SImm16(instr);
                             if (offs < 0) f.Function.LoopBackEdgeCount++;
                             pc += offs;
+                        }
+                        break;
+                    }
+                    case Opcode.JmpIfStream:
+                    {
+                        // Lazy-foreach dispatch: branch when locals[a] is a
+                        // sync stream so the materialising fast-path
+                        // (ForEachIterable + ListLen + ListGet) is skipped.
+                        byte a = Encoding.A(instr);
+                        var v = locals[a];
+                        if (v != null && v.Type == RuntimeValueType.Stream)
+                        {
+                            short offs = Encoding.SImm16(instr);
+                            pc += offs;
+                        }
+                        break;
+                    }
+                    case Opcode.ForEachStreamPull:
+                    {
+                        // [op][itemSlot:a][streamSlot:b][continueSlot:c]
+                        // Synchronous pull from a sync StreamValue. Sets
+                        // continueSlot to a boolean (true if value produced;
+                        // false if done). The follow-up `JmpIfNot
+                        // continueSlot, exitOffset` exits the loop on done
+                        // before AssignBinding would read itemSlot.
+                        byte itemSlot = Encoding.A(instr);
+                        byte streamSlot = Encoding.B(instr);
+                        byte continueSlot = Encoding.C(instr);
+                        var sv = locals[streamSlot];
+                        if (sv is not RaLanguage.Interpreter.Values.Streams.StreamValue stream)
+                            throw new RaUserError(MakeIcError(ctx, "ForEachStreamPull: source slot is not a Stream"));
+                        var t = stream.PullNext(ctx);
+                        var r = t.IsCompletedSuccessfully ? t.Result : t.AsTask().GetAwaiter().GetResult();
+                        if (r.Error != null) throw new RaUserError(r.Error);
+                        if (r.Done)
+                        {
+                            locals[continueSlot] = BooleanValue.False;
+                        }
+                        else
+                        {
+                            locals[itemSlot] = r.Value!;
+                            locals[continueSlot] = BooleanValue.True;
                         }
                         break;
                     }

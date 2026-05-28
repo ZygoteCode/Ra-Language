@@ -41,6 +41,7 @@
         Task,
         Channel,
         Stream,
+        AsyncStream,
         Namespace,
         NativeHandle,
         Regex,

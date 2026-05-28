@@ -46,6 +46,14 @@ namespace RaLanguage.Interpreter.Values.Functions
                     {
                         return AsyncBuiltins.Execute(Name, args, Context ?? execCtx, PositionStart, PositionEnd);
                     }
+                    if (RaLanguage.Interpreter.Values.Functions.Builtins.StreamBuiltins.IsStreamBuiltin(Name))
+                    {
+                        return await RaLanguage.Interpreter.Values.Functions.Builtins.StreamBuiltins.Execute(Name, args, Context ?? execCtx, PositionStart, PositionEnd);
+                    }
+                    if (RaLanguage.Interpreter.Values.Functions.Builtins.AsyncStreamBuiltins.IsAsyncStreamBuiltin(Name))
+                    {
+                        return await RaLanguage.Interpreter.Values.Functions.Builtins.AsyncStreamBuiltins.Execute(Name, args, Context ?? execCtx, PositionStart, PositionEnd);
+                    }
                     if (BuiltInRegistry.Contains(Name))
                     {
                         return BuiltInRegistry.Invoke(Name, Context ?? execCtx, args, PositionStart, PositionEnd);

@@ -13,7 +13,7 @@ namespace RaLanguage.Interpreter.Values.Async
             get => Core.ElementType;
             set => Core.ElementType = value;
         }
-        public override RuntimeValueType Type => RuntimeValueType.Stream;
+        public override RuntimeValueType Type => RuntimeValueType.AsyncStream;
         public override bool IsCopy => true;
 
         public AsyncStreamValue(AsyncStreamCore core)
