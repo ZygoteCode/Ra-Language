@@ -1,0 +1,6 @@
+// Multi-module smoke test: entry imports a sibling.
+import "./mathy.ra";
+
+print("rac/multi: square(7) = " + square(7));
+print("rac/multi: cube(3)   = " + cube(3));
+print("rac/multi: done");

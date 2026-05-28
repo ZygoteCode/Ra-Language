@@ -2,6 +2,7 @@ using System.Threading.Tasks;
 using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
+using RaLanguage.Interpreter.Archive;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Values;
@@ -190,7 +191,7 @@ namespace RaLanguage.Interpreter.Modules
             string source;
             try
             {
-                source = File.ReadAllText(absolute);
+                source = VirtualFs.ReadAllText(absolute);
             }
             catch (Exception ex)
             {

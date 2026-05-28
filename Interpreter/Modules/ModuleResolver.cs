@@ -1,5 +1,6 @@
 using System.Threading.Tasks;
 using System.IO;
+using RaLanguage.Interpreter.Archive;
 
 namespace RaLanguage.Interpreter.Modules
 {
@@ -64,12 +65,12 @@ namespace RaLanguage.Interpreter.Modules
                 absolute = Path.GetFullPath(Path.Combine(anchorDir, withExt));
             }
 
-            if (!File.Exists(absolute))
+            if (!VirtualFs.Exists(absolute))
             {
                 if (!Path.IsPathRooted(withExt))
                 {
                     string projectFallback = Path.GetFullPath(Path.Combine(ProjectRoot, withExt));
-                    if (File.Exists(projectFallback))
+                    if (VirtualFs.Exists(projectFallback))
                         return ModuleResolutionResult.Success(projectFallback);
                 }
 
@@ -111,7 +112,7 @@ namespace RaLanguage.Interpreter.Modules
             string relative = string.Join(Path.DirectorySeparatorChar.ToString(), subSegments) + RaExtension;
             string absolute = Path.GetFullPath(Path.Combine(StdRoot, relative));
 
-            if (!File.Exists(absolute))
+            if (!VirtualFs.Exists(absolute))
             {
                 return ModuleResolutionResult.Failure(
                     $"Standard library module not found: '{string.Join('.', segments)}' (looked at '{absolute}')");
@@ -131,7 +132,7 @@ namespace RaLanguage.Interpreter.Modules
                     ? currentFile
                     : Path.GetFullPath(Path.Combine(ProjectRoot, currentFile));
 
-                if (File.Exists(fullCurrent))
+                if (VirtualFs.Exists(fullCurrent))
                 {
                     return Path.GetDirectoryName(fullCurrent) ?? ProjectRoot;
                 }

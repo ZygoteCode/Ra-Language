@@ -1,0 +1,28 @@
+// Single-file smoke test for the .rac archive pipeline.
+//
+//   dotnet run -- --compile tests_rac/hello.ra -o tests_rac/hello.rac
+//   dotnet run -- --inspect-archive tests_rac/hello.rac
+//   dotnet run -- --run-archive tests_rac/hello.rac
+//
+// Expected stdout includes:
+//   rac/hello: 2 + 3 = 5
+//   rac/hello: total = 55
+//   rac/hello: hi world
+//   rac/hello: done
+
+print("rac/hello: 2 + 3 = " + (2 + 3));
+
+var total = 0;
+var i = 1;
+while i <= 10 {
+    total = total + i;
+    i = i + 1;
+}
+print("rac/hello: total = " + total);
+
+fn greet(name: string): string {
+    ret "rac/hello: hi " + name;
+}
+
+print(greet("world"));
+print("rac/hello: done");

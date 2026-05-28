@@ -1,5 +1,6 @@
 using RaLanguage.Errors;
 using RaLanguage.Interpreter;
+using RaLanguage.Interpreter.Archive;
 using RaLanguage.Interpreter.IR;
 using RaLanguage.Interpreter.Pipeline;
 using RaLanguage.Interpreter.Runtime;
@@ -66,7 +67,7 @@ namespace RaLanguage
 
         public static SymbolTable BuiltinSymbolTable;
 
-        private static void InitializeSymbolTable()
+        public static void InitializeSymbolTable()
         {
             BuiltinSymbolTable = new SymbolTable();
 
@@ -336,6 +337,44 @@ namespace RaLanguage
                 if (args.Length == 1 && string.Equals(args[0], "--repl", StringComparison.OrdinalIgnoreCase))
                 {
                     RunRepl();
+                    return;
+                }
+
+                // --compile <entry.ra> [-o output.rac] [--no-compress]
+                // Builds a .rac archive from the given entry, walking
+                // imports transitively and validating each module
+                // through the lex/parse pipeline.
+                if (args.Length >= 2 && string.Equals(args[0], "--compile", StringComparison.OrdinalIgnoreCase))
+                {
+                    CompileArchiveCli(args);
+                    return;
+                }
+
+                // --run-archive <file.rac>
+                // Loads a .rac archive into the in-process runtime and
+                // executes its entry module.
+                if (args.Length == 2 && string.Equals(args[0], "--run-archive", StringComparison.OrdinalIgnoreCase))
+                {
+                    RunArchiveCli(args[1]);
+                    return;
+                }
+
+                // --inspect-archive <file.rac>
+                // Pretty-prints the archive header + manifest + section
+                // directory.
+                if (args.Length == 2 && string.Equals(args[0], "--inspect-archive", StringComparison.OrdinalIgnoreCase))
+                {
+                    InspectArchiveCli(args[1]);
+                    return;
+                }
+
+                // Auto-detect `.rac` positional argument so `ra foo.rac`
+                // just works. We keep this *after* the explicit flags so
+                // an `--inspect-archive foo.rac` is not eaten here.
+                if (args.Length == 1 && args[0].EndsWith(".rac", StringComparison.OrdinalIgnoreCase)
+                    && File.Exists(args[0]))
+                {
+                    RunArchiveCli(args[0]);
                     return;
                 }
 
@@ -633,6 +672,109 @@ namespace RaLanguage
                 double avgTicks = totalTicks / (double)Iterations;
 
                 Console.WriteLine($"  {bench}: best={bestMs}ms avg={avgMs:F1}ms avg_ticks={avgTicks:F0} alloc/run={allocPerRunMb:F2}MB");
+            }
+        }
+
+        // Archive CLI: `--compile <entry.ra> [-o output.rac] [--no-compress]`.
+        // Parses flags, dispatches to RacPackager, prints summary.
+        private static void CompileArchiveCli(string[] args)
+        {
+            string entry = args[1];
+            string? output = null;
+            bool compress = true;
+            bool verbose = false;
+
+            for (int i = 2; i < args.Length; i++)
+            {
+                if (string.Equals(args[i], "-o", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+                {
+                    output = args[++i];
+                }
+                else if (string.Equals(args[i], "--no-compress", StringComparison.OrdinalIgnoreCase))
+                {
+                    compress = false;
+                }
+                else if (string.Equals(args[i], "--verbose", StringComparison.OrdinalIgnoreCase))
+                {
+                    verbose = true;
+                }
+                else
+                {
+                    Console.WriteLine($"[Ra Language] --compile: unknown flag '{args[i]}'");
+                    return;
+                }
+            }
+
+            var opts = new RacBuildOptions
+            {
+                EntryFile = entry,
+                OutputFile = output ?? "",
+                Compress = compress,
+                Verbose = verbose,
+            };
+
+            var r = RacPackager.Build(opts);
+            if (!r.Success)
+            {
+                Console.WriteLine("[Ra Language] Archive build FAILED.");
+                foreach (var e in r.Errors) Console.WriteLine($"  error: {e}");
+                foreach (var w in r.Warnings) Console.WriteLine($"  warn : {w}");
+                Environment.ExitCode = 1;
+                return;
+            }
+            Console.WriteLine($"[Ra Language] Archive built: {r.OutputPath}");
+            Console.WriteLine($"  modules : {r.ModuleCount}");
+            Console.WriteLine($"  size    : {r.OutputSize:N0} bytes");
+            Console.WriteLine($"  elapsed : {r.Elapsed.TotalMilliseconds:F1} ms");
+            foreach (var w in r.Warnings) Console.WriteLine($"  warn : {w}");
+        }
+
+        // Archive CLI: `--run-archive <file.rac>` or `<file.rac>` positional.
+        private static void RunArchiveCli(string archivePath)
+        {
+            if (!File.Exists(archivePath))
+            {
+                Console.WriteLine($"[Ra Language] archive not found: {archivePath}");
+                Environment.ExitCode = 1;
+                return;
+            }
+            var r = RacRunner.Run(new RacRunOptions
+            {
+                ArchivePath = archivePath,
+                Diagnostics = true,
+            });
+            if (!r.Loaded)
+            {
+                Console.WriteLine($"[Ra Language] failed to load archive '{archivePath}':");
+                foreach (var e in r.LoadErrors) Console.WriteLine($"  {e}");
+                Environment.ExitCode = 1;
+                return;
+            }
+            if (r.RuntimeError != null)
+            {
+                Console.WriteLine(r.RuntimeError.ToString());
+            }
+            Console.WriteLine(
+                $"[Ra Language] Archive loaded in {r.LoadTime.TotalMilliseconds:F2}ms, executed in {r.ExecTime.TotalMilliseconds:F2}ms.");
+        }
+
+        // Archive CLI: `--inspect-archive <file.rac>`.
+        private static void InspectArchiveCli(string archivePath)
+        {
+            if (!File.Exists(archivePath))
+            {
+                Console.WriteLine($"[Ra Language] archive not found: {archivePath}");
+                Environment.ExitCode = 1;
+                return;
+            }
+            try
+            {
+                Console.Write(RacInspector.Describe(archivePath));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Ra Language] cannot inspect '{archivePath}': {ex.Message}");
+                Environment.ExitCode = 1;
             }
         }
 
