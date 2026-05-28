@@ -38,6 +38,10 @@ namespace RaLanguage.Interpreter.Archive
         public bool IsCompressed => (Flags & RacSectionFlags.Compressed) != 0;
         public bool MustUnderstand => (Flags & RacSectionFlags.MustUnderstand) != 0;
 
+        // 4-bit codec field in bits 4-7. Zero (default) means Deflate —
+        // matches the v1.x archives that pre-dated the codec field.
+        public RacCodecKind Codec => (RacCodecKind)(((uint)Flags >> 4) & 0xF);
+
         public void WriteTo(RacBinaryWriter w)
         {
             long start = w.Position;

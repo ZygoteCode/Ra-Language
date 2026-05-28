@@ -66,8 +66,9 @@ namespace RaLanguage.Interpreter.Archive
             {
                 var s = archive.Sections[i];
                 double ratio = s.UncompressedSize == 0 ? 1.0 : (double)s.StoredSize / s.UncompressedSize;
+                string codecTag = s.IsCompressed ? s.Codec.ToString() : "-";
                 sb.AppendLine(
-                    $"  [{i:D3}] {s.Kind,-14} flags={s.Flags,-30} off={s.Offset,-10} stored={s.StoredSize,-10} raw={s.UncompressedSize,-10} ratio={ratio:F2}");
+                    $"  [{i:D3}] {s.Kind,-14} flags={(uint)s.Flags,-4:X} codec={codecTag,-7} mu={(s.MustUnderstand ? "y" : "n")} off={s.Offset,-10} stored={s.StoredSize,-10} raw={s.UncompressedSize,-10} ratio={ratio:F2}");
             }
 
             if (m.StdReferences.Count > 0)

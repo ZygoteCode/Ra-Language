@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Security.Cryptography;
+using ZstdSharp;
 
 namespace RaLanguage.Interpreter.Archive
 {
@@ -71,9 +72,14 @@ namespace RaLanguage.Interpreter.Archive
                 header = RacHeader.ReadFrom(hr);
             }
 
-            if (header.FormatMajor != RacFormat.FormatMajor)
+            // Loader accepts the current FormatMajor (Zstd codec era)
+            // and the legacy FormatMajor=1 (Deflate-only era). Older
+            // archives carry codec=0 in the per-section flags, which
+            // happens to read as RacCodecKind.Deflate.
+            if (header.FormatMajor != RacFormat.FormatMajor
+                && header.FormatMajor != RacFormat.FormatMajorLegacy)
                 throw new InvalidDataException(
-                    $"rac: incompatible format version {header.FormatMajor}.{header.FormatMinor} (loader expects {RacFormat.FormatMajor}.x)");
+                    $"rac: incompatible format version {header.FormatMajor}.{header.FormatMinor} (loader expects {RacFormat.FormatMajor}.x or {RacFormat.FormatMajorLegacy}.x)");
 
             if (RacHeader.CompareSemver(header.RaRuntimeRequired, RacFormat.RaRuntimeVersion) > 0)
                 throw new InvalidDataException(
@@ -179,6 +185,11 @@ namespace RaLanguage.Interpreter.Archive
         // decompression if needed. The reads stream through a per-call
         // view over the underlying RacSource — for the mmap-backed
         // source the OS pages in only the bytes that get touched.
+        //
+        // Codec dispatch comes from the section flags' codec nibble
+        // (bits 4-7). Legacy v1.x archives carry zero in that nibble
+        // which we honour as RacCodecKind.Deflate — backward read
+        // stays bit-compatible.
         internal static byte[] ReadSectionPayload(RacSource source, RacSectionEntry entry)
         {
             long offset = (long)entry.Offset;
@@ -187,12 +198,30 @@ namespace RaLanguage.Interpreter.Archive
             byte[] uncompressed;
             if (entry.IsCompressed)
             {
-                // Decompress straight out of the view stream. No
-                // intermediate `stored` buffer — DeflateStream consumes
-                // the view incrementally and we write directly into
-                // `uncompressed`.
-                using var view = source.OpenView(offset, stored);
-                uncompressed = DecompressDeflate(view, (int)uncomp);
+                switch (entry.Codec)
+                {
+                    case RacCodecKind.Deflate:
+                    {
+                        using var view = source.OpenView(offset, stored);
+                        uncompressed = DecompressDeflate(view, (int)uncomp);
+                        break;
+                    }
+                    case RacCodecKind.Zstd:
+                    {
+                        // Zstd's frame layout doesn't lend itself to
+                        // the same incremental Read loop Deflate uses
+                        // (the codec emits a single contiguous frame
+                        // per `Wrap` call). Slurp the stored bytes
+                        // first, then Unwrap into a pre-sized output.
+                        byte[] storedBuf = new byte[(int)stored];
+                        source.ReadExact(offset, storedBuf);
+                        uncompressed = DecompressZstd(storedBuf, (int)uncomp);
+                        break;
+                    }
+                    default:
+                        throw new InvalidDataException(
+                            $"rac: section {entry.Kind} uses unknown codec {(byte)entry.Codec}");
+                }
             }
             else
             {
@@ -230,6 +259,23 @@ namespace RaLanguage.Interpreter.Archive
             // payload could lie about its uncompressed size.
             if (ds.Read(new byte[1], 0, 1) != 0)
                 throw new InvalidDataException("rac: deflate stream had trailing bytes");
+            return outBuf;
+        }
+
+        // Thread-local Zstd decompressor — the context allocates ~256
+        // KiB internally, so creating one per section read torpedoes
+        // archive-open time on multi-module archives. Reuse is safe
+        // because each Unwrap call is self-contained.
+        [ThreadStatic] private static Decompressor? t_zstdDec;
+
+        private static byte[] DecompressZstd(byte[] compressed, int expectedSize)
+        {
+            var dec = t_zstdDec ??= new Decompressor();
+            byte[] outBuf = new byte[expectedSize];
+            int n = dec.Unwrap(compressed, outBuf, offset: 0);
+            if (n != expectedSize)
+                throw new InvalidDataException(
+                    $"rac: zstd size mismatch (got {n} bytes, expected {expectedSize})");
             return outBuf;
         }
 
