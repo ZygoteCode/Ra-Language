@@ -35,6 +35,26 @@ namespace RaLanguage.Interpreter.Archive
         // produce a v1-style archive (every const inlined) for size
         // comparison.
         public bool SharedConstPoolEnabled { get; set; } = true;
+
+        // v1.2 (#sig): optional signing config. When SignKeyPath is
+        // set, the packager loads the PEM-encoded private key, signs
+        // the archive's canonical payload (file header identity bits
+        // + every non-signature directory entry) and appends a
+        // Signature section.
+        public string? SignKeyPath { get; set; }
+        public string SignerId { get; set; } = "";
+        // Embedded ships the full public key alongside the signature
+        // (verifier needs no external state). Fingerprint ships only
+        // the SHA-256 fingerprint; the verifier resolves the matching
+        // public key from a trust store.
+        public RacSignatureKeyMode SignKeyMode { get; set; } = RacSignatureKeyMode.Embedded;
+
+        // v2.0 (#zstd): pick the compression codec. Default Zstd; flip
+        // to Deflate for diagnostic / reproducibility-with-old-tooling
+        // runs. Zstd level 1..22 — 11 is a balanced default; 19+ for
+        // smallest archive at much higher pack time.
+        public RacCodecKind Codec { get; set; } = RacCodecKind.Zstd;
+        public int ZstdLevel { get; set; } = 11;
     }
 
     public sealed class RacBuildResult
@@ -206,9 +226,29 @@ namespace RaLanguage.Interpreter.Archive
                     foreach (var kvp in shakeResult.RewrittenSources)
                     {
                         // Overwrite cached source so the manifest hash +
-                        // ModuleSource section payload + (suppressed)
-                        // bytecode all see the slimmed text.
+                        // ModuleSource section payload + bytecode all
+                        // see the slimmed text. v1.2: re-parse the
+                        // rewritten std module so its cached AST also
+                        // matches the trimmed bytes — bytecode emission
+                        // for std modules below depends on it.
                         graph.SetSource(kvp.Key, kvp.Value);
+                        var reLex = new Lexer.Lexer(kvp.Key, kvp.Value);
+                        var (reToks, reDiags) = reLex.MakeTokens();
+                        if (reDiags.HasErrors)
+                        {
+                            foreach (var d in reDiags.Diagnostics)
+                                errors.Add($"{kvp.Key}: lex (post-shake): {d}");
+                            return Fail(errors, warnings, sw);
+                        }
+                        var reParser = new Parser.Parser(reToks);
+                        var reParse = reParser.Parse();
+                        if (reParse.HasErrors)
+                        {
+                            foreach (var d in reParse.Diagnostics.Diagnostics)
+                                errors.Add($"{kvp.Key}: parse (post-shake): {d}");
+                            return Fail(errors, warnings, sw);
+                        }
+                        graph.SetParsed(kvp.Key, reParse.Node);
                     }
                     if (opts.Verbose && shakeResult.Stats.DeclsDropped > 0)
                     {
@@ -292,32 +332,39 @@ namespace RaLanguage.Interpreter.Archive
                 var path = modulePathList[i];
                 var ast = graph.GetParsed(path);
                 if (ast == null) continue;
-                // Bytecode for std modules is never consumed by the
-                // runner today (it loads only the entry's bytecode and
-                // re-lex/parses imports). Skip generation to avoid
-                // shipping kilobytes of stale-AST IR that nothing will
-                // read. Tree-shaking may have replaced the std source;
-                // its AST in `graph` no longer matches the slimmed
-                // bytes, which would make the bytecode wrong.
-                if (graph.IsStdModule(path)) continue;
+                // v1.2: compile *every* module — std included. The
+                // runner now loads per-module bytecode for imports too,
+                // so std modules need to ship their compiled IR or
+                // ModuleManager would have to lex/parse them at load
+                // time from the source section, defeating the boot-time
+                // win the bytecode payload exists to deliver.
                 try
                 {
-                    // The compile pipeline mutates AST nodes (DeriveTransformer
-                    // rewrites @derive blocks, Resolver attaches binding info).
-                    // Same pipeline as Program.Run — keep them in sync.
                     DeriveTransformer.Apply(ast);
                     MatchSimplifier.Apply(ast);
                     Resolver.Resolve(ast);
-                    compiledFns[i] = IrCompiler.CompileScript(ast, path);
+                    var scriptFn = IrCompiler.CompileScript(ast, path);
+                    // v4 (#pre-compiled children): walk every nested
+                    // function / struct method / trait method /
+                    // operator referenced by this script's IR and
+                    // pre-compile each one's body to IR. The
+                    // serialiser persists `.CompiledBody` and the
+                    // runtime's GetOrCompileBody / GetOrCompile*
+                    // short-circuit on first dispatch — zero AST→IR
+                    // work at load.
+                    Runtime.RaFunctionPrecompiler.PrecompileChildren(scriptFn);
+                    compiledFns[i] = scriptFn;
                 }
                 catch (Exception ex)
                 {
-                    if (opts.Verbose)
-                        warnings.Add($"{path}: bytecode skipped ({ex.GetType().Name}: {ex.Message}) — falling back to source");
-                    compiledFns[i] = null;
+                    errors.Add($"{path}: bytecode compile failed: {ex.GetType().Name}: {ex.Message}");
                     bytecodeFailed++;
                 }
             }
+            // v1.2: bytecode is required, not best-effort. Any compile
+            // failure short-circuits the build so v3 archives stay
+            // consistent.
+            if (bytecodeFailed > 0) return Fail(errors, warnings, sw);
 
             // Pass 1.5 — accumulate constant references across the
             // compiled RaFunction tree (including nested function
@@ -343,7 +390,9 @@ namespace RaLanguage.Interpreter.Archive
                         $"const pool: observed {poolBuilder.Observed} refs, pooled {poolBuilder.Pooled} values "
                         + $"(strings={poolBuilder.Pool.Strings.Count}, numbers={poolBuilder.Pool.Numbers.Count}, "
                         + $"ints={poolBuilder.Pool.Integers.Count}, longs={poolBuilder.Pool.Longs.Count}, "
-                        + $"doubles={poolBuilder.Pool.Doubles.Count}, floats={poolBuilder.Pool.Floats.Count})");
+                        + $"doubles={poolBuilder.Pool.Doubles.Count}, floats={poolBuilder.Pool.Floats.Count}, "
+                        + $"ulongs={poolBuilder.Pool.ULongs.Count}, int128s={poolBuilder.Pool.Int128s.Count}, "
+                        + $"uint128s={poolBuilder.Pool.UInt128s.Count}, decimals={poolBuilder.Pool.Decimals.Count})");
                 }
             }
 
@@ -361,19 +410,20 @@ namespace RaLanguage.Interpreter.Archive
                 }
                 catch (ModuleBytecodeUnsupportedException ex)
                 {
-                    if (opts.Verbose)
-                        warnings.Add($"{modulePathList[i]}: bytecode skipped ({ex.Message}) — falling back to source");
-                    bytecodePayloads[i] = null!;
+                    errors.Add($"{modulePathList[i]}: bytecode serializer encountered an AST node it cannot handle: {ex.Message}");
                     bytecodeFailed++;
                 }
                 catch (Exception ex)
                 {
-                    if (opts.Verbose)
-                        warnings.Add($"{modulePathList[i]}: bytecode skipped ({ex.GetType().Name}: {ex.Message}) — falling back to source");
-                    bytecodePayloads[i] = null!;
+                    errors.Add($"{modulePathList[i]}: bytecode serialization failed: {ex.GetType().Name}: {ex.Message}");
                     bytecodeFailed++;
                 }
             }
+            // v1.2: any serialization failure is fatal — we no longer
+            // ship archives where some modules carry source-only and
+            // others carry bytecode, since the runner now relies on
+            // bytecode for every module.
+            if (bytecodeFailed > 0) return Fail(errors, warnings, sw);
 
             // Build the archive.
             //
@@ -383,8 +433,30 @@ namespace RaLanguage.Interpreter.Archive
             //   N+1 (optional):          SharedConstPool (when poolBuilder.Pooled > 0)
             //   next..next+M-1:          ModuleBytecode (one per module that compiled)
             //   (last):                  StdLibIndex   (only if non-empty)
-            var writer = new RacWriter();
+            var writer = new RacWriter
+            {
+                Codec = opts.Codec,
+                ZstdLevel = opts.ZstdLevel,
+            };
             if (opts.Compress) writer.ArchiveFlags |= RacFlags.Compressed;
+
+            // v1.2 (#sig): wire signing config. Load the private key
+            // up-front so a malformed PEM fails the build cleanly
+            // before we waste cycles laying out sections.
+            if (!string.IsNullOrEmpty(opts.SignKeyPath))
+            {
+                RacKeyPair signKey;
+                try
+                {
+                    signKey = RacKeyStore.LoadPrivateKey(opts.SignKeyPath!);
+                }
+                catch (Exception ex)
+                {
+                    errors.Add($"failed to load signing key '{opts.SignKeyPath}': {ex.Message}");
+                    return Fail(errors, warnings, sw);
+                }
+                writer.SignWith(signKey, opts.SignerId, opts.SignKeyMode);
+            }
 
             // Pre-assign section indices so the manifest carries
             // stable cross-references. Source sections live at
@@ -545,14 +617,59 @@ namespace RaLanguage.Interpreter.Archive
         // realising the dedup save.
         private static void ObserveFunctionConsts(RaFunction fn, SharedConstPoolBuilder pool)
         {
+            var visited = new HashSet<RaFunction>();
+            ObserveRecursive(fn, pool, visited);
+        }
+
+        // Walk every RaFunction reachable through the script —
+        // including the pre-compiled bodies cached on AST nodes in
+        // FuncDefRefs / DefineRefs (struct / trait / extension /
+        // operator methods). Cross-module dedup only works when the
+        // pool sees every const that will eventually hit the
+        // serialiser, regardless of which compiled-body lookup
+        // pulled it in.
+        private static void ObserveRecursive(RaFunction fn, SharedConstPoolBuilder pool,
+            HashSet<RaFunction> visited)
+        {
+            if (fn == null || !visited.Add(fn)) return;
             pool.ObserveMany(fn.Consts);
             if (fn.Children != null)
-            {
-                for (int i = 0; i < fn.Children.Length; i++)
+                foreach (var child in fn.Children) ObserveRecursive(child, pool, visited);
+            if (fn.FuncDefRefs != null)
+                foreach (var node in fn.FuncDefRefs)
                 {
-                    if (fn.Children[i] != null) pool.ObserveMany(fn.Children[i].Consts);
+                    if (node?.CompiledBody != null)
+                        ObserveRecursive(node.CompiledBody, pool, visited);
                 }
-            }
+            if (fn.DefineRefs != null)
+                foreach (var node in fn.DefineRefs)
+                {
+                    switch (node)
+                    {
+                        case Parser.Nodes.Classes.ClassDefinitionNode c:
+                            foreach (var m in c.Methods)
+                                if (m.CompiledBody != null) ObserveRecursive(m.CompiledBody, pool, visited);
+                            foreach (var op in c.Operators)
+                                if (op.CompiledBody != null) ObserveRecursive(op.CompiledBody, pool, visited);
+                            break;
+                        case Parser.Nodes.Structs.StructDefinitionNode s:
+                            foreach (var m in s.Methods)
+                                if (m.CompiledBody != null) ObserveRecursive(m.CompiledBody, pool, visited);
+                            foreach (var op in s.Operators)
+                                if (op.CompiledBody != null) ObserveRecursive(op.CompiledBody, pool, visited);
+                            break;
+                        case Parser.Nodes.Traits.TraitDefinitionNode t:
+                            foreach (var m in t.Methods)
+                                if (m.CompiledBody != null) ObserveRecursive(m.CompiledBody, pool, visited);
+                            break;
+                        case Parser.Nodes.Classes.ExtensionDefinitionNode e:
+                            foreach (var m in e.Methods)
+                                if (m.CompiledBody != null) ObserveRecursive(m.CompiledBody, pool, visited);
+                            foreach (var op in e.Operators)
+                                if (op.CompiledBody != null) ObserveRecursive(op.CompiledBody, pool, visited);
+                            break;
+                    }
+                }
         }
 
         private static void CollectImports(AstNode root, List<ImportNode> output)

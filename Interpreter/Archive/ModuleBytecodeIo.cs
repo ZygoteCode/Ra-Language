@@ -65,23 +65,51 @@ namespace RaLanguage.Interpreter.Archive
         // v1: inline-only const pool (legacy).
         // v2: const pool tags may reference an archive-level SharedConstPool
         //     (kind 0x07). Hybrid encoding — singleton refs stay inline.
-        public const ushort PayloadVersion = 2;
+        // v3: direct-bytecode-payload-only loader. Every AstNodeType
+        //     handled by AstNodeSerializer.
+        // v4: pre-compiled nested function bodies. Each
+        //     FunctionDefinitionNode (and the matching Struct /
+        //     Trait / Operator method nodes) carries its compiled
+        //     RaFunction inline, so the runtime's
+        //     FunctionDefinitionHelper.GetOrCompileBody short-circuits
+        //     on the first execution — no AST→IR work at runtime.
+        //     v3 payloads keep loading unchanged; their callees pay
+        //     the lazy compile once on first invocation, exactly as
+        //     before.
+        public const ushort PayloadVersion = 4;
         public const ushort PayloadVersion_V1 = 1;
+        public const ushort PayloadVersion_V2 = 2;
+        public const ushort PayloadVersion_V3 = 3;
+        public const ushort PayloadVersion_V4 = 4;
 
         public static byte[] Serialize(RaFunction root, SharedConstPoolBuilder? sharedPool = null)
         {
             using var ms = new MemoryStream();
             var w = new RacBinaryWriter(ms);
             w.WriteU32(MagicHead);
-            // Bump payload version only when the encoder actually emits
-            // shared-pool refs. A finalised builder with zero pooled
-            // entries is functionally equivalent to v1, so we stay on
-            // the older version for forward-compat with v1.0-#7 loaders
-            // that haven't been recompiled.
-            bool emitV2 = sharedPool != null && sharedPool.Finalised && sharedPool.Pooled > 0;
-            w.WriteU16(emitV2 ? PayloadVersion : PayloadVersion_V1);
+            // v4 (#pre-compiled children) is now the only wire form
+            // this writer emits. The shared pool stays optional —
+            // when present, const tags reference it; otherwise every
+            // const inlines. Older wire versions (v1 / v2 / v3) are
+            // still ACCEPTED by Deserialize for backward read.
+            bool emitPool = sharedPool != null && sharedPool.Finalised && sharedPool.Pooled > 0;
+            ushort ver = PayloadVersion_V4;
+            w.WriteU16(ver);
             w.WriteU16(0);
-            SerializeRaFunction(w, root, emitV2 ? sharedPool : null);
+            // Stash the writer pool + version in thread-local state so
+            // AstNodeSerializer.WriteFunctionDefinition can call back
+            // into WriteInlineRaFunction with the right context.
+            AstNodeSerializer.WriterPool = emitPool ? sharedPool : null;
+            AstNodeSerializer.WriterVersion = ver;
+            try
+            {
+                SerializeRaFunction(w, root, emitPool ? sharedPool : null);
+            }
+            finally
+            {
+                AstNodeSerializer.WriterPool = null;
+                AstNodeSerializer.WriterVersion = 0;
+            }
             return ms.ToArray();
         }
 
@@ -93,15 +121,43 @@ namespace RaLanguage.Interpreter.Archive
             if (magic != MagicHead)
                 throw new InvalidDataException("rac: ModuleBytecode magic mismatch");
             ushort ver = r.ReadU16();
-            if (ver != PayloadVersion_V1 && ver != PayloadVersion)
+            if (ver != PayloadVersion_V1 && ver != PayloadVersion_V2
+                && ver != PayloadVersion_V3 && ver != PayloadVersion_V4)
                 throw new InvalidDataException($"rac: ModuleBytecode version {ver} not supported");
             ushort reserved = r.ReadU16();
             if (reserved != 0)
                 throw new InvalidDataException("rac: ModuleBytecode reserved must be zero");
-            // v2 payloads require a shared pool. v1 payloads don't
-            // reference one — silently ignore any pool the caller
-            // passed.
-            return DeserializeRaFunction(r, ver == PayloadVersion ? sharedPool : null);
+            AstNodeSerializer.ReaderPool = ver != PayloadVersion_V1 ? sharedPool : null;
+            AstNodeSerializer.ReaderVersion = ver;
+            try
+            {
+                return DeserializeRaFunction(r, ver != PayloadVersion_V1 ? sharedPool : null);
+            }
+            finally
+            {
+                AstNodeSerializer.ReaderPool = null;
+                AstNodeSerializer.ReaderVersion = 0;
+            }
+        }
+
+        // === v4 nested-function helpers ===
+
+        // Inline RaFunction = SerializeRaFunction body without the
+        // RAFB magic + version preamble. Used by AstNodeSerializer
+        // when serialising a FunctionDefinitionNode's pre-compiled
+        // body. The thread-local pool comes from
+        // AstNodeSerializer.WriterPool / ReaderPool set up by the
+        // top-level Serialize / Deserialize wrapper.
+        internal static void WriteInlineRaFunction(RacBinaryWriter w, RaFunction fn,
+            SharedConstPoolBuilder? sharedPool)
+        {
+            SerializeRaFunction(w, fn, sharedPool);
+        }
+
+        internal static RaFunction ReadInlineRaFunction(RacBinaryReader r,
+            SharedConstPool? sharedPool)
+        {
+            return DeserializeRaFunction(r, sharedPool);
         }
 
         private static void SerializeRaFunction(RacBinaryWriter w, RaFunction fn, SharedConstPoolBuilder? sharedPool)
@@ -339,11 +395,13 @@ namespace RaLanguage.Interpreter.Archive
 
         // --- Const pool ------------------------------------------------------
         //
-        // Tags for the small subset of RuntimeValue types that actually
-        // appear in IR-compiled `Consts` for the supported AST surface.
-        // Inline tags 0x00-0x07 (v1 + v2). Pool-ref tags 0x10-0x15
-        // (v2 only) carry a u32 index into the archive-level
-        // SharedConstPool.
+        // Inline tags cover every RuntimeValue subtype that the IR
+        // compiler may emit into a function's `Consts[]`. Pool-ref tags
+        // (v2+) carry a u32 index into the archive-level
+        // SharedConstPool — currently only the values the
+        // SharedConstPoolBuilder dedups (String, Number, Integer, Long,
+        // Double, Float) participate in pooling. The remaining
+        // primitive subtypes always inline.
         private const byte ConstTag_Null      = 0x00;
         private const byte ConstTag_Number    = 0x01;
         private const byte ConstTag_String    = 0x02;
@@ -352,6 +410,15 @@ namespace RaLanguage.Interpreter.Archive
         private const byte ConstTag_Long      = 0x05;
         private const byte ConstTag_Double    = 0x06;
         private const byte ConstTag_Float     = 0x07;
+        // v1.2 (#1 extension): full primitive coverage. All inline.
+        private const byte ConstTag_Byte      = 0x08;
+        private const byte ConstTag_Short     = 0x09;
+        private const byte ConstTag_UShort    = 0x0A;
+        private const byte ConstTag_UInt      = 0x0B;
+        private const byte ConstTag_ULong     = 0x0C;
+        private const byte ConstTag_Int128    = 0x0D;
+        private const byte ConstTag_UInt128   = 0x0E;
+        private const byte ConstTag_Decimal   = 0x0F;
         // v1.1 (#7) — pool refs. u32 index follows the tag.
         private const byte ConstTag_PoolString  = 0x10;
         private const byte ConstTag_PoolNumber  = 0x11;
@@ -359,6 +426,13 @@ namespace RaLanguage.Interpreter.Archive
         private const byte ConstTag_PoolLong    = 0x13;
         private const byte ConstTag_PoolDouble  = 0x14;
         private const byte ConstTag_PoolFloat   = 0x15;
+        // v1.2 (#full primitive pool coverage). Only wider types
+        // pool — Byte / Short / UShort / UInt always inline (their
+        // pool refs would be larger than the inline payload).
+        private const byte ConstTag_PoolULong   = 0x16;
+        private const byte ConstTag_PoolInt128  = 0x17;
+        private const byte ConstTag_PoolUInt128 = 0x18;
+        private const byte ConstTag_PoolDecimal = 0x19;
 
         private static void SerializeConst(RacBinaryWriter w, RuntimeValue? v, SharedConstPoolBuilder? pool)
         {
@@ -465,6 +539,91 @@ namespace RaLanguage.Interpreter.Archive
                 case NullValue:
                     w.WriteU8(ConstTag_Null);
                     return;
+                case ByteValue byv:
+                    w.WriteU8(ConstTag_Byte);
+                    w.WriteU8(byv.Value);
+                    return;
+                case ShortValue shv:
+                    w.WriteU8(ConstTag_Short);
+                    // Two-byte little-endian, two's complement.
+                    w.WriteU8((byte)(shv.Value & 0xFF));
+                    w.WriteU8((byte)((shv.Value >> 8) & 0xFF));
+                    return;
+                case UnsignedShortValue ushv:
+                    w.WriteU8(ConstTag_UShort);
+                    w.WriteU8((byte)(ushv.Value & 0xFF));
+                    w.WriteU8((byte)((ushv.Value >> 8) & 0xFF));
+                    return;
+                case UnsignedIntegerValue uiv:
+                    w.WriteU8(ConstTag_UInt);
+                    w.WriteU32(uiv.Value);
+                    return;
+                case UnsignedLongValue ulv:
+                {
+                    int idx = pool?.ResolveULong(ulv.Value) ?? -1;
+                    if (idx >= 0)
+                    {
+                        w.WriteU8(ConstTag_PoolULong);
+                        w.WriteU32((uint)idx);
+                    }
+                    else
+                    {
+                        w.WriteU8(ConstTag_ULong);
+                        w.WriteU64(ulv.Value);
+                    }
+                    return;
+                }
+                case Int128Value i128:
+                {
+                    int idx = pool?.ResolveInt128(i128.Value) ?? -1;
+                    if (idx >= 0)
+                    {
+                        w.WriteU8(ConstTag_PoolInt128);
+                        w.WriteU32((uint)idx);
+                    }
+                    else
+                    {
+                        w.WriteU8(ConstTag_Int128);
+                        var bi = (System.Numerics.BigInteger)i128.Value;
+                        WriteBigInteger(w, bi);
+                    }
+                    return;
+                }
+                case UnsignedInt128Value u128:
+                {
+                    int idx = pool?.ResolveUInt128(u128.Value) ?? -1;
+                    if (idx >= 0)
+                    {
+                        w.WriteU8(ConstTag_PoolUInt128);
+                        w.WriteU32((uint)idx);
+                    }
+                    else
+                    {
+                        w.WriteU8(ConstTag_UInt128);
+                        var bi = (System.Numerics.BigInteger)u128.Value;
+                        WriteBigInteger(w, bi);
+                    }
+                    return;
+                }
+                case DecimalValue dec:
+                {
+                    int idx = pool?.ResolveDecimal(dec.Value) ?? -1;
+                    if (idx >= 0)
+                    {
+                        w.WriteU8(ConstTag_PoolDecimal);
+                        w.WriteU32((uint)idx);
+                    }
+                    else
+                    {
+                        w.WriteU8(ConstTag_Decimal);
+                        int[] parts = decimal.GetBits(dec.Value);
+                        w.WriteI32(parts[0]);
+                        w.WriteI32(parts[1]);
+                        w.WriteI32(parts[2]);
+                        w.WriteI32(parts[3]);
+                    }
+                    return;
+                }
                 default:
                     throw new ModuleBytecodeUnsupportedException(
                         $"unsupported const RuntimeValue type {v.GetType().Name}");
@@ -508,6 +667,51 @@ namespace RaLanguage.Interpreter.Archive
                     return new DoubleValue(LookupDouble(pool, r.ReadU32()));
                 case ConstTag_PoolFloat:
                     return new FloatValue(LookupFloat(pool, r.ReadU32()));
+                case ConstTag_Byte:
+                    return new ByteValue(r.ReadU8());
+                case ConstTag_Short:
+                {
+                    byte lo = r.ReadU8();
+                    byte hi = r.ReadU8();
+                    return new ShortValue(unchecked((short)((hi << 8) | lo)));
+                }
+                case ConstTag_UShort:
+                {
+                    byte lo = r.ReadU8();
+                    byte hi = r.ReadU8();
+                    return new UnsignedShortValue((ushort)((hi << 8) | lo));
+                }
+                case ConstTag_UInt:
+                    return new UnsignedIntegerValue(r.ReadU32());
+                case ConstTag_ULong:
+                    return new UnsignedLongValue(r.ReadU64());
+                case ConstTag_Int128:
+                {
+                    var bi = ReadBigInteger(r);
+                    return new Int128Value((Int128)bi);
+                }
+                case ConstTag_UInt128:
+                {
+                    var bi = ReadBigInteger(r);
+                    return new UnsignedInt128Value((UInt128)bi);
+                }
+                case ConstTag_Decimal:
+                {
+                    int p0 = r.ReadI32();
+                    int p1 = r.ReadI32();
+                    int p2 = r.ReadI32();
+                    int p3 = r.ReadI32();
+                    var dec = new decimal(new[] { p0, p1, p2, p3 });
+                    return new DecimalValue(dec);
+                }
+                case ConstTag_PoolULong:
+                    return new UnsignedLongValue(LookupULong(pool, r.ReadU32()));
+                case ConstTag_PoolInt128:
+                    return new Int128Value(LookupInt128(pool, r.ReadU32()));
+                case ConstTag_PoolUInt128:
+                    return new UnsignedInt128Value(LookupUInt128(pool, r.ReadU32()));
+                case ConstTag_PoolDecimal:
+                    return new DecimalValue(LookupDecimal(pool, r.ReadU32()));
                 default:
                     throw new InvalidDataException($"rac: unknown const tag 0x{tag:X2}");
             }
@@ -560,6 +764,38 @@ namespace RaLanguage.Interpreter.Archive
             if ((uint)i >= (uint)pool.Floats.Count)
                 throw new InvalidDataException($"rac: shared-pool float index {idx} out of range ({pool.Floats.Count})");
             return pool.Floats[i];
+        }
+        private static ulong LookupULong(SharedConstPool? pool, uint idx)
+        {
+            if (pool == null) throw new InvalidDataException("rac: const tag references SharedConstPool but archive has none");
+            int i = (int)idx;
+            if ((uint)i >= (uint)pool.ULongs.Count)
+                throw new InvalidDataException($"rac: shared-pool ulong index {idx} out of range ({pool.ULongs.Count})");
+            return pool.ULongs[i];
+        }
+        private static Int128 LookupInt128(SharedConstPool? pool, uint idx)
+        {
+            if (pool == null) throw new InvalidDataException("rac: const tag references SharedConstPool but archive has none");
+            int i = (int)idx;
+            if ((uint)i >= (uint)pool.Int128s.Count)
+                throw new InvalidDataException($"rac: shared-pool int128 index {idx} out of range ({pool.Int128s.Count})");
+            return pool.Int128s[i];
+        }
+        private static UInt128 LookupUInt128(SharedConstPool? pool, uint idx)
+        {
+            if (pool == null) throw new InvalidDataException("rac: const tag references SharedConstPool but archive has none");
+            int i = (int)idx;
+            if ((uint)i >= (uint)pool.UInt128s.Count)
+                throw new InvalidDataException($"rac: shared-pool uint128 index {idx} out of range ({pool.UInt128s.Count})");
+            return pool.UInt128s[i];
+        }
+        private static decimal LookupDecimal(SharedConstPool? pool, uint idx)
+        {
+            if (pool == null) throw new InvalidDataException("rac: const tag references SharedConstPool but archive has none");
+            int i = (int)idx;
+            if ((uint)i >= (uint)pool.Decimals.Count)
+                throw new InvalidDataException($"rac: shared-pool decimal index {idx} out of range ({pool.Decimals.Count})");
+            return pool.Decimals[i];
         }
 
         // --- Polymorphic AST node arrays ------------------------------------

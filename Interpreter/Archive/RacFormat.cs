@@ -39,10 +39,20 @@ namespace RaLanguage.Interpreter.Archive
         // (e.g. wider section table, different hash algorithm, removed
         // field). Bump FormatMinor on additive changes (new section
         // kinds, new flag bits) that older loaders can skip.
-        public const ushort FormatMajor = 1;
-        // 1.1 (M1): optional ModuleBytecode sections. v1.0 archives keep
-        // loading unchanged — the minor-version bump is purely additive.
-        public const ushort FormatMinor = 1;
+        //
+        // 1.0: original layout (Deflate sections only).
+        // 1.1: optional ModuleBytecode sections.
+        // 2.0: section flags reinterpreted to carry a 4-bit codec
+        //      identifier in bits 4-7. Codec 0 = Deflate (legacy),
+        //      codec 1 = Zstd (new default). v1.x readers refuse v2.0
+        //      archives at the FormatMajor check rather than try to
+        //      Deflate-decode a Zstd payload. v2.0 readers accept
+        //      v1.x archives for backward read (Deflate codec is the
+        //      implicit default when codec bits are zero).
+        public const ushort FormatMajor = 2;
+        public const ushort FormatMinor = 0;
+        // Readers tolerate this major version too (older archives).
+        public const ushort FormatMajorLegacy = 1;
 
         // Ra runtime semver packed as (major:8 | minor:8 | patch:16).
         // The tree-walker pre-VM era is treated as 0.x; the current
@@ -159,15 +169,29 @@ namespace RaLanguage.Interpreter.Archive
     {
         None              = 0,
 
-        // The section content is Deflate-compressed. Independent of
-        // the archive-wide Compressed flag — a writer may compress
-        // some sections and leave others raw (e.g. signature blobs
-        // should not be compressed).
+        // The section content is compressed. The compression codec is
+        // selected by bits 4-7 (see RacCodecKind). Independent of the
+        // archive-wide Compressed flag — a writer may compress some
+        // sections and leave others raw (e.g. signature blobs and
+        // small payloads stay uncompressed).
         Compressed        = 1u << 0,
 
         // The loader MUST understand this section kind. Set on
         // sections whose absence breaks execution (anything the
         // runtime *consumes*, vs sections only tools care about).
         MustUnderstand    = 1u << 1,
+
+        // Codec bits 4-7. v1.x archives wrote zero in this nibble —
+        // which now legitimately reads as `Deflate`, the same codec
+        // those archives used. v2.x archives pick `Zstd` by default.
+        CodecMask         = 0xF0u,
+    }
+
+    // 4-bit codec identifier carried in bits 4-7 of RacSectionFlags.
+    // Values are wire-stable; never re-number an existing entry.
+    public enum RacCodecKind : byte
+    {
+        Deflate = 0, // legacy default — also what v1.x archives carried
+        Zstd    = 1, // v2.0 default
     }
 }

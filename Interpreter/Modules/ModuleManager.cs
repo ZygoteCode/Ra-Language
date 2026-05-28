@@ -3,6 +3,7 @@ using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Interpreter.Architecture;
 using RaLanguage.Interpreter.Archive;
+using RaLanguage.Interpreter.IR;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Values;
@@ -79,6 +80,27 @@ namespace RaLanguage.Interpreter.Modules
     {
         private readonly Dictionary<string, LoadedModule> _cache = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<string> _loadingChain = new();
+
+        // v1.2 (#1): when running from a .rac archive, the RacRunner
+        // pre-deserialises every module's ModuleBytecode payload and
+        // registers it here. Load() consults this map first — if a
+        // precompiled RaFunction is available, we skip the entire
+        // lex → parse → DeriveTransformer → Resolver pipeline and
+        // hand the already-compiled IR straight to VmExecutor. The
+        // module's SymbolTable / ExtensionRegistry still get
+        // populated as the precompiled script executes because the
+        // top-level OP_DefineFunction / OP_NATIVE_DEFINE opcodes do
+        // the same work the AST visitors would.
+        private readonly Dictionary<string, RaFunction> _precompiled = new(StringComparer.OrdinalIgnoreCase);
+
+        public void RegisterPrecompiled(string absolutePath, RaFunction fn)
+        {
+            if (string.IsNullOrEmpty(absolutePath) || fn == null) return;
+            _precompiled[absolutePath] = fn;
+        }
+
+        public bool HasPrecompiled(string absolutePath)
+            => !string.IsNullOrEmpty(absolutePath) && _precompiled.ContainsKey(absolutePath);
 
         // M88: process-wide accumulator of every binding name ever
         // assigned by any function in any loaded module. Read by the
@@ -188,18 +210,6 @@ namespace RaLanguage.Interpreter.Modules
                         $"Import chain too deep ({_loadingChain.Count} levels) when loading '{spec.Display}':\n  {chain}"));
             }
 
-            string source;
-            try
-            {
-                source = VirtualFs.ReadAllText(absolute);
-            }
-            catch (Exception ex)
-            {
-                return ModuleLoadResult.Failure(
-                    new ModuleLoadError(posStart, posEnd,
-                        $"Failed to read module file '{absolute}': {ex.Message}"));
-            }
-
             var builtins = _builtinsProvider();
             var moduleSymbolTable = new SymbolTable(builtins);
             var moduleExtensions = new ExtensionRegistry();
@@ -210,6 +220,56 @@ namespace RaLanguage.Interpreter.Modules
 
             try
             {
+                var moduleContext = new Context(
+                    displayName: absolute,
+                    parent: null,
+                    parentEntryPos: null,
+                    extensions: moduleExtensions);
+                moduleContext.SymbolTable = moduleSymbolTable;
+
+                // v1.2 (#1): fast path. RacRunner registered the
+                // module's precompiled RaFunction tree at archive-load
+                // time, so we can skip lex / parse / DeriveTransformer /
+                // Resolver entirely and hand the cached IR straight to
+                // the VM. The top-level OP_DefineFunction /
+                // OP_NATIVE_DEFINE / OP_DefineClass etc. populate the
+                // moduleSymbolTable the same way the AST visitor path
+                // would. Imports inside the precompiled module recurse
+                // through this same ModuleManager.Load, which will hit
+                // the precompiled path again if their bytecode is
+                // registered (the RacRunner registers every module
+                // before driving the entry, so this holds for any
+                // import reachable through the archive's manifest).
+                if (_precompiled.TryGetValue(absolute, out var precompiled))
+                {
+                    var bcRun = AwaitSync(new RaLanguage.Interpreter.Vm.VmExecutor(interpreter).RunScript(precompiled, moduleContext));
+                    if (bcRun.Error != null)
+                    {
+                        module.State = ModuleState.Failed;
+                        _cache.Remove(absolute);
+                        return ModuleLoadResult.Failure(bcRun.Error);
+                    }
+                    FreezeFunctionClosures(moduleSymbolTable, moduleContext);
+                    module.State = ModuleState.Loaded;
+                    module.LoadedAt = DateTime.UtcNow;
+                    RegisterModuleMutatedNames(module);
+                    return ModuleLoadResult.Success(module);
+                }
+
+                string source;
+                try
+                {
+                    source = VirtualFs.ReadAllText(absolute);
+                }
+                catch (Exception ex)
+                {
+                    module.State = ModuleState.Failed;
+                    _cache.Remove(absolute);
+                    return ModuleLoadResult.Failure(
+                        new ModuleLoadError(posStart, posEnd,
+                            $"Failed to read module file '{absolute}': {ex.Message}"));
+                }
+
                 var lexer = new Lexer.Lexer(absolute, source);
                 var (tokens, lexerDiagnostics) = lexer.MakeTokens();
 
@@ -242,13 +302,6 @@ namespace RaLanguage.Interpreter.Modules
                     module.LoadedAt = DateTime.UtcNow;
                     return ModuleLoadResult.Success(module);
                 }
-
-                var moduleContext = new Context(
-                    displayName: absolute,
-                    parent: null,
-                    parentEntryPos: null,
-                    extensions: moduleExtensions);
-                moduleContext.SymbolTable = moduleSymbolTable;
 
                 DeriveTransformer.Apply(parseResult.Node);
                 // M19: imported modules need Resolver too so their function

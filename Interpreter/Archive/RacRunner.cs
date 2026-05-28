@@ -17,6 +17,39 @@ namespace RaLanguage.Interpreter.Archive
     {
         public string ArchivePath { get; set; } = "";
         public bool Diagnostics { get; set; } = true;
+
+        // v1.2 (#sig): signature verification policy.
+        //
+        //   StrictSignature       — reject archives that fail any of:
+        //                           missing signature, malformed
+        //                           section, unsupported algorithm,
+        //                           bad signature math, or (when
+        //                           RequireTrustedKey is on) embedded
+        //                           key not present in the trust
+        //                           store.
+        //   TrustedKeysDir        — directory of *.pub PEM files
+        //                           indexed by SHA-256 fingerprint.
+        //                           Required for Fingerprint-mode
+        //                           signatures and for the
+        //                           RequireTrustedKey embedded check.
+        //   RequireTrustedKey     — even in Embedded mode, demand the
+        //                           embedded key's fingerprint be in
+        //                           the trust store. Default off so a
+        //                           self-signed archive verifies
+        //                           against itself (tamper-evident but
+        //                           not signer-authenticated).
+        public bool StrictSignature { get; set; }
+        public string? TrustedKeysDir { get; set; }
+        public bool RequireTrustedKey { get; set; }
+
+        // v1.2 (#verify): structural bytecode verification pass.
+        // Defaults on so a corrupt or maliciously crafted RaFunction
+        // tree fails fast with a precise diagnostic rather than a
+        // late IndexOutOfRangeException inside the dispatch loop.
+        // Operators may opt out via --no-verify-bytecode for a tiny
+        // load-time win on a fully-trusted archive (the verifier
+        // already runs O(Code.Length) per module).
+        public bool VerifyBytecode { get; set; } = true;
     }
 
     public sealed class RacRunResult
@@ -78,6 +111,74 @@ namespace RaLanguage.Interpreter.Archive
             }
             openSw.Stop();
             archiveOpenElapsed = openSw.Elapsed;
+
+            // v1.2 (#sig): verify signature before any payload work.
+            // A bad signature short-circuits the whole load so we
+            // never deserialize bytecode from a tampered archive.
+            RacTrustStore? trustStore = null;
+            if (!string.IsNullOrEmpty(opts.TrustedKeysDir))
+            {
+                try { trustStore = RacKeyStore.LoadTrustStore(opts.TrustedKeysDir!); }
+                catch (Exception ex)
+                {
+                    errors.Add($"failed to load trust store '{opts.TrustedKeysDir}': {ex.Message}");
+                    archive.Dispose();
+                    return Failed(loadSw, errors, archiveOpenElapsed);
+                }
+            }
+            var sigResult = archive.VerifySignature(trustStore);
+            if (opts.StrictSignature)
+            {
+                bool ok;
+                switch (sigResult.Status)
+                {
+                    case RacSignatureStatus.Valid:
+                        // In RequireTrustedKey mode, embedded keys
+                        // additionally need to appear in the trust
+                        // store. The verifier already cross-checked
+                        // when a trust store was supplied.
+                        ok = !opts.RequireTrustedKey || sigResult.IsTrustedByStore;
+                        if (!ok)
+                            errors.Add($"--strict-signature: archive is signed but the signing key is not in the trust store");
+                        break;
+                    case RacSignatureStatus.Missing:
+                        ok = false;
+                        errors.Add("--strict-signature: archive is unsigned");
+                        break;
+                    case RacSignatureStatus.Malformed:
+                        ok = false;
+                        errors.Add($"--strict-signature: signature section is malformed ({sigResult.Detail})");
+                        break;
+                    case RacSignatureStatus.AlgorithmUnsupported:
+                        ok = false;
+                        errors.Add($"--strict-signature: loader does not support signature algorithm ({sigResult.Detail})");
+                        break;
+                    case RacSignatureStatus.UntrustedKey:
+                        ok = false;
+                        errors.Add($"--strict-signature: signing key is not trusted ({sigResult.Detail})");
+                        break;
+                    case RacSignatureStatus.Invalid:
+                        ok = false;
+                        errors.Add($"--strict-signature: signature verification failed ({sigResult.Detail})");
+                        break;
+                    default:
+                        ok = false;
+                        errors.Add($"--strict-signature: unexpected verification status {sigResult.Status}");
+                        break;
+                }
+                if (!ok)
+                {
+                    archive.Dispose();
+                    return Failed(loadSw, errors, archiveOpenElapsed);
+                }
+            }
+            else if (opts.Diagnostics && sigResult.Status == RacSignatureStatus.Invalid)
+            {
+                // Non-strict mode still surfaces a warning when the
+                // archive carries a signature that does not check out:
+                // a tampered archive should not silently execute.
+                Console.WriteLine($"[Ra Language] WARNING: signature present but invalid ({sigResult.Detail}); continuing because --strict-signature was not set.");
+            }
 
             try
             {
@@ -197,39 +298,47 @@ namespace RaLanguage.Interpreter.Archive
 
                 string entrySource = contents[entryHostPath];
 
-                // v1.1: prefer the entry's ModuleBytecode payload when it
-                // is present. Skips lex/parse/IR-compile and feeds the
-                // deserialised RaFunction straight to the VM. Imported
-                // modules continue to flow through the source path —
-                // ModuleManager re-uses VirtualFs and the existing lex/
-                // parse/IR-compile pipeline for them. A future PR can
-                // teach ModuleManager about per-module bytecode payloads
-                // too; the manifest already records each module's
-                // BytecodeSectionIndex.
-                var entryModule = manifest.Modules[manifest.EntryModuleIndex];
+                // v1.2 (#1): pre-deserialise every module's
+                // ModuleBytecode payload up-front and register the
+                // resulting RaFunction trees with ModuleManager. Any
+                // subsequent `import` lookup hits the precompiled fast
+                // path inside ModuleManager.Load — no lex / parse /
+                // Resolver work at runtime for the imports either.
+                // Source sections continue to back diagnostics and the
+                // overlay-mounted VirtualFs (so file:line:col still
+                // resolves to real text when an error surfaces) but the
+                // loader never touches them.
                 RaFunction? entryBytecodeFn = null;
-                if (entryModule.BytecodeSectionIndex >= 0)
+                for (int mi = 0; mi < manifest.Modules.Count; mi++)
                 {
+                    var m = manifest.Modules[mi];
+                    if (m.BytecodeSectionIndex < 0) continue;
+                    RaFunction fn;
                     try
                     {
-                        byte[] bcPayload = archive.ReadSection(entryModule.BytecodeSectionIndex);
-                        // v1.1 (#7): hand the archive-level shared
-                        // const pool (if present) to the deserialiser
-                        // so v2 payload pool-ref tags resolve. v1
-                        // payloads ignore the pool argument.
-                        entryBytecodeFn = ModuleBytecodeIo.Deserialize(bcPayload, archive.SharedConstPool);
+                        byte[] bcPayload = archive.ReadSection(m.BytecodeSectionIndex);
+                        fn = ModuleBytecodeIo.Deserialize(bcPayload, archive.SharedConstPool);
                     }
                     catch (Exception ex)
                     {
-                        // Bytecode payload corrupt / from an incompatible
-                        // build. Surface a warning but keep the source
-                        // path as a fall-back — it is exactly the v1.0
-                        // load story.
                         if (opts.Diagnostics)
                             Console.WriteLine(
-                                $"[Ra Language] entry bytecode payload unusable ({ex.Message}); falling back to source.");
-                        entryBytecodeFn = null;
+                                $"[Ra Language] module '{m.LogicalPath}' bytecode payload unusable ({ex.Message}); falling back to source for that module.");
+                        continue;
                     }
+                    if (opts.VerifyBytecode)
+                    {
+                        var vres = RacBytecodeVerifier.Verify(fn);
+                        if (!vres.Ok)
+                        {
+                            errors.Add(
+                                $"module '{m.LogicalPath}' bytecode verifier failed:\n{vres.FormatReport()}");
+                            return Failed(loadSw, errors, archiveOpenElapsed);
+                        }
+                    }
+                    string hostPath = remap[m.AbsoluteVirtualPath];
+                    if (mi == manifest.EntryModuleIndex) entryBytecodeFn = fn;
+                    else ImportNodeVisitor.ModuleManager.RegisterPrecompiled(hostPath, fn);
                 }
 
                 var execSw = Stopwatch.StartNew();
