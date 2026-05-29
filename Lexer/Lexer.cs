@@ -1320,7 +1320,8 @@ namespace RaLanguage.Lexer
                 { "prop", Keyword.Prop },
                 { "lazy", Keyword.Lazy },
                 { "event", Keyword.Event },
-                { "delegate", Keyword.Delegate }
+                { "delegate", Keyword.Delegate },
+                { "factory", Keyword.Factory }
             };
         }
 

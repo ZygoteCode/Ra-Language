@@ -427,7 +427,12 @@ namespace RaLanguage.Interpreter.Visitors.Classes
             var ownMethodSignatures = new Dictionary<string, FunctionDefinitionNode>(StringComparer.Ordinal);
             foreach (var method in node.Methods)
             {
-                if (method.IsConstructor) continue;
+                // All constructor flavours (generative, named, factory) share the
+                // class name as their method name, so the regular name+signature
+                // key would conflate distinct named/factory constructors. Their
+                // overload conflicts surface instead as a call-time ambiguity
+                // diagnostic (RA0413), matching how unnamed constructors behave.
+                if (method.IsAnyConstructor) continue;
 
                 var key = MethodSignature.KeyOf(method);
                 if (ownMethodSignatures.TryGetValue(key, out _))
@@ -458,7 +463,7 @@ namespace RaLanguage.Interpreter.Visitors.Classes
 
             foreach (var method in node.Methods)
             {
-                if (method.IsConstructor || method.IsOverride || method.IsAbstract) continue;
+                if (method.IsAnyConstructor || method.IsOverride || method.IsAbstract) continue;
 
                 if (classValue.HasInheritedOrTraitMethodSignature(method))
                 {

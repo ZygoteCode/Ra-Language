@@ -584,7 +584,15 @@ namespace RaLanguage.Parser
                     break;
                 }
 
-                if (isGenericCall && _currentToken.Type == TokenType.LPAREN)
+                // Commit the speculative generic args when the next token is
+                // '(' — a direct generic call `T<A>(...)` — OR '.' — a generic
+                // type-qualified member access `T<A>.member(...)`, which is how
+                // named/factory constructors on a generic class are written
+                // (`Box<int>.of(7)`). The args ride the postfix chain and attach
+                // to the eventual call node. A '.' after `>` only occurs in this
+                // qualifier position (`expr > .x` is never a valid expression),
+                // so committing here cannot mis-parse a real comparison.
+                if (isGenericCall && (_currentToken.Type == TokenType.LPAREN || _currentToken.Type == TokenType.DOT))
                 {
                     genericTypeArgs = tempArgs;
                     int totalAdvances = _tokenIndex - startIndex;

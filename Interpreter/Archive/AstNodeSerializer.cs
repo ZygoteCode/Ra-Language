@@ -1907,6 +1907,15 @@ namespace RaLanguage.Interpreter.Archive
             // for fd.CompiledBody. Older writers (writing v3 / v1)
             // skip this field; readers gate on ReaderVersion.
             WriteOptionalInlineRaFunction(w, fd.CompiledBody);
+            // v5 (constructors): factory / named-constructor metadata.
+            if (WriterVersion >= ModuleBytecodeIo.PayloadVersion_V5)
+            {
+                byte cbits = 0;
+                if (fd.IsFactory) cbits |= 0x01;
+                if (fd.ConstructorName != null) cbits |= 0x02;
+                w.WriteU8(cbits);
+                if (fd.ConstructorName != null) w.WriteString(fd.ConstructorName);
+            }
         }
 
         private static FunctionDefinitionNode ReadFunctionDefinition(RacBinaryReader r)
@@ -1995,6 +2004,13 @@ namespace RaLanguage.Interpreter.Archive
                 // Latch GetOrCompileBody so it returns the cached
                 // body without re-attempting IR compile.
                 fd.IrCompileTried = true;
+            }
+            // v5 (constructors): factory / named-constructor metadata.
+            if (ReaderVersion >= ModuleBytecodeIo.PayloadVersion_V5)
+            {
+                byte cbits = r.ReadU8();
+                fd.IsFactory = (cbits & 0x01) != 0;
+                if ((cbits & 0x02) != 0) fd.ConstructorName = r.ReadString();
             }
             return fd;
         }

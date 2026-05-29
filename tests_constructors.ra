@@ -1,0 +1,246 @@
+// Ra Constructors — feature test suite (generative / named / factory / private).
+//
+// Hard-asserting: every check prints "OK  <label>" on success and THROWS on
+// failure, aborting the run loudly. Negative cases assert that the offending
+// construction is rejected (caught) rather than silently succeeding.
+
+fn check(cond, label) {
+    if cond { print("OK  " + label) } else { throw ("FAIL " + label) }
+}
+
+fn check_eq(actual, expected, label) {
+    if actual == expected {
+        print("OK  " + label)
+    } else {
+        throw ("FAIL " + label + "  got=" + (actual as string) + " expected=" + (expected as string))
+    }
+}
+
+// ============================================================================
+// Generative constructors — unnamed + named, sharing one class.
+// ============================================================================
+class Point {
+    pub final x: int
+    pub final y: int
+
+    pub Point(x: int, y: int) { self.x = x; self.y = y }     // unnamed generative
+    pub Point.origin() { self.x = 0; self.y = 0 }            // named, no params
+    pub Point.diagonal(v: int) { self.x = v; self.y = v }    // named, with params
+}
+
+// C1 — standard (unnamed generative) construction.
+let p1 = Point(3, 4)
+check_eq(p1.x, 3, "C1 standard ctor x")
+check_eq(p1.y, 4, "C1 standard ctor y")
+
+// C2 — named constructor, no parameters.
+let po = Point.origin()
+check_eq(po.x, 0, "C2 named origin x")
+check_eq(po.y, 0, "C2 named origin y")
+
+// C3 — named constructor, with parameters.
+let pd = Point.diagonal(5)
+check_eq(pd.x, 5, "C3 named diagonal x")
+check_eq(pd.y, 5, "C3 named diagonal y")
+
+// C8 — final fields: writable in the ctor, sealed afterwards.
+let c8 = try { p1.x = 9; "no throw" } catch (e) { "final enforced" }
+check_eq(c8, "final enforced", "C8 final fields sealed after construction")
+
+// C16 — unknown named constructor is rejected (with a suggestion under the hood).
+let c16 = try { Point.diaganol(1); "no throw" } catch (e) { "unknown ctor" }
+check_eq(c16, "unknown ctor", "C16 unknown named ctor rejected")
+
+// ============================================================================
+// Factory constructors — new instance, private allocator, caching.
+// ============================================================================
+class Temp {
+    pub final id: int
+    pub final celsius: int
+    static var _seq = 0
+    Temp.raw(c: int) {                                       // PRIVATE named generative allocator
+        Temp._seq = Temp._seq + 1
+        self.id = Temp._seq
+        self.celsius = c
+    }
+    pub factory Temp.fromC(c: int) { ret Temp.raw(c) }       // public factory → new instance
+}
+
+// C4 — factory returns a fresh, distinct instance each call (distinct ids).
+let t1 = Temp.fromC(20)
+let t2 = Temp.fromC(20)
+check_eq(t1.celsius, 20, "C4 factory returns initialised instance")
+check(t1.id != t2.id, "C4 factory returns distinct instances")
+
+// C7 / C13 — the private allocator is usable from inside (proved by C4) but
+// NOT from outside the class.
+let c13 = try { Temp.raw(99); "no throw" } catch (e) { "private blocked" }
+check_eq(c13, "private blocked", "C13 private constructor inaccessible from outside")
+
+// C5 — factory returning a cached singleton.
+class Logger {
+    pub final id: int
+    static var _next: int = 1
+    static var _made = false
+    static var _instance = null
+
+    Logger.make() { self.id = Logger._next; Logger._next = Logger._next + 1 }   // private
+    pub factory Logger() {                                                       // unnamed factory
+        if Logger._made == false {
+            Logger._instance = Logger.make()
+            Logger._made = true
+        }
+        ret Logger._instance
+    }
+}
+
+let lg1 = Logger()
+let lg2 = Logger()
+check_eq(lg1.id, lg2.id, "C5 factory singleton identity reused")
+check_eq(lg1.id, 1, "C5 singleton constructed exactly once")
+check_eq(Logger._next, 2, "C5 singleton allocates exactly once")
+
+// ============================================================================
+// Factory returning a subtype + abstract-class factory.
+// ============================================================================
+pub abstract class Shape {
+    pub abstract prop area: int { get; }
+
+    pub factory Shape.unit(kind: string) {       // branches; returns a subtype
+        if kind == "square" { ret Square() }
+        ret Circle()
+    }
+}
+pub class Square : Shape { pub override prop area: int => 1 }
+pub class Circle : Shape { pub override prop area: int => 3 }
+
+// C6 / C10 — factory dispatches to a subtype based on a branch.
+let sq = Shape.unit("square")
+let ci = Shape.unit("circle")
+check_eq(sq.area, 1, "C6 factory returns Square subtype")
+check_eq(ci.area, 3, "C6/C10 factory branch returns Circle subtype")
+
+// C15 — an abstract class cannot be constructed directly, but its factory works.
+let c15 = try { Shape(); "no throw" } catch (e) { "abstract blocked" }
+check_eq(c15, "abstract blocked", "C15 abstract class not directly constructible")
+
+// ============================================================================
+// Validation, branching, cannot-return.
+// ============================================================================
+class Pos {
+    pub final v: int
+    pub Pos(v: int) {
+        if v < 0 { throw "value must be non-negative" }
+        self.v = v
+    }
+}
+
+// C9 — constructor with validation.
+check_eq(Pos(5).v, 5, "C9 validating ctor accepts valid input")
+let c9 = try { Pos(-1); "no throw" } catch (e) { "rejected" }
+check_eq(c9, "rejected", "C9 validating ctor rejects invalid input")
+
+// C20 — a generative constructor cannot return a value.
+class Ret1 {
+    pub var n: int
+    pub Ret1() { self.n = 1; ret 5 }
+}
+let c20 = try { Ret1(); "no throw" } catch (e) { "no return" }
+check_eq(c20, "no return", "C20 generative ctor cannot return a value")
+
+// ============================================================================
+// Generics.
+// ============================================================================
+class Box<T> {
+    pub var value: T
+    pub Box(v: T) { self.value = v }
+    pub Box.of(v: T) { self.value = v }       // named generative on a generic class
+}
+
+// C11 — generic unnamed + named constructors.
+let bi = Box<int>(7)
+check_eq(bi.value, 7, "C11 generic unnamed ctor")
+let bn = Box<int>.of(9)
+check_eq(bn.value, 9, "C11 generic named ctor")
+let bs = Box<string>.of("hi")
+check_eq(bs.value, "hi", "C11 generic named ctor (string)")
+
+// ============================================================================
+// Overload resolution + ambiguity.
+// ============================================================================
+class Vec {
+    pub final n: int
+    pub Vec(a: int) { self.n = a }
+    pub Vec(a: int, b: int) { self.n = a + b }
+    pub Vec.scaled(a: int) { self.n = a * 10 }
+}
+
+// C12 — overload resolution across arities and a named ctor.
+check_eq(Vec(3).n, 3, "C12 overload arity 1")
+check_eq(Vec(3, 4).n, 7, "C12 overload arity 2")
+check_eq(Vec.scaled(2).n, 20, "C12 named ctor alongside overloads")
+
+// C18 — ambiguous unnamed construction (generative + factory both bind) is rejected.
+class Amb {
+    pub final n: int
+    pub Amb(a: int) { self.n = a }
+    pub factory Amb(a: int) { ret Amb.never(a) }   // same unnamed signature as the generative ctor
+    Amb.never(a: int) { self.n = a }
+}
+let c18 = try { Amb(3); "no throw" } catch (e) { "ambiguous" }
+check_eq(c18, "ambiguous", "C18 ambiguous unnamed constructor rejected")
+
+// ============================================================================
+// Nullability / defaults / named / optional parameters.
+// ============================================================================
+class Conf {
+    pub var host: string
+    pub var port: int
+    pub Conf(host: string = "localhost", port: int = 8080) {
+        self.host = host
+        self.port = port
+    }
+}
+
+// C14 — defaults, partial defaults, named args, positional.
+let c14a = Conf()
+check_eq(c14a.port, 8080, "C14 all defaults")
+let c14b = Conf("h")
+check_eq(c14b.port, 8080, "C14 partial default keeps port")
+check_eq(c14b.host, "h", "C14 positional first arg")
+let c14c = Conf(port: 9090)
+check_eq(c14c.host, "localhost", "C14 named arg keeps host default")
+check_eq(c14c.port, 9090, "C14 named arg sets port")
+let c14d = Conf("x", 1)
+check_eq(c14d.port, 1, "C14 full positional")
+
+// ============================================================================
+// Factory return contract + redirection (forwarding factory).
+// ============================================================================
+class Maybe {
+    pub final v: int
+    Maybe.raw(v: int) { self.v = v }
+    pub factory Maybe.make(ok: bool) {
+        if ok { ret Maybe.raw(1) }
+        // falls off on the false path → must-return violation
+    }
+}
+
+// C17 — a factory must return on every path.
+let c17ok = Maybe.make(true)
+check_eq(c17ok.v, 1, "C17 factory returns on the taken path")
+let c17 = try { Maybe.make(false); "no throw" } catch (e) { "must return" }
+check_eq(c17, "must return", "C17 factory that falls through is rejected")
+
+// C19 — redirection expressed as a forwarding factory (arrow + block).
+class Pt2 {
+    pub final x: int
+    pub final y: int
+    pub Pt2(x: int, y: int) { self.x = x; self.y = y }
+    pub factory Pt2.unit() => Pt2(1, 1)
+    pub factory Pt2.zero() { ret Pt2(0, 0) }
+}
+check_eq(Pt2.unit().x, 1, "C19 arrow forwarding factory")
+check_eq(Pt2.zero().y, 0, "C19 block forwarding factory")
+
+print("ALL CONSTRUCTOR TESTS PASSED")

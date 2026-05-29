@@ -80,5 +80,6 @@
         Lazy,
         Event,
         Delegate,
+        Factory,
     }
 }

@@ -732,6 +732,14 @@ namespace RaLanguage.Interpreter.Runtime
                     icSlot.BranchKind = 0;
                     return staticExtField;
                 }
+                // Named constructor (`T.name(...)`). Never inline-cached: both
+                // visibility and overload resolution depend on the live call,
+                // and construction cost dominates, so re-resolve on each hit.
+                if (classType.HasAnyConstructorNamed(memberName))
+                {
+                    icSlot.BranchKind = 0;
+                    return res.Success(new BoundConstructorValue(classType, memberName).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                }
                 if (classType.TryGetStaticMethodOwner(memberName, out var owner, out var method) && method != null)
                 {
                     var bound = new BoundClassMethodValue(owner, null, method, isStatic: true).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
@@ -772,12 +780,15 @@ namespace RaLanguage.Interpreter.Runtime
                     return res.Success(new EventRefValue(classType, evOnType)
                         .SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
+                var ctSuggest = classType.SuggestMember(memberName);
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
-                    $"class '{classType.ClassName}' has no static member named '{memberName}'",
+                    $"class '{classType.ClassName}' has no static member or constructor named '{memberName}'",
                     context,
                     code: DiagnosticCode.RuntimeUndefinedSymbol,
-                    primaryLabel: "no such static field or method",
-                    help: $"check the spelling, or declare '{memberName}' with 'static' inside class '{classType.ClassName}'"));
+                    primaryLabel: "no such static member or named constructor",
+                    help: ctSuggest != null
+                        ? $"did you mean '{classType.ClassName}.{ctSuggest}'?"
+                        : $"check the spelling, or declare '{memberName}' with 'static' inside class '{classType.ClassName}'"));
             }
 
             // EventSubscriptionValue: synthetic methods (on/off/clear/count).
@@ -1076,6 +1087,10 @@ namespace RaLanguage.Interpreter.Runtime
                     return res.Success(classType.StaticFields[memberName].SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 if (ExtensionDispatch.TryGetField(classType, memberName, context, node.PositionStart, node.PositionEnd, out var staticExtField2))
                     return staticExtField2;
+                // Named constructor (generative or factory): `T.name(...)`.
+                // Yields a callable thunk that constructs on invocation.
+                if (classType.HasAnyConstructorNamed(memberName))
+                    return res.Success(new BoundConstructorValue(classType, memberName).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 if (classType.TryGetStaticMethodOwner(memberName, out var owner, out var method) && method != null)
                     return res.Success(new BoundClassMethodValue(owner, null, method, isStatic: true).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 var evOnType2 = classType.GetEvent(memberName);
@@ -1097,12 +1112,15 @@ namespace RaLanguage.Interpreter.Runtime
                     return res.Success(new EventRefValue(classType, evOnType2)
                         .SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
+                var ctSuggest = classType.SuggestMember(memberName);
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
-                    $"class '{classType.ClassName}' has no static member named '{memberName}'",
+                    $"class '{classType.ClassName}' has no static member or constructor named '{memberName}'",
                     context,
                     code: DiagnosticCode.RuntimeUndefinedSymbol,
-                    primaryLabel: "no such static field or method",
-                    help: $"check the spelling, or declare '{memberName}' with 'static' inside class '{classType.ClassName}'"));
+                    primaryLabel: "no such static member or named constructor",
+                    help: ctSuggest != null
+                        ? $"did you mean '{classType.ClassName}.{ctSuggest}'?"
+                        : $"check the spelling, or declare '{memberName}' with 'static' inside class '{classType.ClassName}'"));
             }
 
             // EventSubscriptionValue: synthetic methods (on/off/clear/count).

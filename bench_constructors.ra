@@ -1,0 +1,58 @@
+// Microbenchmark: constructor dispatch — unnamed generative vs named
+// generative vs factory.
+//
+// The unnamed generative path is the hot one (plain `T(...)` allocation);
+// it must stay on par with a pre-feature allocation loop. Named and factory
+// dispatch add a member-access resolve + a thin construction shim but no
+// extra allocation, so they should track close behind.
+//
+// Run with the release binary:
+//   dotnet build -c Release
+//   bin\Release\net10.0\RaLanguage.exe bench_constructors.ra
+
+class Pt {
+    pub final x: int
+    pub final y: int
+
+    pub Pt(x: int, y: int) { self.x = x; self.y = y }   // unnamed generative
+    pub Pt.diag(v: int) { self.x = v; self.y = v }       // named generative
+    pub factory Pt.make(v: int) { ret Pt.diag(v) }       // factory → forwards
+}
+
+fn time_unnamed(iter: int): int {
+    var sum = 0
+    for (var i = 0; i < iter; i = i + 1) {
+        let p = Pt(i, i)
+        sum = sum + p.x
+    }
+    ret sum
+}
+
+fn time_named(iter: int): int {
+    var sum = 0
+    for (var i = 0; i < iter; i = i + 1) {
+        let p = Pt.diag(i)
+        sum = sum + p.x
+    }
+    ret sum
+}
+
+fn time_factory(iter: int): int {
+    var sum = 0
+    for (var i = 0; i < iter; i = i + 1) {
+        let p = Pt.make(i)
+        sum = sum + p.x
+    }
+    ret sum
+}
+
+let N = 200000
+
+let u_sum = time_unnamed(N)
+let n_sum = time_named(N)
+let f_sum = time_factory(N)
+
+print($"unnamed sum = ${u_sum}")
+print($"named   sum = ${n_sum}")
+print($"factory sum = ${f_sum}")
+print("done")

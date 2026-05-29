@@ -135,7 +135,15 @@ namespace RaLanguage.Interpreter.Runtime.Calls
                 }
 
                 var resolvedTypeArgs = ResolveTypeArgs(genericTypeArgs, context);
-                var fnExecRes = await bfunc.ExecuteWithNamedArgs(positionalArgs, namedArgs, resolvedTypeArgs);
+                RuntimeResult fnExecRes;
+                // Unnamed construction `T(args)`: route through Construct with
+                // the live CALL-SITE context, so private-constructor visibility
+                // is judged where the call happens — not at the class's
+                // definition site (which is all ExecuteWithNamedArgs could see).
+                if (bfunc is ClassTypeValue ctv)
+                    fnExecRes = await ctv.Construct(positionalArgs, namedArgs, resolvedTypeArgs, null, context, posStart, posEnd);
+                else
+                    fnExecRes = await bfunc.ExecuteWithNamedArgs(positionalArgs, namedArgs, resolvedTypeArgs);
                 var fnReturn = res.Register(fnExecRes);
                 if (res.ShouldReturn()) return res;
 

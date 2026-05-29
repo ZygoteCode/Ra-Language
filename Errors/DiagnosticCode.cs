@@ -65,6 +65,10 @@ namespace RaLanguage.Errors
         public static readonly DiagnosticCode RuntimeImmutableBinding = new("RA0409", "immutable-binding");
         public static readonly DiagnosticCode RuntimeRegexCompile     = new("RA0410", "regex-compile-error");
         public static readonly DiagnosticCode RuntimeRegexMatch       = new("RA0411", "regex-match-error");
+        public static readonly DiagnosticCode RuntimeConstructorPrivate   = new("RA0412", "private-constructor");
+        public static readonly DiagnosticCode RuntimeConstructorAmbiguous = new("RA0413", "ambiguous-constructor");
+        public static readonly DiagnosticCode RuntimeFactoryReturn        = new("RA0414", "factory-return");
+        public static readonly DiagnosticCode RuntimeConstructorNotFound  = new("RA0415", "unknown-named-constructor");
 
         // ---- Modules / imports (RA05xx) ----
         public static readonly DiagnosticCode ModuleNotFound       = new("RA0501", "module-not-found");

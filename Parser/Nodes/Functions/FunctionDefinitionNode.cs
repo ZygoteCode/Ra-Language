@@ -79,6 +79,21 @@ namespace RaLanguage.Parser.Nodes.Functions
         public bool IsAsync { get; set; }
         public bool IsAsyncStream { get; set; }
 
+        // Constructors v1 — generative / named / factory.
+        // `IsConstructor` keeps its original meaning: a *generative*
+        // constructor (self-bound, no `return`). A factory constructor is
+        // `IsConstructor == false && IsFactory == true` (no self, must
+        // return a value assignable to the enclosing type). Redirection is
+        // expressed by a forwarding factory (`factory T.x() => T(...)`), so
+        // no dedicated redirect node is needed.
+        // `ConstructorName` is null for the unnamed form `T(...)` and the
+        // bare name for the dotted form `T.name(...)`.
+        public bool IsFactory { get; set; }
+        public string? ConstructorName { get; set; }
+
+        // True for any constructor flavour (generative, named or factory).
+        public bool IsAnyConstructor => IsConstructor || IsFactory;
+
         // Explicit closure-capture specification. `null` means "no capture
         // clause present" — the function uses the legacy implicit lexical
         // closure (every parent binding is reachable via the parent scope
