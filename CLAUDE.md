@@ -33,6 +33,14 @@ AOT publish (Release/x64 only — project locks `Platforms=x64`):
 ```
 dotnet publish -c Release -r win-x64
 ```
+The native **link** step needs `vswhere.exe` on PATH (the VS *Installer* dir, e.g. `C:\Program Files (x86)\Microsoft Visual Studio\Installer`) plus a `vcvars64`-initialised environment, otherwise it fails with `MSB3073` / `vswhere.exe non riconosciuto`. ILC analysis is clean apart from pre-existing IL3050 in the FFI/interop subsystem. Output exe: `bin\x64\Release\net10.0\win-x64\publish\RaLanguage.exe`.
+
+Run the language server (separate process; JSON-RPC over stdio; STDOUT is protocol-only, logs go to STDERR):
+```
+dotnet run -- --lsp
+RaLanguage.exe --lsp --log-level debug
+```
+The `--lsp` branch is taken at the very top of `MainCore`, before `Console.Title` / priority / JIT warmup.
 
 `Program.Main` sets `ProcessPriorityClass.RealTime` on startup — expect the host machine to feel sluggish while running. Strip that when profiling on a shared box.
 
@@ -98,6 +106,15 @@ Bar-style anonymous functions — `|x| body`, `||`, `|x: int| -> int { ... }`, `
 ### Constructors (generative / named / factory)
 
 Three constructor flavours on class bodies, **all reusing the existing call + member-access dispatch — zero new opcodes, zero new AST node kinds, zero new visitors**. Generative (unnamed `pub Point(x, y) { ... }`, or named `pub Point.origin() { ... }`) bind `self`, run the field-init chain, cannot `ret`urn, and chain via `super(...)`. A `factory` constructor (`pub factory Color.rgb(...) { ret ... }`, unnamed or named) has no `self`, runs no field-init, and **must** `ret` a value assignable to the enclosing type (subtype OK; explicit `-> T?`/`Result` widens it). `FunctionDefinitionNode` carries `IsFactory` + `ConstructorName` (null = unnamed); `IsConstructor` keeps meaning *generative*. Construction funnels through the single core `ClassTypeValue.Construct(args, named, typeArgs, ctorName, callSite, …)` — reached for `T(args)` via `FunctionCallExecutor.Invoke` (the universal call chokepoint, passing the live call-site context) and for `T.name(args)` via a `BoundConstructorValue` thunk returned by `MemberAccessHelper`. **Visibility:** the unnamed `T(...)` is always public (backward-compatible — every legacy ctor is unnamed); a named ctor is private unless `pub`, gated by `Context.CurrentClassMethodOwner` so factories/static contexts (no `self`) can still reach their own private allocators. Diagnostics: RA0412 private, RA0413 ambiguous, RA0414 factory-return, RA0415 unknown-name, plus a Levenshtein "did you mean" on member-access misses. Generic named/factory ctors are written `Box<int>.of(...)` — the expression parser commits speculative generic args on a following `.`. `.rac` payload is V5 (gated; V4 still loads). Design in [RA_CONSTRUCTORS_DESIGN.md](RA_CONSTRUCTORS_DESIGN.md). Hard-asserted tests at `tests_constructors.ra`; microbench at `bench_constructors.ra`.
+
+### Language Server (LSP)
+
+`ra --lsp` runs a Language Server Protocol backend for editor integration (the VS Code client lives in `Ra Language Support VS Code Extension/`, a thin `vscode-languageclient` ^9 client). The server lives under [LanguageServer/](LanguageServer) and depends only on the front-end — lexer, parser, `SymbolTable`, `StaticAnalyzer` — **never the VM/IR**: all tooling analysis funnels through `Compilation/ToolingCompiler` (lexer + parser + warning-only static pass), cached per text-version on `Workspace/RaDocument`. The mode branches at the top of `Program.MainCore` before any stdout-touching setup, because STDOUT is reserved for JSON-RPC framing (`Transport/LspConnection`) and all logs go to STDERR (`Transport/LspLogger`).
+
+- **No OmniSharp / StreamJsonRpc dependency.** Both lean on reflection / DI / MediatR that breaks under this project's `PublishAot` + `TrimMode=link` + `PublishTrimmed`. The JSON-RPC base protocol (Content-Length framing) is hand-rolled, and **every wire (de)serialisation goes through the `System.Text.Json` source-generated `Protocol/RaLspJsonContext`** — under `PublishTrimmed` reflection-based JSON auto-disables, so each request/result/notification type **must** be registered there with `[JsonSerializable]`. This is verified: NativeAOT publish emits zero IL2026/IL3050 from `LanguageServer/`.
+- JSON-RPC `id` is echoed as a raw `JsonElement`; dispatch keys off the `method` string into concrete params (sidesteps STJ polymorphism limits). LSP enums are wire integers → plain numeric C# enums (no string converter).
+- `LspServer` is a single-threaded read pump routing to one stateless service per feature in `Features/` (each behind an interface in `FeatureServices.cs`): diagnostics (debounced push), semantic tokens, hover, completion, signature help, definition, references, document highlight, document symbols, folding, selection ranges, rename. Token-driven features stay correct on broken input; AST-driven features use `Features/SymbolIndex` (an outline walker over the declaration nodes). All ranges derive from absolute token/AST `Idx` through `Workspace/TextDocument`'s `LineIndex` (sidesteps the lexer's CRLF column quirk). definition/references/rename are name-based within a single document (documented v1 boundary; a real binder would tighten scope/overload resolution).
+- **Adding a feature:** register its wire types in `RaLspJsonContext`, add the service (+ interface in `FeatureServices.cs`), add a `method` case in `LspServer.HandleRequest`/`HandleNotification`, and advertise it in `BuildCapabilities`.
 
 ## Conventions
 
