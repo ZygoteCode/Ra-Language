@@ -76,11 +76,15 @@ namespace RaLanguage.Interpreter.Archive
         //     v3 payloads keep loading unchanged; their callees pay
         //     the lazy compile once on first invocation, exactly as
         //     before.
-        public const ushort PayloadVersion = 4;
+        public const ushort PayloadVersion = 5;
         public const ushort PayloadVersion_V1 = 1;
         public const ushort PayloadVersion_V2 = 2;
         public const ushort PayloadVersion_V3 = 3;
         public const ushort PayloadVersion_V4 = 4;
+        // v5 (constructors): FunctionDefinitionNode carries factory / named /
+        // redirecting-constructor metadata. v4 readers skip those fields and
+        // default them, so older archives keep loading unchanged.
+        public const ushort PayloadVersion_V5 = 5;
 
         public static byte[] Serialize(RaFunction root, SharedConstPoolBuilder? sharedPool = null)
         {
@@ -93,7 +97,7 @@ namespace RaLanguage.Interpreter.Archive
             // const inlines. Older wire versions (v1 / v2 / v3) are
             // still ACCEPTED by Deserialize for backward read.
             bool emitPool = sharedPool != null && sharedPool.Finalised && sharedPool.Pooled > 0;
-            ushort ver = PayloadVersion_V4;
+            ushort ver = PayloadVersion_V5;
             w.WriteU16(ver);
             w.WriteU16(0);
             // Stash the writer pool + version in thread-local state so
@@ -122,7 +126,8 @@ namespace RaLanguage.Interpreter.Archive
                 throw new InvalidDataException("rac: ModuleBytecode magic mismatch");
             ushort ver = r.ReadU16();
             if (ver != PayloadVersion_V1 && ver != PayloadVersion_V2
-                && ver != PayloadVersion_V3 && ver != PayloadVersion_V4)
+                && ver != PayloadVersion_V3 && ver != PayloadVersion_V4
+                && ver != PayloadVersion_V5)
                 throw new InvalidDataException($"rac: ModuleBytecode version {ver} not supported");
             ushort reserved = r.ReadU16();
             if (reserved != 0)

@@ -1770,9 +1770,43 @@ namespace RaLanguage.Parser
                     }
                 }
 
-                if (_currentToken.Matches(Keyword.Fn) || (_currentToken.Type == TokenType.IDENTIFIER && _currentToken.Value.ToString() == className))
+                // `factory` constructor — a class-level creation function
+                // introduced by the `factory` keyword and named after the
+                // class (`factory Color(...)` or `factory Color.rgb(...)`).
+                bool isMemberFactory = false;
+                if (_currentToken.Matches(Keyword.Factory))
                 {
-                    var fnRes = ParseFunctionDefinition(ownerTypeName: className, isPublic: isMemberPublic, isOverride: isMemberOverride, isAbstract: isMemberAbstract, isStatic: isMemberStatic, isDeclaringConstructor: _currentToken.Type == TokenType.IDENTIFIER && _currentToken.Value.ToString() == className, isAsync: isMemberAsync, isAsyncStream: isMemberAsyncStream);
+                    if (isMemberStatic)
+                        return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken, "'factory' without 'static'",
+                            contextHint: "factory constructors are class-level by nature; remove the redundant 'static'"));
+                    if (isMemberAbstract)
+                        return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken, "a non-abstract member",
+                            contextHint: "a 'factory' constructor has a body and cannot be 'abstract'"));
+                    if (isMemberOverride)
+                        return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken, "a non-override member",
+                            contextHint: "a 'factory' constructor cannot be 'override'"));
+                    if (isMemberAsync || isMemberAsyncStream)
+                        return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken, "a non-async member",
+                            contextHint: "'factory' constructors cannot be 'async' in this version"));
+
+                    isMemberFactory = true;
+                    res.RegisterAdvancement();
+                    Advance();
+                    while (_currentToken.Type == TokenType.NEWLINE)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    if (!(_currentToken.Type == TokenType.IDENTIFIER && _currentToken.Value.ToString() == className))
+                        return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken, $"the class name '{className}'",
+                            contextHint: $"a factory constructor is named after its class, e.g. 'factory {className}(...)' or 'factory {className}.fromValue(...)'"));
+                }
+
+                bool isCtorNameMatch = _currentToken.Type == TokenType.IDENTIFIER && _currentToken.Value.ToString() == className;
+                if (isMemberFactory || _currentToken.Matches(Keyword.Fn) || isCtorNameMatch)
+                {
+                    var fnRes = ParseFunctionDefinition(ownerTypeName: className, isPublic: isMemberPublic, isOverride: isMemberOverride, isAbstract: isMemberAbstract, isStatic: isMemberStatic, isDeclaringConstructor: isMemberFactory || isCtorNameMatch, isAsync: isMemberAsync, isAsyncStream: isMemberAsyncStream, isFactory: isMemberFactory);
                     if (fnRes.Error != null) return fnRes;
 
                     var methodNode = (FunctionDefinitionNode)fnRes.Node!;
@@ -2225,7 +2259,7 @@ namespace RaLanguage.Parser
         }
 
 
-        private ParserResult ParseFunctionDefinition(string? ownerTypeName = null, bool isPublic = false, bool isOverride = false, bool isAbstract = false, bool isStatic = false, bool isDeclaringConstructor = false, bool isAsync = false, bool isAsyncStream = false)
+        private ParserResult ParseFunctionDefinition(string? ownerTypeName = null, bool isPublic = false, bool isOverride = false, bool isAbstract = false, bool isStatic = false, bool isDeclaringConstructor = false, bool isAsync = false, bool isAsyncStream = false, bool isFactory = false)
         {
             var res = new ParserResult();
 
@@ -2250,6 +2284,7 @@ namespace RaLanguage.Parser
             }
 
             Token? varNameTok = null;
+            string? ctorName = null;
             var genericTypeParams = new List<string>();
             List<CaptureSpec>? captureList = null;
 
@@ -2264,6 +2299,23 @@ namespace RaLanguage.Parser
                 varNameTok = _currentToken;
                 res.RegisterAdvancement();
                 Advance();
+
+                // Named constructor: `T.name(...)`. A dotted name is legal only
+                // for constructors and factories — for a plain `fn` the dot
+                // would be a member access, so it is rejected by falling
+                // through to the LPAREN check.
+                if ((isDeclaringConstructor || isFactory) && _currentToken.Type == TokenType.DOT)
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                    while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+                    if (_currentToken.Type != TokenType.IDENTIFIER)
+                        return res.Failure(ParserDiagnostics.UnexpectedToken(_currentToken, "a constructor name",
+                            contextHint: "name a constructor after the dot, e.g. 'Point.origin()' or 'factory Color.rgb(...)'"));
+                    ctorName = _currentToken.Value.ToString();
+                    res.RegisterAdvancement();
+                    Advance();
+                }
 
                 while (_currentToken.Type == TokenType.NEWLINE)
                 {
@@ -2668,6 +2720,17 @@ namespace RaLanguage.Parser
             TypeDescriptor? returnType = null;
             if (_currentToken.Type == TokenType.COLON)
             {
+                // Generative constructors (named or unnamed) always produce an
+                // instance of their own class, so an explicit return type is
+                // meaningless. Factories MAY declare one (`-> Color?`, a
+                // subtype, a Result, …) to opt into a wider/optional result.
+                if (isDeclaringConstructor && !isFactory)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd,
+                        "a constructor cannot declare a return type",
+                        DiagnosticCode.ParserInvalidSyntax,
+                        help: "constructors always produce an instance of their class; drop the ': Type'. Use a 'factory' constructor if you need to return a different or optional value.",
+                        primaryLabel: "unexpected return type on a constructor"));
+
                 res.RegisterAdvancement();
                 Advance();
 
@@ -2700,7 +2763,11 @@ namespace RaLanguage.Parser
                 Advance();
             }
 
-            bool isConstructor = ownerTypeName != null
+            // A factory is named after its class too, so the name match alone
+            // is not enough — a generative constructor is the name match that
+            // is NOT a factory.
+            bool isConstructor = !isFactory
+                                 && ownerTypeName != null
                                  && varNameTok != null
                                  && string.Equals(varNameTok.Value.ToString(), ownerTypeName, StringComparison.Ordinal);
 
@@ -2712,6 +2779,16 @@ namespace RaLanguage.Parser
 
             if (_currentToken.Type == TokenType.ARROW)
             {
+                // A generative constructor cannot return a value, so the
+                // auto-returning arrow body is contradictory. Factories may use
+                // it (`factory T.x() => T(...)`) — that is the forwarding form.
+                if (isConstructor)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd,
+                        "a constructor cannot use an arrow body",
+                        DiagnosticCode.ParserInvalidSyntax,
+                        help: "constructors initialise 'self' in a '{ ... }' block and never return a value; use a 'factory' constructor with '=>' to forward to another constructor.",
+                        primaryLabel: "unexpected '=>' on a constructor"));
+
                 res.RegisterAdvancement();
                 Advance();
 
@@ -2747,7 +2824,7 @@ namespace RaLanguage.Parser
                     whereConstraints,
                     paramAnnotations,
                     captureList
-                ) { VarArgAnnotations = varArgAnnotations, IsAsync = isAsync, IsAsyncStream = isAsyncStream });
+                ) { VarArgAnnotations = varArgAnnotations, IsAsync = isAsync, IsAsyncStream = isAsyncStream, IsFactory = isFactory, ConstructorName = ctorName });
             }
 
             while (_currentToken.Type == TokenType.NEWLINE)
@@ -2758,6 +2835,15 @@ namespace RaLanguage.Parser
 
             if (_currentToken.Type != TokenType.LBRACKET)
             {
+                // A factory must have an executable body — there is nothing to
+                // return otherwise.
+                if (isFactory)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd,
+                        "a factory constructor must have a body",
+                        DiagnosticCode.ParserInvalidSyntax,
+                        help: "give the factory a '{ ... return value }' block or an '=> expression' body that returns the constructed value.",
+                        primaryLabel: "missing factory body"));
+
                 return res.Success(new FunctionDefinitionNode(
                     varNameTok,
                     argNameToks,
@@ -2779,7 +2865,7 @@ namespace RaLanguage.Parser
                     whereConstraints,
                     paramAnnotations,
                     captureList
-                ) { VarArgAnnotations = varArgAnnotations, IsAsync = isAsync, IsAsyncStream = isAsyncStream });
+                ) { VarArgAnnotations = varArgAnnotations, IsAsync = isAsync, IsAsyncStream = isAsyncStream, IsFactory = isFactory, ConstructorName = ctorName });
             }
 
             res.RegisterAdvancement();
@@ -2817,7 +2903,7 @@ namespace RaLanguage.Parser
                 whereConstraints,
                 paramAnnotations,
                 captureList
-            ) { VarArgAnnotations = varArgAnnotations, IsAsync = isAsync, IsAsyncStream = isAsyncStream });
+            ) { VarArgAnnotations = varArgAnnotations, IsAsync = isAsync, IsAsyncStream = isAsyncStream, IsFactory = isFactory, ConstructorName = ctorName });
             }
             finally
             {
