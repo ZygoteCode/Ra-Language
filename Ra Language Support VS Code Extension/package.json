@@ -1,20 +1,24 @@
 {
   "name": "ra-language-support",
-  "displayName": "RA Language Support",
-  "description": "Language support for .ra files based on the lexer/parser rules",
-  "version": "1.0.0",
+  "displayName": "Ra Language Support",
+  "description": "Rich language support for the Ra language — diagnostics, semantic highlighting, hover, completion, go-to-definition, references, rename, symbols, folding and more, powered by the Ra language server (ra --lsp).",
+  "version": "2.0.0",
   "publisher": "ZygoteCode",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": [
     "Programming Languages"
   ],
+  "keywords": [
+    "ra",
+    "ra-language",
+    "lsp",
+    "language-server"
+  ],
   "activationEvents": [
-    "onLanguage:ra",
-    "onCommand:ra.insertBlockComment",
-    "onCommand:ra.insertLineComment",
-    "onCommand:ra.insertXmlComment"
+    "onLanguage:ra"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -22,9 +26,9 @@
       {
         "id": "ra",
         "aliases": [
+          "Ra",
           "RA",
-          "ra",
-          "Ra"
+          "ra"
         ],
         "extensions": [
           ".ra"
@@ -47,21 +51,110 @@
     ],
     "commands": [
       {
-        "command": "ra.insertBlockComment",
-        "title": "RA: Insert Block Comment"
+        "command": "ra.runFile",
+        "title": "Ra: Run File",
+        "icon": "$(play)"
       },
       {
-        "command": "ra.insertLineComment",
-        "title": "RA: Insert Line Comment"
+        "command": "ra.restartServer",
+        "title": "Ra: Restart Language Server"
       },
       {
-        "command": "ra.insertXmlComment",
-        "title": "RA: Insert XML Comment"
+        "command": "ra.showServerOutput",
+        "title": "Ra: Show Language Server Output"
       }
-    ]
+    ],
+    "menus": {
+      "editor/title/run": [
+        {
+          "command": "ra.runFile",
+          "when": "resourceLangId == ra",
+          "group": "navigation@1"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "ra.runFile",
+          "when": "resourceLangId == ra",
+          "group": "navigation@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "ra.runFile",
+          "when": "resourceLangId == ra",
+          "group": "navigation@1"
+        }
+      ]
+    },
+    "configuration": {
+      "type": "object",
+      "title": "Ra Language",
+      "properties": {
+        "ra.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the Ra language server. When off, only the static TextMate grammar and snippets are active."
+        },
+        "ra.server.path": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Absolute path to the Ra executable that hosts the language server (the binary you get from `dotnet publish`, e.g. `RaLanguage.exe`). May also point to a `.dll`, in which case it is launched via `dotnet`. When empty, the extension looks for `ra`/`RaLanguage` on the `PATH`."
+        },
+        "ra.server.args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "--lsp"
+          ],
+          "description": "Arguments passed to the Ra executable to start the language server."
+        },
+        "ra.server.logLevel": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "info",
+            "debug"
+          ],
+          "default": "info",
+          "description": "Verbosity of the server's own stderr log (passed as --log-level)."
+        },
+        "ra.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Trace JSON-RPC traffic between VS Code and the Ra language server in the output channel."
+        }
+      }
+    },
+    "configurationDefaults": {
+      "[ra]": {
+        "editor.semanticHighlighting.enabled": true
+      },
+      "code-runner.executorMap": {
+        "ra": "ra $fullFileName"
+      },
+      "code-runner.executorMapByFileExtension": {
+        ".ra": "ra $fullFileName"
+      }
+    }
   },
   "scripts": {
-    "test": "node -e \"console.log('No tests configured')\""
+    "vscode:prepublish": "echo \"No bundling step; extension.js runs as-is.\"",
+    "lint": "echo \"No linter configured\""
   },
-  "devDependencies": {}
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0"
+  }
 }

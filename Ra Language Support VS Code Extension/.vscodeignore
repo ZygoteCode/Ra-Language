@@ -1,5 +1,10 @@
+.vscode/**
+.git/**
 **/.DS_Store
 **/.gitignore
 **/*.zip
-.vscode/**
-node_modules/**
+**/*.vsix
+**/tsconfig.json
+**/.eslintrc*
+# NOTE: node_modules is intentionally NOT ignored. This extension is unbundled and
+# loads `vscode-languageclient` at runtime; vsce prunes devDependencies on package.

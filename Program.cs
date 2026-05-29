@@ -307,6 +307,16 @@ namespace RaLanguage
 
         private static void MainCore(string[] args)
         {
+            // Language Server mode. Branch BEFORE any stdout-touching setup
+            // (Console.Title can emit terminal escape bytes; the JIT warmup and
+            // real-time priority are equally undesirable for an editor backend).
+            // STDOUT must stay a pure JSON-RPC channel from the very first byte.
+            if (args.Length >= 1 && string.Equals(args[0], "--lsp", StringComparison.OrdinalIgnoreCase))
+            {
+                Environment.Exit(RaLanguage.LanguageServer.Cli.LspEntryPoint.Run(args));
+                return;
+            }
+
             Console.Title = "Ra Language | Made by https://github.com/ZygoteCode/";
 
             // The fiber runtime currently uses sync-over-async wait inside `await`

@@ -393,6 +393,17 @@ try {
 }
 if sealed_mod_ok == 1 { print("[E37] OK"); } else { print("[E37] FAIL — sealed merge should have raised"); }
 
+print(erjerjwhklkwejrlkwejrlkjrwe);
+
+// Controllo a runtime se una variabile esiste in quel momento (o può esistere, dipende dal controllo) nella SymbolTable, e quindi bisogna tenere anche in considerazione i casi di borrowing/lifetimes/ownership ehehe
+// Attualmente, l'estensione riceve un errore alla volta, ciò vuol dire che io non posso vedere tutti gli errori insieme, se risolvo un errore su una riga, poi mi comparirà sulla riga successiva a quella lì in cui c'è già un errore logico.
+// Sistemare highlight dei tipi quando si fanno dichiarazioni: se io dichiaro una variabile con un tipo inesistente, mai importato, mai creato, mi deve dare errore. Se non è un primitivo, e quindi non c'è nemmeno un tipo dichiarato in quel modo, mi deve dare errore. Chiaro che questo deve supportare generics, e variabili in gioco già supportate nel linguaggio.
+// Non mi piace l'highlight dato a "true" e "false", che sono di colore roseo invece che bluastro come dovrebbero essere su VS Code.
+// Supportare il go-to-definition, e il checking dei symbols fra files importati correttamente.
+// Per sbloccare tutte queste situazioni, sicuramente bisogna fare un minimo di checks-at-runtime senza interpretazione diretta (nessuna esecuzione del codice, solo analisi statiche separate dalla vera esecuzione). Questo sicuramente coincide col fatto che dovremmo rendere più modulare l'interprete con controlli statici richiamati sia dall'LSP Server ma anche dall'interprete stesso quando necessario.
+// Aggiungere il go-to-file rispetto agli import inseriti, sia quando clicco sulla stringa di importazione del modulo (inteso come la stringa del file), sia anche sulla variabile di modulo quando faccio per esempio import "things.ra" as things; Premo su things e vorrei andare al suo file (se esiste, ovviamente).
+// In questo momento, ho su Visual Studio Code installata l'estensione Code Runner che predispone il pulsante di start per ogni singolo file di codice sorgente. In questo momento, dice chiaramente che questo linguaggio non è supportato. Io direi che possiamo supportare il runnare il file attuale utilizzando tipo "ra ACTUAL_FILE.ra" prendendo il file attuale, eseguendolo e mostrando sul terminale forzatamente di VS Code l'output inviando appunto il comando e permettendo poi all'utente di interagire con la console, vedere colori, scrivere in input nel programma ecc. come fossimo in una qualsiasi altra estensione di programmazione di linguaggio.
+
 // E35: IC stability — hot loop reads same field many times
 pub class Hot { pub Hot() { pass; } }
 extend Hot { pub var v: int = 0; }
