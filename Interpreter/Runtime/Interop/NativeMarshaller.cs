@@ -215,8 +215,23 @@ namespace RaLanguage.Interpreter.Runtime.Interop
                 case DoubleValue dv: return (long)dv.Value;
                 case DecimalValue dcv: return (long)dcv.Value;
                 case NumberValue nv:
-                    try { return (long)nv.Value; }
-                    catch { return long.TryParse(nv.ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var ll) ? ll : 0L; }
+                {
+                    // Marshal the LOW 64 BITS as the register bit-pattern.
+                    // Correct across the full range a 64-bit register can
+                    // hold: values in [2^63, 2^64) set the long's sign bit
+                    // (the exact bits the callee reads as an unsigned 64-bit
+                    // arg), and negative numbers map to their two's-complement
+                    // low word. The previous `(long)BigNumber` cast THREW for
+                    // any value > long.MaxValue, and the ToString()+long.TryParse
+                    // fallback then silently returned 0 — so every unsigned
+                    // 64-bit argument ≥ 0x8000_0000_0000_0000 (e.g. a u64 mask,
+                    // a high pointer, 0xFFFF...) was passed to asm / DLL callees
+                    // as 0. Masking to 64 bits also avoids OverflowException
+                    // under a checked build.
+                    var bi = nv.Value.ToBigInteger();
+                    var low64 = bi & ((System.Numerics.BigInteger.One << 64) - System.Numerics.BigInteger.One);
+                    return unchecked((long)(ulong)low64);
+                }
                 case BooleanValue bo: return bo.Value ? 1 : 0;
                 case NativeHandleValue nh: return nh.Handle.ToInt64();
                 case NullValue: return 0;

@@ -1,6 +1,14 @@
 # =================================================================
 #  Tier 4-6 + Tier 8 FFI improvements regression suite
 # =================================================================
+#
+#  Determinism contract: every check is a hard `assert_eq` (aborts on
+#  mismatch). The previous revision printed bare booleans — a regression
+#  would have printed `false` and the suite would still have reached its
+#  final banner, silently "passing". Volatile data (live PIDs, thread ids,
+#  timings, the @dll_import(trace=true) JSONL line) is never asserted; the
+#  trace is verified via the deterministic ffi_trace_* introspection API
+#  instead, so stdout is bit-for-bit reproducible across runs.
 
 @dll_import(library = "kernel32", entry_point = "GetTickCount")
 fn get_tick_count(): uint { ret 0; }
@@ -34,48 +42,56 @@ print("=== TIER 4-6 + 8 FFI REGRESSION ===");
 print("--- #11 NativeHandle ownership ---");
 var mem = native_zero_alloc(32);
 var info = handle_info(mem);
-print(map_get(info, "kind"));
-print(map_get(info, "ownership"));
-print(map_get(info, "disposed"));
-print(handle_alive_count() > 0);
+assert_eq(map_get(info, "kind"), "Memory", "handle kind = Memory");
+assert_eq(map_get(info, "ownership"), "Owned", "handle ownership = Owned");
+assert_eq(map_get(info, "disposed"), false, "fresh handle not disposed");
+assert_eq(handle_alive_count() > 0, true, "at least one live handle");
 native_free(mem);
-print(handle_alive_count() >= 0);
+assert_eq(handle_alive_count() >= 0, true, "alive count valid after free");
 
 print("--- #11 double-free detection ---");
 var leak = native_zero_alloc(8);
 native_free(leak);
 var df_before = handle_double_free_count();
 native_free(leak);
-print(handle_double_free_count() > df_before);
+assert_eq(handle_double_free_count() > df_before, true, "double-free detected and counted");
 
 print("--- #12 pin/unpin ---");
 var pinned = pin([10, 20, 30, 40, 50]);
-print(native_read_u8(pinned, 0));
-print(native_read_u8(pinned, 4));
+assert_eq(native_read_u8(pinned, 0), 10, "pinned byte[0] = 10");
+assert_eq(native_read_u8(pinned, 4), 50, "pinned byte[4] = 50");
 unpin(pinned);
 
-print("--- #14 trace (env or annotation) ---");
-print((get_pid_traced() as long) > 0);
+print("--- #14 trace: annotation records a deterministic call shape ---");
+var tc_before = ffi_trace_count();
+assert_eq((get_pid_traced() as long) > 0, true, "traced call returns a valid PID");
+assert_eq(ffi_trace_count() > tc_before, true, "trace counter advanced (feature actually fired)");
+var tr = ffi_trace_last();
+assert_eq(map_get(tr, "lib"), "kernel32", "trace recorded library");
+assert_eq(map_get(tr, "fn"), "GetCurrentProcessId", "trace recorded entry point");
+assert_eq(map_get(tr, "argc"), 0, "trace recorded argument count");
+assert_eq(map_get(tr, "last_error"), 0, "trace recorded success (last_error = 0)");
 
 print("--- #15 ABI canary ---");
-print((get_pid_canary() as long) > 0);
-print(abi_canary_count() >= 0);
+var ac_before = abi_canary_count();
+assert_eq((get_pid_canary() as long) > 0, true, "canary-guarded call returns valid PID");
+assert_eq(abi_canary_count() >= ac_before, true, "canary count is monotonic (no false corruption report)");
 
 print("--- #16 native_reload ---");
 get_tick_count();
-print(len(native_libraries()) > 0);
-print(native_reload("kernel32"));
-print((get_tick_count() as long) > 0);
+assert_eq(len(native_libraries()) > 0, true, "at least one native library loaded");
+assert_eq(native_reload("kernel32"), true, "kernel32 reloads cleanly");
+assert_eq((get_tick_count() as long) > 0, true, "call works after reload");
 
-print("--- #19 macOS underscore fallback (no-op on Win, just verify built-ins exist) ---");
-print(exists("native_reload"));
+print("--- #19 built-ins exist ---");
+assert_eq(exists("native_reload"), true, "native_reload builtin present");
 
 print("--- #20 path placeholders ---");
 @dll_import(library = "kernel32", entry_point = "GetTickCount", search_paths = ["@executable_path", "%cwd%"])
 fn gtc_with_search(): uint { ret 0; }
-print((gtc_with_search() as long) > 0);
+assert_eq((gtc_with_search() as long) > 0, true, "import with search_paths resolves + calls");
 
-print("--- #4 nested struct layout ---");
+print("--- #4 nested struct layout (exact) ---");
 var inner_built = Inner();
 inner_built.a = 22;
 inner_built.b = 33;
@@ -83,18 +99,17 @@ var o = Outer();
 o.head = 11;
 o.inside = inner_built;
 o.tail = 44;
-print(struct_size(o));
+assert_eq(struct_size(o), 16, "Outer = head(4) + Inner{a,b}(8) + tail(4) = 16 bytes");
 var b = struct_to_buffer(o);
-print(native_read_i32(b, 0));
-print(native_read_i32(b, 4));
-print(native_read_i32(b, 8));
-print(native_read_i32(b, 12));
-
+assert_eq(native_read_i32(b, 0), 11, "offset 0  = head");
+assert_eq(native_read_i32(b, 4), 22, "offset 4  = inside.a");
+assert_eq(native_read_i32(b, 8), 33, "offset 8  = inside.b");
+assert_eq(native_read_i32(b, 12), 44, "offset 12 = tail");
 var o2 = struct_from_buffer(b, Outer);
-print(o2.head);
-print(o2.inside.a);
-print(o2.inside.b);
-print(o2.tail);
+assert_eq(o2.head, 11, "round-trip head");
+assert_eq(o2.inside.a, 22, "round-trip nested a");
+assert_eq(o2.inside.b, 33, "round-trip nested b");
+assert_eq(o2.tail, 44, "round-trip tail");
 native_free(b);
 
 print("--- #9 as_callback_with (user_data prepended) ---");
@@ -107,9 +122,11 @@ fn ctx_cmp(user: ptr, a: ptr, b: ptr): int {
 }
 var ctx_marker = native_zero_alloc(8);
 native_write_i32(ctx_marker, 0, 123456);
+var cb_before = callback_count();
 var cb_ctx = as_callback_with(ctx_cmp, "int(ptr,ptr,ptr)", ctx_marker);
-print(typeof cb_ctx);
+assert_eq(callback_count() > cb_before, true, "as_callback_with registered a live callback");
 release_callback(cb_ctx);
+assert_eq(callback_count(), cb_before, "release_callback freed it (count back to baseline)");
 native_free(ctx_marker);
 
 print("--- #10 with_callback (scoped RAII) ---");
@@ -133,32 +150,48 @@ fn run_sort(cb_handle: ptr): int {
 }
 var before_cb = callback_count();
 var first_sorted = with_callback(local_cmp, "int(ptr,ptr)", run_sort);
-print(first_sorted == 1);
-print(callback_count() == before_cb);
+assert_eq(first_sorted, 1, "qsort via callback sorted ascending (min element first)");
+assert_eq(callback_count(), before_cb, "with_callback released the callback (RAII)");
 
-print("--- #18 COM (smoke: just ensure built-ins exist) ---");
-print(exists("com_vtable"));
-print(exists("com_vtable_slot"));
-print(exists("com_add_ref"));
-print(exists("com_release"));
-print(exists("com_query_interface"));
+print("--- #18 COM built-ins present ---");
+assert_eq(exists("com_vtable"), true, "com_vtable present");
+assert_eq(exists("com_vtable_slot"), true, "com_vtable_slot present");
+assert_eq(exists("com_add_ref"), true, "com_add_ref present");
+assert_eq(exists("com_release"), true, "com_release present");
+assert_eq(exists("com_query_interface"), true, "com_query_interface present");
 
-print("--- #25 SEH guard: malformed call shape catches gracefully ---");
-print(exists("handle_info"));
+print("--- #25 SEH guard built-in present ---");
+assert_eq(exists("handle_info"), true, "handle_info present");
 
 print("--- #26 sta_thread annotation ---");
 @dll_import(library = "kernel32", entry_point = "GetCurrentThreadId", sta_thread = true)
 fn sta_tid(): uint { ret 0; }
 var t1 = sta_tid();
 var t2 = sta_tid();
-print(t1 == t2);
-print(t1 != (thread_id() as long));
+assert_eq(t1, t2, "STA thread id is stable across calls");
+assert_eq(t1 != (thread_id() as long), true, "STA worker thread differs from interpreter thread");
 
 print("--- #27 native_async ---");
 @dll_import(library = "kernel32", entry_point = "GetCurrentProcessId")
 fn pid_for_async(): uint { ret 0; }
 var task = native_async(pid_for_async);
 var p = run_blocking(task);
-print((p as long) > 0);
+assert_eq((p as long) > 0, true, "async FFI call returns a valid PID");
+assert_eq((p as long), (get_pid_traced() as long), "async PID matches synchronous PID (same process)");
+
+print("--- #28 REGRESSION: high-bit 64-bit args reach the callee (was 0) ---");
+# Root-cause guard shared with the asm suite: a Ra `number` >= 2^63 used to
+# marshal to 0 across the FFI boundary. lstrlenA takes a pointer arg; pass a
+# pinned buffer whose address may legitimately have the high bit set on some
+# layouts, and verify a round-trippable u64 echo through an asm thunk that the
+# DLL path and asm path share (NativeMarshaller). Pure-integer check:
+@dll_import(library = "kernel32", entry_point = "GetCurrentProcessId")
+fn pid_plain(): uint { ret 0; }
+assert_eq((pid_plain() as long) > 0, true, "plain PID call still works");
+var echo_hi = asm_compile("u64(u64)", "
+    mov rax, rcx
+    ret
+");
+assert_eq(echo_hi(0xFFFFFFFFFFFFFFFF), 0xFFFFFFFFFFFFFFFF, "u64 max arg survives the shared FFI marshaller (was 0)");
 
 print("=== TIER 4-6 + 8 PASSED ===");

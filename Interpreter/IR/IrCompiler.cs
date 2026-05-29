@@ -1054,6 +1054,29 @@ namespace RaLanguage.Interpreter.IR
                     // through the un-rewritten dispatch loop.
                     fn.Analysis = null;
                 }
+
+                // M90: fused compare-and-branch — the FINAL code transform.
+                // MUST run after LICM (above), which physically reshuffles
+                // Code[] and patches only the standard imm16-encoded branches
+                // (Jmp/JmpIf/JmpIfNot) — never the fused ops' sbyte-encoded
+                // offset. Running it here, with nothing moving code after,
+                // keeps the baked offsets valid. Builds its own fresh
+                // CFG+SSA bundle on the final layout. Best-effort: a failure
+                // leaves the function correct in its unfused form.
+                try { Analysis.IrRewriter.FuseCompareBranches(fn); }
+                catch { }
+
+                // M91: Pass compaction — the absolute FINAL code transform.
+                // Physically removes every Pass (SCCP / DCE / branch-fold
+                // leftovers plus the JmpIfNot→Pass that M90 fusion creates)
+                // and repatches all relative jumps, EH ranges, per-PC IC
+                // arrays, and the PcSpans source map against the shorter
+                // stream. MUST be last — nothing may move code after it.
+                // Best-effort: bails internally (no-op) on any opcode whose
+                // PC encoding it can't safely remap, leaving the function
+                // correct in its un-compacted form.
+                try { Analysis.PassCompactor.Compact(fn); }
+                catch { }
             }
         }
 

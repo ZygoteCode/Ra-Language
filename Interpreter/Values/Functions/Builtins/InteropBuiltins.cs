@@ -453,6 +453,36 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             BuiltInRegistry.Register("abi_canary_count", (ctx, args, p1, p2) =>
                 Ok(new IntegerValue(AbiCanary.Detected), ctx, p1, p2));
 
+            // ===== Tier 4: FFI trace introspection (deterministic) =====
+            // The @dll_import(trace = true) JSONL line carries volatile data
+            // (timestamp, elapsed microseconds, live return value), so a test
+            // can't golden-compare it. These two builtins expose the trace's
+            // deterministic shape so a regression test can assert that tracing
+            // fired AND that the recorded call site is correct, without
+            // depending on any volatile field.
+            //
+            // `ffi_trace_count()` — running count of traced FFI calls. Tests
+            // take a before/after delta (robust to accumulation across calls,
+            // mirroring the handle_double_free_count pattern below).
+            BuiltInRegistry.Register("ffi_trace_count", (ctx, args, p1, p2) =>
+                Ok(new LongValue(Runtime.Interop.FfiTracer.Count), ctx, p1, p2));
+
+            // `ffi_trace_last()` — { lib, fn, argc, last_error } of the most
+            // recent traced call. Volatile fields (ts / us / return value)
+            // are intentionally omitted so assertions stay reproducible.
+            BuiltInRegistry.Register("ffi_trace_last", (ctx, args, p1, p2) =>
+            {
+                var rec = Runtime.Interop.FfiTracer.LastRecord;
+                var pairs = new List<(RuntimeValue, RuntimeValue)>
+                {
+                    (new StringValue("lib"), new StringValue(rec.Library)),
+                    (new StringValue("fn"), new StringValue(rec.EntryPoint)),
+                    (new StringValue("argc"), new IntegerValue(rec.ArgCount)),
+                    (new StringValue("last_error"), new IntegerValue(rec.LastError)),
+                };
+                return Ok(new MapValue(pairs), ctx, p1, p2);
+            });
+
             // ===== Tier 3: callback enhancements =====
             BuiltInRegistry.Register("as_callback_with", (ctx, args, p1, p2) =>
             {

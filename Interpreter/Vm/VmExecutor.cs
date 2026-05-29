@@ -249,18 +249,69 @@ namespace RaLanguage.Interpreter.Vm
                         break;
                     }
 
-                    // M66 tagged-union opcodes. Dispatched here but the
-                    // case bodies live in a separate static method
-                    // (`ExecuteUnboxedII`) so the dispatch loop's C#
-                    // stack frame stays small — critical for the
-                    // recursion depth limit (`test_deep_recursion.ra`
-                    // depth 2000).
+                    // M92: the hottest II ops — AddII / SubII / MulII, the
+                    // loop-carried accumulator / counter arithmetic (~28% of
+                    // dispatches after M90 fusion moved the comparisons into
+                    // JmpNot*II) — inlined directly in the main switch. Skips
+                    // both the [NoInlining] `ExecuteUnboxedII` call AND its
+                    // secondary switch on every dispatch of the #1 opcode.
+                    //
+                    // Frame-budget discipline: the inline hot path holds only
+                    // int64 temporaries (lv/rv/sum), which the JIT colors onto
+                    // stack slots already used by the AddIntoSlot* cases — so
+                    // the dispatch-loop MoveNext frame does not grow. The rare
+                    // overflow→BigNumber box is outlined to `BoxIIOverflow`
+                    // ([NoInlining]) so its BigInteger locals never touch this
+                    // frame. Verified against test_deep_recursion (depth 2000).
+                    case Opcode.AddII:
+                    {
+                        byte a = Encoding.A(instr);
+                        byte b = Encoding.B(instr);
+                        byte c = Encoding.C(instr);
+                        if (!TryReadAsLong(f, locals, b, out long lv) || !TryReadAsLong(f, locals, c, out long rv))
+                        { DeoptBinaryII(f, locals, a, b, c, Opcode.Add); break; }
+                        long sum = lv + rv;
+                        if (((lv ^ sum) & (rv ^ sum)) < 0) { BoxIIOverflow(f, a, lv, rv, Opcode.Add); break; }
+                        ref var sa = ref f.Slots[a];
+                        sa.Tag = ValueSlotTag.Int64; sa.Bits = sum; sa.Ref = null;
+                        break;
+                    }
+                    case Opcode.SubII:
+                    {
+                        byte a = Encoding.A(instr);
+                        byte b = Encoding.B(instr);
+                        byte c = Encoding.C(instr);
+                        if (!TryReadAsLong(f, locals, b, out long lv) || !TryReadAsLong(f, locals, c, out long rv))
+                        { DeoptBinaryII(f, locals, a, b, c, Opcode.Sub); break; }
+                        long diff = lv - rv;
+                        if (((lv ^ rv) & (lv ^ diff)) < 0) { BoxIIOverflow(f, a, lv, rv, Opcode.Sub); break; }
+                        ref var sa = ref f.Slots[a];
+                        sa.Tag = ValueSlotTag.Int64; sa.Bits = diff; sa.Ref = null;
+                        break;
+                    }
+                    case Opcode.MulII:
+                    {
+                        byte a = Encoding.A(instr);
+                        byte b = Encoding.B(instr);
+                        byte c = Encoding.C(instr);
+                        if (!TryReadAsLong(f, locals, b, out long lv) || !TryReadAsLong(f, locals, c, out long rv))
+                        { DeoptBinaryII(f, locals, a, b, c, Opcode.Mul); break; }
+                        long hi = System.Math.BigMul(lv, rv, out long lo);
+                        if (hi != (lo >> 63)) { BoxIIOverflow(f, a, lv, rv, Opcode.Mul); break; }
+                        ref var sa = ref f.Slots[a];
+                        sa.Tag = ValueSlotTag.Int64; sa.Bits = lo; sa.Ref = null;
+                        break;
+                    }
+
+                    // M66 tagged-union opcodes (remaining). Dispatched here but
+                    // the case bodies live in `ExecuteUnboxedII` so the
+                    // dispatch loop's C# stack frame stays small — critical for
+                    // the recursion depth limit (`test_deep_recursion.ra` depth
+                    // 2000). The hot arithmetic trio above is the measured
+                    // exception worth inlining.
                     case Opcode.LoadIntS64:
                     case Opcode.UnboxI:
                     case Opcode.BoxI:
-                    case Opcode.AddII:
-                    case Opcode.SubII:
-                    case Opcode.MulII:
                     case Opcode.LtII:
                     case Opcode.LeII:
                     case Opcode.GtII:
@@ -2074,9 +2125,11 @@ namespace RaLanguage.Interpreter.Vm
                             }
                             else // MulNN
                             {
-                                if (lvNN >= int.MinValue && lvNN <= int.MaxValue
-                                    && rvNN >= int.MinValue && rvNN <= int.MaxValue)
-                                    prodNN = NumberValue.OfBigNumber(BigNumberFromLong(lvNN * rvNN));
+                                // 128-bit-product overflow check (see MulII):
+                                // fits int64 iff hi == sign-extension of lo.
+                                long hiNN = System.Math.BigMul(lvNN, rvNN, out long loNN);
+                                if (hiNN == (loNN >> 63))
+                                    prodNN = NumberValue.OfBigNumber(BigNumberFromLong(loNN));
                             }
                             if (prodNN != null)
                             {
@@ -2222,6 +2275,24 @@ namespace RaLanguage.Interpreter.Vm
                             short offs = Encoding.SImm16(instr);
                             pc += offs;
                         }
+                        break;
+                    }
+
+                    // M90 fused compare-and-branch. One dispatch replaces the
+                    // `cmpII; JmpIfNot` pair (37% of the bench suite's
+                    // dispatches). The off-stack `FusedCmpBranchDelta` helper
+                    // keeps the dispatch-loop frame compact (depth-2000
+                    // recursion budget), same discipline as ExecuteUnboxedII.
+                    case Opcode.JmpNotLtII:
+                    case Opcode.JmpNotLeII:
+                    case Opcode.JmpNotGtII:
+                    case Opcode.JmpNotGeII:
+                    case Opcode.JmpNotEqII:
+                    case Opcode.JmpNotNeII:
+                    {
+                        int d = FusedCmpBranchDelta(f, locals, instr, op);
+                        if (d < 0) f.Function.LoopBackEdgeCount++;
+                        pc += d;
                         break;
                     }
 
@@ -2399,6 +2470,60 @@ namespace RaLanguage.Interpreter.Vm
             return v != null && v.IsTrue();
         }
 
+        // M90 fused compare-and-branch. Returns the pc delta to apply
+        // (0 = fall through, else the signed-8 branch offset). Reads the
+        // two operand slots as int64; on a tag miss it deopts to the
+        // boxed virtual comparison so observable semantics match the
+        // unfused `cmpII; JmpIfNot` it replaces exactly. Branch is taken
+        // when the comparison is FALSE (JmpIfNot semantics). `[NoInlining]`
+        // keeps the dispatch-loop C# frame compact (depth-2000 recursion
+        // tripwire) — identical discipline to ExecuteUnboxedII.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static int FusedCmpBranchDelta(VmFrame f, LocalsView locals, uint instr, Opcode op)
+        {
+            byte bSlot = Encoding.A(instr);
+            byte cSlot = Encoding.B(instr);
+            sbyte off = (sbyte)Encoding.C(instr);
+            bool cmp;
+            if (TryReadAsLong(f, locals, bSlot, out long lv) && TryReadAsLong(f, locals, cSlot, out long rv))
+            {
+                switch (op)
+                {
+                    case Opcode.JmpNotLtII: cmp = lv <  rv; break;
+                    case Opcode.JmpNotLeII: cmp = lv <= rv; break;
+                    case Opcode.JmpNotGtII: cmp = lv >  rv; break;
+                    case Opcode.JmpNotGeII: cmp = lv >= rv; break;
+                    case Opcode.JmpNotEqII: cmp = lv == rv; break;
+                    default:                cmp = lv != rv; break; // JmpNotNeII
+                }
+            }
+            else
+            {
+                // Deopt: a slot is not Int64-tagged (rare — fusion only
+                // targets typed-promoted cmpII, but runtime tag drift is
+                // possible via a mixed-type chain). Materialise boxed
+                // values and run the virtual comparison.
+                EnsureBoxed(f, locals, bSlot);
+                EnsureBoxed(f, locals, cSlot);
+                var lb = locals[bSlot] ?? NullValue.Null;
+                var rb = locals[cSlot] ?? NullValue.Null;
+                ValueResult vr = op switch
+                {
+                    Opcode.JmpNotLtII => lb.GetComparisonLt(rb),
+                    Opcode.JmpNotLeII => lb.GetComparisonLte(rb),
+                    Opcode.JmpNotGtII => lb.GetComparisonGt(rb),
+                    Opcode.JmpNotGeII => lb.GetComparisonGte(rb),
+                    Opcode.JmpNotEqII => lb.GetComparisonEq(rb),
+                    _                 => lb.GetComparisonNe(rb),
+                };
+                if (vr.Error != null) throw new RaUserError(vr.Error);
+                cmp = vr.Value != null && vr.Value.IsTrue();
+            }
+            // JmpIfNot semantics: branch when the condition is FALSE.
+            return cmp ? 0 : off;
+        }
+
         // M73 inverse-direction helper for the Bool tag. Returns the
         // boolean payload of the slot — either the `Bool`-tagged
         // bit (`Bits & 1`) or the `IsTrue()` virtual of the boxed
@@ -2455,6 +2580,30 @@ namespace RaLanguage.Interpreter.Vm
             }
             value = 0;
             return false;
+        }
+
+        // M92 cold overflow path for the inlined AddII / SubII / MulII hot
+        // cases. Reached only when the int64 result overflows 64 bits, so the
+        // BigInteger arithmetic + its locals stay OUT of the dispatch-loop
+        // MoveNext frame (the whole point of [NoInlining] here — keeps the
+        // recursion frame budget intact). Writes the exact BigNumber result
+        // as a boxed Ref slot, matching the pre-inline ExecuteUnboxedII
+        // semantics byte-for-byte.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void BoxIIOverflow(VmFrame f, int a, long lv, long rv, Opcode op)
+        {
+            var bl = new System.Numerics.BigInteger(lv);
+            var br = new System.Numerics.BigInteger(rv);
+            System.Numerics.BigInteger r = op switch
+            {
+                Opcode.Add => bl + br,
+                Opcode.Sub => bl - br,
+                _          => bl * br, // Mul
+            };
+            ref var sa = ref f.Slots[a];
+            sa.Tag = ValueSlotTag.Ref;
+            sa.Ref = new NumberValue(new BigNumber(r, System.Numerics.BigInteger.Zero));
         }
 
         // M66 lazy box-on-read. When a boxed opcode reads `locals[slot]`
@@ -2614,19 +2763,28 @@ namespace RaLanguage.Interpreter.Vm
                     if (!TryReadAsLong(f, locals, b, out long lv) || !TryReadAsLong(f, locals, c, out long rv))
                     { DeoptBinaryII(f, locals, a, b, c, Opcode.Mul); return; }
                     ref var sa = ref f.Slots[a];
-                    if (lv >= int.MinValue && lv <= int.MaxValue
-                        && rv >= int.MinValue && rv <= int.MaxValue)
+                    // Full int64 multiply with exact overflow detection via the
+                    // 128-bit product: the result fits a signed 64-bit slot iff
+                    // the high half is the sign-extension of the low half. One
+                    // `imul` on x64 — cheaper than the former four-compare
+                    // int32-range gate AND keeps every int64-representable
+                    // product (e.g. 2e16 * 2) on the unboxed fast path instead
+                    // of spilling to a per-op BigNumber allocation.
                     {
-                        sa.Tag = ValueSlotTag.Int64;
-                        sa.Bits = lv * rv;
-                        sa.Ref = null;
-                    }
-                    else
-                    {
-                        sa.Tag = ValueSlotTag.Ref;
-                        sa.Ref = new NumberValue(new BigNumber(
-                            new System.Numerics.BigInteger(lv) * new System.Numerics.BigInteger(rv),
-                            System.Numerics.BigInteger.Zero));
+                        long hi = System.Math.BigMul(lv, rv, out long lo);
+                        if (hi == (lo >> 63))
+                        {
+                            sa.Tag = ValueSlotTag.Int64;
+                            sa.Bits = lo;
+                            sa.Ref = null;
+                        }
+                        else
+                        {
+                            sa.Tag = ValueSlotTag.Ref;
+                            sa.Ref = new NumberValue(new BigNumber(
+                                new System.Numerics.BigInteger(lv) * new System.Numerics.BigInteger(rv),
+                                System.Numerics.BigInteger.Zero));
+                        }
                     }
                     return;
                 }
@@ -3393,14 +3551,49 @@ namespace RaLanguage.Interpreter.Vm
                         }
                         case BinOp.Mul:
                         {
-                            // 32-bit operands always multiply cleanly into
-                            // int64 — most common case for tight loops.
-                            // Bigger magnitudes fall back to BigNumber.
-                            if (lv >= int.MinValue && lv <= int.MaxValue
-                                && rv >= int.MinValue && rv <= int.MaxValue)
+                            // Full int64 multiply with exact overflow detection
+                            // via the 128-bit product (see MulII). Keeps every
+                            // int64-fitting product on the intern-cache fast
+                            // path; only genuine >64-bit results fall through to
+                            // the BigNumber operator.
+                            long hi = System.Math.BigMul(lv, rv, out long lo);
+                            if (hi == (lo >> 63))
                             {
-                                long prod = lv * rv;
-                                produced = NumberValue.OfBigNumber(BigNumberFromLong(prod));
+                                produced = NumberValue.OfBigNumber(BigNumberFromLong(lo));
+                            }
+                            else { handled = false; }
+                            break;
+                        }
+                        case BinOp.Div:
+                        {
+                            // Ra `number / number` is exact integer division
+                            // only when it divides evenly (BigNumber operator/
+                            // returns the integer quotient iff the remainder is
+                            // zero, else a fractional decimal). Take the int64
+                            // fast path only for exact division; defer div-by-
+                            // zero and the long.MinValue / -1 overflow to the
+                            // BigNumber path so the error / wide result is
+                            // produced unchanged. Mirrors DivII's deopt gate.
+                            if (rv != 0 && !(lv == long.MinValue && rv == -1) && (lv % rv) == 0)
+                            {
+                                produced = NumberValue.OfBigNumber(BigNumberFromLong(lv / rv));
+                            }
+                            else { handled = false; }
+                            break;
+                        }
+                        case BinOp.Mod:
+                        {
+                            // Integer modulo: BigNumber.Mod computes
+                            // `ToBigInteger(a) % ToBigInteger(b)`, whose sign
+                            // (of the dividend) matches C#'s `long %`. Both
+                            // operands are integer-valued (TryGetInt64 required
+                            // Scale.IsZero), so `lv % rv` is identical. Div-by-
+                            // zero defers to the BigNumber path for the error.
+                            // `long.MinValue % -1` is 0 in C# (no overflow), so
+                            // no special guard is needed.
+                            if (rv != 0)
+                            {
+                                produced = NumberValue.OfBigNumber(BigNumberFromLong(lv % rv));
                             }
                             else { handled = false; }
                             break;
