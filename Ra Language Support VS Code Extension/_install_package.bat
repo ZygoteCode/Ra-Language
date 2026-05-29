@@ -1,0 +1,1 @@
+code --install-extension ra-language-support-1.0.0.vsix

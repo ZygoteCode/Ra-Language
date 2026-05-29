@@ -1,0 +1,67 @@
+{
+  "name": "ra-language-support",
+  "displayName": "RA Language Support",
+  "description": "Language support for .ra files based on the lexer/parser rules",
+  "version": "1.0.0",
+  "publisher": "ZygoteCode",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:ra",
+    "onCommand:ra.insertBlockComment",
+    "onCommand:ra.insertLineComment",
+    "onCommand:ra.insertXmlComment"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "ra",
+        "aliases": [
+          "RA",
+          "ra",
+          "Ra"
+        ],
+        "extensions": [
+          ".ra"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "ra",
+        "scopeName": "source.ra",
+        "path": "./syntaxes/ra.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "ra",
+        "path": "./snippets/ra.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "ra.insertBlockComment",
+        "title": "RA: Insert Block Comment"
+      },
+      {
+        "command": "ra.insertLineComment",
+        "title": "RA: Insert Line Comment"
+      },
+      {
+        "command": "ra.insertXmlComment",
+        "title": "RA: Insert XML Comment"
+      }
+    ]
+  },
+  "scripts": {
+    "test": "node -e \"console.log('No tests configured')\""
+  },
+  "devDependencies": {}
+}

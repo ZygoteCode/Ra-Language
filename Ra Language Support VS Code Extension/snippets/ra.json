@@ -1,0 +1,684 @@
+{
+  "RA if": {
+    "prefix": "if",
+    "body": [
+      "if (${1:condition})",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "If statement"
+  },
+  "RA elif": {
+    "prefix": "elif",
+    "body": [
+      "elif (${1:condition})",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "Else-if branch"
+  },
+  "RA ifelse": {
+    "prefix": "ifelse",
+    "body": [
+      "if (${1:condition})",
+      "{",
+      "\t$2",
+      "}",
+      "else",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "If/else statement"
+  },
+  "RA switch": {
+    "prefix": "switch",
+    "body": [
+      "switch (${1:value})",
+      "{",
+      "\tcase ${2:pattern}:",
+      "\t\t$0",
+      "\tdefault:",
+      "\t\tpass",
+      "}"
+    ],
+    "description": "Switch block"
+  },
+  "RA case": {
+    "prefix": "case",
+    "body": [
+      "case ${1:pattern}:",
+      "\t$0"
+    ],
+    "description": "Switch case branch"
+  },
+  "RA default": {
+    "prefix": "default",
+    "body": [
+      "default:",
+      "\t$0"
+    ],
+    "description": "Switch default branch"
+  },
+  "RA while": {
+    "prefix": "while",
+    "body": [
+      "while (${1:condition})",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "While loop"
+  },
+  "RA do-while": {
+    "prefix": "dowhile",
+    "body": [
+      "do",
+      "{",
+      "\t$1",
+      "}",
+      "while ${2:condition}"
+    ],
+    "description": "Do/while loop"
+  },
+  "RA for-in": {
+    "prefix": "forin",
+    "body": [
+      "for ${1:item} in ${2:collection}",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "For-in loop"
+  },
+  "RA for-range": {
+    "prefix": "for",
+    "body": [
+      "for ${1:item} = ${2:start} to ${3:end} step ${4:step}",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "Range for loop"
+  },
+  "RA super-for": {
+    "prefix": "forc",
+    "body": [
+      "for (${1:init}; ${2:condition}; ${3:step})",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "C-style for loop"
+  },
+  "RA fn": {
+    "prefix": "fn",
+    "body": [
+      "fn ${1:name}(${2:args})",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "Function"
+  },
+  "RA ret": {
+    "prefix": "ret",
+    "body": [
+      "ret ${1:value}"
+    ],
+    "description": "Return statement"
+  },
+  "RA yield": {
+    "prefix": "yield",
+    "body": [
+      "yield ${1:value}"
+    ],
+    "description": "Yield statement"
+  },
+  "RA try": {
+    "prefix": "try",
+    "body": [
+      "try",
+      "{",
+      "\t$1",
+      "}",
+      "catch (${2:error})",
+      "{",
+      "\t$3",
+      "}",
+      "finally",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "Try/catch/finally"
+  },
+  "RA retry": {
+    "prefix": "retry",
+    "body": [
+      "retry for ${1:count} times delay ${2:delay}",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "Retry statement"
+  },
+  "RA goto": {
+    "prefix": "goto",
+    "body": [
+      "goto ${1:label}"
+    ],
+    "description": "Goto statement"
+  },
+  "RA label": {
+    "prefix": "label",
+    "body": [
+      "${1:label}:",
+      "\t$0"
+    ],
+    "description": "Label"
+  },
+  "RA del": {
+    "prefix": "del",
+    "body": [
+      "del ${1:name}"
+    ],
+    "description": "Delete variables"
+  },
+  "RA nameof": {
+    "prefix": "nameof",
+    "body": [
+      "nameof(${1:identifier})"
+    ],
+    "description": "NameOf expression"
+  },
+  "RA typeof": {
+    "prefix": "typeof",
+    "body": [
+      "typeof(${1:expression})"
+    ],
+    "description": "TypeOf expression"
+  },
+  "RA cast": {
+    "prefix": "cast",
+    "body": [
+      "${1:value} as ${2:type}"
+    ],
+    "description": "Cast expression"
+  },
+  "RA range": {
+    "prefix": "range",
+    "body": [
+      "${1:start} .. ${2:end}"
+    ],
+    "description": "Range expression"
+  },
+  "RA nullcoalesce": {
+    "prefix": "nullcoalesce",
+    "body": [
+      "${1:left} ?? ${2:right}"
+    ],
+    "description": "Null-coalescing expression"
+  },
+  "RA var": {
+    "prefix": "var",
+    "body": [
+      "var ${1:name} = ${2:value}"
+    ],
+    "description": "Variable declaration"
+  },
+  "RA let": {
+    "prefix": "let",
+    "body": [
+      "let ${1:name} = ${2:value}"
+    ],
+    "description": "Immutable binding"
+  },
+  "RA const": {
+    "prefix": "const",
+    "body": [
+      "const ${1:name} = ${2:value}"
+    ],
+    "description": "Constant declaration"
+  },
+  "RA final": {
+    "prefix": "final",
+    "body": [
+      "final ${1:name} = ${2:value}"
+    ],
+    "description": "Final declaration"
+  },
+  "RA pub-var": {
+    "prefix": "pubvar",
+    "body": [
+      "pub var ${1:name} = ${2:value}"
+    ],
+    "description": "Public variable"
+  },
+  "RA pub-fn": {
+    "prefix": "pubfn",
+    "body": [
+      "pub fn ${1:name}(${2:args})",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "Public function"
+  },
+  "RA abstract-fn": {
+    "prefix": "abfn",
+    "body": [
+      "abstract fn ${1:name}(${2:args})"
+    ],
+    "description": "Abstract function"
+  },
+  "RA static-fn": {
+    "prefix": "stfn",
+    "body": [
+      "static fn ${1:name}(${2:args})",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "Static function"
+  },
+  "RA override-fn": {
+    "prefix": "ovfn",
+    "body": [
+      "override fn ${1:name}(${2:args})",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "Override function"
+  },
+  "RA class": {
+    "prefix": "class",
+    "body": [
+      "class ${1:Name}",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "Class definition"
+  },
+  "RA pub-class": {
+    "prefix": "pubclass",
+    "body": [
+      "pub class ${1:Name}",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "Public class"
+  },
+  "RA abstract-class": {
+    "prefix": "abclass",
+    "body": [
+      "abstract class ${1:Name}",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "Abstract class"
+  },
+  "RA struct": {
+    "prefix": "struct",
+    "body": [
+      "struct ${1:Name}",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "Struct definition"
+  },
+  "RA interface": {
+    "prefix": "interface",
+    "body": [
+      "interface ${1:Name}",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "Interface definition"
+  },
+  "RA trait": {
+    "prefix": "trait",
+    "body": [
+      "trait ${1:Name}",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "Trait definition"
+  },
+  "RA enum": {
+    "prefix": "enum",
+    "body": [
+      "enum ${1:Name}",
+      "{",
+      "\t${2:Member1}",
+      ",",
+      "\t${3:Member2} = ${4:0}",
+      "\t$0",
+      "}"
+    ],
+    "description": "Enum definition"
+  },
+  "RA impl": {
+    "prefix": "impl",
+    "body": [
+      "impl ${1:Interface1}, ${2:Interface2}",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "Implements interfaces"
+  },
+  "RA extend": {
+    "prefix": "extend",
+    "body": [
+      "extend ${1:Type}",
+      "{",
+      "\tpub fn ${2:method}(${3:args})",
+      "\t{",
+      "\t\t$0",
+      "\t}",
+      "}"
+    ],
+    "description": "Extension block"
+  },
+  "RA with": {
+    "prefix": "with",
+    "body": [
+      "with ${1:Trait1}, ${2:Trait2}"
+    ],
+    "description": "Trait mixins"
+  },
+  "RA pub": {
+    "prefix": "pub",
+    "body": [
+      "pub ${1:member}"
+    ],
+    "description": "Public modifier"
+  },
+  "RA abstract": {
+    "prefix": "abstract",
+    "body": [
+      "abstract ${1:member}"
+    ],
+    "description": "Abstract modifier"
+  },
+  "RA static": {
+    "prefix": "static",
+    "body": [
+      "static ${1:member}"
+    ],
+    "description": "Static modifier"
+  },
+  "RA override": {
+    "prefix": "override",
+    "body": [
+      "override ${1:member}"
+    ],
+    "description": "Override modifier"
+  },
+  "RA line-slash": {
+    "prefix": "//",
+    "body": "// $1",
+    "description": "Line comment"
+  },
+  "RA line-hash": {
+    "prefix": "#",
+    "body": "# $1",
+    "description": "Hash comment"
+  },
+  "RA line-dash": {
+    "prefix": "---",
+    "body": "--- $1",
+    "description": "Triple-dash comment"
+  },
+  "RA block": {
+    "prefix": "/*",
+    "body": [
+      "/*",
+      " * $1",
+      " */"
+    ],
+    "description": "Block comment"
+  },
+  "RA xml": {
+    "prefix": "<!--",
+    "body": [
+      "<!--",
+      "  $1",
+      "-->"
+    ],
+    "description": "XML-style comment"
+  },
+  "RA type int": {
+    "prefix": "int",
+    "body": "int",
+    "description": "Built-in type int"
+  },
+  "RA type number": {
+    "prefix": "number",
+    "body": "number",
+    "description": "Built-in type number"
+  },
+  "RA type long": {
+    "prefix": "long",
+    "body": "long",
+    "description": "Built-in type long"
+  },
+  "RA type float": {
+    "prefix": "float",
+    "body": "float",
+    "description": "Built-in type float"
+  },
+  "RA type double": {
+    "prefix": "double",
+    "body": "double",
+    "description": "Built-in type double"
+  },
+  "RA type uint": {
+    "prefix": "uint",
+    "body": "uint",
+    "description": "Built-in type uint"
+  },
+  "RA type ulong": {
+    "prefix": "ulong",
+    "body": "ulong",
+    "description": "Built-in type ulong"
+  },
+  "RA type short": {
+    "prefix": "short",
+    "body": "short",
+    "description": "Built-in type short"
+  },
+  "RA type ushort": {
+    "prefix": "ushort",
+    "body": "ushort",
+    "description": "Built-in type ushort"
+  },
+  "RA type int128": {
+    "prefix": "int128",
+    "body": "int128",
+    "description": "Built-in type int128"
+  },
+  "RA type uint128": {
+    "prefix": "uint128",
+    "body": "uint128",
+    "description": "Built-in type uint128"
+  },
+  "RA type decimal": {
+    "prefix": "decimal",
+    "body": "decimal",
+    "description": "Built-in type decimal"
+  },
+  "RA type byte": {
+    "prefix": "byte",
+    "body": "byte",
+    "description": "Built-in type byte"
+  },
+  "RA type bool": {
+    "prefix": "bool",
+    "body": "bool",
+    "description": "Built-in type bool"
+  },
+  "RA type string": {
+    "prefix": "string",
+    "body": "string",
+    "description": "Built-in type string"
+  },
+  "RA type char": {
+    "prefix": "char",
+    "body": "char",
+    "description": "Built-in type char"
+  },
+  "RA type void": {
+    "prefix": "void",
+    "body": "void",
+    "description": "Built-in type void"
+  },
+  "RA type object": {
+    "prefix": "object",
+    "body": "object",
+    "description": "Built-in type object"
+  },
+  "RA type any": {
+    "prefix": "any",
+    "body": "any",
+    "description": "Built-in type any"
+  },
+  "RA kw null": {
+    "prefix": "null",
+    "body": "null",
+    "description": "Keyword null"
+  },
+  "RA kw true": {
+    "prefix": "true",
+    "body": "true",
+    "description": "Keyword true"
+  },
+  "RA kw false": {
+    "prefix": "false",
+    "body": "false",
+    "description": "Keyword false"
+  },
+  "RA kw and": {
+    "prefix": "and",
+    "body": "and",
+    "description": "Keyword and"
+  },
+  "RA kw or": {
+    "prefix": "or",
+    "body": "or",
+    "description": "Keyword or"
+  },
+  "RA kw not": {
+    "prefix": "not",
+    "body": "not",
+    "description": "Keyword not"
+  },
+  "RA kw in": {
+    "prefix": "in",
+    "body": "in",
+    "description": "Keyword in"
+  },
+  "RA kw not in": {
+    "prefix": "not in",
+    "body": "not in",
+    "description": "Keyword not in"
+  },
+  "RA kw as": {
+    "prefix": "as",
+    "body": "as",
+    "description": "Keyword as"
+  },
+  "RA kw typeof": {
+    "prefix": "typeof",
+    "body": "typeof",
+    "description": "Keyword typeof"
+  },
+  "RA kw nameof": {
+    "prefix": "nameof",
+    "body": "nameof",
+    "description": "Keyword nameof"
+  },
+  "RA kw self": {
+    "prefix": "self",
+    "body": "self",
+    "description": "Keyword self"
+  },
+  "RA kw super": {
+    "prefix": "super",
+    "body": "super",
+    "description": "Keyword super"
+  },
+  "RA kw pass": {
+    "prefix": "pass",
+    "body": "pass",
+    "description": "Keyword pass"
+  },
+  "RA kw break": {
+    "prefix": "break",
+    "body": "break",
+    "description": "Keyword break"
+  },
+  "RA kw continue": {
+    "prefix": "continue",
+    "body": "continue",
+    "description": "Keyword continue"
+  },
+  "RA kw delay": {
+    "prefix": "delay",
+    "body": "delay",
+    "description": "Keyword delay"
+  },
+  "RA kw times": {
+    "prefix": "times",
+    "body": "times",
+    "description": "Keyword times"
+  },
+  "RA kw step": {
+    "prefix": "step",
+    "body": "step",
+    "description": "Keyword step"
+  },
+  "RA kw to": {
+    "prefix": "to",
+    "body": "to",
+    "description": "Keyword to"
+  },
+  "RA if inline": {
+    "prefix": "if:",
+    "body": [
+      "if ${1:condition}: $0"
+    ],
+    "description": "Inline if statement"
+  },
+  "RA while inline": {
+    "prefix": "while:",
+    "body": [
+      "while ${1:condition}: $0"
+    ],
+    "description": "Inline while statement"
+  },
+  "RA for-in inline": {
+    "prefix": "forin:",
+    "body": [
+      "for ${1:item} in ${2:collection}: $0"
+    ],
+    "description": "Inline for-in statement"
+  },
+  "RA for-range inline": {
+    "prefix": "for:",
+    "body": [
+      "for ${1:item} = ${2:start} to ${3:end} step ${4:step}: $0"
+    ],
+    "description": "Inline range for"
+  }
+}
