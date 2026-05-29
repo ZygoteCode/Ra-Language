@@ -47,14 +47,29 @@ namespace RaLanguage.Interpreter.Values
                 if (idx >= len) throw new FormatException("Invalid number");
             }
 
+            // Prefixed integer literals (0x / 0b / 0o) must NOT be scanned for
+            // an 'e'/'E' exponent: in hexadecimal, 'e'/'E' are DIGITS, not the
+            // float exponent marker (only decimal floats use e/E). Without
+            // this guard "0xDEAD" was split at the first 'E' into mantissa
+            // "0xD" + bogus exponent "AD", silently corrupting or rejecting
+            // every hex literal containing E (0xFE -> 15, 0x1E -> 1,
+            // 0xDEADBEEF -> error). Detect the prefix before the exponent scan.
+            bool isPrefixed = idx + 1 < len && s[idx] == '0'
+                && ((s[idx + 1] | 0x20) == 'x'
+                    || (s[idx + 1] | 0x20) == 'b'
+                    || (s[idx + 1] | 0x20) == 'o');
+
             int expPos = -1;
-            for (int i = idx; i < len; i++)
+            if (!isPrefixed)
             {
-                char c = s[i];
-                if (c == 'e' || c == 'E')
+                for (int i = idx; i < len; i++)
                 {
-                    expPos = i;
-                    break;
+                    char c = s[i];
+                    if (c == 'e' || c == 'E')
+                    {
+                        expPos = i;
+                        break;
+                    }
                 }
             }
 

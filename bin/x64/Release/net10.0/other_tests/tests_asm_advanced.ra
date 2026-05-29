@@ -1,12 +1,27 @@
 print("=== ASM ADVANCED TESTS ===");
 
+# -------------------------------------------------------------------------
+# Determinism contract for this suite:
+#   Every check is a hard `assert_eq` on a value that is a DETERMINISTIC
+#   function of its inputs. Nothing volatile (wall-clock timings, addresses,
+#   live counters) is ever printed or asserted, so the suite is bit-for-bit
+#   reproducible across runs. `assert_eq` aborts the script on mismatch, so a
+#   regression fails loudly instead of silently printing a wrong value.
+# -------------------------------------------------------------------------
+
 print("--- typed return: asm -> i32 ---");
 let r_typed = asm -> i32 {
     mov eax, 0xCAFE
     ret
 };
-print(r_typed);
 assert_eq(r_typed, 51966, "asm -> i32 returns int");
+
+print("--- typed return: negative i32 (sign extension) ---");
+let r_neg = asm -> i32 {
+    mov eax, 0xFFFFFFFF
+    ret
+};
+assert_eq(r_neg, -1, "0xFFFFFFFF as i32 = -1 (sign-extended)");
 
 print("--- tuple return: asm -> (i64, i64) ---");
 let pair = asm -> (i64, i64) {
@@ -14,7 +29,6 @@ let pair = asm -> (i64, i64) {
     mov rdx, 100
     ret
 };
-print(pair);
 assert_eq(pair[0], 42, "tuple [0] = rax");
 assert_eq(pair[1], 100, "tuple [1] = rdx");
 
@@ -44,12 +58,18 @@ assert_eq(r_num, 10, "numeric loop sum 1..4");
 
 print("--- peephole: mov reg, 0 -> xor ---");
 let bytes_mov0 = asm_assemble("mov rax, 0\nret");
-print(len(bytes_mov0));
 assert_eq(len(bytes_mov0), 3, "after peephole: xor eax, eax + ret = 3 bytes (was 7)");
 
 print("--- peephole: add 1 -> inc ---");
 let bytes_add1 = asm_assemble("add rax, 1\nret");
 assert_eq(len(bytes_add1), 4, "REX.W + inc rax + ret = 4 bytes (REX + FF /0 modrm + C3)");
+
+print("--- assembly determinism: same source => identical bytes ---");
+let asm_det_1 = asm_assemble("mov rax, 7\nadd rax, 3\nret");
+let asm_det_2 = asm_assemble("mov rax, 7\nadd rax, 3\nret");
+assert_eq(len(asm_det_1), len(asm_det_2), "deterministic byte count");
+assert_eq(asm_det_1[0], asm_det_2[0], "deterministic byte[0]");
+assert_eq(asm_det_1[len(asm_det_1) - 1], asm_det_2[len(asm_det_2) - 1], "deterministic last byte (ret)");
 
 print("--- macro preprocessor: %define ---");
 let r_def = asm_compile("i64()", "
@@ -57,7 +77,6 @@ let r_def = asm_compile("i64()", "
     mov rax, MAGIC
     ret
 ");
-print(r_def());
 assert_eq(r_def(), 48879, "0xBEEF via %define");
 
 print("--- macro preprocessor: %macro/%endmacro ---");
@@ -92,7 +111,7 @@ let r_cond = asm_compile("i64()", "
 ");
 assert_eq(r_cond(), 100, "%if WANT == 1 path");
 
-print("--- data: db with string + ret address through rip-relative ---");
+print("--- data: rip-relative load of dq ---");
 let r_data_call = asm_compile("i64()", "
     lea rax, [rip + msg]
     mov rax, [rax]
@@ -100,8 +119,7 @@ let r_data_call = asm_compile("i64()", "
 msg:
     dq 0xDEADBEEF
 ");
-let v = r_data_call();
-print(format_hex(v));
+assert_eq(r_data_call(), 3735928559, "rip-relative dq load = 0xDEADBEEF");
 
 print("--- align ---");
 let bytes_aligned = asm_assemble("
@@ -109,7 +127,7 @@ let bytes_aligned = asm_assemble("
     align 16
     ret
 ");
-print(len(bytes_aligned));
+assert_eq(len(bytes_aligned), 17, "nop(1) + pad to 16 + ret(1) = 17 bytes");
 
 print("--- times directive ---");
 let r_times = asm_compile("i64()", "
@@ -119,7 +137,7 @@ times 3 inc rax
 ");
 assert_eq(r_times(), 3, "times 3 inc rax");
 
-print("--- ISA: cmovne ---");
+print("--- ISA: cmovz ---");
 let asm_cond = asm_compile("i64(i64,i64)", "
     mov rax, rcx
     test rcx, rcx
@@ -138,12 +156,13 @@ assert_eq(asm_pop_arg(255), 8, "popcnt 255 = 8");
 assert_eq(asm_pop_arg(0), 0, "popcnt 0 = 0");
 assert_eq(asm_pop_arg(7), 3, "popcnt 7 = 3");
 
-print("--- ISA: tzcnt / lzcnt ---");
+print("--- ISA: tzcnt ---");
 let asm_tz = asm_compile("i64(i64)", "
     tzcnt rax, rcx
     ret
 ");
 assert_eq(asm_tz(8), 3, "tzcnt 8 = 3");
+assert_eq(asm_tz(1), 0, "tzcnt 1 = 0");
 
 print("--- ISA: bswap ---");
 let asm_bs = asm_compile("u64(u64)", "
@@ -151,9 +170,10 @@ let asm_bs = asm_compile("u64(u64)", "
     bswap rax
     ret
 ");
-print(format_hex(asm_bs(0x0102030405060708)));
+assert_eq(asm_bs(0x0102030405060708), 0x0807060504030201, "bswap reverses byte order");
+assert_eq(asm_bs(0xFF00000000000000), 0x00000000000000FF, "bswap high byte -> low byte (high-bit input)");
 
-print("--- ISA: rdtsc available ---");
+print("--- ISA: rdtsc available + monotonic ---");
 let asm_tsc = asm_compile("i64()", "
     rdtsc
     shl rdx, 32
@@ -162,8 +182,7 @@ let asm_tsc = asm_compile("i64()", "
 ");
 let tsc1 = asm_tsc();
 let tsc2 = asm_tsc();
-print(tsc2 > tsc1);
-assert_eq(tsc2 > tsc1, true, "tsc moves forward");
+assert_eq(tsc2 >= tsc1, true, "tsc is monotonic non-decreasing");
 
 print("--- ISA: SSE2 paddd packed integer ---");
 let asm_paddd = asm_compile("i32(ptr,ptr)", "
@@ -183,55 +202,89 @@ native_write_i32(buf_b, 0, 7);
 native_write_i32(buf_b, 4, 8);
 native_write_i32(buf_b, 8, 9);
 native_write_i32(buf_b, 12, 10);
-let sum_lane0 = asm_paddd(buf_a, buf_b);
-assert_eq(sum_lane0, 107, "paddd lane[0] = 107");
+assert_eq(asm_paddd(buf_a, buf_b), 107, "paddd lane[0] = 100 + 7 = 107");
 native_free(buf_a);
 native_free(buf_b);
 
-print("--- ISA: shld ---");
-let asm_shld = asm_compile("i64(i64,i64)", "
+print("--- ISA: shld (REGRESSION: pulls high bits of source) ---");
+# shld dest, src, count : dest = (dest << count) | (src >> (64 - count)).
+# Regression guard for the u64 high-bit arg-marshalling bug: src here has its
+# top bits set, so a correct shld must surface them. Before the fix the source
+# register marshalled to 0 and shld degenerated to a plain shift-left.
+let asm_shld4 = asm_compile("u64(u64,u64)", "
     mov rax, rcx
     shld rax, rdx, 4
     ret
 ");
-let s_shld = asm_shld(0x100, 0xF0000000_00000000);
-print(format_hex(s_shld));
+assert_eq(asm_shld4(0x100, 0xF000000000000000), 0x100F, "shld 4: (0x100<<4)|(src>>60)=0x1000|0xF");
+let asm_shld8 = asm_compile("u64(u64,u64)", "
+    mov rax, rcx
+    shld rax, rdx, 8
+    ret
+");
+assert_eq(asm_shld8(0xFF, 0xFFFFFFFFFFFFFFFF), 0xFFFF, "shld 8: (0xFF<<8)|(src>>56)=0xFF00|0xFF");
+let asm_shld1 = asm_compile("u64(u64,u64)", "
+    mov rax, rcx
+    shld rax, rdx, 1
+    ret
+");
+assert_eq(asm_shld1(0x1, 0x8000000000000000), 0x3, "shld 1: (0x1<<1)|(src>>63)=0x2|0x1");
 
-print("--- disassembler: round-trip ---");
+print("--- REGRESSION: 64-bit argument marshalling across full u64 range ---");
+# Root-cause guard. A Ra `number` literal >= 2^63 used to marshal to 0 for
+# both asm and DLL FFI (the BigNumber->long cast threw, the ToString fallback
+# failed). Each case below would have returned 0 before the NativeMarshaller fix.
+let echo_rcx = asm_compile("u64(u64)", "
+    mov rax, rcx
+    ret
+");
+assert_eq(echo_rcx(0x7000000000000000), 0x7000000000000000, "arg < 2^63 round-trips");
+assert_eq(echo_rcx(0x8000000000000000), 0x8000000000000000, "arg = 2^63 (sign bit) round-trips (was 0)");
+assert_eq(echo_rcx(0xF000000000000000), 0xF000000000000000, "arg with high nibble set round-trips (was 0)");
+assert_eq(echo_rcx(0xFFFFFFFFFFFFFFFF), 0xFFFFFFFFFFFFFFFF, "u64 max round-trips (was 0)");
+let echo_rdx = asm_compile("u64(u64,u64)", "
+    mov rax, rdx
+    ret
+");
+assert_eq(echo_rdx(0, 0xDEADBEEFCAFEBABE), 0xDEADBEEFCAFEBABE, "high-bit arg in 2nd register slot round-trips (was 0)");
+
+print("--- disassembler: round-trip shape ---");
 let disasm_lines = asm_disasm("
     mov rax, 42
     add rax, 8
     ret
 ");
-print(len(disasm_lines));
-for line in disasm_lines {
-    print(line);
-}
+assert_eq(len(disasm_lines) >= 3, true, "disassembly yields at least the 3 logical instructions");
 
 print("--- explain ---");
-print(asm_explain("xor"));
-print(asm_explain("syscall"));
-print(asm_explain("totally_made_up"));
+let ex_xor = asm_explain("xor");
+let ex_unknown = asm_explain("totally_made_up");
+assert_eq(len(ex_xor) > 0, true, "known mnemonic has explanation");
+assert_eq(ex_xor == ex_unknown, false, "unknown mnemonic explanation differs from known");
 
-print("--- did-you-mean ---");
+print("--- did-you-mean: typo is rejected ---");
+var typo_caught = false;
 try {
     let bad = asm_compile("i64()", "mvo rax, 5\nret");
     print("UNEXPECTED OK");
 } catch (e) {
-    print("got expected did-you-mean error");
+    typo_caught = true;
 }
+assert_eq(typo_caught, true, "typo'd mnemonic rejected with did-you-mean error");
 
 print("--- sandbox: blocks syscall ---");
+var syscall_blocked = false;
 try {
     let evil = asm_compile_sandboxed("i64()", "syscall\nret");
     print("UNEXPECTED OK");
 } catch (e) {
-    print("sandbox correctly blocked syscall");
+    syscall_blocked = true;
 }
+assert_eq(syscall_blocked, true, "sandbox blocks syscall");
 
 print("--- sandbox: allows safe code ---");
 let safe = asm_compile_sandboxed("i64()", "mov rax, 99\nret");
-assert_eq(safe(), 99, "sandbox-safe asm");
+assert_eq(safe(), 99, "sandbox-safe asm runs");
 
 print("--- analyzer: warnings present ---");
 let findings = asm_analyze("
@@ -239,12 +292,12 @@ mov rax, 5
 mov rbx, 7
 mov rsi, 9
 ");
-print(len(findings));
-print(findings);
+assert_eq(len(findings), 3, "analyzer flags missing ret + 2 clobbered callee-saved regs");
 
-print("--- pool stats ---");
+print("--- pool stats: structural + fixed cap ---");
 let stats = asm_pool_stats();
-print(stats);
+assert_eq(map_get(stats, "max_bytes"), 67108864, "pool cap is 64 MiB");
+assert_eq((map_get(stats, "interned") as long) > 0, true, "pool has interned entries");
 
 print("--- asm_with_defines ---");
 let fn_with = asm_with_defines("i64()", { "CONST_VAL": "0x77" }, "
@@ -260,14 +313,16 @@ let h3 = asm_hash("mov rax, 1\n  ret  \n");
 assert_eq(h1, h2, "exact same source => same hash");
 assert_eq(h1, h3, "whitespace-normalized => same hash");
 
-print("--- bench ---");
+print("--- bench: deterministic structure, no volatile timing asserted ---");
 let asm_inc = asm_compile("i64()", "
     mov rax, 42
     add rax, 1
     ret
 ");
 let bench = asm_bench(asm_inc, 100000);
-print(bench);
+assert_eq(map_get(bench, "iterations"), 100000, "bench echoes iteration count");
+assert_eq((map_get(bench, "total_ns") as long) >= 0, true, "bench total_ns is non-negative");
+assert_eq(asm_inc(), 43, "benched function still returns correct value after bench");
 
 print("--- interpolation type hints ---");
 let xv = 255;
@@ -279,7 +334,6 @@ assert_eq(r_hex, 255, "interp hex hint");
 
 print("--- mnemonic catalog ---");
 let mnems = asm_mnemonics();
-print(len(mnems));
 assert_eq(len(mnems) > 100, true, "rich mnemonic catalog");
 
 print("=== ASM ADVANCED TESTS PASSED ===");

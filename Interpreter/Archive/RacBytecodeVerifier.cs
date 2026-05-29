@@ -302,6 +302,19 @@ namespace RaLanguage.Interpreter.Archive
                         CheckJumpTarget(pc, simm16, codeLen, opName, diags, path);
                         break;
 
+                    // ----- M90 fused compare-and-branch -----
+                    // [op][a:lhsSlot][b:rhsSlot][c: signed-8 branch offset].
+                    case Opcode.JmpNotLtII:
+                    case Opcode.JmpNotLeII:
+                    case Opcode.JmpNotGtII:
+                    case Opcode.JmpNotGeII:
+                    case Opcode.JmpNotEqII:
+                    case Opcode.JmpNotNeII:
+                        CheckSlot(a, local, pc, opName, "a (lhs)", diags, path);
+                        CheckSlot(bLo, local, pc, opName, "b (rhs)", diags, path);
+                        CheckJumpTarget(pc, (short)(sbyte)cLo, codeLen, opName, diags, path);
+                        break;
+
                     // ----- Strings / interpolation -----
                     case Opcode.Interp:
                         CheckSlot(a, local, pc, opName, "a (dst)", diags, path);

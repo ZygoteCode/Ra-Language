@@ -44,6 +44,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
             public int BranchesEliminated;
             public int GvnSubstitutions;
             public int DeadOps;
+            public int FusedBranches;
         }
 
         // Apply every rewrite phase. Mutates `fn.Code` and may append
@@ -760,6 +761,14 @@ namespace RaLanguage.Interpreter.IR.Analysis
             }
             if (iiSwaps > 0) fn.UsesUnboxedSlots = true;
 
+            // NOTE: fused compare-and-branch (M90) is NOT done here. It must
+            // run as the LAST code transform — after LICM, which physically
+            // reshuffles Code[] and patches only the standard imm16 branch
+            // opcodes (Jmp/JmpIf/JmpIfNot), not the fused ops' sbyte-encoded
+            // offset. Running it here (pre-LICM) would let LICM invalidate the
+            // baked offsets. See `FuseCompareBranches`, called from
+            // IrCompiler.FinalizeFn after LICM with a fresh bundle.
+
             // Flush mutated const pool back to the RaFunction.
             if (consts.Count != fn.Consts.Length)
             {
@@ -767,6 +776,108 @@ namespace RaLanguage.Interpreter.IR.Analysis
             }
             return stats;
         }
+
+        // M90 fused compare-and-branch. Runs as the FINAL code transform
+        // (from IrCompiler.FinalizeFn, after LICM) so the offsets it bakes
+        // into the fused ops match the layout that actually executes —
+        // LICM moves instructions and patches only imm16-encoded branches,
+        // never the fused ops' sbyte offset, so this MUST come after it.
+        //
+        // Fuses `cmpII@n ; JmpIfNot@n+1` (the loop-test pattern; LtII +
+        // JmpIfNot alone are ~37% of dispatched opcodes) into a single
+        // `JmpNot{Cmp}II@n`, turning n+1 into Pass. One dispatch replaces
+        // two, and the cmp's dual-rep slot write + the JmpIfNot's slot read
+        // both vanish.
+        //
+        // Builds its own fresh CFG+SSA bundle on the final layout. Safety
+        // (all required):
+        //   * opcode[n] is a typed II comparison; opcode[n+1] is a JmpIfNot
+        //     reading the exact slot cmpII wrote;
+        //   * n and n+1 sit in the SAME basic block — so n+1 is reachable
+        //     only by fall-through from n (no foreign predecessor loses its
+        //     branch when n+1 becomes Pass);
+        //   * the cmp slot's SSA def at n has its ONLY use at n+1 and feeds
+        //     no phi — so dropping the slot write is safe;
+        //   * the fused offset (origOffset + 1, since the fused op sits one
+        //     PC before the JmpIfNot it absorbs) fits signed-8.
+        // Returns the number of fused pairs.
+        public static int FuseCompareBranches(RaFunction fn)
+        {
+            if (fn == null || fn.Code == null || fn.Code.Length < 2) return 0;
+
+            // Cheap pre-scan: skip the bundle build entirely when no
+            // candidate cmpII-then-JmpIfNot adjacency exists (most
+            // non-loop functions).
+            bool anyCandidate = false;
+            for (int n = 0; n + 1 < fn.Code.Length; n++)
+            {
+                if (IsFusibleCmpII(Encoding.DecodeOp(fn.Code[n]))
+                    && Encoding.DecodeOp(fn.Code[n + 1]) == Opcode.JmpIfNot)
+                { anyCandidate = true; break; }
+            }
+            if (!anyCandidate) return 0;
+
+            IrAnalysisBundle bundle;
+            try { bundle = IrAnalysisBundle.Build(fn); }
+            catch { return 0; }
+            if (bundle.Ssa == null || bundle.Cfg == null) return 0;
+            var ssa = bundle.Ssa;
+            var cfg = bundle.Cfg;
+
+            var usesByVer = new Dictionary<(int Slot, int Ver), List<int>>();
+            foreach (var u in ssa.UseVersions)
+            {
+                var key = (u.Key.Slot, u.Value);
+                if (!usesByVer.TryGetValue(key, out var l)) { l = new List<int>(); usesByVer[key] = l; }
+                l.Add(u.Key.Pc);
+            }
+            var feedsPhi = new HashSet<(int Slot, int Ver)>();
+            foreach (var kv in ssa.PhiArgs)
+            {
+                int slot = kv.Key.Slot;
+                foreach (int argV in kv.Value)
+                    if (argV != 0) feedsPhi.Add((slot, argV));
+            }
+
+            int fusedCount = 0;
+            for (int n = 0; n + 1 < fn.Code.Length; n++)
+            {
+                Opcode fusedOp;
+                switch (Encoding.DecodeOp(fn.Code[n]))
+                {
+                    case Opcode.LtII: fusedOp = Opcode.JmpNotLtII; break;
+                    case Opcode.LeII: fusedOp = Opcode.JmpNotLeII; break;
+                    case Opcode.GtII: fusedOp = Opcode.JmpNotGtII; break;
+                    case Opcode.GeII: fusedOp = Opcode.JmpNotGeII; break;
+                    case Opcode.EqII: fusedOp = Opcode.JmpNotEqII; break;
+                    case Opcode.NeII: fusedOp = Opcode.JmpNotNeII; break;
+                    default: continue;
+                }
+                uint jmpInstr = fn.Code[n + 1];
+                if (Encoding.DecodeOp(jmpInstr) != Opcode.JmpIfNot) continue;
+                int cmpSlot = Encoding.A(fn.Code[n]);
+                if (Encoding.A(jmpInstr) != cmpSlot) continue;
+                if (n >= cfg.PcToBlock.Length || (n + 1) >= cfg.PcToBlock.Length) continue;
+                if (cfg.PcToBlock[n] != cfg.PcToBlock[n + 1]) continue;
+                if (!ssa.DefVersions.TryGetValue((n, cmpSlot), out int ver)) continue;
+                if (feedsPhi.Contains((cmpSlot, ver))) continue;
+                if (!usesByVer.TryGetValue((cmpSlot, ver), out var uses)) continue;
+                if (uses.Count != 1 || uses[0] != n + 1) continue;
+                int newOff = Encoding.SImm16(jmpInstr) + 1;
+                if (newOff < sbyte.MinValue || newOff > sbyte.MaxValue) continue;
+                byte lhs = Encoding.B(fn.Code[n]);
+                byte rhs = Encoding.C(fn.Code[n]);
+                fn.Code[n] = Encoding.Pack3(fusedOp, lhs, rhs, (byte)(sbyte)newOff);
+                fn.Code[n + 1] = Encoding.Pack3(Opcode.Pass, 0, 0, 0);
+                fusedCount++;
+                n++; // skip the consumed Pass
+            }
+            return fusedCount;
+        }
+
+        private static bool IsFusibleCmpII(Opcode op) =>
+            op == Opcode.LtII || op == Opcode.LeII || op == Opcode.GtII
+            || op == Opcode.GeII || op == Opcode.EqII || op == Opcode.NeII;
 
         // M66.2: SlotTypeHints query that treats only the inferred
         // `Number` type as a green light for II promotion. Other types

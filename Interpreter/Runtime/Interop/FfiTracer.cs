@@ -20,8 +20,62 @@ namespace RaLanguage.Interpreter.Runtime.Interop
 
         public static bool Enabled => Environment.GetEnvironmentVariable("RA_FFI_TRACE") == "1";
 
+        // ----- Introspection store (deterministic fields only) -------------
+        //
+        // The JSONL line emitted to the sink carries inherently volatile data
+        // (UTC timestamp, elapsed microseconds, the live return value such as
+        // a process id) which makes stdout/stderr golden-comparison flaky. To
+        // let regression tests verify that tracing actually FIRED — and that
+        // the recorded call shape is correct — without depending on volatile
+        // values, every Emit also records into this process-wide store the
+        // fields that ARE a deterministic function of the call site:
+        // library, entry point, argument count, and the OS last-error code.
+        // Exposed to Ra via the `ffi_trace_count` / `ffi_trace_last`
+        // builtins. The running counter mirrors the design of
+        // `abi_canary_count` / `callback_count`; tests use a before/after
+        // delta so the value is robust to accumulation across calls.
+        private static long _count;
+        private static string _lastLibrary = "";
+        private static string _lastEntryPoint = "";
+        private static int _lastArgCount;
+        private static int _lastErrorCode;
+
+        public static long Count => Interlocked.Read(ref _count);
+
+        public static (string Library, string EntryPoint, int ArgCount, int LastError) LastRecord
+        {
+            get { lock (_writeLock) return (_lastLibrary, _lastEntryPoint, _lastArgCount, _lastErrorCode); }
+        }
+
+        // Test-isolation reset. Mirrors the other process-wide registries
+        // cleared by Program.InitializeSymbolTable so menu-driven re-runs
+        // start from a known state.
+        public static void Reset()
+        {
+            Interlocked.Exchange(ref _count, 0);
+            lock (_writeLock)
+            {
+                _lastLibrary = "";
+                _lastEntryPoint = "";
+                _lastArgCount = 0;
+                _lastErrorCode = 0;
+            }
+        }
+
         public static void Emit(string library, string entryPoint, IReadOnlyList<string>? formattedArgs, string? returnRepr, long elapsedMicros, int lastErrorCode)
         {
+            // Record deterministic fields BEFORE any sink work so the
+            // introspection store is populated even when output is
+            // suppressed or the sink write throws.
+            Interlocked.Increment(ref _count);
+            lock (_writeLock)
+            {
+                _lastLibrary = library ?? "";
+                _lastEntryPoint = entryPoint ?? "";
+                _lastArgCount = formattedArgs?.Count ?? 0;
+                _lastErrorCode = lastErrorCode;
+            }
+
             var sink = ResolveSink();
             if (sink == null) return;
 

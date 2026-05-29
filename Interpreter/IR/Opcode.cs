@@ -585,6 +585,29 @@ namespace RaLanguage.Interpreter.IR
         // streams + body `break`.
         ForEachStreamPull = 0xE2,
 
+        // --- M90 fused compare-and-branch superinstructions ---
+        //
+        // Fuse the dominant loop-test pattern `cmpII cmp,b,c; JmpIfNot
+        // cmp,off` (37% of dispatched opcodes in the bench suite —
+        // LtII+JmpIfNot alone) into a single dispatch. Layout:
+        //   [op][a:lhsSlot][b:rhsSlot][c:signed-8 offset]
+        // Semantics: read lhs/rhs as int64 (deopt to the boxed
+        // comparison on tag miss), evaluate the comparison, and branch
+        // by `(sbyte)c` when the comparison is FALSE — mirroring the
+        // `JmpIfNot` that followed the original compare. The branch
+        // offset is relative to this op's pc+1 (same convention as
+        // Jmp/JmpIf), so the rewriter sets it to `origJmpOffset + 1`
+        // (the fused op sits one slot earlier than the JmpIfNot it
+        // absorbs). Emitted only by IrRewriter's fusion phase, which
+        // replaces the cmpII at PC n and turns the JmpIfNot at PC n+1
+        // into a Pass — preserving the 1:1 PC-index invariant.
+        JmpNotLtII      = 0xE3,   // if !(a <  b) pc += (sbyte)c
+        JmpNotLeII      = 0xE4,   // if !(a <= b) pc += (sbyte)c
+        JmpNotGtII      = 0xE5,   // if !(a >  b) pc += (sbyte)c
+        JmpNotGeII      = 0xE6,   // if !(a >= b) pc += (sbyte)c
+        JmpNotEqII      = 0xE7,   // if !(a == b) pc += (sbyte)c
+        JmpNotNeII      = 0xE8,   // if !(a != b) pc += (sbyte)c
+
         // --- misc ---
         Pass            = 0xF0,
         Delete          = 0xF1,   // a (slot)
