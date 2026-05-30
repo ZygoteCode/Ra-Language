@@ -20,6 +20,20 @@
       "}"
     ]
   ],
+  "colorizedBracketPairs": [
+    [
+      "(",
+      ")"
+    ],
+    [
+      "[",
+      "]"
+    ],
+    [
+      "{",
+      "}"
+    ]
+  ],
   "autoClosingPairs": [
     {
       "open": "{",
@@ -35,21 +49,37 @@
     },
     {
       "open": "\"",
-      "close": "\""
+      "close": "\"",
+      "notIn": [
+        "string",
+        "comment"
+      ]
     },
     {
       "open": "'",
-      "close": "'"
+      "close": "'",
+      "notIn": [
+        "string",
+        "comment"
+      ]
     },
     {
       "open": "`",
-      "close": "`"
+      "close": "`",
+      "notIn": [
+        "string",
+        "comment"
+      ]
     },
     {
       "open": "/*",
-      "close": "*/"
+      "close": "*/",
+      "notIn": [
+        "string"
+      ]
     }
   ],
+  "autoCloseBefore": ";:.,=}])> \n\t\r",
   "surroundingPairs": [
     {
       "open": "{",
@@ -74,13 +104,19 @@
     {
       "open": "`",
       "close": "`"
-    },
-    {
-      "open": "/*",
-      "close": "*/"
     }
   ],
-  "autoCloseBefore": ";:.,=}])> \n\t\r",
+  "indentationRules": {
+    "increaseIndentPattern": "(\\{[^}\"'`]*|\\([^)\"'`]*|\\[[^\\]\"'`]*)$",
+    "decreaseIndentPattern": "^\\s*[\\}\\)\\]]"
+  },
+  "folding": {
+    "offSide": false,
+    "markers": {
+      "start": "^\\s*(?://|#|---|<!--)\\s*#?region\\b",
+      "end": "^\\s*(?://|#|---|<!--)\\s*#?endregion\\b"
+    }
+  },
   "onEnterRules": [
     {
       "beforeText": "^\\s*(//)\\s*(.*)$",

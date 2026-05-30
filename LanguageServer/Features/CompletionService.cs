@@ -260,14 +260,14 @@ namespace RaLanguage.LanguageServer.Features
 
         private static readonly string[] s_keywords =
         {
-            "and", "as", "abstract", "async", "await", "break", "case", "catch", "class", "const",
-            "continue", "default", "del", "delay", "delegate", "do", "elif", "else", "emit", "enum",
-            "event", "extend", "factory", "final", "finally", "fn", "for", "from", "goto", "if",
-            "impl", "import", "in", "interface", "is", "lazy", "let", "match", "move", "mut",
+            "and", "as", "abstract", "async", "await", "break", "cancellable", "case", "catch", "class",
+            "const", "continue", "default", "del", "delay", "delegate", "do", "elif", "else", "emit",
+            "enum", "event", "extend", "factory", "final", "finally", "fn", "for", "from", "goto",
+            "if", "impl", "import", "in", "interface", "is", "lazy", "let", "match", "move", "mut",
             "namespace", "nameof", "not", "null", "operator", "or", "override", "pass", "prop", "pub",
             "record", "ref", "ret", "retry", "self", "spawn", "static", "step", "struct", "super",
-            "switch", "throw", "times", "to", "trait", "try", "typeof", "using", "var", "where",
-            "while", "with", "yield", "true", "false",
+            "switch", "throw", "times", "to", "tolerant", "trait", "try", "typeof", "using", "var",
+            "where", "while", "with", "yield", "true", "false",
         };
 
         private static readonly string[] s_builtinTypes =

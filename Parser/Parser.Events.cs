@@ -254,13 +254,11 @@ namespace RaLanguage.Parser
         }
 
         // Helper used by container parsers: consumes the optional
-        // `cancellable` contextual keyword (an identifier in the lexer).
-        // Returns true if consumed; leaves the stream untouched
-        // otherwise.
+        // `cancellable` keyword. Returns true if consumed; leaves the
+        // stream untouched otherwise.
         private bool TryConsumeCancellable(ParserResult res)
         {
-            if (_currentToken.Type == TokenType.IDENTIFIER &&
-                string.Equals(_currentToken.Value?.ToString(), "cancellable", System.StringComparison.Ordinal))
+            if (_currentToken.Matches(Keyword.Cancellable))
             {
                 res.RegisterAdvancement();
                 Advance();
@@ -276,37 +274,32 @@ namespace RaLanguage.Parser
         }
 
         // Generic helper: consumes optional event modifiers in any
-        // order. The set is `cancellable` / `tolerant` / `async`.
-        // `async` is a real keyword; `cancellable` and `tolerant` are
-        // contextual identifiers. Returns a triple of consumed flags.
-        // Stops as soon as a non-modifier token is observed so the
-        // caller can dispatch on `event` immediately after.
+        // order. The set is `cancellable` / `tolerant` / `async`, all
+        // reserved keywords. Returns a triple of consumed flags. Stops
+        // as soon as a non-modifier token is observed so the caller can
+        // dispatch on `event` immediately after.
         private (bool cancellable, bool tolerant, bool isAsync) TryConsumeEventModifiers(ParserResult res)
         {
             bool cancellable = false, tolerant = false, isAsync = false;
             while (true)
             {
-                if (_currentToken.Type == TokenType.IDENTIFIER)
+                if (_currentToken.Matches(Keyword.Cancellable))
                 {
-                    var v = _currentToken.Value?.ToString();
-                    if (string.Equals(v, "cancellable", System.StringComparison.Ordinal))
-                    {
-                        if (cancellable) break;
-                        cancellable = true;
-                        res.RegisterAdvancement();
-                        Advance();
-                        while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
-                        continue;
-                    }
-                    if (string.Equals(v, "tolerant", System.StringComparison.Ordinal))
-                    {
-                        if (tolerant) break;
-                        tolerant = true;
-                        res.RegisterAdvancement();
-                        Advance();
-                        while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
-                        continue;
-                    }
+                    if (cancellable) break;
+                    cancellable = true;
+                    res.RegisterAdvancement();
+                    Advance();
+                    while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+                    continue;
+                }
+                if (_currentToken.Matches(Keyword.Tolerant))
+                {
+                    if (tolerant) break;
+                    tolerant = true;
+                    res.RegisterAdvancement();
+                    Advance();
+                    while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+                    continue;
                 }
                 if (_currentToken.Matches(Keyword.Async))
                 {
@@ -321,9 +314,8 @@ namespace RaLanguage.Parser
                     eaten++;
                     while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); eaten++; }
                     bool looksLikeEvent = _currentToken.Matches(Keyword.Event) ||
-                        (_currentToken.Type == TokenType.IDENTIFIER &&
-                         (string.Equals(_currentToken.Value?.ToString(), "cancellable", System.StringComparison.Ordinal) ||
-                          string.Equals(_currentToken.Value?.ToString(), "tolerant", System.StringComparison.Ordinal)));
+                        _currentToken.Matches(Keyword.Cancellable) ||
+                        _currentToken.Matches(Keyword.Tolerant);
                     if (looksLikeEvent)
                     {
                         if (isAsync)

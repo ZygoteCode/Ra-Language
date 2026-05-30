@@ -1,5 +1,5 @@
 {
-  "RA if": {
+  "If": {
     "prefix": "if",
     "body": [
       "if (${1:condition})",
@@ -9,7 +9,12 @@
     ],
     "description": "If statement"
   },
-  "RA elif": {
+  "If inline": {
+    "prefix": "if:",
+    "body": "if ${1:condition}: $0",
+    "description": "Inline if statement"
+  },
+  "Elif": {
     "prefix": "elif",
     "body": [
       "elif (${1:condition})",
@@ -19,7 +24,7 @@
     ],
     "description": "Else-if branch"
   },
-  "RA ifelse": {
+  "If / else": {
     "prefix": "ifelse",
     "body": [
       "if (${1:condition})",
@@ -31,38 +36,42 @@
       "\t$0",
       "}"
     ],
-    "description": "If/else statement"
+    "description": "If / else statement"
   },
-  "RA switch": {
+  "Switch": {
     "prefix": "switch",
     "body": [
       "switch (${1:value})",
       "{",
-      "\tcase ${2:pattern}:",
-      "\t\t$0",
-      "\tdefault:",
-      "\t\tpass",
+      "\tcase ${2:pattern}: $3; break;",
+      "\tdefault: $0;",
       "}"
     ],
-    "description": "Switch block"
+    "description": "Switch block (colon form)"
   },
-  "RA case": {
-    "prefix": "case",
+  "Switch arrow": {
+    "prefix": "switcharrow",
     "body": [
-      "case ${1:pattern}:",
-      "\t$0"
+      "switch (${1:value})",
+      "{",
+      "\tcase ${2:pattern} -> $3;",
+      "\tdefault -> $0;",
+      "}"
     ],
-    "description": "Switch case branch"
+    "description": "Switch block (arrow form)"
   },
-  "RA default": {
-    "prefix": "default",
+  "Match": {
+    "prefix": "match",
     "body": [
-      "default:",
-      "\t$0"
+      "match ${1:value}",
+      "{",
+      "\tcase ${2:pattern} -> $3",
+      "\tcase _ -> $0",
+      "}"
     ],
-    "description": "Switch default branch"
+    "description": "Match expression"
   },
-  "RA while": {
+  "While": {
     "prefix": "while",
     "body": [
       "while (${1:condition})",
@@ -72,18 +81,18 @@
     ],
     "description": "While loop"
   },
-  "RA do-while": {
+  "Do / while": {
     "prefix": "dowhile",
     "body": [
       "do",
       "{",
       "\t$1",
       "}",
-      "while ${2:condition}"
+      "while (${2:condition})"
     ],
-    "description": "Do/while loop"
+    "description": "Do / while loop"
   },
-  "RA for-in": {
+  "For-in": {
     "prefix": "forin",
     "body": [
       "for ${1:item} in ${2:collection}",
@@ -93,51 +102,37 @@
     ],
     "description": "For-in loop"
   },
-  "RA for-range": {
+  "For range": {
     "prefix": "for",
     "body": [
-      "for ${1:item} = ${2:start} to ${3:end} step ${4:step}",
+      "for ${1:i} = ${2:0} to ${3:n} step ${4:1}",
       "{",
       "\t$0",
       "}"
     ],
     "description": "Range for loop"
   },
-  "RA super-for": {
+  "For C-style": {
     "prefix": "forc",
     "body": [
-      "for (${1:init}; ${2:condition}; ${3:step})",
+      "for (var ${1:i} = ${2:0}; ${1:i} < ${3:n}; ${1:i}++)",
       "{",
       "\t$0",
       "}"
     ],
     "description": "C-style for loop"
   },
-  "RA fn": {
-    "prefix": "fn",
+  "Retry": {
+    "prefix": "retry",
     "body": [
-      "fn ${1:name}(${2:args})",
+      "retry for ${1:count} times delay ${2:delay}",
       "{",
       "\t$0",
       "}"
     ],
-    "description": "Function"
+    "description": "Retry block"
   },
-  "RA ret": {
-    "prefix": "ret",
-    "body": [
-      "ret ${1:value}"
-    ],
-    "description": "Return statement"
-  },
-  "RA yield": {
-    "prefix": "yield",
-    "body": [
-      "yield ${1:value}"
-    ],
-    "description": "Yield statement"
-  },
-  "RA try": {
+  "Try / catch / finally": {
     "prefix": "try",
     "body": [
       "try",
@@ -153,26 +148,23 @@
       "\t$0",
       "}"
     ],
-    "description": "Try/catch/finally"
+    "description": "Try / catch / finally"
   },
-  "RA retry": {
-    "prefix": "retry",
+  "Try / catch": {
+    "prefix": "trycatch",
     "body": [
-      "retry for ${1:count} times delay ${2:delay}",
+      "try",
+      "{",
+      "\t$1",
+      "}",
+      "catch (${2:error})",
       "{",
       "\t$0",
       "}"
     ],
-    "description": "Retry statement"
+    "description": "Try / catch"
   },
-  "RA goto": {
-    "prefix": "goto",
-    "body": [
-      "goto ${1:label}"
-    ],
-    "description": "Goto statement"
-  },
-  "RA label": {
+  "Label": {
     "prefix": "label",
     "body": [
       "${1:label}:",
@@ -180,101 +172,35 @@
     ],
     "description": "Label"
   },
-  "RA del": {
-    "prefix": "del",
+
+  "Function": {
+    "prefix": "fn",
     "body": [
-      "del ${1:name}"
+      "fn ${1:name}(${2:args})",
+      "{",
+      "\t$0",
+      "}"
     ],
-    "description": "Delete variables"
+    "description": "Function"
   },
-  "RA nameof": {
-    "prefix": "nameof",
-    "body": [
-      "nameof(${1:identifier})"
-    ],
-    "description": "NameOf expression"
-  },
-  "RA typeof": {
-    "prefix": "typeof",
-    "body": [
-      "typeof(${1:expression})"
-    ],
-    "description": "TypeOf expression"
-  },
-  "RA cast": {
-    "prefix": "cast",
-    "body": [
-      "${1:value} as ${2:type}"
-    ],
-    "description": "Cast expression"
-  },
-  "RA range": {
-    "prefix": "range",
-    "body": [
-      "${1:start} .. ${2:end}"
-    ],
-    "description": "Range expression"
-  },
-  "RA nullcoalesce": {
-    "prefix": "nullcoalesce",
-    "body": [
-      "${1:left} ?? ${2:right}"
-    ],
-    "description": "Null-coalescing expression"
-  },
-  "RA var": {
-    "prefix": "var",
-    "body": [
-      "var ${1:name} = ${2:value}"
-    ],
-    "description": "Variable declaration"
-  },
-  "RA let": {
-    "prefix": "let",
-    "body": [
-      "let ${1:name} = ${2:value}"
-    ],
-    "description": "Immutable binding"
-  },
-  "RA const": {
-    "prefix": "const",
-    "body": [
-      "const ${1:name} = ${2:value}"
-    ],
-    "description": "Constant declaration"
-  },
-  "RA final": {
-    "prefix": "final",
-    "body": [
-      "final ${1:name} = ${2:value}"
-    ],
-    "description": "Final declaration"
-  },
-  "RA pub-var": {
-    "prefix": "pubvar",
-    "body": [
-      "pub var ${1:name} = ${2:value}"
-    ],
-    "description": "Public variable"
-  },
-  "RA pub-fn": {
+  "Public function": {
     "prefix": "pubfn",
     "body": [
-      "pub fn ${1:name}(${2:args})",
+      "pub fn ${1:name}(${2:args})${3:: ${4:type}}",
       "{",
       "\t$0",
       "}"
     ],
     "description": "Public function"
   },
-  "RA abstract-fn": {
+  "Abstract function": {
     "prefix": "abfn",
     "body": [
-      "abstract fn ${1:name}(${2:args})"
+      "abstract fn ${1:name}(${2:args})${3:: ${4:type}};"
     ],
     "description": "Abstract function"
   },
-  "RA static-fn": {
+  "Static function": {
     "prefix": "stfn",
     "body": [
       "static fn ${1:name}(${2:args})",
@@ -284,7 +210,7 @@
     ],
     "description": "Static function"
   },
-  "RA override-fn": {
+  "Override function": {
     "prefix": "ovfn",
     "body": [
       "override fn ${1:name}(${2:args})",
@@ -294,7 +220,25 @@
     ],
     "description": "Override function"
   },
-  "RA class": {
+  "Async function": {
+    "prefix": "asyncfn",
+    "body": [
+      "async fn ${1:name}(${2:args}) => $0;"
+    ],
+    "description": "Async function (arrow body)"
+  },
+  "Operator overload": {
+    "prefix": "operator",
+    "body": [
+      "operator ${1:+}(${2:other}: ${3:Type}): ${4:Type}",
+      "{",
+      "\tret $0;",
+      "}"
+    ],
+    "description": "Operator overload"
+  },
+
+  "Class": {
     "prefix": "class",
     "body": [
       "class ${1:Name}",
@@ -302,9 +246,9 @@
       "\t$0",
       "}"
     ],
-    "description": "Class definition"
+    "description": "Class"
   },
-  "RA pub-class": {
+  "Public class": {
     "prefix": "pubclass",
     "body": [
       "pub class ${1:Name}",
@@ -314,7 +258,7 @@
     ],
     "description": "Public class"
   },
-  "RA abstract-class": {
+  "Abstract class": {
     "prefix": "abclass",
     "body": [
       "abstract class ${1:Name}",
@@ -324,7 +268,27 @@
     ],
     "description": "Abstract class"
   },
-  "RA struct": {
+  "Class : Base impl Interface": {
+    "prefix": "classimpl",
+    "body": [
+      "pub class ${1:Name} : ${2:Base} impl ${3:Interface}",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "Class with base and interface"
+  },
+  "Generic class": {
+    "prefix": "genclass",
+    "body": [
+      "pub class ${1:Name}<${2:T}>",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "Generic class"
+  },
+  "Struct": {
     "prefix": "struct",
     "body": [
       "struct ${1:Name}",
@@ -332,9 +296,9 @@
       "\t$0",
       "}"
     ],
-    "description": "Struct definition"
+    "description": "Struct"
   },
-  "RA interface": {
+  "Interface": {
     "prefix": "interface",
     "body": [
       "interface ${1:Name}",
@@ -342,9 +306,9 @@
       "\t$0",
       "}"
     ],
-    "description": "Interface definition"
+    "description": "Interface"
   },
-  "RA trait": {
+  "Trait": {
     "prefix": "trait",
     "body": [
       "trait ${1:Name}",
@@ -352,32 +316,92 @@
       "\t$0",
       "}"
     ],
-    "description": "Trait definition"
+    "description": "Trait"
   },
-  "RA enum": {
+  "Enum": {
     "prefix": "enum",
     "body": [
       "enum ${1:Name}",
       "{",
-      "\t${2:Member1}",
-      ",",
-      "\t${3:Member2} = ${4:0}",
+      "\t${2:Variant1},",
+      "\t${3:Variant2}$0",
+      "}"
+    ],
+    "description": "Enum"
+  },
+  "Enum (ADT)": {
+    "prefix": "enumadt",
+    "body": [
+      "enum ${1:Name}",
+      "{",
+      "\t${2:Variant}(${3:int}),",
+      "\t${4:Empty}$0",
+      "}"
+    ],
+    "description": "Algebraic-data-type enum with payloads"
+  },
+  "Record": {
+    "prefix": "record",
+    "body": [
+      "record ${1:Name}(${2:field}: ${3:type})$0"
+    ],
+    "description": "Value record"
+  },
+  "Record class": {
+    "prefix": "recordclass",
+    "body": [
+      "record class ${1:Name}(${2:field}: ${3:type})$0"
+    ],
+    "description": "Reference (class) record"
+  },
+  "Record with body": {
+    "prefix": "recordbody",
+    "body": [
+      "record ${1:Name}(${2:field}: ${3:type})",
+      "{",
       "\t$0",
       "}"
     ],
-    "description": "Enum definition"
+    "description": "Record with a method body"
   },
-  "RA impl": {
+  "Annotation definition": {
+    "prefix": "annotation",
+    "body": [
+      "annotation ${1:Name}",
+      "{",
+      "\t${2:field}: ${3:type}$0",
+      "}"
+    ],
+    "description": "Annotation declaration"
+  },
+  "Delegate": {
+    "prefix": "delegate",
+    "body": [
+      "delegate ${1:Name} = fn(${2:int}) -> ${3:bool}$0"
+    ],
+    "description": "Delegate type alias"
+  },
+  "Namespace": {
+    "prefix": "namespace",
+    "body": [
+      "namespace ${1:Name}",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "Namespace"
+  },
+  "Implements clause": {
     "prefix": "impl",
     "body": [
-      "impl ${1:Interface1}, ${2:Interface2}",
+      "impl ${1:Interface}",
       "{",
       "\t$0",
       "}"
     ],
     "description": "Implements interfaces"
   },
-  "RA extend": {
+  "Extend block": {
     "prefix": "extend",
     "body": [
       "extend ${1:Type}",
@@ -390,57 +414,288 @@
     ],
     "description": "Extension block"
   },
-  "RA with": {
+  "Extend with operator": {
+    "prefix": "extendop",
+    "body": [
+      "extend ${1:Type}",
+      "{",
+      "\tpub operator${2:+}(${3:other}: ${1:Type}): ${1:Type} { ret $0; }",
+      "}"
+    ],
+    "description": "Extension block with operator overload"
+  },
+
+  "Property (auto)": {
+    "prefix": "prop",
+    "body": [
+      "pub prop ${1:name}: ${2:type} = ${3:default}$0"
+    ],
+    "description": "Auto stored property"
+  },
+  "Property (get / set)": {
+    "prefix": "propgetset",
+    "body": [
+      "pub prop ${1:name}: ${2:type} = ${3:default}",
+      "{",
+      "\tget",
+      "\tset { field = value; }",
+      "}"
+    ],
+    "description": "Property with explicit get / set"
+  },
+  "Property (computed)": {
+    "prefix": "propget",
+    "body": [
+      "pub prop ${1:name}: ${2:type} => $0"
+    ],
+    "description": "Computed property (arrow)"
+  },
+  "Property (lazy)": {
+    "prefix": "proplazy",
+    "body": [
+      "pub lazy prop ${1:name}: ${2:type} = $0"
+    ],
+    "description": "Lazy property"
+  },
+  "Property (abstract)": {
+    "prefix": "propabstract",
+    "body": [
+      "pub abstract prop ${1:name}: ${2:type} { get; }$0"
+    ],
+    "description": "Abstract property contract"
+  },
+  "Event": {
+    "prefix": "event",
+    "body": [
+      "pub event ${1:Name}(${2:args})$0"
+    ],
+    "description": "Event declaration"
+  },
+  "Event (cancellable)": {
+    "prefix": "eventcancellable",
+    "body": [
+      "pub cancellable event ${1:Name}(${2:args})$0"
+    ],
+    "description": "Cancellable event declaration"
+  },
+  "Event (tolerant)": {
+    "prefix": "eventtolerant",
+    "body": [
+      "pub tolerant event ${1:Name}(${2:args})$0"
+    ],
+    "description": "Tolerant event declaration"
+  },
+
+  "Constructor": {
+    "prefix": "ctor",
+    "body": [
+      "pub ${1:Type}(${2:args})",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "Generative constructor"
+  },
+  "Named constructor": {
+    "prefix": "ctorname",
+    "body": [
+      "pub ${1:Type}.${2:name}(${3:args})",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "Named generative constructor"
+  },
+  "Factory constructor": {
+    "prefix": "factory",
+    "body": [
+      "pub factory ${1:Type}.${2:name}(${3:args})",
+      "{",
+      "\tret $0;",
+      "}"
+    ],
+    "description": "Factory constructor"
+  },
+
+  "Variable": {
+    "prefix": "var",
+    "body": "var ${1:name} = ${2:value};$0",
+    "description": "Mutable variable"
+  },
+  "Let binding": {
+    "prefix": "let",
+    "body": "let ${1:name} = ${2:value};$0",
+    "description": "Immutable binding"
+  },
+  "Let mut binding": {
+    "prefix": "letmut",
+    "body": "let mut ${1:name} = ${2:value};$0",
+    "description": "Mutable let binding"
+  },
+  "Const": {
+    "prefix": "const",
+    "body": "const ${1:NAME} = ${2:value};$0",
+    "description": "Constant"
+  },
+  "Final": {
+    "prefix": "final",
+    "body": "final ${1:name} = ${2:value};$0",
+    "description": "Final binding"
+  },
+  "Public field": {
+    "prefix": "pubvar",
+    "body": "pub var ${1:name}: ${2:type};$0",
+    "description": "Public field"
+  },
+
+  "Import": {
+    "prefix": "import",
+    "body": "import \"${1:path}.ra\";$0",
+    "description": "Import a module by path"
+  },
+  "Import as": {
+    "prefix": "importas",
+    "body": "import \"${1:path}.ra\" as ${2:alias};$0",
+    "description": "Import with alias"
+  },
+  "Import from": {
+    "prefix": "importfrom",
+    "body": "import { ${1:symbol} } from \"${2:path}.ra\";$0",
+    "description": "Selective import"
+  },
+  "Import std": {
+    "prefix": "importstd",
+    "body": "import std.${1:io};$0",
+    "description": "Import a standard library module"
+  },
+  "Using": {
+    "prefix": "using",
+    "body": "using ${1:Namespace};$0",
+    "description": "Bring a namespace into scope"
+  },
+
+  "Return": {
+    "prefix": "ret",
+    "body": "ret ${1:value};$0",
+    "description": "Return statement"
+  },
+  "Yield": {
+    "prefix": "yield",
+    "body": "yield ${1:value};$0",
+    "description": "Yield statement"
+  },
+  "Emit": {
+    "prefix": "emit",
+    "body": "emit ${1:value};$0",
+    "description": "Emit (generator stream)"
+  },
+  "Throw": {
+    "prefix": "throw",
+    "body": "throw ${1:value};$0",
+    "description": "Throw statement"
+  },
+  "Await": {
+    "prefix": "await",
+    "body": "await ${1:task}$0",
+    "description": "Await expression"
+  },
+  "Spawn": {
+    "prefix": "spawn",
+    "body": "spawn ${1:call}$0",
+    "description": "Spawn expression"
+  },
+  "Delete": {
+    "prefix": "del",
+    "body": "del ${1:name};$0",
+    "description": "Delete a binding"
+  },
+
+  "Lambda": {
+    "prefix": "lambda",
+    "body": "|${1:x}| $0",
+    "description": "Bar lambda (expression body)"
+  },
+  "Lambda typed": {
+    "prefix": "lambdatyped",
+    "body": "|${1:x}: ${2:int}| -> ${3:int} $0",
+    "description": "Typed bar lambda"
+  },
+  "Lambda block": {
+    "prefix": "lambdablock",
+    "body": [
+      "|${1:x}| -> ${2:type}",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "Bar lambda (block body)"
+  },
+  "Anonymous fn": {
+    "prefix": "fnlambda",
+    "body": "fn(${1:x}: ${2:int}): ${3:int} => $0",
+    "description": "Anonymous fn expression"
+  },
+  "Pipe forward": {
+    "prefix": "pipe",
+    "body": "${1:value} |> ${2:fn}$0",
+    "description": "Pipeline-forward expression"
+  },
+  "With expression": {
     "prefix": "with",
-    "body": [
-      "with ${1:Trait1}, ${2:Trait2}"
-    ],
-    "description": "Trait mixins"
+    "body": "${1:record} with { ${2:field}: ${3:value} }$0",
+    "description": "Record update (with-expression)"
   },
-  "RA pub": {
-    "prefix": "pub",
-    "body": [
-      "pub ${1:member}"
-    ],
-    "description": "Public modifier"
+  "Cast": {
+    "prefix": "as",
+    "body": "${1:value} as ${2:type}$0",
+    "description": "Cast expression"
   },
-  "RA abstract": {
-    "prefix": "abstract",
-    "body": [
-      "abstract ${1:member}"
-    ],
-    "description": "Abstract modifier"
+  "Range": {
+    "prefix": "range",
+    "body": "${1:start}..${2:end}$0",
+    "description": "Range expression"
   },
-  "RA static": {
-    "prefix": "static",
-    "body": [
-      "static ${1:member}"
-    ],
-    "description": "Static modifier"
+  "Null-coalescing": {
+    "prefix": "nullcoalesce",
+    "body": "${1:left} ?? ${2:right}$0",
+    "description": "Null-coalescing expression"
   },
-  "RA override": {
-    "prefix": "override",
-    "body": [
-      "override ${1:member}"
-    ],
-    "description": "Override modifier"
+  "nameof": {
+    "prefix": "nameof",
+    "body": "nameof(${1:identifier})$0",
+    "description": "nameof expression"
   },
-  "RA line-slash": {
+  "typeof": {
+    "prefix": "typeof",
+    "body": "typeof(${1:expression})$0",
+    "description": "typeof expression"
+  },
+  "Interpolated string": {
+    "prefix": "interp",
+    "body": "$\"${1:text}${${2:expr}}\"$0",
+    "description": "Interpolated string literal"
+  },
+  "Regex literal": {
+    "prefix": "regex",
+    "body": "re\"${1:pattern}\"${2:i}$0",
+    "description": "Regex literal"
+  },
+  "Inline assembly": {
+    "prefix": "asm",
+    "body": [
+      "asm {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Inline assembly block"
+  },
+
+  "Line comment": {
     "prefix": "//",
     "body": "// $1",
     "description": "Line comment"
   },
-  "RA line-hash": {
-    "prefix": "#",
-    "body": "# $1",
-    "description": "Hash comment"
-  },
-  "RA line-dash": {
-    "prefix": "---",
-    "body": "--- $1",
-    "description": "Triple-dash comment"
-  },
-  "RA block": {
+  "Block comment": {
     "prefix": "/*",
     "body": [
       "/*",
@@ -449,236 +704,13 @@
     ],
     "description": "Block comment"
   },
-  "RA xml": {
-    "prefix": "<!--",
+  "Region": {
+    "prefix": "region",
     "body": [
-      "<!--",
-      "  $1",
-      "-->"
+      "// region ${1:name}",
+      "$0",
+      "// endregion"
     ],
-    "description": "XML-style comment"
-  },
-  "RA type int": {
-    "prefix": "int",
-    "body": "int",
-    "description": "Built-in type int"
-  },
-  "RA type number": {
-    "prefix": "number",
-    "body": "number",
-    "description": "Built-in type number"
-  },
-  "RA type long": {
-    "prefix": "long",
-    "body": "long",
-    "description": "Built-in type long"
-  },
-  "RA type float": {
-    "prefix": "float",
-    "body": "float",
-    "description": "Built-in type float"
-  },
-  "RA type double": {
-    "prefix": "double",
-    "body": "double",
-    "description": "Built-in type double"
-  },
-  "RA type uint": {
-    "prefix": "uint",
-    "body": "uint",
-    "description": "Built-in type uint"
-  },
-  "RA type ulong": {
-    "prefix": "ulong",
-    "body": "ulong",
-    "description": "Built-in type ulong"
-  },
-  "RA type short": {
-    "prefix": "short",
-    "body": "short",
-    "description": "Built-in type short"
-  },
-  "RA type ushort": {
-    "prefix": "ushort",
-    "body": "ushort",
-    "description": "Built-in type ushort"
-  },
-  "RA type int128": {
-    "prefix": "int128",
-    "body": "int128",
-    "description": "Built-in type int128"
-  },
-  "RA type uint128": {
-    "prefix": "uint128",
-    "body": "uint128",
-    "description": "Built-in type uint128"
-  },
-  "RA type decimal": {
-    "prefix": "decimal",
-    "body": "decimal",
-    "description": "Built-in type decimal"
-  },
-  "RA type byte": {
-    "prefix": "byte",
-    "body": "byte",
-    "description": "Built-in type byte"
-  },
-  "RA type bool": {
-    "prefix": "bool",
-    "body": "bool",
-    "description": "Built-in type bool"
-  },
-  "RA type string": {
-    "prefix": "string",
-    "body": "string",
-    "description": "Built-in type string"
-  },
-  "RA type char": {
-    "prefix": "char",
-    "body": "char",
-    "description": "Built-in type char"
-  },
-  "RA type void": {
-    "prefix": "void",
-    "body": "void",
-    "description": "Built-in type void"
-  },
-  "RA type object": {
-    "prefix": "object",
-    "body": "object",
-    "description": "Built-in type object"
-  },
-  "RA type any": {
-    "prefix": "any",
-    "body": "any",
-    "description": "Built-in type any"
-  },
-  "RA kw null": {
-    "prefix": "null",
-    "body": "null",
-    "description": "Keyword null"
-  },
-  "RA kw true": {
-    "prefix": "true",
-    "body": "true",
-    "description": "Keyword true"
-  },
-  "RA kw false": {
-    "prefix": "false",
-    "body": "false",
-    "description": "Keyword false"
-  },
-  "RA kw and": {
-    "prefix": "and",
-    "body": "and",
-    "description": "Keyword and"
-  },
-  "RA kw or": {
-    "prefix": "or",
-    "body": "or",
-    "description": "Keyword or"
-  },
-  "RA kw not": {
-    "prefix": "not",
-    "body": "not",
-    "description": "Keyword not"
-  },
-  "RA kw in": {
-    "prefix": "in",
-    "body": "in",
-    "description": "Keyword in"
-  },
-  "RA kw not in": {
-    "prefix": "not in",
-    "body": "not in",
-    "description": "Keyword not in"
-  },
-  "RA kw as": {
-    "prefix": "as",
-    "body": "as",
-    "description": "Keyword as"
-  },
-  "RA kw typeof": {
-    "prefix": "typeof",
-    "body": "typeof",
-    "description": "Keyword typeof"
-  },
-  "RA kw nameof": {
-    "prefix": "nameof",
-    "body": "nameof",
-    "description": "Keyword nameof"
-  },
-  "RA kw self": {
-    "prefix": "self",
-    "body": "self",
-    "description": "Keyword self"
-  },
-  "RA kw super": {
-    "prefix": "super",
-    "body": "super",
-    "description": "Keyword super"
-  },
-  "RA kw pass": {
-    "prefix": "pass",
-    "body": "pass",
-    "description": "Keyword pass"
-  },
-  "RA kw break": {
-    "prefix": "break",
-    "body": "break",
-    "description": "Keyword break"
-  },
-  "RA kw continue": {
-    "prefix": "continue",
-    "body": "continue",
-    "description": "Keyword continue"
-  },
-  "RA kw delay": {
-    "prefix": "delay",
-    "body": "delay",
-    "description": "Keyword delay"
-  },
-  "RA kw times": {
-    "prefix": "times",
-    "body": "times",
-    "description": "Keyword times"
-  },
-  "RA kw step": {
-    "prefix": "step",
-    "body": "step",
-    "description": "Keyword step"
-  },
-  "RA kw to": {
-    "prefix": "to",
-    "body": "to",
-    "description": "Keyword to"
-  },
-  "RA if inline": {
-    "prefix": "if:",
-    "body": [
-      "if ${1:condition}: $0"
-    ],
-    "description": "Inline if statement"
-  },
-  "RA while inline": {
-    "prefix": "while:",
-    "body": [
-      "while ${1:condition}: $0"
-    ],
-    "description": "Inline while statement"
-  },
-  "RA for-in inline": {
-    "prefix": "forin:",
-    "body": [
-      "for ${1:item} in ${2:collection}: $0"
-    ],
-    "description": "Inline for-in statement"
-  },
-  "RA for-range inline": {
-    "prefix": "for:",
-    "body": [
-      "for ${1:item} = ${2:start} to ${3:end} step ${4:step}: $0"
-    ],
-    "description": "Inline range for"
+    "description": "Foldable region marker"
   }
 }

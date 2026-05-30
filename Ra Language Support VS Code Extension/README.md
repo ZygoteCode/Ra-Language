@@ -23,7 +23,20 @@ Provided by the language server:
 
 Provided statically by this extension (active even without the server):
 
-- TextMate grammar highlighting, snippets, bracket auto-closing and indentation rules.
+- **TextMate grammar** — aligned with the real Ra lexer/parser: every keyword
+  (`match`, `record`, `prop`, `event` + `cancellable`/`tolerant`, `delegate`, `annotation`,
+  `async`/`await`/`spawn`/`emit`, `namespace`/`using`, `asm`, `mut`/`move`/`ref`, `where`, `lazy`,
+  `factory`, …), all operators
+  (logical/unsigned shifts `<<<` `>>>`, rotates `<<<<` `>>>>`, pipe-forward `|>`, power `**`/`^`,
+  cast `::`, ranges `..`/`..=`/`...`, null-coalescing `??`), `@annotations`, `$"…${…}"` string
+  interpolation (dollar-prefix required — plain strings do **not** interpolate), `re"…"flags`
+  regex literals, `'lifetime` annotations, inline `asm { … }` blocks with `%{…}` holes, and all
+  five comment forms (`//`, `#`, `---`, `/* */`, `<!-- -->`).
+- **Snippets** for declarations, control flow, properties, records, lambdas, constructors, modules and more.
+- **Language configuration** — bracket auto-closing/colorization, indentation rules, `region`/`endregion` folding markers, comment continuation.
+
+The grammar is regression-tested against the same engine VS Code uses
+(`npm test` → `vscode-textmate` + `vscode-oniguruma`); see `test/tokenize.test.mjs`.
 
 ## Requirements
 
