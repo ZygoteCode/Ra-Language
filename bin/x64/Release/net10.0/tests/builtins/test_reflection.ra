@@ -1,0 +1,193 @@
+// Ra Language - builtins: reflection / type introspection.
+//
+// Fully asserted against sample types defined here. Deterministic — no machine
+// state, no disk. We assert correct SHAPES and membership, not interpreter
+// internals.
+//
+// Confirmed semantics worth noting:
+//   * Ra has a single unified numeric primitive ("number"). is_int / is_float
+//     test the VALUE, not a distinct static type: is_int(3)==true,
+//     is_float(3.14)==true, is_int(3.5)==false, and is_float(3)==true (a whole
+//     number satisfies is_float). type_name(42)=="number".
+//   * implements()/interfaces_of() are STRUCTURAL: a class satisfies an
+//     interface when it has the required methods, with no explicit
+//     "implements" declaration. interfaces_of() returns interface objects.
+//   * static_methods_of() lists a class's OWN static methods and is not
+//     inherited by subclasses.
+//   * is_subclass_of() is strict (a type is not its own subclass) and accepts
+//     either a class or an instance as the first argument.
+
+print("=== builtins/reflection ===");
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+fn okd(id, cond, detail) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL: " + detail); }
+}
+
+// ---- sample types --------------------------------------------------------
+pub class Animal {
+    pub var name: string = "?";
+    pub var age: int = 0;
+    pub fn speak() { ret "<silence>"; }
+    pub static fn kingdom() { ret "Animalia"; }
+}
+
+pub class Dog : Animal {
+    pub var breed: string = "?";
+    pub override fn speak() { ret "woof"; }
+    pub fn bump() { ret self.age + 1; }
+}
+
+pub struct Point {
+    pub var x: int = 0,
+    pub var y: int = 0
+}
+
+enum Color { RED, GREEN, BLUE = 5 }
+
+pub interface Named {
+    fn get_name();
+}
+
+pub trait Greeter {
+    fn greet() { ret "hi"; }
+}
+
+// a class that structurally satisfies the Named interface
+pub class Person {
+    pub var who: string = "?";
+    pub fn get_name() { ret self.who; }
+}
+
+fn add(a: int, b: int): int { ret a + b; }
+fn nullary() { ret 0; }
+
+// ---------------------------------------------------------------------------
+// type_of / type_name / type_kind
+// ---------------------------------------------------------------------------
+okd("TY1", type_of(42) == "number", "got=" + type_of(42));
+okd("TY2", type_of(3.14) == "number", "got=" + type_of(3.14));
+okd("TY3", type_of("hi") == "string", "got=" + type_of("hi"));
+okd("TY4", type_of(true) == "boolean", "got=" + type_of(true));
+okd("TY5", type_of(null) == "null", "got=" + type_of(null));
+okd("TY6", type_of([1, 2]) == "list", "got=" + type_of([1, 2]));
+okd("TY7", type_of({"a": 1}) == "map", "got=" + type_of({"a": 1}));
+okd("TY8", type_of({1, 2}) == "set", "got=" + type_of({1, 2}));
+
+var dog = Dog();
+okd("TY9", type_name(42) == "number", "got=" + type_name(42));
+okd("TY10", type_name("hi") == "string", "got=" + type_name("hi"));
+// a class instance reports its concrete class name
+okd("TY11", type_name(dog) == "Dog", "got=" + type_name(dog));
+
+okd("TK1", type_kind(42) == "number", "got=" + type_kind(42));
+okd("TK2", type_kind("x") == "string", "got=" + type_kind("x"));
+okd("TK3", type_kind(null) == "null", "got=" + type_kind(null));
+okd("TK4", type_kind(dog) == "class_instance", "got=" + type_kind(dog));
+okd("TK5", type_kind(Point()) == "struct_instance", "got=" + type_kind(Point()));
+okd("TK6", type_kind(Color.RED) == "enum_value", "got=" + type_kind(Color.RED));
+okd("TK7", type_kind(add) == "function", "got=" + type_kind(add));
+
+// ---------------------------------------------------------------------------
+// is_* value predicates
+// ---------------------------------------------------------------------------
+ok("IS1", is_int(3) == true);
+ok("IS2", is_int(3.5) == false);
+ok("IS3", is_float(3.14) == true);
+// a whole number also satisfies is_float (unified numeric primitive)
+ok("IS4", is_float(3) == true);
+ok("IS5", is_string("x") == true);
+ok("IS6", is_string(1) == false);
+ok("IS7", is_bool(true) == true);
+ok("IS8", is_bool(1) == false);
+ok("IS9", is_list([1]) == true);
+ok("IS10", is_list({1}) == false);
+ok("IS11", is_map({"a": 1}) == true);
+ok("IS12", is_map([1]) == false);
+ok("IS13", is_set({1, 2}) == true);
+ok("IS14", is_set([1]) == false);
+ok("IS15", is_null(null) == true);
+ok("IS16", is_null(0) == false);
+ok("IS17", is_function(add) == true);
+ok("IS18", is_function(print) == true);
+ok("IS19", is_function(42) == false);
+
+// is_class / is_class_instance distinguish the type from an instance
+ok("IS20", is_class(Dog) == true);
+ok("IS21", is_class(dog) == false);
+ok("IS22", is_class_instance(dog) == true);
+ok("IS23", is_class_instance(Dog) == false);
+
+// is_struct / is_enum on the TYPE (not instance/value)
+ok("IS24", is_struct(Point) == true);
+ok("IS25", is_struct(Point()) == false);
+ok("IS26", is_enum(Color) == true);
+ok("IS27", is_enum(Color.RED) == false);
+
+// ---------------------------------------------------------------------------
+// class introspection: class_of / base_class / fields_of / methods_of /
+// static_methods_of / has_method
+// ---------------------------------------------------------------------------
+// class_of(instance) yields the class object
+okd("C1", is_class(class_of(dog)) == true, "kind=" + type_of(class_of(dog)));
+okd("C2", type_name(class_of(dog)) == "Dog", "got=" + type_name(class_of(dog)));
+
+// base_class: Dog's base is Animal (a class); Animal is a root (null base)
+ok("C3", is_class(base_class(Dog)) == true);
+okd("C4", type_name(base_class(Dog)) == "Animal", "got=" + type_name(base_class(Dog)));
+ok("C5", is_null(base_class(Animal)) == true);
+
+// fields_of on an instance includes inherited + own fields
+var fdog = fields_of(dog);
+ok("C6", is_list(fdog));
+ok("C7", list_contains(fdog, "name"));
+ok("C8", list_contains(fdog, "age"));
+ok("C9", list_contains(fdog, "breed"));
+
+// methods_of on the class lists declared methods
+var mdog = methods_of(Dog);
+ok("C10", is_list(mdog));
+ok("C11", list_contains(mdog, "speak"));
+ok("C12", list_contains(mdog, "bump"));
+// instance (non-static) method namespace does not include the static one
+ok("C13", list_contains(mdog, "kingdom") == false);
+
+// static_methods_of lists own statics; not inherited by the subclass
+var sAnimal = static_methods_of(Animal);
+ok("C14", list_contains(sAnimal, "kingdom"));
+okd("C15", static_methods_of(Dog) == [], "got=" + (static_methods_of(Dog) as string));
+
+// has_method
+ok("C16", has_method(Dog, "speak") == true);
+ok("C17", has_method(Dog, "bump") == true);
+ok("C18", has_method(Dog, "nope") == false);
+
+// is_subclass_of: strict, accepts class or instance
+ok("C19", is_subclass_of(Dog, Animal) == true);
+ok("C20", is_subclass_of(Dog, Dog) == false);
+ok("C21", is_subclass_of(dog, Animal) == true);
+
+// ---------------------------------------------------------------------------
+// interface conformance: implements / interfaces_of (structural)
+// ---------------------------------------------------------------------------
+// Person has get_name() -> satisfies Named; Dog does not
+ok("I1", implements(Person, Named) == true);
+ok("I2", implements(Dog, Named) == false);
+
+var pifaces = interfaces_of(Person);
+ok("I3", is_list(pifaces));
+okd("I4", len(pifaces) >= 1, "len=" + (len(pifaces) as string));
+// Dog satisfies no declared interface
+okd("I5", interfaces_of(Dog) == [], "got=" + (interfaces_of(Dog) as string));
+
+// ---------------------------------------------------------------------------
+// function introspection: function_arity / function_name
+// ---------------------------------------------------------------------------
+okd("FN1", function_arity(add) == 2, "got=" + (function_arity(add) as string));
+okd("FN2", function_arity(nullary) == 0, "got=" + (function_arity(nullary) as string));
+okd("FN3", function_name(add) == "add", "got=" + function_name(add));
+okd("FN4", function_name(nullary) == "nullary", "got=" + function_name(nullary));
+
+print("=== done ===");

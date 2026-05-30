@@ -1,0 +1,134 @@
+// Ra Language -- short-circuit evaluation, null-coalesce, pipeline & order.
+//
+// Verifies side-effect / evaluation-order semantics using a shared counter
+// and an ordered log list that the helper functions append to.
+//
+// Behaviour established by probing THIS build:
+//   * Plain `&&` and `||` DO short-circuit: the RHS function is NOT called
+//     when the LHS already decides the result.
+//   * `||` short-circuits on a true LHS; `&&` short-circuits on a false LHS.
+//   * SURPRISE: plain `??` does NOT short-circuit -- its RHS is evaluated even
+//     when the LHS is non-null. (Asserted in SC9/SC10; flagged in the report.)
+//   * `|>` pipes a value left-to-right into the next callable: `x |> f |> g`
+//     == `g(f(x))`, evaluated f-then-g.
+//   * Binary operands evaluate left-to-right (`a() + b()` runs a then b).
+
+fn ok(id, cond) {
+    if cond {
+        print("[" + id + "] OK")
+    } else {
+        print("[" + id + "] FAIL")
+    }
+}
+
+print("=== operators/short_circuit_and_pipeline ===")
+
+var hits = 0
+fn boom_true() { hits = hits + 1; ret true }
+fn boom_false() { hits = hits + 1; ret false }
+fn boom_val() { hits = hits + 1; ret 42 }
+
+// --- && short-circuits when LHS is false (RHS NOT evaluated) ---------------
+hits = 0
+var r1 = false and boom_true()
+ok("SC1", r1 == false and hits == 0);
+
+// --- && DOES evaluate RHS when LHS is true ---------------------------------
+hits = 0
+var r2 = true and boom_false()
+ok("SC2", r2 == false and hits == 1);
+
+// --- || short-circuits when LHS is true (RHS NOT evaluated) ----------------
+hits = 0
+var r3 = true or boom_false()
+ok("SC3", r3 == true and hits == 0);
+
+// --- || DOES evaluate RHS when LHS is false --------------------------------
+hits = 0
+var r4 = false or boom_true()
+ok("SC4", r4 == true and hits == 1);
+
+// --- symbol-style && / || short-circuit identically ------------------------
+hits = 0
+var r5 = false && boom_true()
+ok("SC5", r5 == false and hits == 0);
+hits = 0
+var r6 = true || boom_false()
+ok("SC6", r6 == true and hits == 0);
+
+// --- nested short-circuit: only the first false stops the && chain ---------
+hits = 0
+var r7 = false and boom_true() and boom_true()
+ok("SC7", r7 == false and hits == 0);
+
+// --- a true || chain never touches later disjuncts -------------------------
+hits = 0
+var r8 = true or boom_true() or boom_false()
+ok("SC8", r8 == true and hits == 0);
+
+// --- `??` does NOT short-circuit (observed): RHS runs even for non-null LHS -
+hits = 0
+var r9 = 7 ?? boom_val()
+ok("SC9", r9 == 7 and hits == 1);     // value is LHS, but RHS still ran
+hits = 0
+var r10 = null ?? boom_val()
+ok("SC10", r10 == 42 and hits == 1);  // null LHS -> RHS value used
+
+// --- `??` chain resolves to the first non-null ----------------------------
+ok("SC11", (null ?? null ?? 5) == 5);
+ok("SC12", (null ?? 3 ?? 99) == 3);
+
+// --- pipeline |> : single stage -------------------------------------------
+fn inc(n) { ret n + 1 }
+fn dbl(n) { ret n * 2 }
+fn sq(n)  { ret n * n }
+ok("SC13", (5 |> inc) == 6);
+ok("SC14", (5 |> dbl) == 10);
+
+// --- pipeline |> : multi-stage chains left-to-right ------------------------
+ok("SC15", (5 |> inc |> dbl) == 12);   // (5+1)*2
+ok("SC16", (3 |> dbl |> inc) == 7);    // (3*2)+1
+ok("SC17", (2 |> inc |> dbl |> sq) == 36); // ((2+1)*2)^2 = 6*6
+ok("SC18", (10 |> sq |> inc) == 101);  // (10*10)+1
+
+// --- pipeline into a lambda ------------------------------------------------
+ok("SC19", (5 |> (|x| x + 100)) == 105);
+ok("SC20", (4 |> (|x| x * x)) == 16);
+
+// --- pipeline evaluates stages in left-to-right order ----------------------
+var plog = []
+fn p1(n) { plog = plog + ["p1"]; ret n + 1 }
+fn p2(n) { plog = plog + ["p2"]; ret n * 2 }
+fn p3(n) { plog = plog + ["p3"]; ret n - 3 }
+var pres = 5 |> p1 |> p2 |> p3
+ok("SC21", pres == 9);                 // ((5+1)*2)-3
+ok("SC22", len(plog) == 3 and plog[0] == "p1" and plog[1] == "p2" and plog[2] == "p3");
+
+// --- binary operands evaluate left-to-right --------------------------------
+var olog = []
+fn oa() { olog = olog + ["a"]; ret 1 }
+fn ob() { olog = olog + ["b"]; ret 2 }
+fn oc() { olog = olog + ["c"]; ret 3 }
+var osum = oa() + ob() + oc()
+ok("SC23", osum == 6);
+ok("SC24", len(olog) == 3 and olog[0] == "a" and olog[1] == "b" and olog[2] == "c");
+
+// --- function-call argument order is left-to-right -------------------------
+var alog = []
+fn la() { alog = alog + ["A"]; ret 1 }
+fn lb() { alog = alog + ["B"]; ret 2 }
+fn add2(x, y) { ret x + y }
+var asum = add2(la(), lb())
+ok("SC25", asum == 3 and alog[0] == "A" and alog[1] == "B");
+
+// --- mixed: short-circuit inside a larger boolean expression ---------------
+// LHS true -> RHS skipped
+hits = 0
+var m1 = (1 < 2) or boom_true()
+ok("SC26", m1 == true and hits == 0);
+// LHS false -> RHS skipped
+hits = 0
+var m2 = (1 > 2) and boom_true()
+ok("SC27", m2 == false and hits == 0);
+
+print("=== done ===")

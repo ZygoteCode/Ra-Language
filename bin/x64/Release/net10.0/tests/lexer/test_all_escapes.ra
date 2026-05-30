@@ -1,0 +1,86 @@
+// Ra Language - lexer: escape sequence decoding (exact code points).
+//
+// The lexer recognises EXACTLY these escapes inside string literals:
+//   \n \t \r \\ \" \' \`
+// Every OTHER backslash escape is decoded by DROPPING the backslash and keeping
+// the following character verbatim (the lexer's `default` branch). There is NO
+// \uXXXX, \u{...}, \xNN, \0, \b, \f, or \v support - those forms render as the
+// bare letter/char. This file asserts both the supported set (via str_code_at)
+// and the drop-backslash behaviour for unsupported forms, so it pins the lexer's
+// real contract.
+
+fn ok(id, cond) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); } }
+
+print("=== lexer/all_escapes ===");
+
+// --- Supported escapes: exact code point via str_code_at ---
+
+// E1: \n -> LF (10)
+var e1 = "\n";
+ok("E1", len(e1) == 1 and str_code_at(e1, 0) == 10);
+
+// E2: \t -> TAB (9)
+var e2 = "\t";
+ok("E2", len(e2) == 1 and str_code_at(e2, 0) == 9);
+
+// E3: \r -> CR (13)
+var e3 = "\r";
+ok("E3", len(e3) == 1 and str_code_at(e3, 0) == 13);
+
+// E4: \\ -> backslash (92)
+var e4 = "\\";
+ok("E4", len(e4) == 1 and str_code_at(e4, 0) == 92);
+
+// E5: \" -> double quote (34) inside a double-quoted string
+var e5 = "\"";
+ok("E5", len(e5) == 1 and str_code_at(e5, 0) == 34);
+
+// E6: \' -> single quote (39) inside a single-quoted string
+var e6 = '\'';
+ok("E6", len(e6) == 1 and str_code_at(e6, 0) == 39);
+
+// E7: \` -> backtick (96) inside a backtick string
+var e7 = `\``;
+ok("E7", len(e7) == 1 and str_code_at(e7, 0) == 96);
+
+// E8: \' inside a DOUBLE-quoted string is still just an apostrophe (39)
+var e8 = "\'";
+ok("E8", len(e8) == 1 and str_code_at(e8, 0) == 39);
+
+// E9: \" inside a SINGLE-quoted string is still just a double quote (34)
+var e9 = '\"';
+ok("E9", len(e9) == 1 and str_code_at(e9, 0) == 34);
+
+// E10: several escapes in one literal -> one char each
+var e10 = "\n\t\r\\";
+ok("E10", len(e10) == 4 and str_code_at(e10, 0) == 10 and str_code_at(e10, 3) == 92);
+
+// E11: escape embedded between text keeps surrounding chars intact
+var e11 = "a\nb";
+ok("E11", len(e11) == 3 and str_code_at(e11, 0) == 97 and str_code_at(e11, 1) == 10 and str_code_at(e11, 2) == 98);
+
+// --- Unsupported escapes: backslash is dropped, char kept verbatim ---
+
+// E12: \u is NOT a unicode escape -> 'u' (117), then literal digits
+var e12 = "\u0041";
+ok("E12", len(e12) == 5 and str_code_at(e12, 0) == 117 and str_code_at(e12, 1) == 48);
+
+// E13: \u{..} brace form is NOT supported -> 'u' then the literal braces/hex
+var e13 = "\u{41}";
+ok("E13", len(e13) == 5 and str_code_at(e13, 0) == 117);
+
+// E14: \x is NOT a hex-byte escape -> 'x' (120)
+var e14 = "\x41";
+ok("E14", len(e14) == 3 and str_code_at(e14, 0) == 120);
+
+// E15: \0 is NOT a NUL escape -> literal '0' (48)
+var e15 = "\0";
+ok("E15", len(e15) == 1 and str_code_at(e15, 0) == 48);
+
+// E16: \b \f \v are NOT control escapes -> the bare letters (98,102,118)
+var e16b = "\b";
+var e16f = "\f";
+var e16v = "\v";
+ok("E16", str_code_at(e16b, 0) == 98 and str_code_at(e16f, 0) == 102 and str_code_at(e16v, 0) == 118);
+
+print("=== done ===");

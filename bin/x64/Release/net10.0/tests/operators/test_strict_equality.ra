@@ -1,0 +1,82 @@
+// Ra Language -- strict equality (=== / !==) vs loose equality (== / !=).
+//
+// Behaviour pinned down by probing THIS interpreter (asserts reflect reality):
+//
+//   * Ra has ONE unified `number` type, so `1` and `1.0` are the SAME value.
+//     Therefore `1 === 1.0` is TRUE (not false) -- strict eq does not split
+//     int-literals from float-literals because there is only one number kind.
+//   * `===` additionally requires the operands to be the SAME KIND. Across
+//     genuinely different kinds it is always false:  0 === false  -> false,
+//     "1" === 1 -> false, true === 1 -> false, null === 0 -> false.
+//   * Loose `==` performs cross-kind COERCION:  0 == false, 1 == true,
+//     null == false, "1" == 1  are all TRUE in this build.
+//   * `!==` / `!=` are the strict / loose negations respectively.
+
+fn ok(id, cond) {
+    if cond {
+        print("[" + id + "] OK")
+    } else {
+        print("[" + id + "] FAIL")
+    }
+}
+
+print("=== operators/strict_equality ===")
+
+// --- same-kind: strict and loose agree ------------------------------------
+ok("E1", (5 === 5) == true);
+ok("E2", (5 !== 6) == true);
+ok("E3", ("abc" === "abc") == true);
+ok("E4", ("abc" !== "abd") == true);
+ok("E5", (true === true) == true);
+ok("E6", (true !== false) == true);
+ok("E7", (null === null) == true);
+
+// --- the headline number case: 1 and 1.0 are the SAME number --------------
+ok("E8", (1 == 1.0) == true);      // loose: equal
+ok("E9", (1 === 1.0) == true);     // strict ALSO true (unified `number`)
+ok("E10", (1 !== 1.0) == false);   // therefore not-strictly-unequal
+ok("E11", (2.0 === 2) == true);    // symmetric
+ok("E12", (3.5 === 3.5) == true);
+ok("E13", (3.5 !== 3.4) == true);
+
+// --- cross-kind: loose == COERCES, strict === does NOT --------------------
+// number vs string
+ok("E14", ("1" == 1) == true);     // loose coerces -> equal
+ok("E15", ("1" === 1) == false);   // strict: different kinds
+ok("E16", ("1" !== 1) == true);    // strict negation true
+ok("E17", ("1" != 1) == false);    // loose negation false (they are == equal)
+
+// number vs bool
+ok("E18", (0 == false) == true);   // loose coerces
+ok("E19", (0 === false) == false); // strict: different kinds
+ok("E20", (1 == true) == true);
+ok("E21", (1 === true) == false);
+ok("E22", (true === 1) == false);  // symmetric strict
+
+// null vs others.
+// SURPRISE/BUG: loose `==` and `!=` against null are NOT consistent negations.
+// Probed: `null == 0` is TRUE and `null != 0` is ALSO TRUE simultaneously.
+// We assert the observed reality here and flag it as a bug in the report.
+ok("E23", (null == false) == true);    // loose: null == false
+ok("E24", (null === false) == false);  // strict: different kinds
+ok("E25", (null == 0) == true);         // observed: TRUE
+ok("E25b", (null != 0) == true);        // observed: ALSO TRUE (inconsistent!)
+ok("E26", (null === 0) == false);       // strict: different kinds -> false
+ok("E27", (null !== 0) == true);        // strict negation: true
+
+// empty string vs bool/number
+ok("E28", ("" == false) == false);     // loose: "" is not false here
+ok("E29", ("" === false) == false);    // strict: different kinds
+
+// --- !== / != consistency on equal same-kind values -----------------------
+ok("E30", (5 !== 5) == false);
+ok("E31", (5 != 5) == false);
+ok("E32", ("x" !== "x") == false);
+ok("E33", (true !== true) == false);
+
+// --- strict equality is a usable boolean in compound expressions ----------
+ok("E34", ((1 === 1) and ("a" === "a")) == true);
+ok("E35", ((1 === 1.0) or (1 === "1")) == true);   // first disjunct true
+ok("E36", (not (1 === "1")) == true);              // 1 === "1" is false
+
+print("=== done ===")

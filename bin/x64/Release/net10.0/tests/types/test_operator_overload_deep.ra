@@ -1,0 +1,118 @@
+// Ra Language - types: operator overloading in depth on a class — +, -, *, /,
+// ==, !=, <, >, <=, >= — with assertions on overloaded RESULTS, chained
+// operations, and equality/ordering. Mixing a class with a built-in number
+// on an operator and overloading `[]` are both shown to be unsupported here.
+//
+// Confirmed semantics worth noting (probed against this build):
+//   * A binary `operator OP (p: T)` ONLY binds its parameter if the parameter
+//     is named exactly `other`. Any other name (e.g. `o`, `rhs`) makes the
+//     operator body throw "'<name>' is not defined". Every operator below
+//     uses `other`.
+//   * `[]` is NOT in the overloadable set; `operator []` is a parse error.
+//     Overloadable: + - * / == != < > <= >= & | ^ << >> and or.
+//   * Mixing a class receiver with a built-in number (e.g. Vec * 3) does NOT
+//     dispatch to a class operator — "Operator '*' is not defined for class
+//     ... and parameter type 'Number'", even with an `any` parameter.
+//
+// Cases:
+//   OV1   operator + on a class yields a new instance with summed fields
+//   OV2   operator - on a class
+//   OV3   operator * (class * class) componentwise
+//   OV4   operator / (class / class) componentwise
+//   OV5   == true for structurally-equal instances
+//   OV6   == false for differing instances
+//   OV7   != mirrors ==
+//   OV8   < orders by magnitude
+//   OV9   > / <= / >= ordering set
+//   OV10  chained + associates left-to-right with correct result
+//   OV11  mixed expression: (a + b) compared with == against an expected Vec
+//   OV12  operator on a one-field "money" class returns the right total
+//   OV13  ordering used to pick a max via a plain if
+//   OV14  class * built-in number is rejected (documented limitation)
+
+print("=== types/operator_overload_deep ===");
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+pub class Vec {
+    pub var x: int;
+    pub var y: int;
+    pub Vec(x: int, y: int) {
+        self.x = x;
+        self.y = y;
+    }
+    pub operator + (other: Vec): Vec { ret Vec(self.x + other.x, self.y + other.y); }
+    pub operator - (other: Vec): Vec { ret Vec(self.x - other.x, self.y - other.y); }
+    pub operator * (other: Vec): Vec { ret Vec(self.x * other.x, self.y * other.y); }
+    pub operator / (other: Vec): Vec { ret Vec(self.x / other.x, self.y / other.y); }
+    pub operator == (other: Vec) { ret self.x == other.x and self.y == other.y; }
+    pub operator != (other: Vec) { ret not (self.x == other.x and self.y == other.y); }
+    pub operator < (other: Vec) { ret self.mag_sq() < other.mag_sq(); }
+    pub operator > (other: Vec) { ret self.mag_sq() > other.mag_sq(); }
+    pub operator <= (other: Vec) { ret self.mag_sq() <= other.mag_sq(); }
+    pub operator >= (other: Vec) { ret self.mag_sq() >= other.mag_sq(); }
+    pub fn mag_sq(): int { ret self.x * self.x + self.y * self.y; }
+    pub fn eq_to(ox: int, oy: int): bool { ret self.x == ox and self.y == oy; }
+}
+
+var a = Vec(1, 2);
+var b = Vec(3, 4);
+
+var sum = a + b;
+ok("OV1", sum.eq_to(4, 6));
+
+var diff = b - a;
+ok("OV2", diff.eq_to(2, 2));
+
+var prod = a * b;
+ok("OV3", prod.eq_to(3, 8));
+
+var quot = Vec(8, 9) / Vec(2, 3);
+ok("OV4", quot.eq_to(4, 3));
+
+ok("OV5", (a == Vec(1, 2)) == true);
+ok("OV6", (a == b) == false);
+ok("OV7", (a != b) == true and (a != Vec(1, 2)) == false);
+
+// a.mag_sq()=5, b.mag_sq()=25
+ok("OV8", (a < b) == true and (b < a) == false);
+ok("OV9", (b > a) == true and (a <= a) == true and (b >= a) == true);
+
+// ---- chained operations ----
+var chained = a + b + Vec(10, 20);
+ok("OV10", chained.eq_to(14, 26));
+
+// ---- mixed expression compared via overloaded == ----
+var mixed = (a + b) == Vec(4, 6);
+ok("OV11", mixed == true);
+
+// ---- single-field money class ----
+pub class Money {
+    pub var cents: int;
+    pub Money(c: int) { self.cents = c; }
+    pub operator + (other: Money): Money { ret Money(self.cents + other.cents); }
+    pub operator == (other: Money) { ret self.cents == other.cents; }
+    pub operator > (other: Money) { ret self.cents > other.cents; }
+}
+var total = Money(150) + Money(250);
+ok("OV12", (total == Money(400)) == true);
+
+// ---- ordering to pick the larger of two ----
+var hi = Money(10);
+var lo = Money(3);
+var winner = lo;
+if hi > lo { winner = hi; }
+ok("OV13", (winner == Money(10)) == true);
+
+// ---- OV14: class * built-in number is rejected ----
+var num_rejected = false;
+try {
+    var bad = a * 3;
+} catch (ex) {
+    num_rejected = true;
+}
+ok("OV14", num_rejected == true);
+
+print("=== done ===");

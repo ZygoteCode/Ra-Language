@@ -1,0 +1,117 @@
+// Ra Language - numbers: integer width boundaries.
+//
+// Probed facts (Ra v.current):
+//   * Typed annotations (`var x: byte = ...`) are ADVISORY. The literal stays a
+//     unified `number` (arbitrary precision); the annotation does NOT clamp,
+//     wrap, or reject out-of-range values. `var b: byte = 300` keeps 300.
+//   * type_of(<any number>) == "number" regardless of the declared width.
+//   * Arithmetic at a width boundary PROMOTES to arbitrary precision: it neither
+//     wraps (C-style) nor throws. `byte 255 + 1 == 256`, `int max + 1` stays exact.
+//   * Explicit narrowing builtins (to_byte/to_short/...) DO wrap (unchecked cast).
+//
+// Cases:
+//   W1   byte max boundary value (255) preserved
+//   W2   byte 255 + 1 promotes to 256 (no wrap, no throw) -> NOTE promote
+//   W3   short max (32767) / min (-32768)
+//   W4   ushort max (65535)
+//   W5   int max (2147483647) / min (-2147483648)
+//   W6   int max + 1 promotes exactly (no overflow) -> NOTE promote
+//   W7   uint max (4294967295)
+//   W8   long max (9223372036854775807)
+//   W9   ulong max (18446744073709551615)
+//   W10  int128 max (2^127 - 1) literal preserved
+//   W11  uint128 max (2^128 - 1) literal preserved
+//   W12  int128 min (-2^127) literal preserved
+//   W13  to_byte wraps modulo 256 (257 -> 1)
+//   W14  to_short wraps (40000 -> -25536)
+//   W15  declared width is not enforced: `var b: byte = 300` keeps 300 -> NOTE advisory
+
+fn ok(id, cond) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); } }
+
+print("=== numbers/integer_widths ===");
+
+try {
+    var b: byte = 255;
+    ok("W1", b == 255 and type_of(b) == "number");
+} catch (e) { print("[W1] FAIL: " + e); }
+
+try {
+    var b: byte = 255;
+    var r = b + 1;
+    // Promotes; does NOT wrap to 0 and does NOT throw.
+    ok("W2", r == 256 and is_int(r));
+} catch (e) { print("[W2] FAIL: " + e); }
+
+try {
+    var smax: short = 32767;
+    var smin: short = -32768;
+    ok("W3", smax == 32767 and smin == 0 - 32768);
+} catch (e) { print("[W3] FAIL: " + e); }
+
+try {
+    var u: ushort = 65535;
+    ok("W4", u == 65535);
+} catch (e) { print("[W4] FAIL: " + e); }
+
+try {
+    var imax: int = 2147483647;
+    var imin: int = -2147483648;
+    ok("W5", imax == 2147483647 and imin == 0 - 2147483648);
+} catch (e) { print("[W5] FAIL: " + e); }
+
+try {
+    var imax: int = 2147483647;
+    var r = imax + 1;
+    // Exact 2147483648, not -2147483648 and not an error.
+    ok("W6", r == 2147483648);
+} catch (e) { print("[W6] FAIL: " + e); }
+
+try {
+    var u: uint = 4294967295;
+    ok("W7", u == 4294967295);
+} catch (e) { print("[W7] FAIL: " + e); }
+
+try {
+    var l: long = 9223372036854775807;
+    ok("W8", l == 9223372036854775807);
+} catch (e) { print("[W8] FAIL: " + e); }
+
+try {
+    var ul: ulong = 18446744073709551615;
+    ok("W9", ul == 18446744073709551615);
+} catch (e) { print("[W9] FAIL: " + e); }
+
+try {
+    var i: int128 = 170141183460469231731687303715884105727;
+    ok("W10", i == 170141183460469231731687303715884105727);
+} catch (e) { print("[W10] FAIL: " + e); }
+
+try {
+    var u: uint128 = 340282366920938463463374607431768211455;
+    ok("W11", u == 340282366920938463463374607431768211455);
+} catch (e) { print("[W11] FAIL: " + e); }
+
+try {
+    var i: int128 = -170141183460469231731687303715884105728;
+    ok("W12", i == 0 - 170141183460469231731687303715884105728);
+} catch (e) { print("[W12] FAIL: " + e); }
+
+try {
+    // Unchecked narrowing: 257 & 0xff == 1.
+    var w = to_byte(257);
+    ok("W13", w == 1);
+} catch (e) { print("[W13] FAIL: " + e); }
+
+try {
+    // (short)40000 overflows to -25536.
+    var w = to_short(40000);
+    ok("W14", w == 0 - 25536);
+} catch (e) { print("[W14] FAIL: " + e); }
+
+try {
+    // Width annotation is not enforced on assignment.
+    var b: byte = 300;
+    ok("W15", b == 300);
+} catch (e) { print("[W15] FAIL: " + e); }
+
+print("=== done ===");

@@ -1,0 +1,159 @@
+// Ra Language - integration: a finite state machine.
+//
+// A turnstile / traffic-light style FSM exercised two complementary ways:
+//   * an `enum`-tagged state advanced by `match` over (state, input) tuples
+//   * a class that owns its state and a visited-state log (grown via `+=`)
+//   * a map<string,string> transition TABLE consulted as data
+// Inputs arrive as a list and are folded through the transition function;
+// assertions cover the final state AND the full ordered log of visited
+// states for several input sequences.
+//
+// Demonstrates interactions: enums + match + tuples + maps + classes +
+// closures + list/log accumulation.
+
+print("=== integration/state_machine ===");
+
+fn ok(id, cond) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); } }
+fn okv(id, cond, detail) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL: " + detail); } }
+
+// ---------------------------------------------------------------------------
+// Part A — enum state, pure transition function via match-on-tuple.
+// Turnstile: Locked --coin--> Unlocked, Unlocked --push--> Locked.
+// Any other input is a no-op (self-loop).
+// ---------------------------------------------------------------------------
+enum Gate { Locked, Unlocked }
+
+fn gate_to_s(g: Gate): string {
+    let r = match g {
+        case Gate.Locked -> "L"
+        case Gate.Unlocked -> "U"
+    };
+    ret r;
+}
+
+fn gate_next(state: Gate, input: string): Gate {
+    let key = (state, input);
+    let r = match key {
+        case (Gate.Locked, "coin") -> Gate.Unlocked
+        case (Gate.Unlocked, "push") -> Gate.Locked
+        case (s, _) -> s
+    };
+    ret r;
+}
+
+// Drive the gate over an input list, returning (final_state, log-string).
+fn drive_gate(start: Gate, inputs: list): tuple {
+    var state = start;
+    var log = gate_to_s(start);
+    for inp in inputs {
+        state = gate_next(state, inp);
+        log = log + gate_to_s(state);
+    }
+    ret (state, log);
+}
+
+// === SM1: single coin unlocks ==============================================
+let r1 = drive_gate(Gate.Locked, ["coin"]);
+ok("SM1", r1[0] == Gate.Unlocked and r1[1] == "LU");
+
+// === SM2: coin then push returns to locked =================================
+let r2 = drive_gate(Gate.Locked, ["coin", "push"]);
+okv("SM2", r2[0] == Gate.Locked and r2[1] == "LUL", r2[1]);
+
+// === SM3: pushing while locked is a no-op (self-loop) ======================
+let r3 = drive_gate(Gate.Locked, ["push", "push"]);
+okv("SM3", r3[0] == Gate.Locked and r3[1] == "LLL", r3[1]);
+
+// === SM4: extra coins while unlocked are ignored ===========================
+let r4 = drive_gate(Gate.Locked, ["coin", "coin", "coin"]);
+okv("SM4", r4[0] == Gate.Unlocked and r4[1] == "LUUU", r4[1]);
+
+// === SM5: a longer mixed sequence ==========================================
+let r5 = drive_gate(Gate.Locked, ["coin", "push", "coin", "push", "coin"]);
+okv("SM5", r5[0] == Gate.Unlocked and r5[1] == "LULULU", r5[1]);
+
+// === SM6: unknown inputs are no-ops ========================================
+let r6 = drive_gate(Gate.Unlocked, ["wiggle", "kick"]);
+okv("SM6", r6[0] == Gate.Unlocked and r6[1] == "UUU", r6[1]);
+
+// ---------------------------------------------------------------------------
+// Part B — a data-driven transition TABLE (map of "state|input" -> state).
+// A traffic light cycles green -> yellow -> red -> green on each "tick".
+// ---------------------------------------------------------------------------
+var table = make_map();
+map_set(table, "green|tick", "yellow");
+map_set(table, "yellow|tick", "red");
+map_set(table, "red|tick", "green");
+
+fn table_next(state: string, input: string): string {
+    let key = state + "|" + input;
+    ret map_get_or(table, key, state);   // missing transition = stay put
+}
+
+fn drive_table(start: string, inputs: list): tuple {
+    var state = start;
+    var visited = [start];
+    for inp in inputs {
+        state = table_next(state, inp);
+        visited += state;
+    }
+    ret (state, visited);
+}
+
+// === SM7: one tick green->yellow ===========================================
+let t7 = drive_table("green", ["tick"]);
+ok("SM7", t7[0] == "yellow" and t7[1] == ["green", "yellow"]);
+
+// === SM8: three ticks complete a full cycle back to green ==================
+let t8 = drive_table("green", ["tick", "tick", "tick"]);
+okv("SM8", t8[0] == "green" and t8[1] == ["green", "yellow", "red", "green"], t8[1] as string);
+
+// === SM9: unknown input keeps the light where it is ========================
+let t9 = drive_table("red", ["power_cut", "tick"]);
+okv("SM9", t9[0] == "green" and t9[1] == ["red", "red", "green"], t9[1] as string);
+
+// === SM10: count how many times the light was green across a long run ======
+let t10 = drive_table("green", ["tick", "tick", "tick", "tick", "tick", "tick"]);
+okv("SM10", list_count(t10[1], "green") == 3, "greens=" + (list_count(t10[1], "green") as string));
+
+// ---------------------------------------------------------------------------
+// Part C — a class that encapsulates state + an internal visited log, driven
+// by feeding inputs. Mirrors Part A but with stateful object identity.
+// ---------------------------------------------------------------------------
+class Turnstile {
+    pub var state: Gate = Gate.Locked;
+    pub var log: list = [];
+    pub var coins: int = 0;
+    pub Turnstile() { self.log = ["L"]; }
+    pub fn feed(input: string) {
+        if input == "coin" and self.state == Gate.Locked { self.coins = self.coins + 1; }
+        self.state = gate_next(self.state, input);
+        self.log = self.log + [gate_to_s(self.state)];
+    }
+    pub fn feed_all(inputs: list) {
+        for inp in inputs { self.feed(inp); }
+    }
+    pub fn locked(): bool { ret self.state == Gate.Locked; }
+}
+
+// === SM11: object FSM matches the functional one on the same input =========
+var ts = Turnstile();
+ts.feed_all(["coin", "push", "coin"]);
+okv("SM11", ts.log == ["L", "U", "L", "U"], ts.log as string);
+
+// === SM12: the object stayed Unlocked after that sequence ==================
+ok("SM12", not ts.locked());
+
+// === SM13: it counted exactly the coins that caused an unlock ==============
+// "coin"(unlock) "push"(lock) "coin"(unlock) => 2 effective coins.
+okv("SM13", ts.coins == 2, ts.coins as string);
+
+// === SM14: a fresh object starts locked with a single-entry log ============
+var fresh = Turnstile();
+ok("SM14", fresh.locked() and fresh.log == ["L"]);
+
+// === SM15: feeding a coin to a fresh object unlocks and logs ===============
+fresh.feed("coin");
+okv("SM15", not fresh.locked() and fresh.log == ["L", "U"], fresh.log as string);
+
+print("=== done ===");

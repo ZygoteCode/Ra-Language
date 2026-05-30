@@ -1,0 +1,203 @@
+print("=== native/native_lib ===");
+
+# Helpers --------------------------------------------------------------
+fn ok(id, cond) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); } }
+fn okv(id, got, want) { if got == want { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL: got " + got + " want " + want); } }
+fn okf(id, got, want, tol) { if abs(got - want) < tol { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL: got " + got + " want " + want); } }
+
+# ---------------------------------------------------------------------
+# native_pointer_size : x64 => 8
+# ---------------------------------------------------------------------
+okv("ptrsize", native_pointer_size(), 8);
+
+# ---------------------------------------------------------------------
+# native_sizeof for primitive type tags
+# ---------------------------------------------------------------------
+okv("sizeof.u8", native_sizeof("u8"), 1);
+okv("sizeof.i8", native_sizeof("i8"), 1);
+okv("sizeof.u16", native_sizeof("u16"), 2);
+okv("sizeof.i16", native_sizeof("i16"), 2);
+okv("sizeof.i32", native_sizeof("i32"), 4);
+okv("sizeof.u32", native_sizeof("u32"), 4);
+okv("sizeof.f32", native_sizeof("f32"), 4);
+okv("sizeof.i64", native_sizeof("i64"), 8);
+okv("sizeof.u64", native_sizeof("u64"), 8);
+okv("sizeof.f64", native_sizeof("f64"), 8);
+okv("sizeof.ptr", native_sizeof("ptr"), 8);
+okv("sizeof.ptr.eq.ptrsize", native_sizeof("ptr"), native_pointer_size());
+# unknown type tag => null (probed)
+ok("sizeof.bogus", native_sizeof("totally_bogus_type") == null);
+
+# ---------------------------------------------------------------------
+# native_alloc : handle is non-null, has address, reports size
+# ---------------------------------------------------------------------
+var a = native_alloc(64);
+ok("alloc.handle", is_native_handle(a));
+ok("alloc.notnull", native_is_null(a) == false);
+ok("alloc.addr", native_address(a) != 0);
+okv("alloc.size", native_size(a), 64);
+
+# native_alloc does NOT guarantee zeroed memory: write then read back
+native_write_i32(a, 0, 305419896);
+okv("alloc.rw", native_read_i32(a, 0), 305419896);
+native_free(a);
+# native_is_null is true once freed
+ok("alloc.null_after_free", native_is_null(a));
+
+# ---------------------------------------------------------------------
+# native_zero_alloc : returns zeroed memory + non-null address
+# ---------------------------------------------------------------------
+var z = native_zero_alloc(32);
+ok("zalloc.notnull", native_is_null(z) == false);
+ok("zalloc.addr", native_address(z) != 0);
+okv("zalloc.size", native_size(z), 32);
+okv("zalloc.zero0", native_read_i32(z, 0), 0);
+okv("zalloc.zero4", native_read_i32(z, 4), 0);
+okv("zalloc.zero.u8", native_read_u8(z, 31), 0);
+okv("zalloc.zero.i64", native_read_i64(z, 8), 0);
+native_free(z);
+
+# ---------------------------------------------------------------------
+# native_null_ptr / native_is_null
+# ---------------------------------------------------------------------
+var nul = native_null_ptr();
+ok("null.is_null", native_is_null(nul));
+okv("null.addr", native_address(nul), 0);
+ok("null.is_handle", is_native_handle(nul));
+# a fresh live allocation is NOT null
+var live = native_zero_alloc(8);
+ok("null.live_not_null", native_is_null(live) == false);
+native_free(live);
+
+# ---------------------------------------------------------------------
+# fixed-width integer write/read round-trips (each exact)
+# ---------------------------------------------------------------------
+var iw = native_zero_alloc(64);
+native_write_u8(iw, 0, 255);
+okv("rw.u8", native_read_u8(iw, 0), 255);
+native_write_i8(iw, 1, -7);
+okv("rw.i8", native_read_i8(iw, 1), -7);
+native_write_u16(iw, 2, 65535);
+okv("rw.u16", native_read_u16(iw, 2), 65535);
+native_write_i16(iw, 4, -1234);
+okv("rw.i16", native_read_i16(iw, 4), -1234);
+native_write_u32(iw, 8, 4294967295);
+okv("rw.u32", native_read_u32(iw, 8), 4294967295);
+native_write_i32(iw, 12, -2000000000);
+okv("rw.i32", native_read_i32(iw, 12), -2000000000);
+native_write_i64(iw, 16, 9223372036854775807);
+okv("rw.i64.max", native_read_i64(iw, 16), 9223372036854775807);
+native_write_i64(iw, 24, -9223372036854775807);
+okv("rw.i64.neg", native_read_i64(iw, 24), -9223372036854775807);
+# u64 within signed range round-trips exactly
+native_write_u64(iw, 32, 1311768467463790320);
+okv("rw.u64", native_read_u64(iw, 32), 1311768467463790320);
+native_free(iw);
+
+# ---------------------------------------------------------------------
+# float write/read round-trips (tolerance compare)
+# ---------------------------------------------------------------------
+var fw = native_zero_alloc(16);
+native_write_f64(fw, 0, 3.14159265);
+okf("rw.f64", native_read_f64(fw, 0), 3.14159265, 0.0000001);
+native_write_f32(fw, 8, 2.5);
+okf("rw.f32", native_read_f32(fw, 8), 2.5, 0.0001);
+native_free(fw);
+
+# ---------------------------------------------------------------------
+# native_write_bytes + native_read_bytes : exact round-trip
+# ---------------------------------------------------------------------
+var bb = native_zero_alloc(8);
+var nwrote = native_write_bytes(bb, 0, [10, 20, 30, 40, 250]);
+okv("bytes.wrote_count", nwrote, 5);
+var rb = native_read_bytes(bb, 0, 5);
+okv("bytes.len", len(rb), 5);
+okv("bytes.0", rb[0], 10);
+okv("bytes.1", rb[1], 20);
+okv("bytes.2", rb[2], 30);
+okv("bytes.3", rb[3], 40);
+okv("bytes.4", rb[4], 250);
+# write at an offset, confirm only that region changes
+native_write_bytes(bb, 5, [99]);
+okv("bytes.offset", native_read_u8(bb, 5), 99);
+okv("bytes.untouched", native_read_u8(bb, 0), 10);
+native_free(bb);
+
+# ---------------------------------------------------------------------
+# native_memset then read back
+# ---------------------------------------------------------------------
+var ms = native_zero_alloc(16);
+var msret = native_memset(ms, 171, 16);
+okv("memset.ret", msret, 16);
+okv("memset.first", native_read_u8(ms, 0), 171);
+okv("memset.mid", native_read_u8(ms, 8), 171);
+okv("memset.last", native_read_u8(ms, 15), 171);
+# memzero clears it again
+native_memzero(ms, 16);
+okv("memzero.first", native_read_u8(ms, 0), 0);
+okv("memzero.last", native_read_u8(ms, 15), 0);
+native_free(ms);
+
+# ---------------------------------------------------------------------
+# native_memcpy between two distinct buffers
+# ---------------------------------------------------------------------
+var src = native_zero_alloc(12);
+var dst = native_zero_alloc(12);
+native_write_i32(src, 0, 111111);
+native_write_i32(src, 4, 222222);
+native_write_i32(src, 8, 333333);
+var cpret = native_memcpy(dst, src, 12);
+okv("memcpy.ret", cpret, 12);
+okv("memcpy.0", native_read_i32(dst, 0), 111111);
+okv("memcpy.4", native_read_i32(dst, 4), 222222);
+okv("memcpy.8", native_read_i32(dst, 8), 333333);
+# mutating src after the copy must not change dst (independent buffers)
+native_write_i32(src, 0, -1);
+okv("memcpy.independent", native_read_i32(dst, 0), 111111);
+native_free(src);
+native_free(dst);
+
+# ---------------------------------------------------------------------
+# native_write_cstr + native_read_cstr : round-trip
+# ---------------------------------------------------------------------
+var cs = native_zero_alloc(32);
+var clen = native_write_cstr(cs, 0, "hello world");
+# returns bytes written including the NUL terminator (11 + 1)
+okv("cstr.wrote_len", clen, 12);
+okv("cstr.read", native_read_cstr(cs, 0), "hello world");
+# NUL terminator is present right after the payload
+okv("cstr.nul", native_read_u8(cs, 11), 0);
+native_free(cs);
+
+# empty string round-trips
+var cs2 = native_zero_alloc(8);
+native_write_cstr(cs2, 0, "");
+okv("cstr.empty", native_read_cstr(cs2, 0), "");
+native_free(cs2);
+
+# write at offset
+var cs3 = native_zero_alloc(32);
+native_write_cstr(cs3, 4, "Ra");
+okv("cstr.offset", native_read_cstr(cs3, 4), "Ra");
+native_free(cs3);
+
+# ---------------------------------------------------------------------
+# native_ptr_eq / native_offset address arithmetic
+# ---------------------------------------------------------------------
+var pe = native_zero_alloc(16);
+ok("ptr_eq.self", native_ptr_eq(pe, pe));
+var nul2 = native_null_ptr();
+ok("ptr_eq.diff", native_ptr_eq(pe, nul2) == false);
+var off = native_offset(pe, 4);
+okv("offset.addr", native_address(off), native_address(pe) + 4);
+# writing through the base and reading through the offset view aliases the same memory
+native_write_i32(pe, 4, 4242);
+okv("offset.alias", native_read_i32(off, 0), 4242);
+native_free(pe);
+
+# ---------------------------------------------------------------------
+# native_read_cstr on a null pointer returns "" (does not crash)
+# ---------------------------------------------------------------------
+ok("cstr.null_safe", native_read_cstr(native_null_ptr(), 0) == "");
+
+print("=== done ===");

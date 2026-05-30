@@ -1,0 +1,117 @@
+// Ra Language - modules: full import suite (fully asserted).
+//
+// Exercises every import form the language supports against the adjacent
+// imports_helpers/ directory and the std.io standard-library module, plus
+// the four negative cases (missing relative module, missing std module,
+// circular import, private symbol not exported) via try/catch.
+//
+// Cases:
+//   I1   relative import-all: pub fn add
+//   I2   relative import-all: pub fn mul
+//   I3   relative import-all: pub var PI
+//   I4   relative import-all: pub fn that wraps a private helper (ask_helper -> 42)
+//   I5   module cache: re-importing the same module still resolves its exports
+//   I6   std.io dotted import: pub const NEWLINE == "\n"
+//   I7   std.io dotted import: pub fn println runs without error
+//   I8   alias import: strs.repeat (module-wrapper access to a pub fn)
+//   I9   alias import: strs.GREETING (module-wrapper access to a pub const)
+//   I10  selective import: { repeat } from a relative path
+//   I11  selective import: { println } from std.io (dotted form)
+//   N1   importing a missing relative module is catchable
+//   N2   importing a missing std module is catchable
+//   N3   circular import is rejected and catchable
+//   N4   a private (non-pub) symbol is NOT importable (selective import throws)
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== modules/imports_full ===");
+
+// --- relative import-all (string path). math_lib prints one side effect. ---
+import "imports_helpers/math_lib.ra";
+
+ok("I1", add(2, 3) == 5);
+ok("I2", mul(4, 5) == 20);
+ok("I3", PI > 3.13 and PI < 3.15);
+ok("I4", ask_helper() == 42);
+
+// --- module cache: re-importing resolves the same exports (no re-execution). ---
+import "imports_helpers/math_lib.ra";
+ok("I5", add(7, 8) == 15);
+
+// --- std.io dotted import. ---
+import std.io;
+ok("I6", NEWLINE == "\n");
+
+var i7 = false;
+try {
+    println("I7: std.io.println side-effect line");
+    i7 = true;
+} catch (e) {
+    i7 = false;
+}
+ok("I7", i7);
+
+// --- alias import (module wrapper). ---
+import "imports_helpers/strings_lib.ra" as strs;
+ok("I8", strs.repeat("ab", 3) == "ababab");
+ok("I9", strs.GREETING == "hello");
+
+// --- selective import from a relative path. ---
+import { repeat } from "imports_helpers/strings_lib.ra";
+ok("I10", repeat("z", 4) == "zzzz");
+
+// --- selective import from std (dotted form). ---
+import { println } from std.io;
+var i11 = false;
+try {
+    println("I11: selective println side-effect line");
+    i11 = true;
+} catch (e) {
+    i11 = false;
+}
+ok("I11", i11);
+
+// --- NEGATIVE: missing relative module is catchable. ---
+var n1 = false;
+try {
+    import "imports_helpers/does_not_exist.ra";
+    n1 = false;
+} catch (e) {
+    n1 = true;
+}
+ok("N1", n1);
+
+// --- NEGATIVE: missing std module is catchable. ---
+var n2 = false;
+try {
+    import std.no_such_module;
+    n2 = false;
+} catch (e) {
+    n2 = true;
+}
+ok("N2", n2);
+
+// --- NEGATIVE: circular import is rejected and catchable. ---
+var n3_caught = false;
+var n3_fellthrough = false;
+try {
+    import "imports_helpers/circle_a.ra";
+    n3_fellthrough = true;
+} catch (e) {
+    n3_caught = true;
+}
+ok("N3", n3_caught and not n3_fellthrough);
+
+// --- NEGATIVE: a private (non-pub) symbol is NOT importable. ---
+var n4 = false;
+try {
+    import { internal_helper } from "imports_helpers/math_lib.ra";
+    n4 = false;
+} catch (e) {
+    n4 = true;
+}
+ok("N4", n4);
+
+print("=== done ===");

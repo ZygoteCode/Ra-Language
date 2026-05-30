@@ -1,0 +1,153 @@
+// Ra Language - modules: full namespaces suite (fully asserted).
+//
+// Cases:
+//   S1   simple namespace + qualified access
+//   S2   dotted namespace declaration (namespace A.B { })
+//   S3   re-opening the same namespace adds members; old members remain
+//   S4   nested namespace via block form (outer + inner)
+//   S5   dotted + nested merge into the same canonical namespace
+//   S6   namespace with a pub const and a pub fn
+//   S7   `using` brings members into local scope
+//   S8   `using ... as alias` re-namespaces
+//   S9   inside a namespace body, sibling names are visible
+//   S10  inside a nested namespace, outer names are visible
+//   S11  a namespace is itself a value; typeof is "namespace"
+//   S12  deeply nested re-opening merges into one canonical namespace
+//   S13  class declared inside a namespace, instantiated via qualified path
+//   S14  private (non-pub) namespace member is hidden (catchable)
+//   S15  accessing an undefined namespace member is catchable
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== modules/namespaces_full ===");
+
+// --- S1: simple namespace + qualified access ---
+namespace MyApp {
+    pub fn hello() { ret "hi from MyApp.hello"; }
+}
+ok("S1", MyApp.hello() == "hi from MyApp.hello");
+
+// --- S2: dotted namespace declaration ---
+namespace System.IO {
+    pub fn read() { ret "System.IO.read called"; }
+}
+ok("S2", System.IO.read() == "System.IO.read called");
+
+// --- S3: re-opening the same namespace adds members; old members remain ---
+namespace MyApp {
+    pub fn goodbye() { ret "bye from MyApp.goodbye"; }
+}
+ok("S3", MyApp.hello() == "hi from MyApp.hello" and MyApp.goodbye() == "bye from MyApp.goodbye");
+
+// --- S4: nested namespace via block form ---
+namespace Outer {
+    pub fn at_outer() { ret "outer"; }
+    namespace Inner {
+        pub fn at_inner() { ret "inner"; }
+    }
+}
+ok("S4", Outer.at_outer() == "outer" and Outer.Inner.at_inner() == "inner");
+
+// --- S5: dotted + nested merge into the same canonical namespace ---
+namespace System.IO.Files {
+    pub fn write() { ret "System.IO.Files.write called"; }
+}
+ok("S5", System.IO.read() == "System.IO.read called" and System.IO.Files.write() == "System.IO.Files.write called");
+
+// --- S6: namespace with a pub const and a pub fn ---
+namespace MathNs {
+    pub const PI = 3.14;
+    pub fn double(x) { ret x * 2; }
+}
+ok("S6", MathNs.PI == 3.14 and MathNs.double(21) == 42);
+
+// --- S7: `using` brings members into local scope ---
+namespace Tools {
+    pub fn ping() { ret "pong"; }
+    pub const VERSION = "1.0";
+}
+using Tools;
+ok("S7", ping() == "pong" and VERSION == "1.0");
+
+// --- S8: `using ... as alias` re-namespaces ---
+namespace Networking.Http {
+    pub fn get() { ret "GET ok"; }
+}
+using Networking.Http as H;
+ok("S8", H.get() == "GET ok");
+
+// --- S9: inside a namespace body, sibling names are visible ---
+namespace Bag {
+    pub fn first() { ret "first()"; }
+    pub fn second() { ret first() + " then second()"; }
+}
+ok("S9", Bag.second() == "first() then second()");
+
+// --- S10: inside a nested namespace, outer names are visible ---
+namespace Family {
+    pub const SURNAME = "Rossi";
+    namespace Member {
+        pub fn full(name) { ret name + " " + SURNAME; }
+    }
+}
+ok("S10", Family.Member.full("Mario") == "Mario Rossi");
+
+// --- S11: a namespace is itself a value; typeof is "namespace" ---
+var ns_ref = MathNs;
+ok("S11", ns_ref.PI == 3.14 and (typeof MathNs) == "namespace");
+
+// --- S12: deeply nested re-opening merges into one canonical namespace ---
+namespace Deep.A.B {
+    pub fn one() { ret 1; }
+}
+namespace Deep.A.B {
+    pub fn two() { ret 2; }
+}
+namespace Deep {
+    namespace A {
+        namespace B {
+            pub fn three() { ret 3; }
+        }
+    }
+}
+ok("S12", Deep.A.B.one() + Deep.A.B.two() + Deep.A.B.three() == 6);
+
+// --- S13: class inside a namespace, instantiated via qualified path ---
+namespace UI.Widgets {
+    pub class Button {
+        pub var label;
+        pub fn Button(label) { self.label = label; }
+        pub fn click() { ret "clicked " + self.label; }
+    }
+}
+var b = UI.Widgets.Button("OK");
+ok("S13", b.click() == "clicked OK" and b.label == "OK");
+
+// --- S14: private (non-pub) namespace member is hidden ---
+namespace Secret {
+    fn hidden() { ret "should not be visible"; }
+    pub fn visible() { ret "visible from outside"; }
+}
+ok("S14a", Secret.visible() == "visible from outside");
+var s14 = false;
+try {
+    print(Secret.hidden());
+    s14 = false;
+} catch (e) {
+    s14 = true;
+}
+ok("S14b", s14);
+
+// --- S15: accessing an undefined namespace member is catchable ---
+var s15 = false;
+try {
+    print(MyApp.does_not_exist());
+    s15 = false;
+} catch (e) {
+    s15 = true;
+}
+ok("S15", s15);
+
+print("=== done ===");

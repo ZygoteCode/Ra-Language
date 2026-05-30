@@ -1,0 +1,170 @@
+// Ra Language - scoping: OUTER-VARIABLE INTEGRITY across nested-scope shadowing.
+//
+// Regression guard for the class of bug "an inner block that shadows a name
+// corrupts / nulls / invalidates the OUTER binding on scope exit". Ra's model
+// (verified): a block `{ … }` opens a child scope (a fresh child SymbolTable
+// parented to the enclosing one); `var/let/const` inside it bind in the CHILD;
+// name lookup walks child -> parent; on block exit the child is discarded and
+// the parent binding is left exactly as it was (value AND type). Shadowing is
+// always permitted; it never mutates, moves, aliases, or invalidates the outer
+// binding. These invariants must hold under arbitrary nesting, in every
+// control-flow block, and alongside let/const/borrow and reassignment.
+
+fn ok(id, cond) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); } }
+
+print("=== scoping/shadow_outer_integrity ===");
+
+// SI1 — the canonical reported case: outer int, inner string shadow.
+var x = 5;
+{
+    var x = "ciao";
+    ok("SI1a", x == "ciao");
+}
+ok("SI1b", x == 5);
+ok("SI1c", is_int(x));
+
+// SI2 — outer remains reassignable (not frozen/invalidated) after inner block.
+var r = 1;
+{
+    var r = 999;
+}
+r = r + 41;
+ok("SI2", r == 42);
+
+// SI3 — deep nesting (5 levels), each level shadows; every level unwinds intact.
+var d = 0;
+{
+    var d = 1;
+    {
+        var d = 2;
+        {
+            var d = 3;
+            {
+                var d = 4;
+                ok("SI3e", d == 4);
+            }
+            ok("SI3d", d == 3);
+        }
+        ok("SI3c", d == 2);
+    }
+    ok("SI3b", d == 1);
+}
+ok("SI3a", d == 0);
+
+// SI4 — shadow inside every control-flow construct; outer survives each.
+var k1 = 11;
+if true {
+    var k1 = -1;
+}
+ok("SI4if", k1 == 11);
+
+var k2 = 22;
+var n = 0;
+while n < 3 {
+    var k2 = -1;
+    n = n + 1;
+}
+ok("SI4while", k2 == 22);
+
+var k3 = 33;
+for i in 0..3 {
+    var k3 = i;
+}
+ok("SI4for", k3 == 33);
+
+var k4 = 44;
+do {
+    var k4 = -1;
+} while false;
+ok("SI4dowhile", k4 == 44);
+
+// SI5 — sibling blocks reuse the same shadow name; outer untouched by either.
+var s = "S";
+{
+    var s = "A";
+}
+{
+    var s = "B";
+}
+{
+    var s = "C";
+}
+ok("SI5", s == "S");
+
+// SI6 — outer is READ inside the inner block before being shadowed; both correct.
+var v = 50;
+{
+    var got = v + 1;
+    ok("SI6a", got == 51);
+    var v = 0;
+    ok("SI6b", v == 0);
+}
+ok("SI6c", v == 50);
+
+// SI7 — slot pressure: many outer vars surrounding a shadowing block.
+var a1 = 1; var a2 = 2; var a3 = 3; var a4 = 4; var a5 = 5;
+{
+    var a3 = 300;
+    ok("SI7a", a3 == 300);
+}
+ok("SI7b", a1 == 1 && a2 == 2 && a3 == 3 && a4 == 4 && a5 == 5);
+
+// SI8 — outer let (move-binding); inner shadow with its own let; outer intact.
+let L = 7;
+{
+    let L = 70;
+    let consume = L;
+    ok("SI8a", consume == 70);
+}
+ok("SI8b", L == 7);
+
+// SI9 — outer const; inner var shadow; outer const value preserved.
+const C = 100;
+{
+    var C = 200;
+    ok("SI9a", C == 200);
+}
+ok("SI9b", C == 100);
+
+// SI10 — outer non-copy value (list); inner shadows with a different list;
+// the OUTER list's identity + contents survive untouched.
+var lst = [1, 2, 3];
+{
+    var lst = [9, 9];
+    ok("SI10a", len(lst) == 2);
+}
+ok("SI10b", len(lst) == 3 && lst[0] == 1 && lst[2] == 3);
+
+// SI11 — outer mutated INSIDE inner block (no shadow) persists after exit;
+// then shadowed in a later sibling block; original mutation still holds.
+var m = 1;
+{
+    m = m + 10;
+}
+ok("SI11a", m == 11);
+{
+    var m = -100;
+}
+ok("SI11b", m == 11);
+
+// SI12 — function-local outer + block shadow; the function's own binding intact.
+fn f_local() {
+    var q = "fn";
+    {
+        var q = "blk";
+    }
+    ret q;
+}
+ok("SI12", f_local() == "fn");
+
+// SI13 — nested blocks where inner reassigns its OWN shadow repeatedly.
+var w = 8;
+{
+    var w = 0;
+    w = w + 1;
+    w = w + 1;
+    ok("SI13a", w == 2);
+}
+ok("SI13b", w == 8);
+
+print("=== done ===");

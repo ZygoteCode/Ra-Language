@@ -1,0 +1,49 @@
+# ============================================================================
+# Regression guard for a FIXED IR-compiler miscompilation (M87 "lazy-long
+# while counter" typed-accumulator promotion in Interpreter/IR/IrCompiler.cs).
+#
+# The bug: a STRING accumulator was promoted to a typed Int64 slot inside a
+# `while` loop without checking its type, so `UnboxI("")` -> 0 and the body's
+# `out = out + s` was miscompiled into a numeric AddII (result 0). A related
+# manifestation, `out = out + (i as string)` -> "000", came from the typed
+# iter's boxed mirror going stale for non-redirectable reads.
+#
+# Fixed by (a) a numeric-init gate (NumericInitBindings) so non-numeric
+# accumulators are never promoted, and (b) marking the iter/accumulators dirty
+# at loop-body top so their boxed mirror is published before each read.
+# These cases all pass now and must keep passing.
+# ============================================================================
+
+fn ok(id, cond) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); } }
+
+print("=== regressions/while_string_accumulator ===");
+
+# WS1 — string accumulator built with `acc = acc + literal` in a while loop.
+var a = "";
+var i = 0;
+while (i < 3) {
+    a = a + "x";
+    i = i + 1;
+}
+ok("WS1", a == "xxx");
+
+# WS2 — string accumulator with a loop-invariant string variable on the RHS.
+var b = "";
+var s = "ab";
+var j = 0;
+while (j < 3) {
+    b = b + s;
+    j = j + 1;
+}
+ok("WS2", b == "ababab");
+
+# WS3 — concatenating the (stringified) loop counter.
+var c = "";
+var k = 0;
+while (k < 3) {
+    c = c + (k as string);
+    k = k + 1;
+}
+ok("WS3", c == "012");
+
+print("=== done ===");

@@ -1,0 +1,346 @@
+// Ra Language - builtins: collection built-in functions (asserted).
+//
+// Covers: len, empty, is_not_empty, clone;
+//   list_push, list_pop, list_first, list_last, list_index_of, list_contains,
+//   list_slice, list_take, list_drop, list_insert, list_remove_at, list_sort,
+//   list_sort_desc, list_reverse, list_unique, list_flatten, list_concat,
+//   list_sum, list_product, list_min, list_max, list_count, list_range,
+//   list_zip, list_chunk;
+//   map_get, map_get_or, map_has, map_set, map_remove, map_size, map_keys,
+//   map_values, map_entries, map_merge;
+//   set_add, set_remove, set_has, set_size, set_union, set_intersect,
+//   set_diff, set_to_list;
+//   tuple_at, tuple_first, tuple_second, tuple_size, tuple_to_list.
+//
+// All cases assert semantically-correct expected values. Throw-prone ops are
+// wrapped in try/catch and the taken branch is asserted.
+
+print("=== builtins/collections ===");
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+// ---------------------------------------------------------------------------
+// len / empty / is_not_empty  (work across list, string, map, set, tuple)
+// ---------------------------------------------------------------------------
+ok("C1",  len([1, 2, 3, 4, 5]) == 5);
+ok("C2",  len("hello") == 5);
+ok("C3",  len({"a": 1, "b": 2}) == 2);
+ok("C4",  len({1, 2, 3}) == 3);
+ok("C5",  len((1, 2)) == 2);
+ok("C6",  len([]) == 0);
+ok("C7",  len("") == 0);
+ok("C8",  empty([]) == true);
+ok("C9",  empty([1]) == false);
+ok("C10", empty("") == true);
+ok("C11", empty({}) == true);
+ok("C12", is_not_empty([1]) == true);
+ok("C13", is_not_empty([]) == false);
+ok("C14", is_not_empty({1, 2}) == true);
+
+// ---------------------------------------------------------------------------
+// clone  (deep, independent copy: mutating the clone must not touch original)
+// ---------------------------------------------------------------------------
+var cl_src = [1, 2, 3];
+var cl_dst = clone(cl_src);
+list_push(cl_dst, 4);
+ok("C15", cl_src == [1, 2, 3]);          // original unchanged
+ok("C16", cl_dst == [1, 2, 3, 4]);       // clone mutated
+
+var cl_msrc = {"a": 1};
+var cl_mdst = clone(cl_msrc);
+map_set(cl_mdst, "b", 2);
+ok("C17", cl_msrc == {"a": 1});
+ok("C18", cl_mdst == {"a": 1, "b": 2});
+
+var cl_ssrc = {1, 2};
+var cl_sdst = clone(cl_ssrc);
+set_add(cl_sdst, 3);
+ok("C19", cl_ssrc == {1, 2});
+ok("C20", cl_sdst == {1, 2, 3});
+
+// ---------------------------------------------------------------------------
+// list_push  (mutates in place AND returns the mutated list)
+// ---------------------------------------------------------------------------
+var lp = [1, 2, 3];
+var lp_ret = list_push(lp, 4);
+ok("C21", lp == [1, 2, 3, 4]);
+ok("C22", lp_ret == [1, 2, 3, 4]);
+
+// ---------------------------------------------------------------------------
+// list_pop  (returns popped element; mutates in place; null on empty)
+// ---------------------------------------------------------------------------
+var lpo = [1, 2, 3];
+ok("C23", list_pop(lpo) == 3);
+ok("C24", lpo == [1, 2]);
+ok("C25", list_pop([]) == null);
+
+// ---------------------------------------------------------------------------
+// list_first / list_last  (null on empty, no throw)
+// ---------------------------------------------------------------------------
+ok("C26", list_first([10, 20, 30]) == 10);
+ok("C27", list_last([10, 20, 30]) == 30);
+ok("C28", list_first([42]) == 42);
+ok("C29", list_last([42]) == 42);
+ok("C30", list_first([]) == null);
+ok("C31", list_last([]) == null);
+
+// ---------------------------------------------------------------------------
+// list_index_of  (-1 when absent)
+// ---------------------------------------------------------------------------
+ok("C32", list_index_of([10, 20, 30], 20) == 1);
+ok("C33", list_index_of([10, 20, 30], 99) == -1);
+ok("C34", list_index_of([], 1) == -1);
+
+// ---------------------------------------------------------------------------
+// list_contains
+// ---------------------------------------------------------------------------
+ok("C35", list_contains([1, 2, 3], 2) == true);
+ok("C36", list_contains([1, 2, 3], 99) == false);
+ok("C37", list_contains([], 1) == false);
+
+// ---------------------------------------------------------------------------
+// list_slice  (end-exclusive; clamps when end past length)
+// ---------------------------------------------------------------------------
+ok("C38", list_slice([10, 20, 30, 40, 50], 1, 4) == [20, 30, 40]);
+ok("C39", list_slice([1, 2, 3], 1, 99) == [2, 3]);     // clamps, no throw
+ok("C40", list_slice([1, 2, 3], 0, 0) == []);
+
+// ---------------------------------------------------------------------------
+// list_take / list_drop  (clamp when n exceeds length)
+// ---------------------------------------------------------------------------
+ok("C41", list_take([1, 2, 3, 4, 5], 3) == [1, 2, 3]);
+ok("C42", list_take([1, 2], 5) == [1, 2]);
+ok("C43", list_take([1, 2, 3], 0) == []);
+ok("C44", list_drop([1, 2, 3, 4, 5], 2) == [3, 4, 5]);
+ok("C45", list_drop([1, 2], 5) == []);
+ok("C46", list_drop([1, 2, 3], 0) == [1, 2, 3]);
+
+// ---------------------------------------------------------------------------
+// list_insert  (mutates in place; out-of-range index throws)
+// ---------------------------------------------------------------------------
+var li = [1, 2, 3];
+list_insert(li, 1, 99);
+ok("C47", li == [1, 99, 2, 3]);
+var li2 = [1, 2];
+var li2_threw = false;
+try { list_insert(li2, 5, 9); } catch (e) { li2_threw = true; }
+ok("C48", li2_threw == true);
+
+// ---------------------------------------------------------------------------
+// list_remove_at  (returns removed element; mutates in place; oob throws)
+// ---------------------------------------------------------------------------
+var lr = [10, 20, 30];
+ok("C49", list_remove_at(lr, 1) == 20);
+ok("C50", lr == [10, 30]);
+var lr2 = [1, 2];
+var lr2_threw = false;
+try { list_remove_at(lr2, 9); } catch (e) { lr2_threw = true; }
+ok("C51", lr2_threw == true);
+
+// ---------------------------------------------------------------------------
+// list_sort / list_sort_desc  (numbers and strings; non-mutating)
+// ---------------------------------------------------------------------------
+ok("C52", list_sort([5, 2, 8, 1, 3]) == [1, 2, 3, 5, 8]);
+ok("C53", list_sort_desc([5, 2, 8, 1, 3]) == [8, 5, 3, 2, 1]);
+ok("C54", list_sort(["banana", "apple", "cherry"]) == ["apple", "banana", "cherry"]);
+ok("C55", list_sort([]) == []);
+ok("C56", list_sort([42]) == [42]);
+
+// ---------------------------------------------------------------------------
+// list_reverse
+// ---------------------------------------------------------------------------
+ok("C57", list_reverse([1, 2, 3, 4]) == [4, 3, 2, 1]);
+ok("C58", list_reverse([]) == []);
+ok("C59", list_reverse([1]) == [1]);
+
+// ---------------------------------------------------------------------------
+// list_unique  (preserves first-occurrence order)
+// ---------------------------------------------------------------------------
+ok("C60", list_unique([1, 1, 2, 3, 3, 4]) == [1, 2, 3, 4]);
+ok("C61", list_unique(["a", "b", "a", "c", "b"]) == ["a", "b", "c"]);
+ok("C62", list_unique([]) == []);
+ok("C63", list_unique([7, 7, 7]) == [7]);
+
+// ---------------------------------------------------------------------------
+// list_flatten  (one level deep)
+// ---------------------------------------------------------------------------
+ok("C64", list_flatten([[1, 2], [3, 4], [5]]) == [1, 2, 3, 4, 5]);
+ok("C65", list_flatten([[1, [2]], [3]]) == [1, [2], 3]);   // only one level
+ok("C66", list_flatten([]) == []);
+
+// ---------------------------------------------------------------------------
+// list_concat  (variadic)
+// ---------------------------------------------------------------------------
+ok("C67", list_concat([1, 2], [3, 4], [5]) == [1, 2, 3, 4, 5]);
+ok("C68", list_concat([], []) == []);
+ok("C69", list_concat([1], []) == [1]);
+
+// ---------------------------------------------------------------------------
+// list_sum / list_product  (empty -> additive/multiplicative identity)
+// ---------------------------------------------------------------------------
+ok("C70", list_sum([1, 2, 3, 4, 5]) == 15);
+ok("C71", list_sum([]) == 0);
+ok("C72", list_product([1, 2, 3, 4]) == 24);
+ok("C73", list_product([]) == 1);
+
+// ---------------------------------------------------------------------------
+// list_min / list_max  (null on empty)
+// ---------------------------------------------------------------------------
+ok("C74", list_min([3, 1, 4, 1, 5]) == 1);
+ok("C75", list_max([3, 1, 4, 1, 5]) == 5);
+ok("C76", list_min([42]) == 42);
+ok("C77", list_max([42]) == 42);
+ok("C78", list_min([]) == null);
+ok("C79", list_max([]) == null);
+
+// ---------------------------------------------------------------------------
+// list_count  (occurrences of a value)
+// ---------------------------------------------------------------------------
+ok("C80", list_count([1, 2, 1, 3, 1], 1) == 3);
+ok("C81", list_count([1, 2, 3], 99) == 0);
+ok("C82", list_count([], 1) == 0);
+
+// ---------------------------------------------------------------------------
+// list_range  (single = [0,n); two = [start,end); three = step)
+// ---------------------------------------------------------------------------
+ok("C83", list_range(5) == [0, 1, 2, 3, 4]);
+ok("C84", list_range(0, 5) == [0, 1, 2, 3, 4]);
+ok("C85", list_range(0, 10, 2) == [0, 2, 4, 6, 8]);
+ok("C86", list_range(0) == []);
+
+// ---------------------------------------------------------------------------
+// list_zip  (pairs to tuples; truncates to shorter input)
+// ---------------------------------------------------------------------------
+ok("C87", list_zip([1, 2, 3], ["a", "b", "c"]) == [(1, "a"), (2, "b"), (3, "c")]);
+ok("C88", list_zip([1, 2, 3], ["a", "b"]) == [(1, "a"), (2, "b")]);  // truncates
+ok("C89", list_zip([], []) == []);
+
+// ---------------------------------------------------------------------------
+// list_chunk  (groups of n; last chunk may be short)
+// ---------------------------------------------------------------------------
+ok("C90", list_chunk([1, 2, 3, 4, 5, 6, 7], 3) == [[1, 2, 3], [4, 5, 6], [7]]);
+ok("C91", list_chunk([1, 2, 3, 4], 2) == [[1, 2], [3, 4]]);
+ok("C92", list_chunk([], 3) == []);
+
+// ===========================================================================
+// MAP built-ins
+// ===========================================================================
+
+// NOTE: the empty-braces literal `{}` is an empty SET, not an empty map, so an
+// empty map must be produced with make_map(). Verify that distinction first.
+ok("C93a", type_of(make_map()) == "map");
+ok("C93b", type_of({}) == "set");
+var empty_map = make_map();
+
+// map_get  (null when key absent)
+ok("C93", map_get({"a": 1, "b": 2}, "a") == 1);
+ok("C94", map_get({"a": 1, "b": 2}, "z") == null);
+ok("C95", map_get(empty_map, "x") == null);
+
+// map_get_or  (default when absent, value when present)
+ok("C96", map_get_or({"a": 5}, "a", 99) == 5);
+ok("C97", map_get_or({"a": 5}, "z", 99) == 99);
+ok("C98", map_get_or(empty_map, "z", -1) == -1);
+
+// map_has
+ok("C99",  map_has({"a": 1}, "a") == true);
+ok("C100", map_has({"a": 1}, "z") == false);
+ok("C101", map_has(empty_map, "x") == false);
+
+// map_set  (mutates in place; returns the set value)
+var ms = {"a": 1};
+var ms_ret = map_set(ms, "b", 2);
+ok("C102", ms == {"a": 1, "b": 2});
+ok("C103", ms_ret == 2);
+map_set(ms, "a", 100);                 // update existing
+ok("C104", ms == {"a": 100, "b": 2});
+
+// map_remove  (mutates in place; returns whether key was present)
+var mr = {"a": 1, "b": 2};
+ok("C105", map_remove(mr, "a") == true);
+ok("C106", mr == {"b": 2});
+ok("C107", map_remove(mr, "missing") == false);
+
+// map_size
+ok("C108", map_size({"a": 1, "b": 2, "c": 3}) == 3);
+ok("C109", map_size(make_map()) == 0);
+
+// map_keys / map_values / map_entries  (preserve insertion order)
+ok("C110", map_keys({"x": 10, "y": 20}) == ["x", "y"]);
+ok("C111", map_values({"x": 10, "y": 20}) == [10, 20]);
+ok("C112", map_entries({"x": 10, "y": 20}) == [("x", 10), ("y", 20)]);
+ok("C113", map_keys(make_map()) == []);
+
+// map_merge  (variadic; later maps override earlier on key collision)
+ok("C114", map_merge({"a": 1}, {"b": 2}) == {"a": 1, "b": 2});
+ok("C115", map_merge({"a": 1, "b": 2}, {"b": 99}) == {"a": 1, "b": 99});
+ok("C116", map_merge({"a": 1}, {"b": 2}, {"a": 100}) == {"a": 100, "b": 2});
+
+// ===========================================================================
+// SET built-ins
+// ===========================================================================
+
+// set_add  (mutates in place; returns the mutated set; idempotent on dup)
+var sa = {1, 2};
+var sa_ret = set_add(sa, 3);
+ok("C117", sa == {1, 2, 3});
+ok("C118", sa_ret == {1, 2, 3});
+set_add(sa, 2);                        // adding a duplicate is a no-op
+ok("C119", sa == {1, 2, 3});
+
+// set_remove  (mutates in place; returns whether element was present)
+var sr = {1, 2, 3};
+ok("C120", set_remove(sr, 2) == true);
+ok("C121", sr == {1, 3});
+ok("C122", set_remove(sr, 99) == false);
+
+// set_has
+ok("C123", set_has({1, 2, 3}, 2) == true);
+ok("C124", set_has({1, 2, 3}, 99) == false);
+ok("C125", set_has({}, 1) == false);
+
+// set_size
+ok("C126", set_size({1, 2, 3, 4}) == 4);
+ok("C127", set_size({}) == 0);
+
+// set_union / set_intersect / set_diff  (set equality is order-insensitive)
+ok("C128", set_union({1, 2, 3}, {3, 4, 5}) == {1, 2, 3, 4, 5});
+ok("C129", set_intersect({1, 2, 3}, {2, 3, 4}) == {2, 3});
+ok("C130", set_intersect({1, 2}, {3, 4}) == {});         // disjoint -> empty
+ok("C131", set_diff({1, 2, 3, 4}, {2, 4}) == {1, 3});
+ok("C132", set_diff({1, 2}, {1, 2}) == {});
+
+// set_to_list  (insertion order preserved)
+ok("C133", set_to_list({3, 1, 2}) == [3, 1, 2]);
+ok("C134", set_to_list({}) == []);
+ok("C135", set_to_list(set_union({1, 2}, {2, 3})) == [1, 2, 3]);
+
+// ===========================================================================
+// TUPLE built-ins
+// ===========================================================================
+
+var tup = (10, 20, 30);
+
+// tuple_at  (negative index wraps from end; out-of-range throws)
+ok("C136", tuple_at(tup, 0) == 10);
+ok("C137", tuple_at(tup, 2) == 30);
+ok("C138", tuple_at(tup, -1) == 30);
+var tat_threw = false;
+try { tuple_at(tup, 9); } catch (e) { tat_threw = true; }
+ok("C139", tat_threw == true);
+
+// tuple_first / tuple_second
+ok("C140", tuple_first((100, 200)) == 100);
+ok("C141", tuple_second((100, 200)) == 200);
+
+// tuple_size
+ok("C142", tuple_size((10, 20, 30)) == 3);
+ok("C143", tuple_size((1, 2)) == 2);
+
+// tuple_to_list
+ok("C144", tuple_to_list((1, 2, 3)) == [1, 2, 3]);
+ok("C145", tuple_to_list((42, "x")) == [42, "x"]);
+
+print("=== done ===");

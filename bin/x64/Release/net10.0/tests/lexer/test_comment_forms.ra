@@ -1,0 +1,79 @@
+// Ra Language - lexer: all comment forms interleaved with live code.
+//
+// Comment forms recognised by the lexer:
+//   # ...        line comment (to end of line)
+//   // ...       line comment (to end of line)
+//   --- ...      line comment (to end of line; note `--` alone is decrement)
+//   /* ... */    block comment (may span lines; may sit inline mid-expression)
+//
+// GOTCHA pinned here: the three LINE-comment forms (#, //, ---) consume the
+// trailing newline, so a statement that ends in a trailing line comment needs an
+// explicit ';' terminator or the next line merges into it (RA0207). Block
+// comments do NOT consume the newline, so they are safe mid-line.
+
+fn ok(id, cond) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); } }
+
+print("=== lexer/comment_forms ===");
+
+// C1: trailing # comment (terminated with ';')
+var c1 = 1 + 2; # this is a hash comment with fn class "str" 'c' inside
+ok("C1", c1 == 3);
+
+// C2: trailing // comment (terminated with ';')
+var c2 = 10; // a slash comment with @ ! == ${x} symbols
+ok("C2", c2 == 10);
+
+// C3: trailing --- comment (terminated with ';')
+var c3 = 20; --- a dash comment, --- still a comment
+ok("C3", c3 == 20);
+
+// C4: full-line comments of every form between statements
+# pure hash line
+// pure slash line
+--- pure dash line
+var c4 = 5;
+ok("C4", c4 == 5);
+
+// C5: inline block comment in the MIDDLE of an expression
+var c5 = 4 /* forty-two */ + 6;
+ok("C5", c5 == 10);
+
+// C6: block comment that SPANS multiple lines mid-expression
+var c6 = 100 /* this comment
+runs across
+three lines */ + 23;
+ok("C6", c6 == 123);
+
+// C7: block comment whose body contains code-like text and keywords
+var c7 = 2 /* fn x() { ret 99 } class Box "s" 'c' 1+1 */ * 3;
+ok("C7", c7 == 6);
+
+// C8: two block comments on one line around a token
+var c8 = /* a */ 7 /* b */;
+ok("C8", c8 == 7);
+
+// C9: block comment is ignored, surrounding string literal intact
+var c9 = "kept" /* dropped */;
+ok("C9", c9 == "kept");
+
+// C10: `--` is the decrement operator, NOT a comment
+var c10 = 9;
+c10--;
+ok("C10", c10 == 8);
+
+// C11: empty block comment /**/
+var c11 = 1 /**/ + 1;
+ok("C11", c11 == 2);
+
+// C12: comment-only content inside a block scope still lets code run
+{
+    // inside-scope slash comment
+    # inside-scope hash comment
+    var inner = 77;
+    ok("C12", inner == 77);
+}
+
+// C13 - last meaningful line; trailing comment after it must not break EOF.
+ok("C13", true);
+print("=== done ===");
+// trailing comment at the very end of file

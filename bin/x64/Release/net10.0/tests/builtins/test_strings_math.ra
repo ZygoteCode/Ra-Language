@@ -1,0 +1,292 @@
+// Ra Language - builtins: strings + math (fully asserted).
+//
+// Convention: one "[ID] OK" / "[ID] FAIL" per case at column 0.
+// String cases -> S*, math cases -> M*.
+// All values asserted SEMANTICALLY (str_upper("abc")=="ABC", gcd(12,8)==4, ...).
+// Floats compared with a tolerance via approx() since exact float equality is fragile.
+// Each assertion is on a single line: Ra is newline-sensitive inside expressions.
+//
+// Suspected bugs / surprises are noted in the agent summary, not encoded here:
+//   * bare min(...) / max(...) exist (exists() == true) but throw RA0401 on call;
+//     the working variadic forms are math_min / math_max.
+
+print("=== builtins/strings_math ===");
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+fn approx(a, b) {
+    var d = a - b;
+    if d < 0.0 { d = 0.0 - d; }
+    ret d < 0.0001;
+}
+
+// ---------------------------------------------------------------------------
+// String builtins
+// ---------------------------------------------------------------------------
+
+// str_len: ascii, empty, unicode (grapheme count)
+try {
+    ok("S1", str_len("hello") == 5 and str_len("") == 0 and str_len("café") == 4);
+} catch (e) { print("[S1] FAIL: " + e); }
+
+// str_upper / str_lower (+ empty string)
+try {
+    ok("S2", str_upper("abc") == "ABC" and str_lower("ABC") == "abc" and str_upper("") == "" and str_lower("AbC") == "abc");
+} catch (e) { print("[S2] FAIL: " + e); }
+
+// str_capitalize: first char up, rest down
+try {
+    ok("S3", str_capitalize("hELLO wORLD") == "Hello world" and str_capitalize("") == "");
+} catch (e) { print("[S3] FAIL: " + e); }
+
+// str_trim / str_trim_start / str_trim_end
+try {
+    ok("S4", str_trim("  hi  ") == "hi" and str_trim_start("  hi  ") == "hi  " and str_trim_end("  hi  ") == "  hi" and str_trim("nopad") == "nopad");
+} catch (e) { print("[S4] FAIL: " + e); }
+
+// str_contains (+ not found, + empty needle is true)
+try {
+    ok("S5", str_contains("hello world", "lo w") and not str_contains("hello", "xyz") and str_contains("abc", ""));
+} catch (e) { print("[S5] FAIL: " + e); }
+
+// str_starts_with / str_ends_with
+try {
+    ok("S6", str_starts_with("hello", "he") and not str_starts_with("hello", "lo") and str_ends_with("hello", "lo") and not str_ends_with("hello", "he"));
+} catch (e) { print("[S6] FAIL: " + e); }
+
+// str_index_of (+ not found == -1, + start offset)
+try {
+    ok("S7", str_index_of("hello world", "world") == 6 and str_index_of("hello", "z") == 0 - 1 and str_index_of("abcabc", "bc", 2) == 4);
+} catch (e) { print("[S7] FAIL: " + e); }
+
+// str_last_index_of (+ not found == -1)
+try {
+    ok("S8", str_last_index_of("abcabc", "bc") == 4 and str_last_index_of("abc", "z") == 0 - 1);
+} catch (e) { print("[S8] FAIL: " + e); }
+
+// str_count (+ non-overlapping, + missing == 0, + empty needle == 0)
+try {
+    ok("S9", str_count("banana", "a") == 3 and str_count("aaaa", "aa") == 2 and str_count("abc", "z") == 0 and str_count("abc", "") == 0);
+} catch (e) { print("[S9] FAIL: " + e); }
+
+// str_substring (start,end) + negative index + clamp past end + 2-arg form
+try {
+    ok("S10", str_substring("hello world", 6, 11) == "world" and str_substring("hello", 2) == "llo" and str_substring("hello", -3) == "llo" and str_substring("hi", 0, 99) == "hi" and str_substring("hi", 1, 1) == "");
+} catch (e) { print("[S10] FAIL: " + e); }
+
+// str_split -> list, including no-delimiter (single element)
+try {
+    var parts = str_split("a,b,c,d", ",");
+    var none = str_split("nodelim", ",");
+    ok("S11", len(parts) == 4 and parts[0] == "a" and parts[3] == "d" and len(none) == 1 and none[0] == "nodelim");
+} catch (e) { print("[S11] FAIL: " + e); }
+
+// str_join (+ single element, + empty separator)
+try {
+    ok("S12", str_join(["a", "b", "c"], "-") == "a-b-c" and str_join(["solo"], "-") == "solo" and str_join(["a", "b"], "") == "ab");
+} catch (e) { print("[S12] FAIL: " + e); }
+
+// split/join round-trip with a multi-char delimiter
+try {
+    var rt = str_join(str_split("a::b::c", "::"), "::");
+    ok("S13", rt == "a::b::c");
+} catch (e) { print("[S13] FAIL: " + e); }
+
+// str_replace (+ replacement longer than match, + no-op when absent)
+try {
+    ok("S14", str_replace("hello", "l", "L") == "heLLo" and str_replace("aaa", "a", "bb") == "bbbbbb" and str_replace("abc", "z", "Q") == "abc");
+} catch (e) { print("[S14] FAIL: " + e); }
+
+// str_reverse (+ empty)
+try {
+    ok("S15", str_reverse("abcde") == "edcba" and str_reverse("") == "");
+} catch (e) { print("[S15] FAIL: " + e); }
+
+// str_repeat (+ zero count == empty, + repeat of empty)
+try {
+    ok("S16", str_repeat("ab", 3) == "ababab" and str_repeat("x", 0) == "" and str_repeat("", 5) == "");
+} catch (e) { print("[S16] FAIL: " + e); }
+
+// str_pad_left / str_pad_right (+ no pad when already wide enough)
+try {
+    ok("S17", str_pad_left("7", 3, "0") == "007" and str_pad_right("7", 3, "0") == "700" and str_pad_left("abcd", 2, "0") == "abcd");
+} catch (e) { print("[S17] FAIL: " + e); }
+
+// str_lines: splits on newlines
+try {
+    var ls = str_lines("a\nb\nc");
+    ok("S18", len(ls) == 3 and ls[0] == "a" and ls[2] == "c");
+} catch (e) { print("[S18] FAIL: " + e); }
+
+// str_is_alpha / str_is_digit / str_is_alnum (empty == false)
+try {
+    ok("S19", str_is_alpha("abc") and not str_is_alpha("ab1") and not str_is_alpha("") and str_is_digit("123") and not str_is_digit("12a") and str_is_alnum("a1") and not str_is_alnum("a-1"));
+} catch (e) { print("[S19] FAIL: " + e); }
+
+// str_is_upper / str_is_lower / str_is_whitespace
+try {
+    ok("S20", str_is_upper("ABC") and not str_is_upper("AbC") and str_is_lower("abc") and not str_is_lower("aBc") and str_is_whitespace("   ") and not str_is_whitespace("a b"));
+} catch (e) { print("[S20] FAIL: " + e); }
+
+// str_chars -> list of single-char strings
+try {
+    var cs = str_chars("abc");
+    ok("S21", len(cs) == 3 and cs[0] == "a" and cs[1] == "b" and cs[2] == "c");
+} catch (e) { print("[S21] FAIL: " + e); }
+
+// str_code_at: ASCII code points (+ out-of-range == null, + negative index)
+try {
+    ok("S22", str_code_at("ABC", 0) == 65 and str_code_at("ABC", 2) == 67 and str_code_at("ABC", -1) == 67 and str_code_at("hi", 99) == null);
+} catch (e) { print("[S22] FAIL: " + e); }
+
+// str_from_code: code points -> string (variadic)
+try {
+    ok("S23", str_from_code(65, 66, 67) == "ABC" and str_from_code(104, 105) == "hi");
+} catch (e) { print("[S23] FAIL: " + e); }
+
+// code_at / from_code round-trip
+try {
+    var first = str_code_at("Z", 0);
+    ok("S24", str_from_code(first) == "Z");
+} catch (e) { print("[S24] FAIL: " + e); }
+
+// str_hex_encode (lower-case hex). decode returns a BYTE LIST -> round-trip via str_from_bytes
+try {
+    ok("S25", str_hex_encode("hi") == "6869" and str_from_bytes(str_hex_decode("6869")) == "hi" and str_from_bytes(str_hex_decode(str_hex_encode("hello"))) == "hello");
+} catch (e) { print("[S25] FAIL: " + e); }
+
+// str_base64_encode/decode. decode returns a BYTE LIST -> round-trip via str_from_bytes
+try {
+    ok("S26", str_base64_encode("hello") == "aGVsbG8=" and str_from_bytes(str_base64_decode("aGVsbG8=")) == "hello" and str_from_bytes(str_base64_decode(str_base64_encode("Ra!"))) == "Ra!");
+} catch (e) { print("[S26] FAIL: " + e); }
+
+// invalid hex should THROW; assert the catch branch is taken
+try {
+    var threw = false;
+    try { var _ = str_hex_decode("zz"); } catch (e2) { threw = true; }
+    ok("S27", threw);
+} catch (e) { print("[S27] FAIL: " + e); }
+
+// ---------------------------------------------------------------------------
+// Math builtins
+// ---------------------------------------------------------------------------
+
+// abs: positive, negative, zero, float
+try {
+    ok("M1", abs(5) == 5 and abs(-5) == 5 and abs(0) == 0 and approx(abs(-2.5), 2.5));
+} catch (e) { print("[M1] FAIL: " + e); }
+
+// sign: -1 / 0 / 1 (int and float input)
+try {
+    ok("M2", sign(-5) == 0 - 1 and sign(0) == 0 and sign(5) == 1 and sign(-3.5) == 0 - 1);
+} catch (e) { print("[M2] FAIL: " + e); }
+
+// ceil
+try {
+    ok("M3", ceil(3.2) == 4 and ceil(-1.5) == 0 - 1 and ceil(4.0) == 4);
+} catch (e) { print("[M3] FAIL: " + e); }
+
+// floor
+try {
+    ok("M4", floor(3.7) == 3 and floor(-1.5) == 0 - 2 and floor(4.0) == 4);
+} catch (e) { print("[M4] FAIL: " + e); }
+
+// round: banker's rounding (3.5 -> 4, 2.5 -> 2, 0.5 -> 0)
+try {
+    ok("M5", round(3.5) == 4 and round(2.5) == 2 and round(0.5) == 0 and round(3.2) == 3);
+} catch (e) { print("[M5] FAIL: " + e); }
+
+// trunc: toward zero
+try {
+    ok("M6", trunc(3.9) == 3 and trunc(-3.9) == 0 - 3 and trunc(5.0) == 5);
+} catch (e) { print("[M6] FAIL: " + e); }
+
+// clamp: below / inside / above
+try {
+    ok("M7", clamp(15, 0, 10) == 10 and clamp(-3, 0, 10) == 0 and clamp(5, 0, 10) == 5);
+} catch (e) { print("[M7] FAIL: " + e); }
+
+// math_min / math_max (variadic). NOTE: bare min()/max() throw RA0401 -> not tested.
+try {
+    ok("M8", math_min(3, 1, 5) == 1 and math_max(3, 1, 5) == 5 and math_min(-4, -2) == 0 - 4 and math_max(-4, -2) == 0 - 2);
+} catch (e) { print("[M8] FAIL: " + e); }
+
+// sqrt (+ zero, + large)
+try {
+    ok("M9", approx(sqrt(9.0), 3.0) and approx(sqrt(0.0), 0.0) and approx(sqrt(1000000.0), 1000.0));
+} catch (e) { print("[M9] FAIL: " + e); }
+
+// cbrt
+try {
+    ok("M10", approx(cbrt(27.0), 3.0) and approx(cbrt(0.0), 0.0));
+} catch (e) { print("[M10] FAIL: " + e); }
+
+// pow (+ fractional exponent == sqrt, + zero exponent == 1)
+try {
+    ok("M11", approx(pow(2.0, 10.0), 1024.0) and approx(pow(2.0, 0.5), 1.4142135) and approx(pow(5.0, 0.0), 1.0));
+} catch (e) { print("[M11] FAIL: " + e); }
+
+// exp (+ exp(0)==1, + exp(1)==e)
+try {
+    ok("M12", approx(exp(0.0), 1.0) and approx(exp(1.0), 2.7182818));
+} catch (e) { print("[M12] FAIL: " + e); }
+
+// log (natural), log2, log10
+try {
+    ok("M13", approx(log(e()), 1.0) and approx(log2(8.0), 3.0) and approx(log10(1000.0), 3.0));
+} catch (e) { print("[M13] FAIL: " + e); }
+
+// hypot: 3,4,5 triangle
+try {
+    ok("M14", approx(hypot(3.0, 4.0), 5.0) and approx(hypot(0.0, 0.0), 0.0));
+} catch (e) { print("[M14] FAIL: " + e); }
+
+// sin / cos / tan at 0
+try {
+    ok("M15", approx(sin(0.0), 0.0) and approx(cos(0.0), 1.0) and approx(tan(0.0), 0.0));
+} catch (e) { print("[M15] FAIL: " + e); }
+
+// sin/cos at pi/2 and pi
+try {
+    var half = pi() / 2.0;
+    ok("M16", approx(sin(half), 1.0) and approx(cos(pi()), 0.0 - 1.0));
+} catch (e) { print("[M16] FAIL: " + e); }
+
+// gcd (+ with zero)
+try {
+    ok("M17", gcd(12, 8) == 4 and gcd(48, 18) == 6 and gcd(7, 0) == 7);
+} catch (e) { print("[M17] FAIL: " + e); }
+
+// lcm (+ with zero == 0)
+try {
+    ok("M18", lcm(4, 6) == 12 and lcm(3, 5) == 15 and lcm(0, 5) == 0);
+} catch (e) { print("[M18] FAIL: " + e); }
+
+// factorial (+ 0!==1, + negative throws, + >20 throws)
+try {
+    var negThrew = false;
+    try { var _ = factorial(-1); } catch (e2) { negThrew = true; }
+    var bigThrew = false;
+    try { var _ = factorial(25); } catch (e3) { bigThrew = true; }
+    ok("M19", factorial(0) == 1 and factorial(5) == 120 and factorial(1) == 1 and negThrew and bigThrew);
+} catch (e) { print("[M19] FAIL: " + e); }
+
+// is_finite / is_nan / is_inf
+try {
+    ok("M20", is_finite(3.14) and not is_finite(inf()) and not is_finite(nan()) and is_nan(nan()) and not is_nan(3.14) and is_inf(inf()) and not is_inf(3.14));
+} catch (e) { print("[M20] FAIL: " + e); }
+
+// NaN is never equal to itself (IEEE); detect via is_nan
+try {
+    var n = nan();
+    ok("M21", (n == n) == false and is_nan(n));
+} catch (e) { print("[M21] FAIL: " + e); }
+
+// constants: pi, e, tau (tau == 2*pi)
+try {
+    ok("M22", approx(pi(), 3.1415926) and approx(e(), 2.7182818) and approx(tau(), 6.2831853) and approx(tau(), pi() * 2.0));
+} catch (e) { print("[M22] FAIL: " + e); }
+
+print("=== done ===");

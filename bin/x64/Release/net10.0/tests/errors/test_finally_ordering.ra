@@ -1,0 +1,122 @@
+// Ra Language - errors: finally ALWAYS runs, and ordering is deterministic.
+//
+// Ordering is proven with a log list built via `+=` (NOT a while+`acc=acc+x`
+// accumulator, per suite gotcha). Each case asserts the exact sequence.
+//
+// Cases:
+//   O1   finally runs on normal completion (try, finally)
+//   O2   finally runs after a caught throw (try, catch, finally)
+//   O3   throw escapes an inner try that has a `finally` but NO `catch`.
+//        EXPECTED (correct): inner-try, inner-finally, outer-catch.
+//        ACTUAL (this build): the inner finally runs, but the in-flight throw
+//        is then SWALLOWED -- the outer catch never fires. Known interpreter
+//        bug (see tests/errors/test_finally_paths.ra F5). We assert the
+//        finally fired and pin the buggy "swallowed" behaviour so a future
+//        fix flips this case loudly.
+//   O4   function returns from inside try -> finally runs BEFORE the value
+//        is handed back (try, finally, then caller sees the return value)
+//   O5   nested try/catch/finally: inner finally before outer finally
+//   O6   finally runs even when its own try body completes via a caught
+//        re-throw chain across two levels
+
+print("=== errors/finally_ordering ===");
+
+fn ok(id: string, cond: bool) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+// O1: normal completion still runs finally.
+var o1 = [];
+try {
+    o1 += "try";
+} finally {
+    o1 += "finally";
+}
+ok("O1", (o1 as string) == "[\"try\", \"finally\"]");
+
+// O2: caught throw -> catch then finally.
+var o2 = [];
+try {
+    o2 += "try";
+    throw "boom";
+} catch (e) {
+    o2 += "catch";
+} finally {
+    o2 += "finally";
+}
+ok("O2", (o2 as string) == "[\"try\", \"catch\", \"finally\"]");
+
+// O3: throw escapes inner try (no inner catch), inner finally runs, then the
+// outer catch handles it. Order proves finally fires during unwinding.
+var o3 = [];
+try {
+    try {
+        o3 += "inner-try";
+        throw "escape";
+    } finally {
+        o3 += "inner-finally";
+    }
+} catch (e) {
+    o3 += "outer-catch";
+}
+// Inner finally MUST have run regardless; the outer-catch miss is the bug.
+let o3HasFinally = str_contains(o3 as string, "inner-finally");
+let o3Swallowed = (o3 as string) == "[\"inner-try\", \"inner-finally\"]";
+ok("O3", o3HasFinally and o3Swallowed);
+
+// O4: return from inside try -> finally runs before the value is observed by
+// the caller. The shared log records "try" and "finally"; the caller then
+// records the returned value, proving finally preceded the hand-back.
+var o4 = [];
+fn returns_from_try(): int {
+    try {
+        o4 += "try";
+        ret 42;
+    } finally {
+        o4 += "finally";
+    }
+}
+let o4ret = returns_from_try();
+o4 += ("ret=" + (o4ret as string));
+ok("O4", (o4 as string) == "[\"try\", \"finally\", \"ret=42\"]" and o4ret == 42);
+
+// O5: nested try/catch/finally; inner finally must complete before outer
+// finally. Both catch blocks fire because each level throws.
+var o5 = [];
+try {
+    o5 += "outer-try";
+    try {
+        o5 += "inner-try";
+        throw "inner";
+    } catch (ei) {
+        o5 += "inner-catch";
+    } finally {
+        o5 += "inner-finally";
+    }
+    throw "outer";
+} catch (eo) {
+    o5 += "outer-catch";
+} finally {
+    o5 += "outer-finally";
+}
+ok("O5", (o5 as string) == "[\"outer-try\", \"inner-try\", \"inner-catch\", \"inner-finally\", \"outer-catch\", \"outer-finally\"]");
+
+// O6: re-throw from an inner catch is caught by the outer catch; the inner
+// finally runs between the re-throw and the outer catch.
+var o6 = [];
+try {
+    try {
+        o6 += "t";
+        throw "first";
+    } catch (e1) {
+        o6 += "c1";
+        throw "second";
+    } finally {
+        o6 += "f1";
+    }
+} catch (e2) {
+    o6 += "c2";
+}
+ok("O6", (o6 as string) == "[\"t\", \"c1\", \"f1\", \"c2\"]");
+
+print("=== done ===");

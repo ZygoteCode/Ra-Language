@@ -1,0 +1,148 @@
+// Ra Language -- shift & rotate operators with exact bit results.
+//
+// Operator ladder (RA_SHIFTS_DESIGN.md):
+//   <<    arithmetic left shift
+//   >>    arithmetic right shift (sign-extending on fixed-width signed types)
+//   <<<   logical left shift   (same bit pattern as <<)
+//   >>>   logical right shift  (zero-fill)
+//   <<<<  rotate-left   (FIXED-WIDTH ONLY -- rejected on `number`)
+//   >>>>  rotate-right  (FIXED-WIDTH ONLY -- rejected on `number`)
+//   + every compound-assign form: <<= >>= <<<= >>>= <<<<= >>>>=
+//
+// Type model: untyped literals are arbitrary-precision `number`; an `i`
+// suffix or `var x: int` yields a 32-bit int whose shifts mask the count
+// modulo 32 and whose rotates wrap within the 32-bit field.
+//   int.MinValue = -2147483648 (bit 31 set, all others clear)
+//   int.MaxValue =  2147483647
+
+fn ok(id, cond) {
+    if cond {
+        print("[" + id + "] OK")
+    } else {
+        print("[" + id + "] FAIL")
+    }
+}
+
+print("=== operators/rotate_and_logical_shifts ===")
+
+var int_min: int = 0
+int_min = 1i << 31
+
+// --- arithmetic left/right shift on number (arbitrary precision) -----------
+ok("S1", (1 << 0) == 1);
+ok("S2", (1 << 4) == 16);
+ok("S3", (256 >> 4) == 16);
+ok("S4", (8 >> 0) == 8);
+ok("S5", (1 << 10) == 1024);
+ok("S6", (1024 >> 10) == 1);
+
+// --- shift-by-zero is identity on every arrow ------------------------------
+ok("S7", (5 << 0) == 5 and (5 >> 0) == 5);
+ok("S8", (5 <<< 0) == 5 and (20 >>> 0) == 20);
+var rz: int = 5
+ok("S9", (rz <<<< 0) == 5i and (rz >>>> 0) == 5i);
+
+// --- logical shifts <<< >>> on number --------------------------------------
+ok("S10", (4 <<< 1) == 8);
+ok("S11", (16 >>> 2) == 4);
+ok("S12", (1 <<< 1) == 2);
+
+// --- arithmetic right shift sign-extends on fixed-width int ----------------
+var minus_one: int = -1
+ok("S13", (minus_one >> 31) == minus_one);   // -1 stays -1 (sign fill)
+var minus_eight: int = -8
+ok("S14", (minus_eight >> 1) == -4);          // -8 -> -4 sign-extended
+
+// --- logical right shift >>> zero-fills on fixed-width int -----------------
+ok("S15", (minus_one >>> 31) == 1i);          // -1 >>> 31 -> 1
+var minus_two: int = -2
+ok("S16", (minus_two >>> 1) == 2147483647i);  // -> int.MaxValue
+ok("S17", (8i >>> 2) == 2i);
+
+// --- logical left shift <<< on fixed-width int (== <<) ---------------------
+ok("S18", (1i <<< 30) == 1073741824i);
+ok("S19", (1i << 30) == (1i <<< 30));
+
+// --- rotate-left <<<< (fixed-width, wraps) ---------------------------------
+ok("S20", (1i <<<< 0) == 1i);
+ok("S21", (1i <<<< 1) == 2i);
+ok("S22", (1i <<<< 31) == int_min);           // bit0 rotates into sign bit
+ok("S23", (1i <<<< 32) == 1i);                // full turn = identity
+
+// --- rotate-right >>>> (fixed-width, wraps) --------------------------------
+ok("S24", (1i >>>> 0) == 1i);
+ok("S25", (1i >>>> 1) == int_min);            // bit0 wraps to sign bit
+ok("S26", (1i >>>> 31) == 2i);
+ok("S27", (1i >>>> 32) == 1i);                // full turn = identity
+
+// --- rotate composition: rol n then ror n is identity ----------------------
+var pattern: int = 305419896
+ok("S28", ((pattern <<<< 5) >>>> 5) == pattern);
+ok("S29", ((pattern >>>> 7) <<<< 7) == pattern);
+
+// --- fixed-width shift count masks modulo 32 -------------------------------
+ok("S30", (1i << 33) == 2i);                  // 33 & 31 == 1
+
+// --- rotates are REJECTED on `number` (no fixed width) ---------------------
+var rolnum_threw = false
+try {
+    var _r = 1 <<<< 4
+    rolnum_threw = false
+} catch (e) {
+    rolnum_threw = true
+}
+ok("S31", rolnum_threw);
+var rornum_threw = false
+try {
+    var _r2 = 1 >>>> 4
+    rornum_threw = false
+} catch (e) {
+    rornum_threw = true
+}
+ok("S32", rornum_threw);
+
+// --- compound-assign: <<= >>= ----------------------------------------------
+var c1: int = 1
+c1 <<= 4
+ok("S33", c1 == 16i);
+var c2: int = 32
+c2 >>= 2
+ok("S34", c2 == 8i);
+
+// --- compound-assign: <<= >>= on number (arbitrary precision) --------------
+var c3 = 1
+c3 <<= 10
+ok("S35", c3 == 1024);
+var c4 = 1024
+c4 >>= 5
+ok("S36", c4 == 32);
+
+// --- compound-assign: <<<= >>>= --------------------------------------------
+var c5: int = 1
+c5 <<<= 3
+ok("S37", c5 == 8i);
+var c6: int = -2
+c6 >>>= 1
+ok("S38", c6 == 2147483647i);
+var c7 = 16
+c7 >>>= 2
+ok("S39", c7 == 4);
+
+// --- compound-assign: <<<<= >>>>= (rotate) ---------------------------------
+var c8: int = 1
+c8 <<<<= 31
+ok("S40", c8 == int_min);
+var c9: int = 1
+c9 >>>>= 1
+ok("S41", c9 == int_min);
+
+// --- dynamic (runtime) shift counts ----------------------------------------
+var n: int = 4
+ok("S42", (1 << n) == 16);
+ok("S43", (1i <<<< n) == 16i);
+
+// --- left-associative shift chains -----------------------------------------
+ok("S44", (16 >> 1 >> 1) == 4);
+ok("S45", (4i <<< 2 >>> 1) == 8i);
+
+print("=== done ===")

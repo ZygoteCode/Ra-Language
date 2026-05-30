@@ -1,0 +1,17 @@
+// imports_helpers/strings_lib.ra — string helpers for import tests.
+
+pub fn repeat(s, n) {
+    var out = "";
+    var i = 0;
+    while i < n {
+        // NOTE: must use `+=` here, NOT `out = out + s`. The latter trips a
+        // known while-loop typed-accumulator miscompilation (string acc
+        // promoted to Int64 -> returns 0). See
+        // tests/regressions/test_while_string_accumulator.ra.
+        out += s;
+        i = i + 1;
+    }
+    ret out;
+}
+
+pub const GREETING = "hello";

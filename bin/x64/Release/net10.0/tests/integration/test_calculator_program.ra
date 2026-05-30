@@ -1,0 +1,242 @@
+// Ra Language - integration: a stack-machine expression evaluator.
+//
+// A longer, realistic program that wires together MANY features:
+//   * an `enum` ADT of operations (Op) with an associated-value variant
+//   * `match` to dispatch each op against a list-backed stack
+//   * helper functions + lambdas for the binary arithmetic kernels
+//   * a token-stream interpreter that walks a list of mixed tokens
+//   * caught error handling for malformed programs (stack underflow,
+//     division by zero, unknown token) — all surfaced as `throw`/`catch`
+//   * a small infix shunting-yard -> RPN compiler feeding the same VM
+//   * assertions on computed results for several inputs
+//
+// Convention: one "[ID] OK" / "[ID] FAIL: <detail>" per case at col 0.
+
+print("=== integration/calculator_program ===");
+
+fn ok(id, cond) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); } }
+fn okv(id, cond, detail) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL: " + detail); } }
+
+// ---------------------------------------------------------------------------
+// The instruction set. `Push` carries an immediate; the rest are stack ops.
+// ---------------------------------------------------------------------------
+enum Op {
+    Push(int),
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Neg,
+    Dup,
+    Swap
+}
+
+// Binary kernels as plain lambdas, looked up by op below.
+let add_k = |a: int, b: int| a + b;
+let sub_k = |a: int, b: int| a - b;
+let mul_k = |a: int, b: int| a * b;
+
+// Apply one instruction to the stack (a `list`). Mutates + returns the stack.
+// Throws a descriptive string on malformed input — caught by the driver.
+fn exec_op(stack: list, op: Op): list {
+    match op {
+        case Op.Push(n) -> { list_push(stack, n); }
+        case Op.Add -> {
+            if len(stack) < 2 { throw "underflow: Add"; }
+            let b = list_pop(stack);
+            let a = list_pop(stack);
+            list_push(stack, add_k(a, b));
+        }
+        case Op.Sub -> {
+            if len(stack) < 2 { throw "underflow: Sub"; }
+            let b = list_pop(stack);
+            let a = list_pop(stack);
+            list_push(stack, sub_k(a, b));
+        }
+        case Op.Mul -> {
+            if len(stack) < 2 { throw "underflow: Mul"; }
+            let b = list_pop(stack);
+            let a = list_pop(stack);
+            list_push(stack, mul_k(a, b));
+        }
+        case Op.Div -> {
+            if len(stack) < 2 { throw "underflow: Div"; }
+            let b = list_pop(stack);
+            let a = list_pop(stack);
+            if b == 0 { throw "division by zero"; }
+            list_push(stack, a / b);
+        }
+        case Op.Neg -> {
+            if len(stack) < 1 { throw "underflow: Neg"; }
+            let a = list_pop(stack);
+            list_push(stack, -a);
+        }
+        case Op.Dup -> {
+            if len(stack) < 1 { throw "underflow: Dup"; }
+            let a = list_last(stack);
+            list_push(stack, a);
+        }
+        case Op.Swap -> {
+            if len(stack) < 2 { throw "underflow: Swap"; }
+            let b = list_pop(stack);
+            let a = list_pop(stack);
+            list_push(stack, b);
+            list_push(stack, a);
+        }
+    };
+    ret stack;
+}
+
+// Run a whole program (list<Op>) and return the single result, or throw if
+// the stack does not reduce to exactly one value.
+fn run_program(prog: list): int {
+    var stack = [];
+    for op in prog { stack = exec_op(stack, op); }
+    if len(stack) != 1 { throw "non-singular result: " + (len(stack) as string); }
+    ret stack[0];
+}
+
+// === C1: a single push leaves the value on top =============================
+okv("C1", run_program([Op.Push(42)]) == 42, run_program([Op.Push(42)]) as string);
+
+// === C2: 2 + 3 = 5 ==========================================================
+okv("C2", run_program([Op.Push(2), Op.Push(3), Op.Add]) == 5, "add");
+
+// === C3: 10 - 4 = 6 (operand order matters) ================================
+okv("C3", run_program([Op.Push(10), Op.Push(4), Op.Sub]) == 6, "sub");
+
+// === C4: 6 * 7 = 42 =========================================================
+okv("C4", run_program([Op.Push(6), Op.Push(7), Op.Mul]) == 42, "mul");
+
+// === C5: 20 / 5 = 4 =========================================================
+okv("C5", run_program([Op.Push(20), Op.Push(5), Op.Div]) == 4, "div");
+
+// === C6: unary negate =======================================================
+okv("C6", run_program([Op.Push(9), Op.Neg]) == -9, "neg");
+
+// === C7: Dup then Add doubles the top =======================================
+okv("C7", run_program([Op.Push(21), Op.Dup, Op.Add]) == 42, "dup+add");
+
+// === C8: Swap reverses the operands of a Sub ================================
+// 4 8 Swap Sub  ==  8 - 4  == 4
+okv("C8", run_program([Op.Push(4), Op.Push(8), Op.Swap, Op.Sub]) == 4, "swap+sub");
+
+// === C9: a longer composite program ========================================
+// (2 + 3) * (10 - 4) = 5 * 6 = 30
+let prog9 = [Op.Push(2), Op.Push(3), Op.Add, Op.Push(10), Op.Push(4), Op.Sub, Op.Mul];
+okv("C9", run_program(prog9) == 30, run_program(prog9) as string);
+
+// === C10: deeply chained arithmetic ========================================
+// ((((1+2)+3)+4)+5) = 15
+let prog10 = [Op.Push(1), Op.Push(2), Op.Add, Op.Push(3), Op.Add, Op.Push(4), Op.Add, Op.Push(5), Op.Add];
+okv("C10", run_program(prog10) == 15, run_program(prog10) as string);
+
+// === C11: division-by-zero is caught =======================================
+var c11 = false;
+try { run_program([Op.Push(1), Op.Push(0), Op.Div]); } catch (e) { c11 = true; }
+ok("C11", c11);
+
+// === C12: stack underflow is caught ========================================
+var c12 = false;
+try { run_program([Op.Add]); } catch (e) { c12 = true; }
+ok("C12", c12);
+
+// === C13: non-singular result is caught ====================================
+var c13 = false;
+try { run_program([Op.Push(1), Op.Push(2)]); } catch (e) { c13 = true; }
+ok("C13", c13);
+
+// ---------------------------------------------------------------------------
+// A higher-level driver: compile an infix token list into RPN (Op list) using
+// the shunting-yard algorithm, then execute on the same VM. Tokens are either
+// integers or one of "+", "-", "*", "/".
+// ---------------------------------------------------------------------------
+fn prec(optok: string): int {
+    if optok == "+" or optok == "-" { ret 1; }
+    if optok == "*" or optok == "/" { ret 2; }
+    ret 0;
+}
+fn is_op(t): bool {
+    if type_of(t) != "string" { ret false; }
+    ret t == "+" or t == "-" or t == "*" or t == "/";
+}
+fn op_for(t: string): Op {
+    let r = match t {
+        case "+" -> Op.Add
+        case "-" -> Op.Sub
+        case "*" -> Op.Mul
+        case "/" -> Op.Div
+        case _ -> { throw "unknown token: " + t; }
+    };
+    ret r;
+}
+
+// Shunting-yard: infix token list -> list<Op>.
+fn compile_infix(tokens: list): list {
+    var output = [];        // list<Op>
+    var ops = [];           // operator stack (list<string>)
+    for t in tokens {
+        if type_of(t) == "number" {
+            output = output + [Op.Push(t)];
+        } elif is_op(t) {
+            while len(ops) > 0 and prec(list_last(ops)) >= prec(t) {
+                let top = list_pop(ops);
+                output = output + [op_for(top)];
+            }
+            list_push(ops, t);
+        } else {
+            throw "unknown token: " + (t as string);
+        }
+    }
+    while len(ops) > 0 {
+        let top = list_pop(ops);
+        output = output + [op_for(top)];
+    }
+    ret output;
+}
+
+fn eval_infix(tokens: list): int {
+    ret run_program(compile_infix(tokens));
+}
+
+// === C14: infix 2 + 3 * 4 respects precedence (== 14) ======================
+okv("C14", eval_infix([2, "+", 3, "*", 4]) == 14, eval_infix([2, "+", 3, "*", 4]) as string);
+
+// === C15: infix left-assoc subtraction 10 - 3 - 2 == 5 =====================
+okv("C15", eval_infix([10, "-", 3, "-", 2]) == 5, eval_infix([10, "-", 3, "-", 2]) as string);
+
+// === C16: infix mixed 100 - 2 * 3 + 8 / 4 == 96 ============================
+// 2*3=6, 8/4=2 -> 100 - 6 + 2 = 96
+okv("C16", eval_infix([100, "-", 2, "*", 3, "+", 8, "/", 4]) == 96, eval_infix([100, "-", 2, "*", 3, "+", 8, "/", 4]) as string);
+
+// === C17: infix all-multiply 2 * 3 * 4 == 24 ===============================
+okv("C17", eval_infix([2, "*", 3, "*", 4]) == 24, "chain-mul");
+
+// === C18: unknown token in infix is caught =================================
+var c18 = false;
+try { eval_infix([1, "?", 2]); } catch (e) { c18 = true; }
+ok("C18", c18);
+
+// === C19: division-by-zero through the infix front-end is caught ===========
+var c19 = false;
+try { eval_infix([1, "/", 0]); } catch (e) { c19 = true; }
+ok("C19", c19);
+
+// === C20: batch-evaluate a table of programs and verify every result =======
+// Each entry is (infix-tokens, expected). Drives many code paths at once.
+let cases = [([1, "+", 1], 2), ([7, "*", 6], 42), ([9, "-", 4, "-", 1], 4), ([2, "+", 3, "*", 4, "-", 1], 13), ([20, "/", 4, "+", 5], 10)];
+var all_ok = true;
+var fail_at = -1;
+for i = 0 to len(cases) {
+    let pair = cases[i];
+    let toks = pair[0];
+    let want = pair[1];
+    let got = eval_infix(toks);
+    if got != want {
+        all_ok = false;
+        fail_at = i;
+    }
+}
+okv("C20", all_ok, "first mismatch at index " + (fail_at as string));
+
+print("=== done ===");

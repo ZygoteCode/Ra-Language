@@ -1,0 +1,104 @@
+// Ra Language - control flow: `retry for N times [delay MS] { body } [else {...}]`.
+//
+// Grammar (from Parser.Statements.ParseRetryStatement): the body runs up to N
+// times; an attempt that throws/errors triggers another attempt (after the
+// optional `delay` ms); the first attempt that completes WITHOUT error wins
+// and the retry stops. If every attempt fails, the `else` branch runs (or the
+// last error propagates if there is no `else`).
+//
+// PARSER QUIRK (still present in this build): a `retry` block does not parse
+// as a complete statement when another statement follows it at the SAME scope
+// level (RA0207 "nowhere to attach"; was RA0202 historically). Workaround used
+// here: every `retry` is the LAST statement inside a wrapper fn, and the
+// attempt counter is an OUTER `var` the body mutates -- mutations propagate
+// out via shared SymbolEntry refs (RetryNodeVisitor copies the context per
+// attempt but outer bindings are shared). The assertion happens after the
+// wrapper returns.
+//
+// Cases:
+//   R1   succeeds on the 3rd of 5 attempts -> attempt count == 3
+//   R2   body never throws -> exactly one attempt
+//   R3   every attempt fails -> `else` branch runs, count == N
+//   R4   succeeds on the LAST allowed attempt (N == 3, succeed at 3)
+//   R5   `delay` form parses and runs; succeeds on 2nd attempt
+//   R6   a later success does NOT re-run earlier side effects beyond the
+//        failed attempts (counter increments once per attempt only)
+
+print("=== control_flow/retry_times ===");
+
+fn ok(id: string, cond: bool) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+// R1: fails on attempts 1 and 2, succeeds on attempt 3.
+var r1 = 0;
+fn run_r1() {
+    retry for 5 times {
+        r1 = r1 + 1;
+        if r1 < 3 { throw "retry me"; }
+    }
+}
+run_r1();
+ok("R1", r1 == 3);
+
+// R2: body never throws -> single attempt.
+var r2 = 0;
+fn run_r2() {
+    retry for 5 times {
+        r2 = r2 + 1;
+    }
+}
+run_r2();
+ok("R2", r2 == 1);
+
+// R3: all attempts fail -> else branch executes; counter hits the cap.
+var r3count = 0;
+var r3else = false;
+fn run_r3() {
+    retry for 4 times {
+        r3count = r3count + 1;
+        throw "always fails";
+    } else {
+        r3else = true;
+    }
+}
+run_r3();
+ok("R3", r3count == 4 and r3else);
+
+// R4: succeed exactly on the last permitted attempt.
+var r4 = 0;
+fn run_r4() {
+    retry for 3 times {
+        r4 = r4 + 1;
+        if r4 < 3 { throw "again"; }
+    }
+}
+run_r4();
+ok("R4", r4 == 3);
+
+// R5: `delay` between attempts (1ms keeps the test fast); succeed on 2nd.
+var r5 = 0;
+fn run_r5() {
+    retry for 4 times delay 1 {
+        r5 = r5 + 1;
+        if r5 < 2 { throw "wait"; }
+    }
+}
+run_r5();
+ok("R5", r5 == 2);
+
+// R6: a body that succeeds on attempt 2 must have incremented exactly twice
+// (once per attempt) -- proves no double-execution of the winning attempt.
+var r6 = 0;
+var r6wins = 0;
+fn run_r6() {
+    retry for 5 times {
+        r6 = r6 + 1;
+        if r6 < 2 { throw "no"; }
+        r6wins = r6wins + 1;
+    }
+}
+run_r6();
+ok("R6", r6 == 2 and r6wins == 1);
+
+print("=== done ===");

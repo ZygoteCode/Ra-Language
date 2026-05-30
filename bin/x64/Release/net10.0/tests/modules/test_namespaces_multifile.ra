@@ -1,0 +1,53 @@
+// Ra Language - modules: multi-file namespace merging (fully asserted).
+//
+// Two helper files contribute to the same canonical namespaces:
+//   tests_namespaces_helpers/system_io_a.ra -> System.IO.open, System.IO.MODE_READ, System.version
+//   tests_namespaces_helpers/system_io_b.ra -> System.IO.close, System.IO.Files.list
+// A local re-opening then adds System.IO.flush, and `using System.IO` pulls
+// the whole merged set into local scope.
+//
+// Cases:
+//   M1   file_a contributes System.IO.open
+//   M2   file_a contributes System.IO.MODE_READ
+//   M3   file_a contributes System.version (sibling namespace System)
+//   M4   file_b merges into the SAME System.IO (open from file_a still present)
+//   M5   file_b adds System.IO.close
+//   M6   file_b adds child namespace System.IO.Files.list
+//   M7   System.version still resolves after the second import
+//   M8   local re-opening adds System.IO.flush
+//   M9   members from imports remain after the local re-opening
+//   M10  `using System.IO` brings open/close/flush/MODE_READ into local scope
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== modules/namespaces_multifile ===");
+
+// --- import file_a: contributes to System.IO and System ---
+import "tests_namespaces_helpers/system_io_a.ra";
+
+ok("M1", System.IO.open("a.txt") == "open(a.txt)");
+ok("M2", System.IO.MODE_READ == "r");
+ok("M3", System.version() == "1.2.3");
+
+// --- import file_b: merges into the same System.IO + adds System.IO.Files ---
+import "tests_namespaces_helpers/system_io_b.ra";
+
+ok("M4", System.IO.open("b.txt") == "open(b.txt)");
+ok("M5", System.IO.close("b.txt") == "close(b.txt)");
+ok("M6", System.IO.Files.list() == "list called");
+ok("M7", System.version() == "1.2.3");
+
+// --- local re-opening of System.IO adds yet more members ---
+namespace System.IO {
+    pub fn flush() { ret "flush"; }
+}
+ok("M8", System.IO.flush() == "flush");
+ok("M9", System.IO.open("c.txt") == "open(c.txt)" and System.IO.close("c.txt") == "close(c.txt)");
+
+// --- using the fully merged System.IO brings everything into scope ---
+using System.IO;
+ok("M10", open("d.txt") == "open(d.txt)" and close("d.txt") == "close(d.txt)" and flush() == "flush" and MODE_READ == "r");
+
+print("=== done ===");

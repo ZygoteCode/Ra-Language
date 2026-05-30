@@ -1,0 +1,98 @@
+// Ra Language - modules: negative namespace cases (fully asserted).
+//
+// Every case asserts that an illegal namespace operation is rejected and the
+// failure is catchable at runtime via try/catch, plus the positive control
+// sub-cases that must still succeed.
+//
+// Cases:
+//   E1   declaring a namespace whose name collides with an existing variable fails
+//   E2   `using` an undefined namespace fails
+//   E3   member access on a missing leaf (undefined member) fails
+//   E4a  a pub member of a partially-private namespace is still reachable
+//   E4b  a non-pub member accessed from outside fails
+//   E5   `ret` at namespace top-level scope is rejected
+//   E6   deeply nested re-opening preserves one canonical identity (positive control)
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== modules/namespaces_negative ===");
+
+// --- E1: namespace name conflicts with an existing variable ---
+var Conflict = 42;
+var e1 = false;
+try {
+    namespace Conflict {
+        pub fn x() { ret 1; }
+    }
+    e1 = false;
+} catch (e) {
+    e1 = true;
+}
+ok("E1", e1);
+
+// --- E2: using an undefined namespace fails ---
+var e2 = false;
+try {
+    using DoesNotExist;
+    e2 = false;
+} catch (e) {
+    e2 = true;
+}
+ok("E2", e2);
+
+// --- E3: member access on a missing leaf ---
+namespace Boxed {
+    pub fn one() { ret 1; }
+}
+var e3 = false;
+try {
+    print(Boxed.two());
+    e3 = false;
+} catch (e) {
+    e3 = true;
+}
+ok("E3", e3);
+
+// --- E4: access a non-public member from outside ---
+namespace Walled {
+    fn secret() { ret "no peeking"; }
+    pub fn handshake() { ret "hi"; }
+}
+ok("E4a", Walled.handshake() == "hi");
+var e4 = false;
+try {
+    print(Walled.secret());
+    e4 = false;
+} catch (e) {
+    e4 = true;
+}
+ok("E4b", e4);
+
+// --- E5: `ret` is not valid at namespace scope ---
+var e5 = false;
+try {
+    namespace BadReturn {
+        ret 5;
+    }
+    e5 = false;
+} catch (e) {
+    e5 = true;
+}
+ok("E5", e5);
+
+// --- E6: deeply nested re-opening keeps one canonical identity (control) ---
+namespace X.Y.Z {
+    pub fn a() { ret "a"; }
+}
+namespace X {
+    namespace Y {
+        namespace Z {
+            pub fn b() { ret "b"; }
+        }
+    }
+}
+ok("E6", X.Y.Z.a() + X.Y.Z.b() == "ab");
+
+print("=== done ===");

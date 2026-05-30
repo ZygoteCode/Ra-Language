@@ -1,0 +1,50 @@
+# Regression guard: native FFI functions return IntegerValue (Type=Integer),
+# NOT NumberValue. When such a result flows into the VM's specialised
+# arithmetic opcodes (AddNN/SubNN/MulNN — emitted when the static SlotTypeHints
+# lattice proves both operands "Number"), the VM used to hard-cast
+# (NumberValue)operand and throw InvalidCastException, aborting the program.
+#
+# The trigger needs a prior 2-arg native call (e.g. lstrcmpA) so the lattice
+# specialises the later 1-arg-call arithmetic in the loop. Fixed in VmExecutor
+# by guarding the fast path with `is NumberValue` and falling back to the
+# virtual AddedTo/SubbedBy/MultedBy (defined on every RuntimeValue).
+
+fn ok(id, cond) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); } }
+
+@dll_import(library = "kernel32", entry_point = "lstrlenA")
+fn len_a(s: string): int { ret 0; }
+@dll_import(library = "kernel32", entry_point = "lstrlenW")
+fn len_w(s: string): int { ret 0; }
+@dll_import(library = "kernel32", entry_point = "lstrcmpA")
+fn cmp_a(a: string, b: string): int { ret 0; }
+
+print("=== native/native_int_arithmetic ===");
+
+# Prime the lattice with a 2-arg call (this is what makes the loop specialise).
+ok("NI1", cmp_a("alpha", "alpha") == 0);
+
+# native-int results through AddNN / SubNN / MulNN must be value-correct.
+ok("NI2", len_a("ciao") + len_w("ciao") == 8);
+ok("NI3", len_a("abcdef") - len_w("ab") == 4);
+ok("NI4", len_a("xy") * len_w("xyz") == 6);
+
+# the exact loop shape that used to crash: accumulate a native-int expression.
+var fails = 0;
+for i in 0..200 { fails = fails + ((len_a("ciao") + len_w("ciao")) - 8); }
+ok("NI5", fails == 0);
+
+# native-int reduction.
+var sum = 0;
+for i in 0..50 { sum = sum + len_a("ab"); }
+ok("NI6", sum == 100);
+
+# mixed native-int + plain-number literals.
+ok("NI7", len_a("hello") * 2 + 3 == 13);
+
+# while-loop accumulation of native-int (separate VM path from for).
+var w = 0;
+var k = 0;
+while (k < 30) { w = w + len_w("abcd"); k = k + 1; }
+ok("NI8", w == 120);
+
+print("=== done ===");

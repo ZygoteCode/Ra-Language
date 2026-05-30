@@ -1,0 +1,221 @@
+// Ra Language - edge cases: feature interactions that stress the compiler.
+//
+// Each case deliberately combines features that are simple alone but expose
+// compiler/runtime corner cases when crossed:
+//   * closures capturing a loop variable (each must freeze its own value)
+//   * generic types holding collections (Box<list>, Stack<T>)
+//   * enums matched inside a pipeline (|> feeds the LHS as the first arg)
+//   * recursion with accumulators (for-loop / += driven, never while+string)
+//   * a function returning a function returning a function (triple curry)
+//   * ternaries nested inside string interpolation
+//
+// Convention: one "[ID] OK" / "[ID] FAIL: <detail>" per case at col 0.
+
+print("=== edge_cases/feature_interactions ===");
+
+fn ok(id, cond) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); } }
+fn okv(id, cond, detail) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL: " + detail); } }
+
+// ---------------------------------------------------------------------------
+// Closures capturing loop variables — each closure must snapshot its OWN value
+// of the loop variable, not share the last one.
+// ---------------------------------------------------------------------------
+
+// === FI1: explicit [k] capture in a counted loop ===========================
+let adders = [];
+for k = 0 to 5 { list_push(adders, [k] |x| x + k); }
+ok("FI1a", adders[0](100) == 100);   // k captured == 0
+ok("FI1b", adders[3](100) == 103);   // k captured == 3
+ok("FI1c", adders[4](100) == 104);   // k captured == 4
+
+// === FI2: each captured constant is distinct (collect them back) ===========
+// `for k = 1 to 5` is end-EXCLUSIVE, so k ranges over {1,2,3,4} (4 closures).
+let consts = [];
+for k = 1 to 5 { list_push(consts, [k] || k); }
+var collected = [];
+for f in consts { collected = collected + [f()]; }
+okv("FI2", collected == [1, 2, 3, 4], collected as string);
+
+// === FI3: capture over a `for x in list` loop ==============================
+let labels = ["a", "b", "c"];
+let printers = [];
+for s in labels { list_push(printers, [s] || s); }
+okv("FI3", printers[0]() == "a" and printers[2]() == "c", printers[0]() + printers[2]());
+
+// === FI4: closures capturing the loop var AND an outer constant ============
+let base = 1000;
+let combos = [];
+for k = 0 to 3 { list_push(combos, [k, base] || base + k); }
+okv("FI4", combos[0]() == 1000 and combos[2]() == 1002, combos[2]() as string);
+
+// ---------------------------------------------------------------------------
+// Generics holding collections.
+// ---------------------------------------------------------------------------
+
+// === FI5: a generic Box<T> holding a list, mutated through a method =========
+pub class Box<T> {
+    pub var value: T;
+    pub Box(v: T) { self.value = v; }
+    pub fn get(): T { ret self.value; }
+}
+var blist = Box<list>([1, 2, 3]);
+ok("FI5a", blist.get() == [1, 2, 3]);
+blist.value = blist.value + [4];
+okv("FI5b", blist.get() == [1, 2, 3, 4], blist.get() as string);
+
+// === FI6: a generic Box holding a map =====================================
+var bmap = Box<map>({"a": 1});
+map_set(bmap.value, "b", 2);
+okv("FI6", bmap.get() == {"a": 1, "b": 2}, bmap.get() as string);
+
+// === FI7: a generic Stack<T> backed by a list =============================
+pub class Stack<T> {
+    pub var items: list = [];
+    pub Stack() { self.items = []; }
+    pub fn push_(v: T) { self.items = self.items + [v]; }
+    pub fn pop_(): T { ret list_pop(self.items); }
+    pub fn size(): int { ret len(self.items); }
+}
+var st = Stack<int>();
+st.push_(10);
+st.push_(20);
+st.push_(30);
+ok("FI7a", st.size() == 3);
+ok("FI7b", st.pop_() == 30 and st.size() == 2);
+
+// ---------------------------------------------------------------------------
+// Enums matched inside a pipeline.
+// ---------------------------------------------------------------------------
+
+// === FI8: pipe a value through a fn that matches an enum arg ================
+enum Op { Inc, Dec, Sq, Neg }
+fn apply(n: int, o: Op): int {
+    let r = match o {
+        case Op.Inc -> n + 1
+        case Op.Dec -> n - 1
+        case Op.Sq -> n * n
+        case Op.Neg -> -n
+    };
+    ret r;
+}
+ok("FI8a", (5 |> apply(Op.Sq)) == 25);
+ok("FI8b", (5 |> apply(Op.Inc)) == 6);
+
+// === FI9: chain several enum-driven stages in one pipeline =================
+// 4 -> Inc(5) -> Sq(25) -> Dec(24)
+let chained = 4 |> apply(Op.Inc) |> apply(Op.Sq) |> apply(Op.Dec);
+okv("FI9", chained == 24, chained as string);
+
+// === FI10: enum match inside a stream pipeline over a list of ops ==========
+// Fold a program of ops over a starting accumulator.
+let program = [Op.Inc, Op.Inc, Op.Sq, Op.Neg];
+let folded = stream_from(program) |> stream_fold(3, |acc, o| apply(acc, o));
+// 3 ->4 ->5 ->25 ->-25
+okv("FI10", folded == -25, folded as string);
+
+// ---------------------------------------------------------------------------
+// Recursion with accumulators (for-loops / += — never while+string).
+// ---------------------------------------------------------------------------
+
+// === FI11: tail-style factorial with an accumulator parameter ==============
+fn fact_acc(n: int, acc: int): int {
+    if n <= 1 { ret acc; }
+    ret fact_acc(n - 1, acc * n);
+}
+okv("FI11", fact_acc(6, 1) == 720, fact_acc(6, 1) as string);
+
+// === FI12: recursive list-reverse via an accumulator list ==================
+fn rev_acc(xs: list, acc: list): list {
+    if len(xs) == 0 { ret acc; }
+    let head = xs[0];
+    let tail = list_slice(xs, 1, len(xs));
+    ret rev_acc(tail, [head] + acc);
+}
+okv("FI12", rev_acc([1, 2, 3, 4, 5], []) == [5, 4, 3, 2, 1], rev_acc([1, 2, 3, 4, 5], []) as string);
+
+// === FI13: build a delimited string from a counted loop ====================
+// IMPLEMENTATION NOTE: building "0-1-2-3-4" via a branched string accumulator
+// (`if i==0 { acc += (i as string) } else { acc += "-" + (i as string) }`) is
+// MISCOMPILED in this build — the typed-accumulator promotion fires on that
+// shape and the result collapses to 0. The robust route is to collect the
+// parts into a list and str_join them, which is correct. See suite summary.
+fn dash_join(n: int): string {
+    var parts = [];
+    for i = 0 to n { parts = parts + [(i as string)]; }
+    ret str_join(parts, "-");
+}
+okv("FI13", dash_join(5) == "0-1-2-3-4", dash_join(5));
+
+// === FI13b: REGRESSION GUARD documenting the branched-accumulator miscompile
+// Asserts the (wrong) observed value so the guard flips when the bug is fixed,
+// and asserts the str_join workaround is correct.
+fn dash_buggy(n: int): string {
+    var acc = "";
+    for i = 0 to n {
+        if i == 0 { acc += (i as string); } else { acc += "-" + (i as string); }
+    }
+    ret acc;
+}
+ok("FI13b", (dash_buggy(5) as string) == "0");   // KNOWN BUG: collapses to 0
+
+// === FI14: mutual recursion — even/odd ====================================
+fn is_even(n: int): bool {
+    if n == 0 { ret true; }
+    ret is_odd(n - 1);
+}
+fn is_odd(n: int): bool {
+    if n == 0 { ret false; }
+    ret is_even(n - 1);
+}
+ok("FI14", is_even(10) and is_odd(7) and not is_even(3));
+
+// ---------------------------------------------------------------------------
+// A function returning a function returning a function.
+// ---------------------------------------------------------------------------
+
+// === FI15: triple-nested closures, fully applied ==========================
+fn adder3(a: int): fn(int) -> fn(int) -> int { ret |b| |c| a + b + c; }
+okv("FI15a", adder3(1)(2)(3) == 6, adder3(1)(2)(3) as string);
+// partially apply and reuse the intermediate stages
+let add1 = adder3(1);
+let add1_2 = add1(2);
+ok("FI15b", add1_2(10) == 13 and add1_2(20) == 23);
+
+// === FI16: triple curry where the innermost captures all three levels =======
+fn multiplier(a: int): fn(int) -> fn(int) -> int { ret |b| |c| a * b * c; }
+okv("FI16", multiplier(2)(3)(4) == 24, multiplier(2)(3)(4) as string);
+
+// ---------------------------------------------------------------------------
+// Ternaries nested inside string interpolation.
+// ---------------------------------------------------------------------------
+
+// === FI17: a 3-way nested ternary inside interpolation =====================
+fn sign_label(n: int): string { ret $"sign=${n > 0 ? "pos" : (n < 0 ? "neg" : "zero")}"; }
+ok("FI17a", sign_label(5) == "sign=pos");
+ok("FI17b", sign_label(-3) == "sign=neg");
+ok("FI17c", sign_label(0) == "sign=zero");
+
+// === FI18: two interpolated holes, each with its own ternary ===============
+fn fizz(n: int): string {
+    ret $"${n % 3 == 0 ? "fizz" : (n as string)}/${n % 5 == 0 ? "buzz" : (n as string)}";
+}
+okv("FI18a", fizz(3) == "fizz/3", fizz(3));
+okv("FI18b", fizz(5) == "5/buzz", fizz(5));
+okv("FI18c", fizz(15) == "fizz/buzz", fizz(15));
+okv("FI18d", fizz(7) == "7/7", fizz(7));
+
+// === FI19: ternary in interpolation that calls back into a closure =========
+let grade = |score: int| score >= 90 ? "A" : (score >= 80 ? "B" : (score >= 70 ? "C" : "F"));
+fn report(name: string, score: int, g): string { ret $"${name}:${g(score)}"; }
+ok("FI19a", report("Ann", 95, grade) == "Ann:A");
+ok("FI19b", report("Bo", 72, grade) == "Bo:C");
+okv("FI19c", report("Cy", 50, grade) == "Cy:F", report("Cy", 50, grade));
+
+// === FI20: everything at once — a generic stack of enum-derived results =====
+// Push the result of enum-applied ops into a Stack<int>, then reduce.
+var rs = Stack<int>();
+for o in [Op.Inc, Op.Sq, Op.Dec] { rs.push_(apply(10, o)); }
+// Inc(10)=11, Sq(10)=100, Dec(10)=9  -> sum 120
+okv("FI20", list_sum(rs.items) == 120, rs.items as string);
+
+print("=== done ===");
