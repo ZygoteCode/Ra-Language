@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language -- operator precedence & associativity matrix.
 //
 // Proves the binding order and associativity of the operator ladder across

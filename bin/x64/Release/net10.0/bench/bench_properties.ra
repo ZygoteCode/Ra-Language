@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Microbenchmark: property access vs field access.
 //
 // Measures the overhead of an auto-stored property's getter over a

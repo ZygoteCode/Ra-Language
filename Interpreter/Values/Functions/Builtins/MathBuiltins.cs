@@ -12,8 +12,6 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
 {
     public static class MathBuiltins
     {
-        private static readonly Random _rng = new Random();
-
         public static void Register()
         {
             BuiltInRegistry.Register("abs", Abs);
@@ -56,10 +54,8 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             BuiltInRegistry.Register("gcd", Gcd);
             BuiltInRegistry.Register("lcm", Lcm);
             BuiltInRegistry.Register("factorial", FactorialFn);
-            BuiltInRegistry.Register("random", RandomFn);
-            BuiltInRegistry.Register("random_int", RandomIntFn);
-            BuiltInRegistry.Register("random_float", RandomFn);
-            BuiltInRegistry.Register("random_seed", RandomSeedFn);
+            // random / random_int / random_float / random_seed moved to
+            // std.prelude.random (RandomBuiltins) — single seedable PRNG.
             BuiltInRegistry.Register("bit_count", BitCountFn);
             BuiltInRegistry.Register("popcount", BitCountFn);
             BuiltInRegistry.Register("leading_zeros", LeadingZerosFn);
@@ -227,24 +223,6 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             long r = 1;
             for (long i = 2; i <= n; i++) r *= i;
             return Ok(new LongValue(r), ctx, p1, p2);
-        }
-
-        private static RuntimeResult RandomFn(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
-        {
-            return Ok(new DoubleValue(_rng.NextDouble()), ctx, p1, p2);
-        }
-
-        private static RuntimeResult RandomIntFn(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
-        {
-            if (!ExpectArgs("random_int", args, 2, ctx, p1, p2, out var err)) return err;
-            int lo = AsInt(args[0]), hi = AsInt(args[1]);
-            if (hi < lo) (lo, hi) = (hi, lo);
-            return Ok(new IntegerValue(_rng.Next(lo, hi + 1)), ctx, p1, p2);
-        }
-
-        private static RuntimeResult RandomSeedFn(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
-        {
-            return Ok(NullValue.Null, ctx, p1, p2);
         }
 
         private static RuntimeResult BitCountFn(Context ctx, List<RuntimeValue> args, Position p1, Position p2)

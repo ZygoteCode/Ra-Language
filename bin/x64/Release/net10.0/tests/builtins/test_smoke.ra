@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - builtins: broad cross-domain smoke sampler (asserted).
 //
 // Fast sanity check spanning reflection, collections, strings, math,

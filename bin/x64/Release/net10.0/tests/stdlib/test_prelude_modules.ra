@@ -1,0 +1,77 @@
+import std.prelude.*;
+// stdlib: virtual std.prelude.* modules — the built-ins, recategorised.
+//
+// Built-ins are no longer auto-available: the line 1 `import std.prelude.*`
+// is what brings print/str_upper/etc. into scope (this file would not even
+// run without it). Beyond that, the SELECTIVE and ALIAS forms below PROVE
+// the per-module categorisation: a selective import only succeeds if the
+// symbol is actually exported by THAT module, and member access on an alias
+// only resolves a symbol that belongs to THAT module — a miscategorised or
+// missing symbol makes the import throw (asserted in the negative cases).
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/prelude_modules ===");
+
+// --- plain module imports resolve (virtual, no physical file) ------------
+import std.prelude.io;
+import std.prelude.text;
+import std.prelude.math;
+import std.prelude.collections;
+import std.prelude.reflect;
+import std.prelude.convert;
+import std.prelude.runtime;
+ok("M1", true);
+
+// --- selective import proves per-module membership -----------------------
+import { str_upper } from std.prelude.text;
+ok("M2", str_upper("hi") == "HI");
+
+import { abs } from std.prelude.math;
+ok("M3", abs(0 - 5) == 5);
+
+import { len } from std.prelude.collections;
+ok("M4", len([1, 2, 3]) == 3);
+
+import { type_of } from std.prelude.reflect;
+ok("M5", type_of(5) == "number");
+
+import { to_string } from std.prelude.convert;
+ok("M6", to_string(42) == "42");
+
+import { clone } from std.prelude.runtime;
+ok("M7", clone(7) == 7);
+
+// --- alias import: member access routes through the module wrapper, so the
+//     symbol must belong to the aliased module --------------------------
+import std.prelude.text as t;
+ok("M8", t.str_upper("ab") == "AB");
+
+import std.prelude.reflect as r;
+ok("M9", r.type_of("s") == "string");
+
+// --- NEGATIVE: a text symbol is not in the math module -------------------
+var m10 = false;
+try { import { str_upper } from std.prelude.math; m10 = false; } catch (e) { m10 = true; }
+ok("M10", m10);
+
+// --- NEGATIVE: a nonexistent symbol from a real module throws ------------
+var m11 = false;
+try { import { no_such_symbol } from std.prelude.io; m11 = false; } catch (e) { m11 = true; }
+ok("M11", m11);
+
+// --- a local declaration SHADOWS an imported built-in (no redeclaration
+//     error): `e`, `pi`, `sign`, `abs` are all math built-ins pulled in by
+//     the line 1 wildcard, yet a `var`/`let` of the same name is legal and
+//     wins. (This is exactly how a built-in in a parent scope behaved before
+//     the std refactor; the import must not make it a spurious redeclaration.)
+var e = 17;
+ok("M12", e == 17);
+let pi = "not-a-number";
+ok("M13", pi == "not-a-number");
+var abs = [1, 2, 3];
+ok("M14", len(abs) == 3);
+
+print("=== done ===");

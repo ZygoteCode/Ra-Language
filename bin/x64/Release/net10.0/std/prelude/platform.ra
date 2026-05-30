@@ -1,0 +1,38 @@
+// std.prelude.platform — a thin, ergonomic facade over the os built-ins for
+// platform detection. This is a *physical* Ra module that lives inside the
+// std.prelude package directory, so it is swept into `import std.prelude.*`
+// alongside the virtual (native) prelude modules — demonstrating that the
+// prelude package merges hand-written Ra code with the categorised built-ins.
+//
+// `os_name()` returns one of "windows" | "linux" | "macos" | "freebsd" |
+// "other", so these predicates are cross-platform by construction.
+
+import std.prelude.os;
+
+pub fn name() {
+    ret os_name();
+}
+
+pub fn arch() {
+    ret os_arch();
+}
+
+pub fn version() {
+    ret os_version();
+}
+
+pub fn is_windows() {
+    ret os_name() == "windows";
+}
+
+pub fn is_linux() {
+    ret os_name() == "linux";
+}
+
+pub fn is_macos() {
+    ret os_name() == "macos";
+}
+
+pub fn is_unix() {
+    ret is_linux() or is_macos() or os_name() == "freebsd";
+}

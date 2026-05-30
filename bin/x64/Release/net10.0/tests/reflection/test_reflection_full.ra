@@ -1,3 +1,4 @@
+import std.prelude.*;
 print("=== Ra Extended Reflection Tests ===");
 
 class Animal { fn speak() => "noise" }

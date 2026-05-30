@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - functions: recursion forms.
 //
 // Cases:

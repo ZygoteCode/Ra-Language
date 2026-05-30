@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - edge cases: deeply nested data structures.
 //
 // Stresses the interpreter's handling of structures nested 5+ levels deep:

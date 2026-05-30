@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - modules: namespace + using-as remap.
 //
 // Cases:

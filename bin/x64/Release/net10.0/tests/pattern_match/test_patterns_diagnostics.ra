@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Pattern Matching diagnostic suite — exercises the analyzer warnings
 // for unreachable arms, duplicate literals, and boolean exhaustiveness.
 // The expected output is a NarrowingAnalyzer warning section followed by

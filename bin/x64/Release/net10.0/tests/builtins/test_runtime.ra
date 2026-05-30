@@ -1,3 +1,4 @@
+import std.prelude.*;
 // builtins/runtime — dynamic + reflective runtime built-ins:
 // clone/deep_clone, equals/compare/strict_equals, hash, lookup/exists,
 // call introspection, invoke / invoke_method / invoke_static,

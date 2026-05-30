@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - strings: concat, repeat, length.
 //
 // Cases:

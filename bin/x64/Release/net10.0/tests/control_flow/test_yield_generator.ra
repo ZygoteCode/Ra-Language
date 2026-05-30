@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - control flow: `yield` inside switch arms.
 // NOTE: when a switch arm uses `{ yield X; }`, the yield value becomes
 // the switch result. At top-level this still aborts the host because

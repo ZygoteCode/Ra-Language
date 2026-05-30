@@ -1,3 +1,4 @@
+import std.prelude.*;
 // helper.ra — repeats the literals the entry uses.
 
 pub fn greet(name: string): string {

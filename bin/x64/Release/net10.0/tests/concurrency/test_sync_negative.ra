@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Negative-path companion to test_sync.ra.
 //
 // Spawning a fiber whose closure captures a *borrow* (`&data`) of a non-Sync

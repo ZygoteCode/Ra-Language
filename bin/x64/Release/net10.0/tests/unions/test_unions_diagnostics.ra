@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Exercises NarrowingAnalyzer diagnostics. Expected outputs (warnings):
 //   * `x is string` with x: int  -> always false  (impossible)
 //   * `x is int` with x: int      -> always true   (trivial)

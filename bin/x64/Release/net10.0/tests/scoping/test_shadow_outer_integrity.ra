@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - scoping: OUTER-VARIABLE INTEGRITY across nested-scope shadowing.
 //
 // Regression guard for the class of bug "an inner block that shadows a name

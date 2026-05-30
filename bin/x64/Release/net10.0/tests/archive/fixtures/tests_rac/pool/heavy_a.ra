@@ -1,3 +1,4 @@
+import std.prelude.*;
 // At script top-level — these consts go into the script's Consts[]
 // pool, which IS what the v2 pool ref tags reach.
 

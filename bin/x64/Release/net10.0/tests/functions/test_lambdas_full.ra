@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Lambdas -- bar-style anonymous functions test suite.
 // Every test prints "[LNN] OK" on success.
 

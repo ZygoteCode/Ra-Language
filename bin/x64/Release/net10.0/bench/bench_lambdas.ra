@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Microbenchmark: bar-lambda call cost vs named-fn call cost.
 //
 // Both routines repeat the same body (`x + 1`) N times. The expectation

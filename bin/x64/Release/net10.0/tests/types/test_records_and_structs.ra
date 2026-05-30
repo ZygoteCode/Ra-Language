@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - types: record value semantics & with-update, record equality
 // and destructuring, vs struct/class instance semantics, plus static members.
 //

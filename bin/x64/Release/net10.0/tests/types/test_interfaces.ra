@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - types: interface declaration + structural use.
 // NOTE: in this build the `class X : Trait` form treats Trait as a base
 // class and errors with "Base class not found". Interfaces and traits

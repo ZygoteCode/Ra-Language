@@ -1,3 +1,4 @@
+import std.prelude.*;
 import "./log_a.ra";
 import "./log_b.ra";
 

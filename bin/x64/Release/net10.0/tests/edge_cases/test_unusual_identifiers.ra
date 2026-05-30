@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - edge: unusual but legal identifiers.
 //
 // Cases:

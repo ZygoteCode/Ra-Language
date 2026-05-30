@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - edge: empty / minimal constructs.
 // NOTE: a bare `{ pass; }` block at file scope fails to parse with
 // "this token has nowhere to attach"; the block-as-statement form

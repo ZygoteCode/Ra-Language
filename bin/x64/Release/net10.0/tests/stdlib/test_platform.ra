@@ -1,0 +1,24 @@
+import std.prelude.*;
+// stdlib/platform — the physical std.prelude.platform facade, swept into the
+// prelude package alongside the native virtual modules.
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/platform ===");
+
+// at most one concrete OS predicate holds
+var count = 0;
+if is_windows() { count = count + 1; }
+if is_linux() { count = count + 1; }
+if is_macos() { count = count + 1; }
+ok("PL1", count <= 1);
+
+ok("PL2", name() == "windows" or name() == "linux" or name() == "macos" or name() == "freebsd" or name() == "other");
+ok("PL3", len(arch()) > 0);
+ok("PL4", len(version()) > 0);
+ok("PL5", is_windows() == (name() == "windows"));
+ok("PL6", is_unix() == (name() == "linux" or name() == "macos" or name() == "freebsd"));
+
+print("=== done ===");

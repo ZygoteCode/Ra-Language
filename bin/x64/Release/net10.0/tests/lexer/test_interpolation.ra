@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - lexer: string interpolation parsing.
 //
 // Cases:

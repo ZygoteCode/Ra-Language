@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - integration: namespaces + imports + functions.
 //
 // Cases:

@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - annotations: built-in meta-annotations.
 // Annotation declarations use the brace body form throughout; the
 // parens-only form leaves the parser in an inconsistent state at file

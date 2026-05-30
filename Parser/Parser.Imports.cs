@@ -281,16 +281,27 @@ namespace RaLanguage.Parser
                 res.RegisterAdvancement();
                 Advance();
 
+                bool isWildcard = false;
                 while (_currentToken.Type == TokenType.DOT)
                 {
                     res.RegisterAdvancement();
                     Advance();
 
+                    // Trailing `.*` glob: `import std.prelude.*` imports every
+                    // symbol under the addressed package/module.
+                    if (_currentToken.Type == TokenType.MUL)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                        isWildcard = true;
+                        break;
+                    }
+
                     if (_currentToken.Type != TokenType.IDENTIFIER)
                     {
                         res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
                             after: "'.' in module path",
-                            help: "module paths are dotted identifiers, e.g. 'std.io.file'"));
+                            help: "module paths are dotted identifiers, e.g. 'std.io.file'; a trailing '.*' (e.g. 'std.prelude.*') imports an entire package"));
                         return null;
                     }
 
@@ -299,7 +310,7 @@ namespace RaLanguage.Parser
                     Advance();
                 }
 
-                return Interpreter.Modules.ModuleSpecifier.FromDotted(segments);
+                return Interpreter.Modules.ModuleSpecifier.FromDotted(segments, isWildcard);
             }
 
             return null;

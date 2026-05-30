@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - types: generics in depth — generic functions and classes
 // with one and two type parameters, where-clause constraints, distinct
 // instantiation (Box<int> vs Box<string>), nested generics (list of

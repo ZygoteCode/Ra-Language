@@ -1,3 +1,5 @@
+import std.prelude.*;
+import std.sys.*;
 # ==============================================================
 #  Advanced @dll_import tests
 #  - Mixed int/float signatures (trampoline path)

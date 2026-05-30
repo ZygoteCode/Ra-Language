@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language -- bitwise shift / rotate operator regression suite.
 //
 // Covers the arrow ladder defined in RA_SHIFTS_DESIGN.md:

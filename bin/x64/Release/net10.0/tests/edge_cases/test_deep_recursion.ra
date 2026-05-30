@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - edge: deep recursion smoke.
 // With the fat 32 MB worker thread stack the interpreter handles deep
 // recursion comfortably; previously the default 1 MB stack overflowed

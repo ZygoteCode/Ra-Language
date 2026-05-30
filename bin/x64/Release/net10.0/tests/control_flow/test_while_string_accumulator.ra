@@ -1,3 +1,4 @@
+import std.prelude.*;
 # ============================================================================
 # Regression guard for a FIXED IR-compiler miscompilation (M87 "lazy-long
 # while counter" typed-accumulator promotion in Interpreter/IR/IrCompiler.cs).

@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - semantics: move / borrow / copy types.
 //
 // Cases:

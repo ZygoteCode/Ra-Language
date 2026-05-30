@@ -1,0 +1,30 @@
+import std.prelude.*;
+// stdlib/net — URI parsing / accessors / composition (no live network I/O).
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/net ===");
+
+ok("N1", uri_is_valid("https://example.com/path"));
+ok("N2", uri_is_valid("not a uri") == false);
+ok("N3", uri_scheme("https://example.com") == "https");
+ok("N4", uri_host("https://example.com:8080/x") == "example.com");
+ok("N5", uri_port("https://example.com:8080/x") == 8080);
+ok("N6", uri_port("https://example.com/x") == 443);   // default https port
+ok("N7", uri_path("https://example.com/a/b/c") == "/a/b/c");
+
+var u = uri_parse("https://user@host.com:9000/p?q=1#frag");
+ok("N8", map_get(u, "scheme") == "https");
+ok("N9", map_get(u, "host") == "host.com");
+ok("N10", map_get(u, "port") == 9000);
+
+ok("N11", uri_join("https://example.com/a/", "b") == "https://example.com/a/b");
+
+// invalid URI is reported, not crashed
+var n12 = false;
+try { uri_parse("garbage"); n12 = false; } catch (ex) { n12 = true; }
+ok("N12", n12);
+
+print("=== done ===");

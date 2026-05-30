@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language -- every compound-assignment operator, before/after assertions.
 //
 // Arithmetic:  +=  -=  *=  /=  %=  ^= (and the **= alias for power)

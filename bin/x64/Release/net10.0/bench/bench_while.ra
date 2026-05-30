@@ -1,3 +1,4 @@
+import std.prelude.*;
 var sum = 0;
 var i = 0;
 while i < 1000000 {

@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - integration: a record-oriented data pipeline.
 //
 // Builds a list of `record` "employees", then runs map / filter / reduce /

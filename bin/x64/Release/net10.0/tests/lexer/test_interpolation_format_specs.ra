@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - lexer/format: ${expr:spec} format specifiers.
 //
 // Format-spec grammar (Lexer.IsValidFormatSpec / FormatSpec.Parse):

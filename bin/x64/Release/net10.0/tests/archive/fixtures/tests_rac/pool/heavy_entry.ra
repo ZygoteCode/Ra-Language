@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Heavy script-level const test. Many repeated long string literals
 // at module top-level (where the v2 bytecode actually serialises
 // them) — the pool should win cleanly here.

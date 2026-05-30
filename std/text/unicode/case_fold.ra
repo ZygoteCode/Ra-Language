@@ -1,0 +1,11 @@
+// std.text.unicode.case_fold — a nested physical module two levels under
+// std. Proves recursive package resolution: `import std.text.*` reaches it,
+// and `import std.text.unicode.case_fold` addresses it directly.
+
+import std.prelude.text;
+
+pub fn fold(s) {
+    ret str_upper(s);
+}
+
+pub const SCRIPT = "latin";

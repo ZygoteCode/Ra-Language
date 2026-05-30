@@ -1,3 +1,4 @@
+import std.prelude.*;
 print("=== Ra Async Concurrency Tests ===");
 
 // [A1] sleep returns a task; await unblocks at completion.

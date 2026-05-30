@@ -1,3 +1,5 @@
+import std.prelude.*;
+import std.sys.*;
 # Regression guard: native FFI functions return IntegerValue (Type=Integer),
 # NOT NumberValue. When such a result flows into the VM's specialised
 # arithmetic opcodes (AddNN/SubNN/MulNN — emitted when the static SlotTypeHints

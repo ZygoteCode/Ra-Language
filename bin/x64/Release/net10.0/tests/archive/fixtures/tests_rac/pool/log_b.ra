@@ -1,3 +1,4 @@
+import std.prelude.*;
 print("INFO");
 print("WARN");
 print("ERROR");

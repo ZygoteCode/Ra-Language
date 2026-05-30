@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - modules: negative namespace cases (fully asserted).
 //
 // Every case asserts that an illegal namespace operation is rejected and the

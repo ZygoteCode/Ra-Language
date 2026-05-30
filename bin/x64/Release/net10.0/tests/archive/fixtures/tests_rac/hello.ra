@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Single-file smoke test for the .rac archive pipeline.
 //
 //   dotnet run -- --compile tests_rac/hello.ra -o tests_rac/hello.rac

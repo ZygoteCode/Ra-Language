@@ -1,3 +1,4 @@
+import std.prelude.*;
 print("=== Ra Spawn / Sync Safety Tests ===");
 
 // [S2] Sync types pass through fine: spawning with an immutable scalar arg.

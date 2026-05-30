@@ -1,0 +1,47 @@
+import std.prelude.*;
+// stdlib: physical std sub-packages (real .ra files under std/).
+//
+// The resolver handles arbitrarily nested dotted paths against the std/
+// tree, plus directory (package) imports that sweep every .ra file under a
+// folder recursively. These symbols are NOT built-ins — `shout`, `fold`,
+// `echo_twice` exist only in std/text/**, so a successful call proves the
+// import genuinely loaded the file from disk (it is unreachable otherwise).
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/std_physical ===");
+
+// --- nested dotted file import: std/text/casing.ra -----------------------
+import std.text.casing;
+ok("P1", shout("hi") == "HI!");
+ok("P2", EXCLAIM == "!");
+
+// --- deeper nesting: std/text/unicode/case_fold.ra -----------------------
+import std.text.unicode.case_fold;
+ok("P3", fold("ab") == "AB");
+ok("P4", SCRIPT == "latin");
+
+// --- package import sweeps every module under std/text/ (recursive) ------
+import std.text.*;
+ok("P5", shout("yo") == "YO!");
+ok("P6", echo_twice("ab") == "abab");
+ok("P7", fold("z") == "Z");
+
+// --- selective import from a physical module -----------------------------
+import { shout } from std.text.casing;
+ok("P8", shout("ok") == "OK!");
+
+// --- alias import of a physical module -----------------------------------
+import std.text.casing as c;
+ok("P9", c.shout("x") == "X!");
+
+// --- legacy std.io physical module import still works unchanged -----------
+import std.io;
+ok("P10", NEWLINE == "\n");
+var p11 = false;
+try { printall([1, 2]); p11 = true; } catch (e) { p11 = false; }
+ok("P11", p11);   // pub fn from std/io.ra is in scope and callable
+
+print("=== done ===");

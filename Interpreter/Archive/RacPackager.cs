@@ -178,6 +178,15 @@ namespace RaLanguage.Interpreter.Archive
                         // target path doesn't exist on disk but the
                         // intent is clear (e.g. for diagnostics).
                         stdRefs.Add(imp.Specifier.Display);
+
+                        // Virtual std modules/packages (std.prelude.*,
+                        // std.sys.*, bare std) carry no source — the runtime
+                        // synthesises them from the built-in store at load
+                        // time. They are not files, so skip bundling; the
+                        // resolver would (correctly) fail to find a path.
+                        string dotted = string.Join(".", imp.Specifier.Segments!);
+                        if (RaLanguage.Interpreter.Modules.StdLibrary.IsVirtualStdPath(dotted))
+                            continue;
                     }
                     var res = resolver.Resolve(imp.Specifier, current);
                     if (!res.Ok)

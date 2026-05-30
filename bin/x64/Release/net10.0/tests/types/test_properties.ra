@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Properties — feature test suite.
 //
 // Every test prints "[PNN] OK" on success. Failures throw and abort.

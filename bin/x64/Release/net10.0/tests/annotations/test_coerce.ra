@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - annotations: @coerce + coerce_value builtin.
 // `@coerce` must apply to a coercer host (often a class/struct entry
 // point), not directly to an arbitrary function in this build. The

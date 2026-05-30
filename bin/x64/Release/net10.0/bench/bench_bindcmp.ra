@@ -1,3 +1,4 @@
+import std.prelude.*;
 var sum = 0;
 var max = 500000;
 for i in 0..1000000 {

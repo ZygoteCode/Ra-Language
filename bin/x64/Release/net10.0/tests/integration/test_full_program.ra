@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - integration: full program combining classes, ADTs,
 // pattern matching, modules, async, annotations.
 //

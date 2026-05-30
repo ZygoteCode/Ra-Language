@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - builtins: reflection / type introspection.
 //
 // Fully asserted against sample types defined here. Deterministic — no machine

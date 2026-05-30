@@ -1,3 +1,4 @@
+import std.prelude.*;
 // imports_helpers/math_lib.ra — math helpers for import tests.
 
 print("[math_lib] top-level side effect");

@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Pattern Matching + Destructuring — regression suite.
 //
 // Covers: literal, wildcard, variable, type, variant, struct, record,

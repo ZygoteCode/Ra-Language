@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language -- shift & rotate operators with exact bit results.
 //
 // Operator ladder (RA_SHIFTS_DESIGN.md):

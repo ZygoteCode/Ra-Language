@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Larger multi-module test exercising script-level const overlap
 // across 6 modules. Each module has many long string literals at
 // script top-level; the entry uses them too.

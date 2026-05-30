@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - lexer: all comment forms interleaved with live code.
 //
 // Comment forms recognised by the lexer:

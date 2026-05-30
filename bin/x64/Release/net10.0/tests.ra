@@ -1,3 +1,4 @@
+import std.prelude.*;
 pub fn werewr() {
     print("things");
 }

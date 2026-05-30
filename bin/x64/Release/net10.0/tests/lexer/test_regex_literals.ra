@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - lexer: regex literal + builtins.
 // Builtin arg order: regex_test(haystack, pattern), etc.
 //

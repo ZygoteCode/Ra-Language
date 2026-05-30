@@ -1,3 +1,4 @@
+import std.prelude.*;
 // helper module for tests/modules/test_file_import.ra
 
 pub var PI = 3.14;

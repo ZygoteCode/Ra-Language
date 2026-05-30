@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - control flow: label / goto (only inside functions per _main16).
 //
 // Cases:

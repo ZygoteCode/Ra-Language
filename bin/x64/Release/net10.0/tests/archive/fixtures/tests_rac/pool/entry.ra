@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Cross-module shared-const-pool smoke test. The entry and the
 // imported helper both reference a small, overlapping set of string
 // literals; the pool should dedup them.

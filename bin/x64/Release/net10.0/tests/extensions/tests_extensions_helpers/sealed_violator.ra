@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Module that ships its own extension on SharedAmbig. When the
 // importer pulls in both this module AND `sealed_owner.ra`, the
 // importer's registry holds the seal and refuses this module's

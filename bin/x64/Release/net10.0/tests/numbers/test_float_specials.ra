@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - numbers: float specials (inf / nan).
 //
 // Probed facts (Ra v.current):

@@ -1,0 +1,52 @@
+import std.prelude.*;
+// stdlib: wildcard + package imports over the virtual prelude.
+//
+//   import std.prelude.*      -> every symbol in every prelude module
+//   import std.prelude        -> same (a package import flattens its members)
+//   import std.prelude.io.*   -> every symbol of a single module
+//   import std.sys.*          -> the low-level surface, kept OUT of the
+//                                prelude wildcard on purpose
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/prelude_wildcard ===");
+
+// --- whole-prelude glob: symbols from many categories all resolve --------
+import std.prelude.*;
+ok("W1", str_upper("x") == "X");
+ok("W2", abs(0 - 7) == 7);
+ok("W3", len([1, 2]) == 2);
+ok("W4", is_int(5));
+ok("W5", to_string(9) == "9");
+
+// --- bare package import behaves like the glob ---------------------------
+import std.prelude;
+ok("W6", str_upper("y") == "Y");
+
+// --- wildcard on a single module -----------------------------------------
+var w7 = false;
+try {
+    import std.prelude.io.*;
+    println("W7: io.* wildcard side-effect line");
+    w7 = true;
+} catch (e) { w7 = false; }
+ok("W7", w7);
+
+// --- selective import from a wildcard/package source ---------------------
+import { abs } from std.prelude.math;
+ok("W8", abs(0 - 11) == 11);
+
+// --- the unsafe surface is reachable, but under std.sys (not the prelude) -
+var w9 = false;
+try { import std.sys.*; w9 = true; } catch (e) { w9 = false; }
+ok("W9", w9);
+
+// std.sys members are NOT pulled in by the prelude wildcard: asm_arch lives
+// only under std.sys, so selecting it from the prelude must fail.
+var w10 = false;
+try { import { asm_arch } from std.prelude.*; w10 = false; } catch (e) { w10 = true; }
+ok("W10", w10);
+
+print("=== done ===");

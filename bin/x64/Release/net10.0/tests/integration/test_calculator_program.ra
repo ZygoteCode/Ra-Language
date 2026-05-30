@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - integration: a stack-machine expression evaluator.
 //
 // A longer, realistic program that wires together MANY features:

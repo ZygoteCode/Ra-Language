@@ -1,3 +1,4 @@
+import std.prelude.*;
 // helper module for tests/integration/*
 
 pub var PI = 3.14;

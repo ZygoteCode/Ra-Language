@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - control flow: break / continue semantics.
 // NOTE: `break;` currently HANGS the interpreter in every loop kind;
 // the break-based tests are isolated in tests/regressions/break_hangs_loops.ra.

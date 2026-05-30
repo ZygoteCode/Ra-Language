@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - types: records (value flavor by default, reference
 // flavor via `record class`). Covers definition, instantiation,
 // structural equality / hashing-via-equality, with-expressions,

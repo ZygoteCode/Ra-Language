@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - lexer: string quote forms & interpolation triggers.
 //
 // Verifies the three quote delimiters ("double", 'single', `backtick`) produce

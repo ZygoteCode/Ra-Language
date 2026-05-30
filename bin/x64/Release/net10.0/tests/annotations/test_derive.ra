@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - annotations: @derive on a class.
 // NOTE: in this build the resolver / static analyzer reports each
 // derive flag ("Equals", "ToString", "Hash") as an undefined symbol

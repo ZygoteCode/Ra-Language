@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - modules: multi-file namespace merging (fully asserted).
 //
 // Two helper files contribute to the same canonical namespaces:

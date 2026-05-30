@@ -1,3 +1,4 @@
+import std.prelude.*;
 // bench_streams.ra
 //
 // Microbenchmark comparing the stream pipeline against:

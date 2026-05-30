@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - edge cases: feature interactions that stress the compiler.
 //
 // Each case deliberately combines features that are simple alone but expose
