@@ -162,6 +162,8 @@ namespace RaLanguage.LanguageServer.Features
             ["operator"] = "Declares an operator overload.",
             ["prop"] = "Declares a property.",
             ["event"] = "Declares an event.",
+            ["cancellable"] = "Event modifier: a handler may cancel the dispatch (`raise` returns whether it was cancelled).",
+            ["tolerant"] = "Event modifier: handler errors are collected instead of aborting the dispatch.",
             ["delegate"] = "Declares a delegate type.",
             ["annotation"] = "Declares an annotation.",
             ["factory"] = "Declares a factory constructor.",

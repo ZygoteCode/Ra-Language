@@ -6,5 +6,6 @@
 **/*.vsix
 **/tsconfig.json
 **/.eslintrc*
+test/**
 # NOTE: node_modules is intentionally NOT ignored. This extension is unbundled and
 # loads `vscode-languageclient` at runtime; vsce prunes devDependencies on package.

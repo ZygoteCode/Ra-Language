@@ -1321,7 +1321,9 @@ namespace RaLanguage.Lexer
                 { "lazy", Keyword.Lazy },
                 { "event", Keyword.Event },
                 { "delegate", Keyword.Delegate },
-                { "factory", Keyword.Factory }
+                { "factory", Keyword.Factory },
+                { "cancellable", Keyword.Cancellable },
+                { "tolerant", Keyword.Tolerant }
             };
         }
 

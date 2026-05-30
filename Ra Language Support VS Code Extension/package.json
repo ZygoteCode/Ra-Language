@@ -2,7 +2,7 @@
   "name": "ra-language-support",
   "displayName": "Ra Language Support",
   "description": "Rich language support for the Ra language — diagnostics, semantic highlighting, hover, completion, go-to-definition, references, rename, symbols, folding and more, powered by the Ra language server (ra --lsp).",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "publisher": "ZygoteCode",
   "license": "MIT",
   "engines": {
@@ -148,13 +148,16 @@
   },
   "scripts": {
     "vscode:prepublish": "echo \"No bundling step; extension.js runs as-is.\"",
-    "lint": "echo \"No linter configured\""
+    "lint": "echo \"No linter configured\"",
+    "test": "node ./test/tokenize.test.mjs"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
-    "@types/vscode": "^1.85.0"
+    "@types/vscode": "^1.85.0",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
   }
 }

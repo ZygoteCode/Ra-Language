@@ -81,5 +81,7 @@
         Event,
         Delegate,
         Factory,
+        Cancellable,
+        Tolerant,
     }
 }

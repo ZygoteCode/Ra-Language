@@ -91,7 +91,7 @@ abstract-class / abstract-record-class member lists.
 ```
 EventDecl       := EventModifiers "event" Ident "(" PayloadParams? ")" EventBody? Terminator
 
-EventModifiers  := ( "pub" | "priv" | "static" | "abstract" | "override" | "cancellable" )*
+EventModifiers  := ( "pub" | "priv" | "static" | "abstract" | "override" | "cancellable" | "tolerant" | "async" )*
 
 PayloadParams   := PayloadParam ( "," PayloadParam )*
 PayloadParam    := Ident ":" Type
@@ -119,10 +119,14 @@ Terminator      := NEWLINE | ";" | end-of-block
 
 `event` — new top-level keyword (lexer).
 
-`cancellable`, `subscribe`, `raise` — *contextual* keywords. They are
-matched as identifiers at lex time and treated as event-specific
-keywords only inside event declarations or accessor bodies. Outside
-that context they remain valid identifiers (no migration burden).
+`cancellable`, `tolerant` — reserved keywords (lexer). They are
+event-declaration modifiers and, like `event`, are no longer usable as
+identifiers.
+
+`subscribe`, `raise` — *contextual* keywords. They are matched as
+identifiers at lex time and treated as event-specific keywords only
+inside accessor bodies. Outside that context they remain valid
+identifiers.
 
 ### 3.3 Ambiguity notes
 
@@ -532,18 +536,19 @@ For static events, the subscriber list lives on the
 
 ### 7.1 Lexer
 
-Add `event` to the keyword table (one entry). `cancellable`, `subscribe`,
-`raise` remain identifiers at lex time — they are matched contextually
-by the parser inside event productions.
+Add `event`, `cancellable`, and `tolerant` to the keyword table. The
+accessor words `subscribe` / `raise` remain identifiers at lex time —
+they are matched contextually by the parser inside accessor blocks.
 
 ### 7.2 Parser
 
 `ParseClassDefinition`, `ParseStructDefinition`, `ParseRecordDefinition`,
 `ParseInterfaceDefinition`, `ParseTraitDefinition` gain an `event`
 branch in their member loop. After the existing modifier scan (`pub
-override abstract static`) the parser checks for the contextual
-`cancellable` keyword (optional) followed by `event` and dispatches
-to `ParseEventDeclaration`.
+override abstract static`) the parser consumes the optional
+`cancellable` / `tolerant` / `async` event-modifier keywords (any
+order) via `TryConsumeEventModifiers`, then dispatches on `event` to
+`ParseEventDeclaration`.
 
 `ParseEventDeclaration` returns an `EventDefinitionNode`. The
 accessor loop allows accessors in any order, separated by `;` or
