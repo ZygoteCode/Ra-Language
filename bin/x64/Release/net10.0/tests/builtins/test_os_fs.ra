@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - builtins: os / env / time + filesystem.
 //
 // Fully asserted. Deterministic: every filesystem case creates its OWN temp

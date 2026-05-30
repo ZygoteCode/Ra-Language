@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - errors: finally ALWAYS runs, and ordering is deterministic.
 //
 // Ordering is proven with a log list built via `+=` (NOT a while+`acc=acc+x`

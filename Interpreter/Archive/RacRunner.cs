@@ -293,7 +293,8 @@ namespace RaLanguage.Interpreter.Archive
                 ImportNodeVisitor.InitializeModuleManager(
                     virtualProject,
                     virtualStd,
-                    () => Program.BuiltinSymbolTable);
+                    coreProvider: () => Program.CoreSymbolTable,
+                    functionStoreProvider: () => Program.BuiltinSymbolTable);
                 ImportNodeVisitor.ResetCache();
 
                 string entrySource = contents[entryHostPath];

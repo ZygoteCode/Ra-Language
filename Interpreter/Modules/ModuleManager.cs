@@ -143,14 +143,20 @@ namespace RaLanguage.Interpreter.Modules
             }
         }
         private readonly ModuleResolver _resolver;
-        private readonly Func<SymbolTable> _builtinsProvider;
+        // Parent scope for every loaded module / user scope — the always-on
+        // core (ADTs + annotation types), NOT the built-in functions.
+        private readonly Func<SymbolTable> _coreProvider;
+        // Source for virtual std-module synthesis — the full built-in store
+        // (where the categorised function values actually live).
+        private readonly Func<SymbolTable> _functionStoreProvider;
 
         public ModuleResolver Resolver => _resolver;
 
-        public ModuleManager(ModuleResolver resolver, Func<SymbolTable> builtinsProvider)
+        public ModuleManager(ModuleResolver resolver, Func<SymbolTable> coreProvider, Func<SymbolTable> functionStoreProvider)
         {
             _resolver = resolver;
-            _builtinsProvider = builtinsProvider;
+            _coreProvider = coreProvider;
+            _functionStoreProvider = functionStoreProvider;
         }
 
         public void Clear()
@@ -166,6 +172,22 @@ namespace RaLanguage.Interpreter.Modules
             Position posStart,
             Position posEnd)
         {
+            // Virtual std-library surface. A dotted path under `std` may name
+            // a manifest-synthesised module of categorised built-ins (e.g.
+            // `std.prelude.io`), a package aggregate (`std.prelude`,
+            // `std.prelude.*`, `std.sys`, bare `std`), or — when a physical
+            // `std/<...>.ra` file exists — fall straight through to the file
+            // loader below so legacy imports like `import std.io` are
+            // byte-for-byte unchanged.
+            if (spec.Kind == ModuleSpecifierKind.Dotted
+                && spec.Segments != null && spec.Segments.Count >= 1
+                && string.Equals(spec.Segments[0], StdLibrary.Root, StringComparison.Ordinal))
+            {
+                if (TryPlanStdImport(spec, out var stdPlan))
+                    return LoadStdPlan(stdPlan, currentFile, interpreter, posStart, posEnd);
+                // else: physical std file — handled by the resolver path below.
+            }
+
             var resolution = _resolver.Resolve(spec, currentFile);
             if (!resolution.Ok)
             {
@@ -210,8 +232,7 @@ namespace RaLanguage.Interpreter.Modules
                         $"Import chain too deep ({_loadingChain.Count} levels) when loading '{spec.Display}':\n  {chain}"));
             }
 
-            var builtins = _builtinsProvider();
-            var moduleSymbolTable = new SymbolTable(builtins);
+            var moduleSymbolTable = new SymbolTable(_coreProvider());
             var moduleExtensions = new ExtensionRegistry();
             var module = new LoadedModule(absolute, moduleSymbolTable, moduleExtensions);
 
@@ -346,6 +367,217 @@ namespace RaLanguage.Interpreter.Modules
                 {
                     _loadingChain.RemoveAt(_loadingChain.Count - 1);
                 }
+            }
+        }
+
+        // ---- std-library virtual modules & packages ---------------------
+
+        private enum StdPlanKind { VirtualModule, Package, NotFound }
+
+        private readonly struct StdPlan
+        {
+            public StdPlanKind Kind { get; }
+            public string CacheKey { get; }
+            public string DottedPath { get; }
+            public string? PhysicalDir { get; }
+            public string? ErrorMessage { get; }
+
+            private StdPlan(StdPlanKind kind, string cacheKey, string dotted, string? physicalDir, string? error)
+            { Kind = kind; CacheKey = cacheKey; DottedPath = dotted; PhysicalDir = physicalDir; ErrorMessage = error; }
+
+            public static StdPlan Module(string dotted) =>
+                new(StdPlanKind.VirtualModule, "\0std-mod:" + dotted, dotted, null, null);
+            public static StdPlan PackageOf(string dotted, string? physicalDir) =>
+                new(StdPlanKind.Package, "\0std-pkg:" + dotted, dotted, physicalDir, null);
+            public static StdPlan NotFound(string dotted, string error) =>
+                new(StdPlanKind.NotFound, "\0std-x:" + dotted, dotted, null, error);
+        }
+
+        // Returns true when the dotted std path is a virtual module/package
+        // (yielding a plan); false when it is a physical std file the normal
+        // resolver should load (which preserves `import std.io`).
+        private bool TryPlanStdImport(ModuleSpecifier spec, out StdPlan plan)
+        {
+            var segs = spec.Segments!;
+            bool wildcard = spec.IsWildcard;
+            string dotted = string.Join(".", segs);
+            bool isRoot = segs.Count == 1;
+
+            string? physicalFile = isRoot ? null : StdSubFile(segs);
+            bool physicalFileExists = physicalFile != null && VirtualFs.Exists(physicalFile);
+            string physicalDir = StdSubDir(segs);
+            bool physicalDirExists = VirtualFs.DirectoryExists(physicalDir);
+
+            bool isModule = StdLibrary.IsModule(dotted);
+            bool isPackage = isRoot || StdLibrary.HasDescendants(dotted) || physicalDirExists;
+
+            if (wildcard)
+            {
+                if (isPackage) { plan = StdPlan.PackageOf(dotted, physicalDirExists ? physicalDir : null); return true; }
+                if (isModule) { plan = StdPlan.Module(dotted); return true; }
+                if (physicalFileExists) { plan = default; return false; }
+                plan = StdPlan.NotFound(dotted, StdNotFoundMessage(dotted)); return true;
+            }
+
+            // Non-wildcard precedence: a manifest virtual module wins (so the
+            // categorised built-ins are never shadowed by a stray file), then
+            // a physical file (legacy `import std.io`), then a package.
+            if (isModule) { plan = StdPlan.Module(dotted); return true; }
+            if (physicalFileExists) { plan = default; return false; }
+            if (isPackage) { plan = StdPlan.PackageOf(dotted, physicalDirExists ? physicalDir : null); return true; }
+
+            plan = StdPlan.NotFound(dotted, StdNotFoundMessage(dotted));
+            return true;
+        }
+
+        private string StdSubFile(IReadOnlyList<string> segs)
+        {
+            var parts = new string[segs.Count - 1];
+            for (int i = 1; i < segs.Count; i++) parts[i - 1] = segs[i];
+            string rel = string.Join(Path.DirectorySeparatorChar.ToString(), parts) + ".ra";
+            return Path.GetFullPath(Path.Combine(_resolver.StdRoot, rel));
+        }
+
+        private string StdSubDir(IReadOnlyList<string> segs)
+        {
+            if (segs.Count == 1) return _resolver.StdRoot;
+            var parts = new string[segs.Count - 1];
+            for (int i = 1; i < segs.Count; i++) parts[i - 1] = segs[i];
+            string rel = string.Join(Path.DirectorySeparatorChar.ToString(), parts);
+            return Path.GetFullPath(Path.Combine(_resolver.StdRoot, rel));
+        }
+
+        private static string StdNotFoundMessage(string dotted)
+        {
+            var available = StdLibrary.SortedModulePaths();
+            string list = available.Count == 0 ? "(none)" : string.Join(", ", available);
+            return $"no std module or package '{dotted}'. Built-in std modules: {list}. "
+                 + "Use a trailing '.*' to import a whole package, or create a physical "
+                 + "'std/<path>.ra' file for a custom module.";
+        }
+
+        private ModuleLoadResult LoadStdPlan(StdPlan plan, string currentFile, IInterpreter interpreter, Position posStart, Position posEnd)
+        {
+            switch (plan.Kind)
+            {
+                case StdPlanKind.NotFound:
+                    return ModuleLoadResult.Failure(new ModuleNotFoundError(posStart, posEnd, plan.ErrorMessage ?? "Module not found"));
+                case StdPlanKind.VirtualModule:
+                    return LoadVirtualModule(plan);
+                case StdPlanKind.Package:
+                    return LoadPackage(plan, currentFile, interpreter, posStart, posEnd);
+                default:
+                    return ModuleLoadResult.Failure(new ModuleLoadError(posStart, posEnd, $"unhandled std plan for '{plan.DottedPath}'"));
+            }
+        }
+
+        // Synthesises a single virtual module: a fresh SymbolTable populated
+        // with the live BuiltInFunctionValue instances for the module's
+        // categorised members, all marked public so they export.
+        private ModuleLoadResult LoadVirtualModule(StdPlan plan)
+        {
+            if (_cache.TryGetValue(plan.CacheKey, out var existing) && existing.State == ModuleState.Loaded)
+                return ModuleLoadResult.Success(existing);
+
+            var members = StdLibrary.ModuleMembers(plan.DottedPath);
+            var st = new SymbolTable();
+            var module = new LoadedModule(plan.CacheKey, st, new ExtensionRegistry());
+            if (members != null)
+            {
+                var builtins = _functionStoreProvider();
+                foreach (var name in members)
+                {
+                    var entry = builtins.GetEntry(name);
+                    if (entry?.Value == null) continue;
+                    st.Set(name, entry.Value, isLet: false, declaredType: null, isStaticallyTyped: false, isPublic: true);
+                }
+            }
+            module.State = ModuleState.Loaded;
+            module.LoadedAt = DateTime.UtcNow;
+            _cache[plan.CacheKey] = module;
+            return ModuleLoadResult.Success(module);
+        }
+
+        // Aggregates a package: the union of every virtual module beneath the
+        // path PLUS every physical `.ra` file in the matching std directory
+        // (recursively). Physical children load through the normal pipeline,
+        // so their exports and extensions merge into the aggregate.
+        private ModuleLoadResult LoadPackage(StdPlan plan, string currentFile, IInterpreter interpreter, Position posStart, Position posEnd)
+        {
+            if (_cache.TryGetValue(plan.CacheKey, out var existing))
+            {
+                if (existing.State == ModuleState.Loaded) return ModuleLoadResult.Success(existing);
+                if (existing.State == ModuleState.Loading)
+                    return ModuleLoadResult.Failure(new CircularImportError(posStart, posEnd,
+                        $"Circular import detected when assembling package '{plan.DottedPath}'"));
+            }
+
+            var st = new SymbolTable();
+            var ext = new ExtensionRegistry();
+            var module = new LoadedModule(plan.CacheKey, st, ext); // state = Loading
+            _cache[plan.CacheKey] = module;
+            _loadingChain.Add(plan.CacheKey);
+            try
+            {
+                // 1. Virtual members — categorised built-ins under this package.
+                var builtins = _functionStoreProvider();
+                foreach (var name in StdLibrary.PackageMembers(plan.DottedPath))
+                {
+                    if (st.GetEntry(name) != null) continue;
+                    var entry = builtins.GetEntry(name);
+                    if (entry?.Value == null) continue;
+                    st.Set(name, entry.Value, isLet: false, declaredType: null, isStaticallyTyped: false, isPublic: true);
+                }
+
+                // 2. Physical `.ra` files in the package directory (recursive).
+                if (plan.PhysicalDir != null)
+                {
+                    foreach (var file in VirtualFs.EnumerateRaFiles(plan.PhysicalDir, recursive: true))
+                    {
+                        var childResult = Load(ModuleSpecifier.FromStringLiteral(file), currentFile, interpreter, posStart, posEnd);
+                        if (!childResult.Ok)
+                        {
+                            module.State = ModuleState.Failed;
+                            _cache.Remove(plan.CacheKey);
+                            return childResult;
+                        }
+                        var child = childResult.Module!;
+                        foreach (var kvp in child.EnumerateExports())
+                        {
+                            if (st.GetEntry(kvp.Key) != null) continue;
+                            var se = child.SymbolTable.GetEntry(kvp.Key);
+                            st.Set(kvp.Key, kvp.Value,
+                                isLet: se?.IsLet ?? false,
+                                declaredType: se?.DeclaredType,
+                                isStaticallyTyped: se?.IsStaticallyTyped ?? false,
+                                isPublic: true);
+                        }
+                        var mergeErr = RaLanguage.Interpreter.Visitors.Imports.ImportNodeVisitor
+                            .MergeExtensions(ext, child.Extensions, posStart, posEnd);
+                        if (mergeErr != null)
+                        {
+                            module.State = ModuleState.Failed;
+                            _cache.Remove(plan.CacheKey);
+                            return ModuleLoadResult.Failure(mergeErr);
+                        }
+                    }
+                }
+
+                module.State = ModuleState.Loaded;
+                module.LoadedAt = DateTime.UtcNow;
+                return ModuleLoadResult.Success(module);
+            }
+            catch (Exception ex)
+            {
+                module.State = ModuleState.Failed;
+                _cache.Remove(plan.CacheKey);
+                return ModuleLoadResult.Failure(new ModuleLoadError(posStart, posEnd,
+                    $"Unexpected error while assembling std package '{plan.DottedPath}': {ex.Message}"));
+            }
+            finally
+            {
+                if (_loadingChain.Count > 0 && _loadingChain[_loadingChain.Count - 1] == plan.CacheKey)
+                    _loadingChain.RemoveAt(_loadingChain.Count - 1);
             }
         }
 

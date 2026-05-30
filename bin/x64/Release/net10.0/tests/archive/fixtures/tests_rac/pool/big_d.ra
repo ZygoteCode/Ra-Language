@@ -1,3 +1,4 @@
+import std.prelude.*;
 pub fn d1() { print("[mod-d] hello-world"); print("[bench] tick"); }
 pub fn d2() { print("[mod-d] hello-world"); print("[bench] tick"); }
 pub fn d3() { print("[mod-d] hello-world"); print("[bench] tick"); }

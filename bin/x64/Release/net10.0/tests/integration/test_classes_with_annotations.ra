@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - integration: classes, contract annotations, and a
 // driver function. Avoids method calls (which hang) by validating
 // fields and using top-level functions.

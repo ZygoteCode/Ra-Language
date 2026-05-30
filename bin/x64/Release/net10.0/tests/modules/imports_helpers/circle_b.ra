@@ -1,3 +1,4 @@
+import std.prelude.*;
 // imports_helpers/circle_b.ra — second leg of a circular dependency.
 import "circle_a.ra";
 

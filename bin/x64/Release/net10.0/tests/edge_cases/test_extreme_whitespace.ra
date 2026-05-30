@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - edge: extreme whitespace patterns.
 //
 // Cases:

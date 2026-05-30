@@ -1,3 +1,4 @@
+import std.prelude.*;
 // helper for integration string tests
 pub fn shout(s: string) { ret str_upper(s) + "!"; }
 pub fn repeat_n(s: string, n: int) { ret s * n; }

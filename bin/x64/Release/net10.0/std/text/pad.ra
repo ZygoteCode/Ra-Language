@@ -1,0 +1,6 @@
+// std.text.pad — a sibling physical module under std.text, used to prove a
+// package import aggregates every module in the directory.
+
+pub fn echo_twice(s) {
+    ret s + s;
+}

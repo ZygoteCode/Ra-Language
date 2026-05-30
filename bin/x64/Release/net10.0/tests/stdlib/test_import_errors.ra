@@ -1,0 +1,49 @@
+import std.prelude.*;
+// stdlib: import resolution error cases (all catchable, so the file passes).
+//
+// Confirms deterministic, clearly-reported failures for the new std module
+// surface — unknown packages, unknown nested paths, unknown selected
+// symbols — while the pre-existing relative/std error behaviour is intact.
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/import_errors ===");
+
+// --- unknown top-level std module/package --------------------------------
+var e1 = false;
+try { import std.does_not_exist; e1 = false; } catch (e) { e1 = true; }
+ok("E1", e1);
+
+// --- unknown nested path under a real package ----------------------------
+var e2 = false;
+try { import std.prelude.nope; e2 = false; } catch (e) { e2 = true; }
+ok("E2", e2);
+
+// --- unknown deep nested path --------------------------------------------
+var e3 = false;
+try { import std.prelude.io.bogus.deep; e3 = false; } catch (e) { e3 = true; }
+ok("E3", e3);
+
+// --- unknown symbol selected from a real module --------------------------
+var e4 = false;
+try { import { totally_missing } from std.prelude.text; e4 = false; } catch (e) { e4 = true; }
+ok("E4", e4);
+
+// --- wildcard on an unknown package fails --------------------------------
+var e5 = false;
+try { import std.nope.*; e5 = false; } catch (e) { e5 = true; }
+ok("E5", e5);
+
+// --- a non-std dotted root is still rejected (unchanged behaviour) --------
+var e6 = false;
+try { import foo.bar; e6 = false; } catch (e) { e6 = true; }
+ok("E6", e6);
+
+// --- missing relative module still catchable (regression) ----------------
+var e7 = false;
+try { import "definitely/not/here.ra"; e7 = false; } catch (e) { e7 = true; }
+ok("E7", e7);
+
+print("=== done ===");

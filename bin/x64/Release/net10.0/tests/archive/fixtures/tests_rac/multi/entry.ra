@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Multi-module smoke test: entry imports a sibling.
 import "./mathy.ra";
 

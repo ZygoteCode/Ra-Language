@@ -30,10 +30,11 @@ namespace RaLanguage.Interpreter.Visitors.Imports
             }
         }
 
-        public static void InitializeModuleManager(string projectRoot, string stdRoot, Func<SymbolTable> builtinsProvider)
+        public static void InitializeModuleManager(string projectRoot, string stdRoot,
+            Func<SymbolTable> coreProvider, Func<SymbolTable> functionStoreProvider)
         {
             var resolver = new ModuleResolver(projectRoot, stdRoot);
-            _moduleManager = new ModuleManager(resolver, builtinsProvider);
+            _moduleManager = new ModuleManager(resolver, coreProvider, functionStoreProvider);
         }
 
         public static void ResetCache()
@@ -171,7 +172,7 @@ namespace RaLanguage.Interpreter.Visitors.Imports
                 .SetPos(node.PositionStart, node.PositionEnd));
         }
 
-        private static Error? MergeExtensions(
+        internal static Error? MergeExtensions(
             ExtensionRegistry target,
             ExtensionRegistry source,
             Position posStart,

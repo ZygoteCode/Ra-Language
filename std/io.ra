@@ -1,9 +1,14 @@
-// std.io — minimal I/O helpers layered on top of the `print` built-in.
+// std.io — minimal I/O helpers layered on the prelude `print` built-in.
 //
 // This is the standard-library module resolved by the dotted import
 // `import std.io;`. The resolver looks for it under <exeDir>/std (populated
 // from this repo-root std/ folder by the csproj <Content Include="std\**"/>
 // copy step), so the file must live here to make `std.*` imports work.
+//
+// `print` is no longer an auto-imported global — it lives in std.prelude.io
+// and must be imported explicitly, even by other std modules.
+
+import std.prelude.io;
 
 pub fn println(msg) {
     print(msg);

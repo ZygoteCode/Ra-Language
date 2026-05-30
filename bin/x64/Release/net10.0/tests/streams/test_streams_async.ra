@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Async Streams test suite.
 // Pairs with tests_streams.ra; covers AsyncStream<T> built on async stream fn,
 // the astream_* operator family, and the to_async() bridge from sync streams.

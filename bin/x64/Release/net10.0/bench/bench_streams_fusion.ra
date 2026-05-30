@@ -1,3 +1,4 @@
+import std.prelude.*;
 // bench_streams_fusion.ra
 //
 // Measures the difference between a fused pipeline and the materialised

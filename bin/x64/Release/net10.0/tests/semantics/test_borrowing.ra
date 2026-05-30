@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language — borrowing / ownership / lifetimes regression suite.
 //
 // Each case prints "[<id>] OK" on success or "[<id>] FAIL: <details>".

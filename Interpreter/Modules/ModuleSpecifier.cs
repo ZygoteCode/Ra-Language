@@ -13,12 +13,18 @@ namespace RaLanguage.Interpreter.Modules
         public IReadOnlyList<string>? Segments { get; }
         public string Display { get; }
 
-        private ModuleSpecifier(ModuleSpecifierKind kind, string? rawPath, IReadOnlyList<string>? segments, string display)
+        // Trailing-`.*` glob on a dotted path (e.g. `import std.prelude.*`).
+        // Selects every symbol under the addressed module/package rather than
+        // a single module. Only ever set on Dotted specifiers.
+        public bool IsWildcard { get; }
+
+        private ModuleSpecifier(ModuleSpecifierKind kind, string? rawPath, IReadOnlyList<string>? segments, string display, bool isWildcard)
         {
             Kind = kind;
             RawPath = rawPath;
             Segments = segments;
             Display = display;
+            IsWildcard = isWildcard;
         }
 
         public static ModuleSpecifier FromStringLiteral(string rawPath)
@@ -27,16 +33,18 @@ namespace RaLanguage.Interpreter.Modules
                 ModuleSpecifierKind.StringLiteral,
                 rawPath,
                 null,
-                $"\"{rawPath}\"");
+                $"\"{rawPath}\"",
+                isWildcard: false);
         }
 
-        public static ModuleSpecifier FromDotted(IReadOnlyList<string> segments)
+        public static ModuleSpecifier FromDotted(IReadOnlyList<string> segments, bool isWildcard = false)
         {
             return new ModuleSpecifier(
                 ModuleSpecifierKind.Dotted,
                 null,
                 segments,
-                string.Join(".", segments));
+                isWildcard ? string.Join(".", segments) + ".*" : string.Join(".", segments),
+                isWildcard);
         }
     }
 }

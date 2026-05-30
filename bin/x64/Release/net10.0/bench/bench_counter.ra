@@ -1,3 +1,4 @@
+import std.prelude.*;
 var counter = 0;
 for i in 0..1000000 {
     counter = counter + 1;

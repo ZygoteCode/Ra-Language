@@ -1,3 +1,4 @@
+import std.prelude.*;
 // imports_helpers/strings_lib.ra — string helpers for import tests.
 
 pub fn repeat(s, n) {

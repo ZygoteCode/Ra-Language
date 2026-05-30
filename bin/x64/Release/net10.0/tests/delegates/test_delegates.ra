@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Delegates — feature test suite.
 // Each test prints "[DNN] OK" on success.
 

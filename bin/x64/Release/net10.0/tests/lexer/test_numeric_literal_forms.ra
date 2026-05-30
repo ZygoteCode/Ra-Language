@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - lexer: numeric literal forms (bases, separators, suffixes).
 //
 // Verifies the lexer's number scanner: hex/binary/octal base prefixes equal

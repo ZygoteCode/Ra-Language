@@ -1,0 +1,49 @@
+import std.prelude.*;
+// stdlib/random — seeded determinism, ranges, bytes, choice, uuid.
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/random ===");
+
+// same seed -> identical sequence (cross-platform reproducible)
+random_seed(12345);
+var a1 = random_int(1, 1000);
+var a2 = random_int(1, 1000);
+random_seed(12345);
+var b1 = random_int(1, 1000);
+var b2 = random_int(1, 1000);
+ok("R1", a1 == b1 and a2 == b2);
+
+ok("R2", a1 >= 1 and a1 <= 1000);
+
+var f = random_float();
+ok("R3", f >= 0.0 and f < 1.0);
+
+var bytes = random_bytes(16);
+ok("R4", len(bytes) == 16);
+ok("R5", bytes[0] >= 0 and bytes[0] <= 255);
+ok("R6", len(random_bytes(0)) == 0);
+
+var u = uuid_v4();
+ok("R7", len(u) == 36);
+ok("R8", u != uuid_v4());
+
+var choice = random_choice([10, 20, 30]);
+ok("R9", choice == 10 or choice == 20 or choice == 30);
+
+var rb = random_bool();
+ok("R10", rb == true or rb == false);
+
+// min > max is tolerated (range is normalised)
+random_seed(7);
+var sw = random_int(10, 5);
+ok("R11", sw >= 5 and sw <= 10);
+
+// empty-list choice is reported, not crashed
+var r12 = false;
+try { random_choice([]); r12 = false; } catch (ex) { r12 = true; }
+ok("R12", r12);
+
+print("=== done ===");

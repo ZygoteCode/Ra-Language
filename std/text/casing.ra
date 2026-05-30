@@ -1,0 +1,20 @@
+// std.text.casing — a *physical* std-library module: a real .ra file living
+// under the std/ tree. It demonstrates that the resolver loads a nested
+// dotted path from disk (`import std.text.casing`) and that a package import
+// (`import std.text.*`) sweeps it together with its siblings.
+//
+// Higher-level helpers like these layer on the prelude built-ins, which must
+// be imported explicitly (no auto-prelude) — exactly how the standard library
+// is meant to grow: native intrinsics at the bottom, Ra-authored modules on
+// top, each declaring what it depends on.
+//
+// (Named `casing` rather than `case` because `case` is a reserved keyword
+// and therefore cannot appear as a dotted module-path segment.)
+
+import std.prelude.text;
+
+pub fn shout(s) {
+    ret str_upper(s) + "!";
+}
+
+pub const EXCLAIM = "!";

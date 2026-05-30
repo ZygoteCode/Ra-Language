@@ -1,3 +1,4 @@
+import std.prelude.*;
 print("[shared-long-prefix-AAAAAAAAAAAA] mega_e init1");
 print("[shared-long-prefix-AAAAAAAAAAAA] mega_e init2");
 print("[shared-long-prefix-AAAAAAAAAAAA] mega_e init3");

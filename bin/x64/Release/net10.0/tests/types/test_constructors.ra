@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Constructors — feature test suite (generative / named / factory / private).
 //
 // Hard-asserting: every check prints "OK  <label>" on success and THROWS on

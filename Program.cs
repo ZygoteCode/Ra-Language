@@ -80,12 +80,39 @@ namespace RaLanguage
             return dst;
         }
 
+        // The complete set of built-in *function* names the runtime
+        // installs: the switch-dispatched directs (_builtInFunctions), the
+        // async/stream families (_streamBuiltinNames), and every
+        // BuiltInRegistry handler. This is the exact domain StdLibrary must
+        // categorise — see `--selftest-stdlib`.
+        public static IReadOnlyCollection<string> AllBuiltinFunctionNames()
+        {
+            BuiltInRegistry.EnsureInitialized();
+            var set = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var n in _builtInFunctions) set.Add(n);
+            foreach (var n in _streamBuiltinNames) set.Add(n);
+            foreach (var n in BuiltInRegistry.AllNames) set.Add(n);
+            return set;
+        }
+
         static Program()
         {
             InitializeSymbolTable();
         }
 
+        // Full store of every built-in: the 633 functions PLUS the always-on
+        // core (annotation types, Result/Option). It is NOT a runtime parent
+        // scope — it is the synthesis source for the virtual std modules and
+        // the "known names" source for tooling. Built-in *functions* are
+        // reachable at runtime only by importing the std module they live in.
         public static SymbolTable BuiltinSymbolTable;
+
+        // The auto-available core scope — the runtime parent of every user
+        // scope and module. Holds ONLY what is not a callable built-in
+        // function: the annotation types (`@test`, `@derive`, …, needed at
+        // parse/processing time) and the `Result` / `Option` ADTs (the `?`
+        // operator depends on `Result`). Everything else must be imported.
+        public static SymbolTable CoreSymbolTable;
 
         public static void InitializeSymbolTable()
         {
@@ -126,11 +153,36 @@ namespace RaLanguage
             // per-instance footprint balloons. Reset() is idempotent.
             Interpreter.Runtime.ExtensionFieldStorage.Reset();
 
-            GlobalSymbolTable = new SymbolTable(BuiltinSymbolTable);
+            // Build the always-available core scope: every built-in that is
+            // NOT a callable function (the annotation types and the
+            // Result/Option ADTs), carried over as the SAME instances from
+            // BuiltinSymbolTable so there is no duplicate-type subtlety. The
+            // 633 built-in functions are deliberately excluded — they are
+            // import-only now (no auto-prelude). This is the one place the
+            // "manual import" policy is enforced.
+            CoreSymbolTable = new SymbolTable();
+            foreach (string key in BuiltinSymbolTable.GetLocalKeys())
+            {
+                var entry = BuiltinSymbolTable.GetEntry(key);
+                if (entry?.Value == null) continue;
+                if (entry.Value is BuiltInFunctionValue) continue; // functions: import-only
+                CoreSymbolTable.Set(key, entry.Value,
+                    isLet: entry.IsLet,
+                    declaredType: entry.DeclaredType,
+                    isStaticallyTyped: entry.IsStaticallyTyped,
+                    isPublic: entry.IsPublic);
+            }
+
+            GlobalSymbolTable = new SymbolTable(CoreSymbolTable);
 
             string projectRoot = Directory.GetCurrentDirectory();
             string stdRoot = ResolveStdRoot(projectRoot);
-            ImportNodeVisitor.InitializeModuleManager(projectRoot, stdRoot, () => BuiltinSymbolTable);
+            // Two providers: module/user scopes parent off the core (no
+            // functions); the virtual std-module synthesis pulls function
+            // values from the full BuiltinSymbolTable.
+            ImportNodeVisitor.InitializeModuleManager(projectRoot, stdRoot,
+                coreProvider: () => CoreSymbolTable,
+                functionStoreProvider: () => BuiltinSymbolTable);
             ImportNodeVisitor.ResetCache();
         }
 
@@ -502,6 +554,18 @@ namespace RaLanguage
                     return;
                 }
 
+                // --selftest-stdlib
+                // Proves the std-library taxonomy (StdLibrary) covers
+                // EXACTLY the live built-in function set: every built-in
+                // maps to a std.prelude.* / std.sys.* module, and every
+                // manifest name is a real built-in. Exit 0 on PASS, 1 on
+                // any gap. Mirrors --test-verifier / --test-ed25519.
+                if (args.Length == 1 && string.Equals(args[0], "--selftest-stdlib", StringComparison.OrdinalIgnoreCase))
+                {
+                    SelfTestStdLibCli();
+                    return;
+                }
+
                 // --inspect-precompiled <archive.rac>
                 // Counts FunctionDefinitionNode / StructMethod /
                 // TraitMethod / Classes.OperatorDefinitionNode whose
@@ -829,6 +893,7 @@ namespace RaLanguage
         {
             string entry = args[1];
             string? output = null;
+            string? stdRootFlag = null;
             bool compress = true;
             bool verbose = false;
             bool treeShake = true;
@@ -844,6 +909,14 @@ namespace RaLanguage
                 if (string.Equals(args[i], "-o", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
                 {
                     output = args[++i];
+                }
+                else if (string.Equals(args[i], "--std-root", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+                {
+                    // Override the standard-library root the packager resolves
+                    // `std.*` physical imports against (default: <exe>/std then
+                    // <project>/std). Lets a build target a specific std tree,
+                    // e.g. a test fixture's own std/ folder.
+                    stdRootFlag = args[++i];
                 }
                 else if (string.Equals(args[i], "--no-compress", StringComparison.OrdinalIgnoreCase))
                 {
@@ -902,6 +975,7 @@ namespace RaLanguage
             {
                 EntryFile = entry,
                 OutputFile = output ?? "",
+                StdRoot = stdRootFlag,
                 Compress = compress,
                 Verbose = verbose,
                 TreeShakeStd = treeShake,
@@ -1177,6 +1251,40 @@ namespace RaLanguage
             }
             Console.WriteLine($"[Ra Language] --test-ed25519: {pass} passed, {fail} failed");
             Environment.ExitCode = fail == 0 ? 0 : 1;
+        }
+
+        // --selftest-stdlib implementation. Builds the taxonomy, prints a
+        // per-module member count, and asserts the manifest is complete
+        // (no uncategorised built-in) and exact (no phantom entry).
+        private static void SelfTestStdLibCli()
+        {
+            InitializeSymbolTable();
+            var live = AllBuiltinFunctionNames();
+            RaLanguage.Interpreter.Modules.StdLibrary.Audit(live, out var uncategorized, out var phantom);
+
+            Console.WriteLine($"[Ra Language] --selftest-stdlib: {live.Count} built-in functions across "
+                + $"{RaLanguage.Interpreter.Modules.StdLibrary.AllModulePaths.Count} virtual std modules.");
+            foreach (var m in RaLanguage.Interpreter.Modules.StdLibrary.SortedModulePaths())
+            {
+                var members = RaLanguage.Interpreter.Modules.StdLibrary.ModuleMembers(m);
+                Console.WriteLine($"  {m,-26} {members?.Count ?? 0}");
+            }
+
+            bool ok = true;
+            if (uncategorized.Count > 0)
+            {
+                ok = false;
+                Console.WriteLine($"FAIL: {uncategorized.Count} uncategorised built-in(s) (no std module): {string.Join(", ", uncategorized)}");
+            }
+            if (phantom.Count > 0)
+            {
+                ok = false;
+                Console.WriteLine($"FAIL: {phantom.Count} phantom manifest name(s) (not a live built-in): {string.Join(", ", phantom)}");
+            }
+            Console.WriteLine(ok
+                ? "OK  std-library taxonomy is complete and exact."
+                : "[Ra Language] --selftest-stdlib FAILED.");
+            Environment.ExitCode = ok ? 0 : 1;
         }
 
         private static byte[] HexToBytes(string hex)

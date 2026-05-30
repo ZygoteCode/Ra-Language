@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - builtins: strings + math (fully asserted).
 //
 // Convention: one "[ID] OK" / "[ID] FAIL" per case at column 0.

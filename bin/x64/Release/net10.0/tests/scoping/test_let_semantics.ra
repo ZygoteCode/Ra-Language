@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - scoping: `let` binding semantics.
 // NOTE: `let mut <name>` currently fails to parse (see regressions/);
 // these tests therefore use the plain `let` (immutable) form only.

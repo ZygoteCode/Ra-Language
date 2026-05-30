@@ -1,0 +1,45 @@
+import std.prelude.*;
+// stdlib/serialize — JSON stringify / parse over native Ra values.
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/serialize ===");
+
+ok("J1", json_stringify(42) == "42");
+ok("J2", json_stringify("hi") == "\"hi\"");
+ok("J3", json_stringify(true) == "true");
+ok("J4", json_stringify(null) == "null");
+ok("J5", json_stringify([1, 2, 3]) == "[1,2,3]");
+
+ok("J6", json_parse("123") == 123);
+ok("J7", json_parse("\"abc\"") == "abc");
+ok("J8", json_parse("true") == true);
+ok("J9", json_parse("3.5") == 3.5);
+
+var arr = json_parse("[1, 2, 3]");
+ok("J10", len(arr) == 3 and arr[1] == 2);
+
+var obj = json_parse("{\"a\": 1, \"b\": [true, null]}");
+ok("J11", map_get(obj, "a") == 1);
+
+// structural round-trip (compared by re-stringify, order-stable)
+var m = make_map("x", 1, "y", "two", "z", [3, 4]);
+ok("J12", json_stringify(json_parse(json_stringify(m))) == json_stringify(m));
+
+// escape round-trip
+ok("J13", json_parse(json_stringify("a\"b\nc\td")) == "a\"b\nc\td");
+
+// pretty output is valid + parses back to the same structure
+ok("J14", json_stringify(json_parse(json_pretty(m))) == json_stringify(m));
+
+// malformed input is reported, not crashed
+var j15 = false;
+try { json_parse("{bad}"); j15 = false; } catch (ex) { j15 = true; }
+ok("J15", j15);
+var j16 = false;
+try { json_parse("[1, 2"); j16 = false; } catch (ex) { j16 = true; }
+ok("J16", j16);
+
+print("=== done ===");

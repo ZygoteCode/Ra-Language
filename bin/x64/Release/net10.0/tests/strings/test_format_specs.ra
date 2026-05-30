@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - strings: typed format specifiers (default formatting only).
 // NOTE: typed format specifiers like ${expr:.2f}, ${n:#x} currently abort
 // lexing in this build ("expected '}' to close the string interpolation

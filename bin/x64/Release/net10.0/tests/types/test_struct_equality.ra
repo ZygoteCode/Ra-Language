@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - types: struct equality via operator overload.
 //
 // Cases:

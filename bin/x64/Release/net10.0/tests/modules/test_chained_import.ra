@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - modules: chained import (A imports B; main imports A).
 //
 // Cases:

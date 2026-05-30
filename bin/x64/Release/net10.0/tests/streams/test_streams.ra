@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Streams -- sync stream test suite.
 // Every test prints "[Snn] OK" on success.
 

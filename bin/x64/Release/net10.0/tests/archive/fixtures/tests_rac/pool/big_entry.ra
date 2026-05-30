@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Cross-module pool stress test: 5 modules, each calling 20 shared
 // helpers. Many literals overlap.
 

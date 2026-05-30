@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Microbenchmark: constructor dispatch — unnamed generative vs named
 // generative vs factory.
 //

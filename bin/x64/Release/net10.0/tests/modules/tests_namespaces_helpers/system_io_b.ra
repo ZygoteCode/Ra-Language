@@ -1,3 +1,4 @@
+import std.prelude.*;
 namespace System.IO {
     pub fn close(path) {
         ret "close(" + path + ")";

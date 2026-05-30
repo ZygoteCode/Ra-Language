@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - types: built-in Result<T, E> and Option<T>.
 //
 // Cases:

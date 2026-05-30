@@ -1,3 +1,4 @@
+import std.prelude.*;
 print("=== Ra Explicit Closure Capture Tests ===");
 
 // [C1] by-value snapshot — capture freezes the value at definition time.

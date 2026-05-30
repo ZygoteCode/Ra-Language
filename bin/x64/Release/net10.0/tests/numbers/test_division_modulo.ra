@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - numbers: division, modulo, power.
 //
 // Probed facts (Ra v.current):

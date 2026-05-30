@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - functions: declarations and basic call.
 //
 // Cases:

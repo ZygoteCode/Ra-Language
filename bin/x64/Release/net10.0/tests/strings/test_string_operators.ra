@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - strings: ad-hoc operator overloads exercised in _main13.ra.
 // Each case is wrapped in try because some forms are intentionally exotic
 // and not all of them survive future refactors. Document the surface area.

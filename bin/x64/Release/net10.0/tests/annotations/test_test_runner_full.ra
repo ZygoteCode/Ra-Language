@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - annotations: @test framework with all decorators.
 //
 // Cases:

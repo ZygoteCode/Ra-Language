@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Uses only 3 of the 50 std functions — the other 47 must drop.
 import std.bigstd;
 

@@ -1,3 +1,4 @@
+import std.prelude.*;
 // bench_patterns.ra — steady-state cost of the extended pattern engine.
 //
 // Compares two dispatchers performing the same numeric classification

@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Stream fusion test suite. The semantic outputs must match the non-fused
 // chain exactly — fusion is a perf optimisation, never a behaviour change.
 // Build identity is checked by `is_stream` plus output equality.

@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - modules: full namespaces suite (fully asserted).
 //
 // Cases:

@@ -30,7 +30,7 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                 if (string.IsNullOrEmpty(varName))
                     return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, "Invalid identifier", context));
 
-                if (context.SymbolTable.GetLocalEntry(varName) != null)
+                if (RaLanguage.Interpreter.Runtime.DeclarationHelper.IsRealRedeclaration(context.SymbolTable.GetLocalEntry(varName)))
                     return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"'{varName}' is already defined", context));
 
                 RuntimeValue value = NullValue.Null.SetContext(context).SetPos(node.PositionStart, node.PositionEnd);

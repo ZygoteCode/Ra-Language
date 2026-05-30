@@ -1,3 +1,4 @@
+import std.prelude.*;
 @dll_import(library = "kernel32", entry_point = "GetTickCount")
 fn win_get_tick_count(): uint { ret 0; }
 

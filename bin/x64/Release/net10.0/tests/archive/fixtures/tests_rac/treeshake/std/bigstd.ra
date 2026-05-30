@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Synthetic large std module — 30 pub functions, simulating a real
 // stdlib where the program touches only a small subset.
 

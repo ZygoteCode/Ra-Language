@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - integration: a finite state machine.
 //
 // A turnstile / traffic-light style FSM exercised two complementary ways:

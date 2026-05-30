@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - strings: full format-spec matrix inside ${...:spec}.
 //
 // Cases:

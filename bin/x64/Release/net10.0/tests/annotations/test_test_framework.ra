@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - annotations: @test / @skip / @expected_throws via run_tests().
 //
 // Cases:

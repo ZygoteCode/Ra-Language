@@ -1,3 +1,4 @@
+import std.prelude.*;
 print("[heavy-shared-prefix-that-repeats] heavy_b load");
 print("[heavy-shared-prefix-that-repeats] heavy_b init");
 print("[a-sister-prefix-also-long-and-repeated] gamma");

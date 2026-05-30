@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language -- short-circuit evaluation, null-coalesce, pipeline & order.
 //
 // Verifies side-effect / evaluation-order semantics using a shared counter

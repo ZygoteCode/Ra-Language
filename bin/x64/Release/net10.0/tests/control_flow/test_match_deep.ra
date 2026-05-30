@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - control flow: deep `match` coverage.
 //
 // `match scrutinee { case PATTERN [if GUARD] -> EXPR ... }` is an expression

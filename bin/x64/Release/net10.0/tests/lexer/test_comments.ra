@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - lexer: comments handling.
 // Verifies that line comments do not corrupt token stream.
 //

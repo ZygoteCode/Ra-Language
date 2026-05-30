@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - types: a class that uses a trait (`with`) AND declares an
 // interface (`impl`) at the same time, plus structural conformance, trait
 // default-method behaviour, override rules, and reflection

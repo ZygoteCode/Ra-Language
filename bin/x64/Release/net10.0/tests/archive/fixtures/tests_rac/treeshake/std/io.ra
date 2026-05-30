@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Synthetic std.io for the tree-shake smoke test. Three pub exports:
 // the entry uses `println` only — `printall` and `NEWLINE` must drop.
 

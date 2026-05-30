@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - annotations: @intercept + @priority on user annotations.
 // @intercept(before = "fn_name", after = "fn_name") chains hooks at the
 // call site of any function the user annotation is applied to.

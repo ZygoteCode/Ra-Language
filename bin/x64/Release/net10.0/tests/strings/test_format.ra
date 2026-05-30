@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language — typed string formatting regression suite.
 //
 // Each case prints "[<id>] OK" on success or "[<id>] FAIL: <details>".

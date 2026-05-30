@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Lazy for-each over streams via Opcode.ForEachStreamPull.
 // These tests exercise the dual-path emitted by CompileForEach (M82-streams):
 // every for-loop runs the JmpIfStream dispatch and lands in the lazy pull loop

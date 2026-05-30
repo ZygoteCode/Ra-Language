@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - operators: bitwise/shift.
 //
 // Cases:

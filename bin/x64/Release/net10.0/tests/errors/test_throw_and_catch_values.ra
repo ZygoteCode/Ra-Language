@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - errors: throwing and catching values of every kind.
 //
 // The catch binding `catch (e)` binds the thrown value itself, so the handler

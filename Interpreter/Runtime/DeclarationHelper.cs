@@ -38,7 +38,7 @@ namespace RaLanguage.Interpreter.Runtime
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
                     "Invalid identifier", context));
 
-            if (context.SymbolTable!.GetLocalEntry(varName) != null)
+            if (IsRealRedeclaration(context.SymbolTable!.GetLocalEntry(varName)))
                 return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
                     $"'{varName}' is already defined", context));
 
@@ -82,6 +82,17 @@ namespace RaLanguage.Interpreter.Runtime
 
             return res.Success(value);
         }
+
+        // A local `var`/`let`/`const` declaration may SHADOW an imported
+        // built-in function: before the std-library refactor those names lived
+        // in a parent scope and were silently shadowable, so `var e` / `let
+        // sign` / `var pi` (all math built-ins) must keep working after an
+        // explicit `import std.prelude.*` places them in the local scope.
+        // A real user binding (anything that is not a BuiltInFunctionValue)
+        // still cannot be redeclared.
+        public static bool IsRealRedeclaration(SymbolEntry? existing)
+            => existing != null
+               && existing.Value is not RaLanguage.Interpreter.Values.Functions.BuiltInFunctionValue;
 
         // Compile-time eligibility check. Returns true when the IR compiler
         // is allowed to emit OP_DECLARE_LOCAL for this node. Annotations,

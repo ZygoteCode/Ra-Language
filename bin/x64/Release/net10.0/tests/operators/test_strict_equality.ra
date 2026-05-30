@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language -- strict equality (=== / !==) vs loose equality (== / !=).
 //
 // Behaviour pinned down by probing THIS interpreter (asserts reflect reality):

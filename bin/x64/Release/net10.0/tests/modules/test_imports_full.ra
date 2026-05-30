@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - modules: full import suite (fully asserted).
 //
 // Exercises every import form the language supports against the adjacent

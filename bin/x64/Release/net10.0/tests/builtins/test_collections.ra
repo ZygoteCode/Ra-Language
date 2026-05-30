@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - builtins: collection built-in functions (asserted).
 //
 // Covers: len, empty, is_not_empty, clone;

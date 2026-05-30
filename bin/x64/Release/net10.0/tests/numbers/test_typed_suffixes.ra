@@ -1,3 +1,4 @@
+import std.prelude.*;
 // Ra Language - numbers: explicit typed declarations.
 // (int128/uint128 are tested in a dedicated file because they currently
 //  halt the interpreter and must run in isolation.)

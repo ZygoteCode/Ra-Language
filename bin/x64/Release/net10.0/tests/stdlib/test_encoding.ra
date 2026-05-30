@@ -1,0 +1,28 @@
+import std.prelude.*;
+// stdlib/encoding — base64 / hex / url, known values + round-trips.
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/encoding ===");
+
+ok("E1", base64_encode("hi") == "aGk=");
+ok("E2", base64_decode("aGk=") == "hi");
+ok("E3", base64_decode(base64_encode("round trip 123 !@#")) == "round trip 123 !@#");
+ok("E4", hex_encode("hi") == "6869");
+ok("E5", hex_decode("6869") == "hi");
+ok("E6", hex_decode(hex_encode("ABCxyz0")) == "ABCxyz0");
+ok("E7", url_encode("a b&c=d") == "a%20b%26c%3Dd");
+ok("E8", url_decode("a%20b%26c%3Dd") == "a b&c=d");
+ok("E9", url_decode(url_encode("hello world /?#=&")) == "hello world /?#=&");
+
+// invalid input is reported, not crashed
+var e10 = false;
+try { base64_decode("!!!not-base64"); e10 = false; } catch (ex) { e10 = true; }
+ok("E10", e10);
+var e11 = false;
+try { hex_decode("xyz"); e11 = false; } catch (ex) { e11 = true; }
+ok("E11", e11);
+
+print("=== done ===");

@@ -1,3 +1,4 @@
+import std.prelude.*;
 for (var i = 0; i < 1_000_000; i++) {
     pass;
 }

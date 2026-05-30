@@ -1,3 +1,4 @@
+import std.prelude.*;
 @dll_import(library = "kernel32", entry_point = "lstrlenA")
 fn len_a(s: string): int { ret 0; }
 
