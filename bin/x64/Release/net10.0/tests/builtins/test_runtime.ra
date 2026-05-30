@@ -1,0 +1,89 @@
+// builtins/runtime — dynamic + reflective runtime built-ins:
+// clone/deep_clone, equals/compare/strict_equals, hash, lookup/exists,
+// call introspection, invoke / invoke_method / invoke_static,
+// new_instance, get_field/set_field, throw_error.
+//
+// invoke's contract is invoke(callable, args_list) — args are passed as ONE
+// list, not as trailing varargs. (The pre-conversion eyeball version called
+// invoke(add, 2, 3) and aborted with RA0401; that misuse is fixed here.)
+
+fn ok(id, cond) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); } }
+
+pub class Counter {
+    pub var count: int = 0;
+    pub fn bump() { self.count = self.count + 1; ret self.count; }
+    pub fn reset() { self.count = 0; }
+    pub static fn make() { ret Counter(); }
+}
+
+fn add(a, b) { ret a + b }
+fn greet(name) { ret "hi " + name }
+fn whoami() { ret current_function(); }
+
+print("=== builtins/runtime ===");
+
+// --- clone / deep_clone ---
+var l = [1, 2, [3, 4]];
+var c1 = clone(l);
+var c2 = deep_clone(l);
+ok("R1", len(c1) == 3 && c1[0] == 1 && c1[2][1] == 4);
+ok("R2", len(c2) == 3 && c2[2][0] == 3);
+// mutating a deep clone's nested list must not touch the original
+c2[2][0] = 99;
+ok("R3", l[2][0] == 3);
+
+// --- equals / compare / strict_equals ---
+ok("R4", equals(1, 1) == true);
+ok("R5", equals("a", "b") == false);
+ok("R6", strict_equals(1, "1") == false);
+ok("R7", compare(1, 2) < 0);
+ok("R8", compare(2, 1) > 0);
+ok("R9", compare(2, 2) == 0);
+
+// --- hash ---
+ok("R10", hash("hello") == hash("hello"));
+ok("R11", hash("a") != hash("b"));
+
+// --- scope / lookup / exists ---
+var foo = 42;
+ok("R12", lookup("foo") == 42);
+ok("R13", is_null(lookup("definitely_not_defined_xyz")));
+ok("R14", exists("foo") == true);
+ok("R15", exists("definitely_not_defined_xyz") == false);
+
+// --- call introspection ---
+ok("R16", whoami() == "whoami");
+ok("R17", is_string(current_file()));
+ok("R18", is_list(call_stack()));
+
+// --- invoke (callable, args_list) ---
+ok("R19", invoke(add, [2, 3]) == 5);
+ok("R20", invoke(add, [10, 20]) == 30);
+ok("R21", invoke(greet, ["Ra"]) == "hi Ra");
+
+// --- invoke_method ---
+var counter = Counter();
+ok("R22", invoke_method(counter, "bump") == 1);
+ok("R23", invoke_method(counter, "bump") == 2);
+ok("R24", counter.count == 2);
+
+// --- invoke_static ---
+ok("R25", invoke_static(Counter, "make").count == 0);
+
+// --- new_instance + dynamic field write ---
+var ni = new_instance(Counter);
+ok("R26", ni.count == 0);
+ni.count = 99;
+ok("R27", ni.count == 99);
+
+// --- get/set_field ---
+var p = Counter();
+set_field(p, "count", 7);
+ok("R28", get_field(p, "count") == 7);
+
+// --- error helpers: throw_error is catchable ---
+var caught = 0;
+try { throw_error("custom failure"); } catch (e) { caught = 1; }
+ok("R29", caught == 1);
+
+print("=== done ===");

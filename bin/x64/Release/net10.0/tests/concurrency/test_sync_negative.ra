@@ -1,0 +1,37 @@
+// Negative-path companion to test_sync.ra.
+//
+// Spawning a fiber whose closure captures a *borrow* (`&data`) of a non-Sync
+// mutable value must be rejected — the borrow would outlive its frame across
+// the fiber boundary. The guard raises RA0407 ("borrow crosses fiber boundary
+// into non-Sync target"). This test asserts the guard fires: it PASSES when
+// the offending spawn is rejected, and FAILS (loudly) if the guard ever
+// regresses to a silent pass.
+
+print("=== concurrency/sync_negative ===");
+
+// [SN1] spawn with a non-Sync borrow capture is rejected at the spawn site.
+let mut data = [1, 2, 3];
+async fn read_data(f) => f();
+var guarded = 0;
+try {
+    let closure_bad = fn[&data]() => *data;
+    let task = spawn read_data(closure_bad);
+    guarded = 0;   // only reached if the guard silently passed
+} catch (ex) {
+    guarded = 1;   // expected: borrow-across-fiber rejected
+}
+if guarded == 1 { print("[SN1] OK"); } else { print("[SN1] FAIL: spawn safety guard missed a non-Sync borrow capture"); }
+
+// [SN2] the safe form — capturing by move — is accepted and runs.
+var moved_ok = 0;
+try {
+    let mut owned = [9, 8, 7];
+    let closure_good = fn[move owned]() => owned;
+    let t2 = spawn read_data(closure_good);
+    moved_ok = 1;
+} catch (ex) {
+    moved_ok = 0;
+}
+if moved_ok == 1 { print("[SN2] OK"); } else { print("[SN2] FAIL: move-capture spawn should be allowed"); }
+
+print("=== done ===");

@@ -1,0 +1,81 @@
+// Ra Language - lexer: numeric literal forms (bases, separators, suffixes).
+//
+// Verifies the lexer's number scanner: hex/binary/octal base prefixes equal
+// their decimal value, underscore digit separators are ignored, typed suffixes
+// parse and behave, large literals survive, unary-minus negation, and mixed
+// bases combine in arithmetic.
+//
+// NOTE (lexer behaviour pinned by this file): a typed suffix builds a DISTINCT
+// numeric type. Arithmetic mixing two different suffixes (e.g. 10i + 20l) is an
+// illegal operation (RA0401); only same-suffix or suffix-vs-plain arithmetic is
+// allowed. See cases F18/F19.
+
+fn ok(id, cond) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); } }
+
+print("=== lexer/numeric_literal_forms ===");
+
+// F1-F3: base prefixes equal their decimal value
+ok("F1", 0xFF == 255);
+ok("F2", 0b1010 == 10);
+ok("F3", 0o17 == 15);
+
+// F4: hex is case-insensitive in its digits
+ok("F4", 0xff == 255 and 0xFf == 255 and 0XAB == 171);
+
+// F5: octal both prefix spellings (0o / 0O)
+ok("F5", 0o755 == 493 and 0O755 == 493);
+
+// F6: binary both prefix spellings (0b / 0B)
+ok("F6", 0b1111 == 15 and 0B1111 == 15);
+
+// F7-F9: underscore digit separators are ignored
+ok("F7", 1_000 == 1000);
+ok("F8", 0xFF_FF == 65535);
+ok("F9", 0b1111_1111 == 255 and 0o7_7 == 63);
+
+// F10: underscores inside a large grouped decimal
+ok("F10", 1_000_000 == 1000000);
+
+// F11: zero in every base
+ok("F11", 0 == 0 and 0x0 == 0 and 0b0 == 0 and 0o0 == 0);
+
+// F12: large literal survives (unified number type, no overflow)
+ok("F12", 1_000_000_000_000 == 1000000000000);
+
+// F13: leading-zero decimal stays decimal (NOT octal)
+ok("F13", 0123 == 123);
+
+// F14: negation via unary minus
+var neg = -42;
+ok("F14", neg == 0 - 42);
+
+// F15: negative hex via unary minus
+ok("F15", -0x10 == 0 - 16);
+
+// F16: mixed bases combine in one expression
+ok("F16", (0xFF + 0b1 + 0o1) == 257);
+
+// F17: float literal forms (fractional + exponent)
+ok("F17", 3.14 > 3.0 and 3.14 < 3.2 and 1.5e3 == 1500.0);
+
+// F18: typed integer suffixes parse and equal their plain value
+ok("F18", 42i == 42 and 42l == 42 and 42s == 42 and 42ui == 42 and 42ul == 42 and 42us == 42);
+
+// F19: typed float suffixes parse and behave numerically
+ok("F19", 1.5f > 1.0 and 1.5d > 1.0 and 1.5m > 1.0 and 1.5f == 1.5d);
+
+// F20: uppercase suffix spellings accepted
+ok("F20", 7I == 7 and 7L == 7);
+
+// F21: underscore separators preserved across a suffix
+ok("F21", 1_000_000i == 1000000);
+
+// F22: same-suffix arithmetic is allowed
+ok("F22", (10i + 20i) == 30);
+
+// F23: CROSS-suffix arithmetic is an illegal operation (recoverable)
+var crossOk = false;
+try { var bad = 10i + 20l; crossOk = false; } catch (ex) { crossOk = true; }
+ok("F23", crossOk);
+
+print("=== done ===");

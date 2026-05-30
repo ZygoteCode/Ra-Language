@@ -1,0 +1,132 @@
+// Ra Language - types: generics in depth — generic functions and classes
+// with one and two type parameters, where-clause constraints, distinct
+// instantiation (Box<int> vs Box<string>), nested generics (list of
+// Box<int>), and generic methods. Assertions check VALUES, not just
+// absence of a crash.
+//
+// Confirmed semantics worth noting (probed against this build):
+//   * A generic FREE-function call written with explicit type args and used
+//     directly as a cast operand — `(boost<int>(1) as string)` — crashes the
+//     VM ("NativeDefine unsupported NodeType Cast"). Storing the result in a
+//     var first, or comparing with ==, is fine. Tests below store first.
+//   * Generic CLASS-method calls (no explicit <...> at the call site) cast
+//     inline without issue.
+//
+// Cases:
+//   GD1   generic free fn picks an element from a list<T>
+//   GD2   generic free fn round-trips a value (identity)
+//   GD3   where-clause-constrained generic fn computes correctly
+//   GD4   one-type-param generic class: field + method dispatch
+//   GD5   Box<int> and Box<string> are distinct instantiations
+//   GD6   two-type-param generic class: both fields typed independently
+//   GD7   generic method returning the OTHER instantiation (swap)
+//   GD8   generic method on a generic class returns T
+//   GD9   nested generics: a list of Box<int> sums correctly
+//   GD10  nested generics: a Box holding a list<int>
+//   GD11  two-type-param generic struct (value carrier)
+//   GD12  where-clause-constrained generic CLASS constructs + reads
+//   GD13  generic fn over a list<string> concatenates
+//   GD14  generic identity preserves a class instance (no copy of identity)
+
+print("=== types/generics_deep ===");
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+// ---- generic free functions ----
+fn first_of<T>(l: list<T>): T { ret l[0]; }
+var f1 = first_of([10, 20, 30]);
+ok("GD1", f1 == 10);
+
+fn ident<T>(x: T): T { ret x; }
+var id1 = ident<int>(42);
+ok("GD2", id1 == 42);
+
+fn boost<T>(x: T): T where T: int { ret x + 1; }
+var bres = boost<int>(41);
+ok("GD3", bres == 42);
+
+// ---- one-type-param generic class ----
+pub class Box<T> {
+    pub var v: T;
+    pub Box(v: T) { self.v = v; }
+    pub fn get(): T { ret self.v; }
+    pub fn set(nv: T) { self.v = nv; }
+}
+var bi = Box<int>(7);
+ok("GD4", bi.v == 7 and bi.get() == 7);
+
+var bs = Box<string>("hi");
+ok("GD5", bi.get() == 7 and bs.get() == "hi");
+
+// ---- two-type-param generic class ----
+pub class Pair<A, B> {
+    pub var a: A;
+    pub var b: B;
+    pub Pair(a: A, b: B) {
+        self.a = a;
+        self.b = b;
+    }
+    pub fn first(): A { ret self.a; }
+    pub fn second(): B { ret self.b; }
+    pub fn swap(): Pair<B, A> { ret Pair<B, A>(self.b, self.a); }
+}
+var pr = Pair<int, string>(7, "seven");
+ok("GD6", pr.first() == 7 and pr.second() == "seven");
+
+var sw = pr.swap();
+ok("GD7", sw.first() == "seven" and sw.second() == 7);
+
+// generic method returning T
+var bx = Box<int>(100);
+var got = bx.get();
+ok("GD8", got == 100);
+
+// ---- nested generics ----
+var boxes = [Box<int>(1), Box<int>(2), Box<int>(3)];
+var total = 0;
+for b in boxes {
+    total += b.get();
+}
+ok("GD9", total == 6);
+
+var listbox = Box<list>([1, 2, 3]);
+var inner = listbox.get();
+ok("GD10", len(inner) == 3 and inner[0] == 1 and inner[2] == 3);
+
+// ---- two-type-param generic struct ----
+pub struct SPair<A, B> {
+    pub var first: A;
+    pub var second: B;
+    pub SPair(a: A, b: B) {
+        self.first = a;
+        self.second = b;
+    }
+}
+var spr = SPair<int, string>(9, "nine");
+ok("GD11", spr.first == 9 and spr.second == "nine");
+
+// ---- where-clause-constrained generic class ----
+pub class GInt<T> where T: int {
+    pub var v: T;
+    pub GInt(v: T) { self.v = v; }
+    pub fn plus(d: int): int { ret (self.v as int) + d; }
+}
+var gi = GInt<int>(40);
+ok("GD12", gi.v == 40 and gi.plus(2) == 42);
+
+// ---- generic fn over list<string> ----
+fn join_first_two<T>(l: list<T>): string {
+    ret (l[0] as string) + (l[1] as string);
+}
+var j = join_first_two(["ab", "cd", "ef"]);
+ok("GD13", j == "abcd");
+
+// ---- generic identity preserves class identity (mutation visible) ----
+var orig = Box<int>(5);
+var aliased = ident<Box>(orig);
+aliased.set(99);
+ok("GD14", orig.get() == 99);
+
+print("=== done ===");

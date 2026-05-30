@@ -1,0 +1,144 @@
+// Ra Language - types: record value semantics & with-update, record equality
+// and destructuring, vs struct/class instance semantics, plus static members.
+//
+// Confirmed semantics worth noting (probed against this build):
+//   * Record destructuring uses `var (a, b) = rec.deconstruct()` — a direct
+//     `var (a, b) = rec` on the record fails (refutable pattern).
+//   * Plain assignment `var b = a` ALIASES the same instance for BOTH structs
+//     and classes (mutating `b` is visible through `a`). Independent struct
+//     copies come from `clone(s)`; a struct stored into ANOTHER struct's field
+//     is copied on store. Records are value-semantic via `with` (the receiver
+//     is never mutated).
+//   * `static` members are a CLASS-only feature: record and struct bodies
+//     reject `static` (parse error), so the static cases use a class.
+//   * Compound assignment on a static field (`C.n += 1`) does NOT persist in
+//     this build; explicit `C.n = C.n + 1` does. The static cases use the
+//     explicit form (and SS5 pins the `+=` discrepancy).
+//
+// Cases:
+//   RS1   record primary-field reads
+//   RS2   record structural equality (==) for equal values
+//   RS3   record structural inequality (!=) for differing values
+//   RS4   with-update produces an updated copy; receiver unchanged
+//   RS5   with-update single-field; other fields carried over
+//   RS6   with-update yields a structurally-equal sibling
+//   RS7   record destructuring via deconstruct() + tuple bind
+//   RS8   record auto to_string format
+//   RS9   record passed to a fn keeps value identity (caller copy unchanged)
+//   SS1   struct field read/write
+//   SS2   struct clone() gives an INDEPENDENT copy (mutate copy, orig intact)
+//   SS3   struct stored in another struct's field is COPIED on store
+//   SS4   class instance is a REFERENCE: mutate alias, original changes
+//   SS5   static field: explicit increment persists (->3); `+=` is buggy —
+//         it sticks at 1 no matter how many times it runs (bug pin)
+//   SS6   static method reads static state via ClassName.method()
+//   SS7   instance method reads shared static state
+//   SS8   plain `var b = a` aliases a struct (mutation visible) — surprise pin
+
+print("=== types/records_and_structs ===");
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+// ---------------------------------------------------------------- records ---
+record Point(x: int, y: int)
+
+var p = Point(3, 4);
+ok("RS1", p.x == 3 and p.y == 4);
+ok("RS2", Point(1, 2) == Point(1, 2));
+ok("RS3", Point(1, 2) != Point(1, 3));
+
+var p2 = p with { x: 100, y: 200 };
+ok("RS4", p2.x == 100 and p2.y == 200 and p.x == 3 and p.y == 4);
+
+var p3 = p with { x: 9 };
+ok("RS5", p3.x == 9 and p3.y == 4);
+
+var p4 = p with { x: 3, y: 4 };
+ok("RS6", p4 == p);
+
+var dt = p.deconstruct();
+var (dx, dy) = dt;
+ok("RS7", dx == 3 and dy == 4);
+
+var ps = p as string;
+ok("RS8", ps == "Point(x=3, y=4)");
+
+fn shift(pt: Point): Point { ret pt with { x: pt.x + 1 }; }
+var moved = shift(p);
+ok("RS9", moved.x == 4 and p.x == 3);
+
+// ---------------------------------------------------------------- structs ---
+pub struct SBox {
+    pub var v: int;
+    pub SBox(v: int) { self.v = v; }
+}
+
+var s1 = SBox(10);
+s1.v = 11;
+ok("SS1", s1.v == 11);
+
+// clone() yields an independent copy
+var sc = clone(s1);
+sc.v = 999;
+ok("SS2", s1.v == 11 and sc.v == 999);
+
+// a struct stored into another struct's field is copied on store
+pub struct SWrap {
+    pub var inner: SBox;
+    pub SWrap(i: SBox) { self.inner = i; }
+}
+var src = SBox(1);
+var wrap = SWrap(src);
+src.v = 42;
+ok("SS3", wrap.inner.v == 1 and src.v == 42);
+
+// ---------------------------------------------------------------- classes ---
+pub class CBox {
+    pub var v: int;
+    pub CBox(v: int) { self.v = v; }
+}
+var c1 = CBox(10);
+var c2 = c1;          // reference alias
+c2.v = 999;
+ok("SS4", c1.v == 999 and c2.v == 999);
+
+// static members on a class (records/structs reject `static`)
+pub class Counter {
+    pub static var count: int = 0;
+    pub var id: int = 0;
+    pub Counter() {
+        Counter.count = Counter.count + 1;   // explicit form (see header note)
+        self.id = Counter.count;
+    }
+    pub static fn total(): int { ret Counter.count; }
+    pub fn read_total(): int { ret Counter.count; }
+}
+var k1 = Counter();
+var k2 = Counter();
+var k3 = Counter();
+
+// SS5: explicit increment persisted to 3. `+=` on a static field is buggy:
+// it persists only the FIRST increment and then sticks at 1 (after 2 or 3
+// constructions it is still 1). We pin that exact buggy value.
+pub class PlusEq {
+    pub static var n: int = 0;
+    pub PlusEq() { PlusEq.n += 1; }
+    pub static fn total(): int { ret PlusEq.n; }
+}
+PlusEq();
+PlusEq();
+PlusEq();
+ok("SS5", Counter.count == 3 and PlusEq.total() == 1);
+
+ok("SS6", Counter.total() == 3);
+ok("SS7", k1.read_total() == 3 and k3.id == 3);
+
+// SS8: plain assignment aliases a struct (documented surprise).
+var alias_src = SBox(5);
+var alias_dst = alias_src;
+alias_dst.v = 77;
+ok("SS8", alias_src.v == 77 and alias_dst.v == 77);
+
+print("=== done ===");

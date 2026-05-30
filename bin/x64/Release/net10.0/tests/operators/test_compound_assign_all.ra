@@ -1,0 +1,172 @@
+// Ra Language -- every compound-assignment operator, before/after assertions.
+//
+// Arithmetic:  +=  -=  *=  /=  %=  ^= (and the **= alias for power)
+// Bitwise:     &=  |=
+// Shift:       <<=  >>=  <<<=  >>>=
+// Rotate:      <<<<=  >>>>=   (fixed-width int only)
+// Logical:     &&=  ||=
+// Nullish:     ??=  (assigns only when the current value is null)
+//
+// SEMANTIC NOTE pinned down by probing this build (asserted in the CA9x block):
+//   The "short-circuiting" compound forms &&= / ||= / ??= do NOT actually
+//   short-circuit: their right-hand side is ALWAYS evaluated. ??= still only
+//   *assigns* when the left side is null, but it evaluates the RHS regardless.
+//   We assert the observed value semantics and flag the eager-RHS behaviour.
+
+fn ok(id, cond) {
+    if cond {
+        print("[" + id + "] OK")
+    } else {
+        print("[" + id + "] FAIL")
+    }
+}
+
+print("=== operators/compound_assign_all ===")
+
+// --- arithmetic ------------------------------------------------------------
+var a = 10
+a += 5
+ok("CA1", a == 15);
+var b = 10
+b -= 3
+ok("CA2", b == 7);
+var c = 4
+c *= 3
+ok("CA3", c == 12);
+var d = 20
+d /= 4
+ok("CA4", d == 5);
+var e = 17
+e %= 5
+ok("CA5", e == 2);
+
+// power: both ^= and **= are accepted as power-assign
+var f = 2
+f ^= 10
+ok("CA6", f == 1024);
+var g = 3
+g **= 2
+ok("CA7", g == 9);
+
+// chained reuse: value updates in place across successive ops
+var h = 2
+h += 3
+h *= 4
+h -= 5
+ok("CA8", h == 15);   // ((2+3)*4)-5 = 15
+
+// --- bitwise ---------------------------------------------------------------
+var bi = 0b1100
+bi &= 0b1010
+ok("CA9", bi == 0b1000);
+var bo = 0b1100
+bo |= 0b0011
+ok("CA10", bo == 0b1111);
+
+// --- shifts ----------------------------------------------------------------
+var sl = 1
+sl <<= 4
+ok("CA11", sl == 16);
+var sr = 32
+sr >>= 2
+ok("CA12", sr == 8);
+
+var lsl: int = 1
+lsl <<<= 3
+ok("CA13", lsl == 8i);
+var lsr = 16
+lsr >>>= 2
+ok("CA14", lsr == 4);
+var lsr2: int = -2
+lsr2 >>>= 1
+ok("CA15", lsr2 == 2147483647i);
+
+// --- rotates (fixed-width int only) ----------------------------------------
+var int_min: int = 0
+int_min = 1i << 31
+var rol: int = 1
+rol <<<<= 31
+ok("CA16", rol == int_min);
+var ror: int = 1
+ror >>>>= 1
+ok("CA17", ror == int_min);
+// rol by 1 of a small value just doubles it
+var rol2: int = 5
+rol2 <<<<= 1
+ok("CA18", rol2 == 10i);
+
+// --- logical &&= / ||= : VALUE semantics -----------------------------------
+var t1 = true
+t1 &&= false
+ok("CA19", t1 == false);     // true && false
+var t2 = false
+t2 &&= true
+ok("CA20", t2 == false);     // false && true
+var t3 = true
+t3 &&= true
+ok("CA21", t3 == true);
+
+var o1 = false
+o1 ||= true
+ok("CA22", o1 == true);      // false || true
+var o2 = true
+o2 ||= false
+ok("CA23", o2 == true);      // true || false (stays true)
+var o3 = false
+o3 ||= false
+ok("CA24", o3 == false);
+
+// --- ??= : assigns ONLY when the current value is null ---------------------
+var n1 = null
+n1 ??= 42
+ok("CA25", n1 == 42);        // was null -> assigned
+var n2 = 7
+n2 ??= 99
+ok("CA26", n2 == 7);         // was non-null -> NOT reassigned
+var n3 = "x"
+n3 ??= "y"
+ok("CA27", n3 == "x");
+var n4 = false
+n4 ??= true
+ok("CA28", n4 == false);     // false is non-null -> kept
+
+// --- eager-RHS behaviour of &&= / ||= / ??= (observed; flagged as a quirk) --
+// A counter bumped by the RHS function lets us see whether the RHS ran.
+var hits = 0
+fn bump_true() { hits = hits + 1; ret true }
+fn bump_val()  { hits = hits + 1; ret 42 }
+
+// &&= with a FALSE LHS: a short-circuiting form would skip the RHS, but this
+// build evaluates it (hits becomes 1).
+hits = 0
+var q1 = false
+q1 &&= bump_true()
+ok("CA29", hits == 1);       // RHS evaluated despite false LHS
+
+// ||= with a TRUE LHS: likewise evaluated.
+hits = 0
+var q2 = true
+q2 ||= bump_true()
+ok("CA30", hits == 1);
+
+// ??= with a NON-NULL LHS: value kept, but RHS still evaluated.
+hits = 0
+var q3 = 7
+q3 ??= bump_val()
+ok("CA31", q3 == 7 and hits == 1);
+
+// ??= with a NULL LHS: assigned, RHS evaluated once.
+hits = 0
+var q4 = null
+q4 ??= bump_val()
+ok("CA32", q4 == 42 and hits == 1);
+
+// --- compound assign on float / mixed number -------------------------------
+var fl = 1.5
+fl += 0.5
+ok("CA33", fl == 2.0);
+var fl2 = 10.0
+fl2 /= 4
+ok("CA34", fl2 == 2.5);
+
+print("=== done ===")

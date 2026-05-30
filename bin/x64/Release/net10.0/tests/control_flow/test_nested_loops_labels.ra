@@ -1,0 +1,123 @@
+// Ra Language - control flow: nested loops, break/continue, goto/labels.
+//
+// VERIFIED LANGUAGE FACTS for this build (probed before writing):
+//   * Plain `break` and `continue` work in every loop kind (numeric `for`,
+//     `for .. in`, `while`, `while true`); they affect the INNERMOST loop only.
+//     (The "break hangs the interpreter" notes in older tests are STALE here.)
+//   * Labeled break / continue are NOT supported: a loop may carry a label
+//     (`name: for ...`) but `break name;` / `continue name;` is a parse error
+//     (RA0202). To break out of OUTER loops we use a sentinel flag + `break`.
+//   * `goto LABEL` / `LABEL: stmt` work only INSIDE a function and only as a
+//     BACKWARD jump (the label must already be defined; a forward `goto`
+//     raises an uncatchable RA0401). So goto is used here for back-edges only.
+//
+// Cases:
+//   N1   nested numeric for; inner `break` exits inner only
+//   N2   nested for..in; inner `continue` skips inner iterations only
+//   N3   `while true { ... break }` terminates
+//   N4   sentinel-flag early exit out of a TRIPLE-nested loop (labeled-break
+//        stand-in); assert exact visit count + single hit
+//   N5   `continue` skipping odds across nested loops; assert the sum
+//   N6   goto back-edge loop builds an accumulator (1..=5 == 15)
+//   N7   goto-driven nested counting inside a fn (outer back-edge + inner
+//        while with real break) -> assert the product-like total
+
+print("=== control_flow/nested_loops_labels ===");
+
+fn ok(id: string, cond: bool) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+// N1: inner break exits only the inner loop.
+var n1 = 0;
+for i = 0 to 3 {
+    for j = 0 to 10 {
+        if j == 2 { break; }
+        n1 = n1 + 1;
+    }
+}
+// 3 outer iterations * 2 inner survivors (j=0,1) = 6
+ok("N1", n1 == 6);
+
+// N2: inner continue skips only the inner iteration.
+var n2 = 0;
+for a in [0, 1, 2] {
+    for b in [0, 1, 2, 3] {
+        if b % 2 == 1 { continue; }
+        n2 = n2 + 1;
+    }
+}
+// 3 outer * 2 even values (b=0,2) = 6
+ok("N2", n2 == 6);
+
+// N3: while true terminated by break.
+var n3 = 0;
+while true {
+    n3 = n3 + 1;
+    if n3 == 4 { break; }
+}
+ok("N3", n3 == 4);
+
+// N4: labeled-break stand-in -- sentinel flag exits a triple-nested loop the
+// instant the target (i=1, j=1, k=1) is hit.
+var visited = 0;
+var hits = 0;
+var stop = false;
+for i = 0 to 3 {
+    if stop { break; }
+    for j = 0 to 3 {
+        if stop { break; }
+        for k = 0 to 3 {
+            visited = visited + 1;
+            if i == 1 and j == 1 and k == 1 {
+                hits = hits + 1;
+                stop = true;
+                break;
+            }
+        }
+    }
+}
+// Full i=0 plane: 3*3 = 9. Then i=1: j=0 plane = 3; j=1: k=0,1 = 2. 9+3+2 = 14.
+ok("N4", visited == 14 and hits == 1);
+
+// N5: continue skipping odd values across nested loops, summing the evens.
+var n5 = 0;
+for i = 0 to 2 {
+    for v in [1, 2, 3, 4, 5, 6] {
+        if v % 2 == 1 { continue; }
+        n5 = n5 + v;
+    }
+}
+// even sum per inner pass = 2+4+6 = 12; 2 outer passes = 24
+ok("N5", n5 == 24);
+
+// N6: goto back-edge loop building an accumulator.
+fn back_edge_sum(): int {
+    var total = 0;
+    var i = 0;
+    loop_top: i = i + 1;
+    total = total + i;
+    if i < 5 { goto loop_top; }
+    ret total;
+}
+ok("N6", back_edge_sum() == 15);
+
+// N7: goto-driven outer back-edge combined with an inner `while` that uses a
+// real break. Counts how many (i, j) pairs with j < 2 occur for i in 1..=3.
+fn grid_count(): int {
+    var count = 0;
+    var i = 0;
+    outer_top: i = i + 1;
+    var j = 0;
+    while true {
+        if j == 2 { break; }
+        count = count + 1;
+        j = j + 1;
+    }
+    if i < 3 { goto outer_top; }
+    ret count;
+}
+// 3 outer rounds * 2 inner survivors = 6
+ok("N7", grid_count() == 6);
+
+print("=== done ===");

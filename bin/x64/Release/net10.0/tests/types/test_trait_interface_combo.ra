@@ -1,0 +1,146 @@
+// Ra Language - types: a class that uses a trait (`with`) AND declares an
+// interface (`impl`) at the same time, plus structural conformance, trait
+// default-method behaviour, override rules, and reflection
+// (implements / traits_of / interfaces_of / is_trait / is_interface).
+//
+// Confirmed semantics worth noting (probed against this build):
+//   * `class C with T`   attaches trait T   -> traits_of(C) lists it.
+//   * `class C impl I`   declares interface I -> implements(C, I) is true and
+//     interfaces_of(C) lists it. Interface conformance is also STRUCTURAL:
+//     a class with the right method shape satisfies the interface even with
+//     no `impl`.
+//   * A trait default-method BODY is NOT runnable on a using class: a class
+//     that does not redefine the method throws RA0401 "no executable body".
+//     To supply a default-backed method the class MUST mark it `override`.
+//
+// Cases:
+//   TC1   class with-trait AND impl-interface constructs + methods run
+//   TC2   implements() sees the impl-declared interface
+//   TC3   traits_of() lists the with-attached trait
+//   TC4   interfaces_of() lists the impl-declared interface
+//   TC5   trait/interface objects report is_trait / is_interface correctly
+//   TC6   trait-typed parameter dispatches to the concrete method
+//   TC7   interface-typed parameter dispatches to the concrete method
+//   TC8   override of a trait default-method changes dispatch
+//   TC9   a class supplying its own version of a defaulted trait method
+//         must use `override` (we exercise the working override form)
+//   TC10  trait default body is non-runnable when NOT overridden (RA0401)
+//   TC11  structural interface conformance without `impl`
+//   TC12  a non-conforming class does NOT implement the interface
+//   TC13  a class can satisfy two traits at once (with T1, T2)
+//   TC14  a struct may declare a trait via `with` (probe — assert outcome)
+
+print("=== types/trait_interface_combo ===");
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+pub trait Greeter {
+    fn greet(): string { ret "hi"; }
+    fn shout(): string;
+}
+
+pub interface Sized {
+    fn size(): int;
+}
+
+// Uses the Greeter trait AND declares the Sized interface.
+pub class Box with Greeter impl Sized {
+    pub var n: int;
+    pub Box(n: int) { self.n = n; }
+    pub override fn greet(): string { ret "hello"; }
+    pub fn shout(): string { ret "HEY"; }
+    pub fn size(): int { ret self.n; }
+}
+
+var b = Box(7);
+ok("TC1", b.greet() == "hello" and b.shout() == "HEY" and b.size() == 7);
+ok("TC2", implements(Box, Sized) == true);
+
+var trs = traits_of(Box);
+ok("TC3", len(trs) == 1 and type_name(trs[0]) == "Greeter");
+
+var ifs = interfaces_of(Box);
+ok("TC4", len(ifs) >= 1 and type_name(ifs[0]) == "Sized");
+
+ok("TC5", is_trait(trs[0]) == true and is_interface(ifs[0]) == true);
+
+fn callGreet(g: Greeter): string { ret g.greet(); }
+ok("TC6", callGreet(b) == "hello");
+
+fn callSize(s: Sized): int { ret s.size(); }
+ok("TC7", callSize(b) == 7);
+
+// ---- override of a trait default-method changes dispatch ----
+pub class FancyBox with Greeter {
+    pub FancyBox() { pass; }
+    pub override fn greet(): string { ret "salutations"; }
+    pub fn shout(): string { ret "OY"; }
+}
+var fb = FancyBox();
+ok("TC8", fb.greet() == "salutations");
+ok("TC9", callGreet(fb) == "salutations");
+
+// ---- TC10: a trait default body is non-runnable when not overridden ----
+pub class PlainBox with Greeter {
+    pub PlainBox() { pass; }
+    pub fn shout(): string { ret "P"; }
+    // greet() intentionally NOT redefined -> trait default body is a stub
+}
+var pb = PlainBox();
+try {
+    var g = pb.greet();
+    ok("TC10", false);
+} catch (ex) {
+    ok("TC10", true);
+}
+
+// ---- TC11: structural interface conformance without `impl` ----
+pub class DuckSized {
+    pub var k: int;
+    pub DuckSized(k: int) { self.k = k; }
+    pub fn size(): int { ret self.k; }
+}
+ok("TC11", implements(DuckSized, Sized) == true and callSize(DuckSized(9)) == 9);
+
+// ---- TC12: a non-conforming class does NOT implement the interface ----
+pub class NoSize {
+    pub NoSize() { pass; }
+    pub fn unrelated(): int { ret 1; }
+}
+ok("TC12", implements(NoSize, Sized) == false);
+
+// ---- TC13: a class satisfying two traits at once ----
+pub trait Named { fn label(): string; }
+pub class TwoTrait with Greeter, Named {
+    pub TwoTrait() { pass; }
+    pub override fn greet(): string { ret "hi2"; }
+    pub fn shout(): string { ret "S"; }
+    pub fn label(): string { ret "lbl"; }
+}
+var tt = TwoTrait();
+var tt_traits = traits_of(TwoTrait);
+ok("TC13", len(tt_traits) == 2 and tt.greet() == "hi2" and tt.label() == "lbl");
+
+// ---- TC14: structs cannot declare a trait via `with` in this build
+// (the `struct S with T` form is a parse error). A struct exposes the
+// right method shape, but — unlike a class — an interface-typed parameter
+// rejects a struct instance ("expected 'Sized', got 'StructInstance'").
+// We assert both: the struct's own method works, and the interface-typed
+// param does NOT accept the struct (narrower than class structural).
+pub struct SizedStruct {
+    pub var v: int;
+    pub SizedStruct(v: int) { self.v = v; }
+    pub fn size(): int { ret self.v; }
+}
+var ss = SizedStruct(3);
+var struct_rejected = false;
+try {
+    var dummy = callSize(ss);
+} catch (ex) {
+    struct_rejected = true;
+}
+ok("TC14", ss.size() == 3 and struct_rejected == true);
+
+print("=== done ===");

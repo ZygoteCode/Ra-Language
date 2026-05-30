@@ -1,0 +1,18 @@
+// std.io — minimal I/O helpers layered on top of the `print` built-in.
+//
+// This is the standard-library module resolved by the dotted import
+// `import std.io;`. The resolver looks for it under <exeDir>/std (populated
+// from this repo-root std/ folder by the csproj <Content Include="std\**"/>
+// copy step), so the file must live here to make `std.*` imports work.
+
+pub fn println(msg) {
+    print(msg);
+}
+
+pub fn printall(items: list) {
+    for item in items {
+        print(item);
+    }
+}
+
+pub const NEWLINE = "\n";

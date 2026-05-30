@@ -1,0 +1,78 @@
+// Ra Language - lexer: string quote forms & interpolation triggers.
+//
+// Verifies the three quote delimiters ("double", 'single', `backtick`) produce
+// equal strings for identical content, that $"..${expr}.." interpolation only
+// fires on the $-prefixed forms, that plain (non-$) strings keep ${...} literal,
+// empty strings, and quotes nested inside other quote styles.
+//
+// LEXER BUG PINNED HERE (case Q11): a single-quoted string whose body is a
+// letter-run followed by a space / '.' / any char other than ' or \ is
+// MIS-LEXED as a lifetime token ('a) and fails with "unterminated string
+// literal" (RA0102). e.g. 'a b', 'a.b', 'say "hi"' all break at lex time.
+// Single-quoted strings that embed a double quote must therefore START with a
+// non-letter (here we open with the embedded quote: '"hi"').
+
+fn ok(id, cond) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); } }
+
+print("=== lexer/string_quote_forms ===");
+
+// Q1: the three quote forms yield equal strings for the same content
+var d = "hello";
+var s = 'hello';
+var b = `hello`;
+ok("Q1", d == s and s == b and d == "hello");
+
+// Q2: equality holds for a longer content with spaces (double & backtick;
+//     single-quote with internal spaces hits the lifetime bug - see Q11)
+ok("Q2", "a b c" == `a b c` and len("a b c") == 5);
+
+// Q3: empty string in each form
+ok("Q3", "" == '' and '' == `` and len("") == 0);
+
+// Q4: basic interpolation $"x=${1+1}" == "x=2"
+ok("Q4", $"x=${1 + 1}" == "x=2");
+
+// Q5: single-quote interpolation $'..' fires the same way
+var v = 42;
+ok("Q5", $'v=${v}' == "v=42");
+
+// Q6: backtick interpolation $`..` fires the same way
+ok("Q6", $`v=${v}` == "v=42");
+
+// Q7: multiple holes + surrounding text
+var a1 = 1;
+var a2 = 2;
+ok("Q7", $"a${a1}b${a2}c${a1 + a2}d" == "a1b2c3d");
+
+// Q8: PLAIN (non-$) double-quote keeps ${...} LITERAL (no interpolation)
+var plain = "x=${1+1}";
+ok("Q8", plain == "x=${1+1}" and len(plain) == 8);
+
+// Q9: PLAIN backtick also keeps ${...} literal. (A plain single-quoted form
+//     here would have to open with a non-letter to dodge the lifetime misparse,
+//     so we use a leading-symbol body for the single-quote arm.)
+ok("Q9", `x=${1+1}` == "x=${1+1}" and '#${1+1}' == "#${1+1}");
+
+// Q10: double-quoted string embeds single quotes / apostrophes verbatim
+var dq = "it's \"quoted\"";
+ok("Q10", str_contains(dq, "it's") and str_contains(dq, "\"quoted\""));
+
+// Q11: single-quoted string embeds double quotes ONLY when it does not open
+//      with a letter-run (opening with the quote avoids the lifetime misparse)
+var sq = '"hi"';
+ok("Q11", len(sq) == 4 and str_contains(sq, "hi"));
+
+// Q12: backtick embeds BOTH quote styles freely
+var bt = `he said "hi" and 'bye'`;
+ok("Q12", str_contains(bt, "\"hi\"") and str_contains(bt, "'bye'"));
+
+// Q13: a hole whose expression is itself a string literal
+ok("Q13", $"got=${"inner"}" == "got=inner");
+
+// Q14: adjacent holes with no literal text between them
+ok("Q14", $"${a1}${a2}" == "12");
+
+// Q15: hole at the very start and at the very end
+ok("Q15", $"${a1}tail" == "1tail" and $"head${a2}" == "head2");
+
+print("=== done ===");

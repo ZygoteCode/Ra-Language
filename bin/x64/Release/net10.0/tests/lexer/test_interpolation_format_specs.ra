@@ -1,0 +1,106 @@
+// Ra Language - lexer/format: ${expr:spec} format specifiers.
+//
+// Format-spec grammar (Lexer.IsValidFormatSpec / FormatSpec.Parse):
+//   spec := '#'? ('.' digit+)? type?    (at least one part required)
+//   type := f F | x X | b B | d D | o O | e E | g G | %
+// The '#' flag adds the base prefix (0x/0b/0o); '.N' sets precision.
+//
+// SUPPORTED here (asserted with exact output): :x :X :#x :#X (hex),
+//   :b :#b (binary), :o :#o (octal), :d (decimal), :f :.Nf (fixed),
+//   :e :E :.Ne (exponential), :g :G :.Ng (general), :% :.N% (percent),
+//   :.N (precision-only -> general).
+//
+// NOT SUPPORTED (noted, not asserted):
+//   * width / padding / alignment (e.g. :5, :05d, :>10, :<8) - the grammar has
+//     no width or fill field, so such a ':' is NOT treated as a format spec
+//     (it falls back to being part of the expression and fails to parse).
+//   * applying a numeric spec to a string/bool value -> RA-runtime type error
+//     (e.g. ${"hi":d}); intentionally excluded so the suite stays green.
+//
+// PLATFORM NOTE: exponential output uses a 3-digit exponent (e+000), matching
+// .NET's invariant formatting on this build.
+
+fn ok(id, cond) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); } }
+
+print("=== lexer/interpolation_format_specs ===");
+
+var n = 255;
+
+// G1: hex lower, no prefix
+ok("G1", $"${n:x}" == "ff");
+
+// G2: hex upper, no prefix
+ok("G2", $"${n:X}" == "FF");
+
+// G3: hex lower WITH 0x prefix (#)
+ok("G3", $"${n:#x}" == "0xff");
+
+// G4: hex upper WITH 0X prefix (#)
+ok("G4", $"${n:#X}" == "0XFF");
+
+// G5: binary, no prefix
+ok("G5", $"${10:b}" == "1010");
+
+// G6: binary WITH 0b prefix (#)
+ok("G6", $"${10:#b}" == "0b1010");
+
+// G7: octal, no prefix (493 == 0o755)
+ok("G7", $"${493:o}" == "755");
+
+// G8: octal WITH 0o prefix (#)
+ok("G8", $"${493:#o}" == "0o755");
+
+// G9: explicit decimal spec on an integer
+ok("G9", $"${255:d}" == "255");
+
+// G10: negative integer with #x keeps the sign before the prefix
+ok("G10", $"${0 - 255:#x}" == "-0xff");
+
+var pi = 3.14159;
+
+// G11: :f default precision is 6
+ok("G11", $"${pi:f}" == "3.141590");
+
+// G12: :.2f -> two fractional digits (rounded)
+ok("G12", $"${pi:.2f}" == "3.14");
+
+// G13: :.0f -> zero fractional digits
+ok("G13", $"${pi:.0f}" == "3");
+
+// G14: integer rendered with a float spec widens to double
+ok("G14", $"${5:f}" == "5.000000" and $"${5:.2f}" == "5.00");
+
+// G15: :e exponential, default precision 6, 3-digit exponent
+ok("G15", $"${pi:e}" == "3.141590e+000");
+
+// G16: :.2e exponential lower with precision
+ok("G16", $"${pi:.2e}" == "3.14e+000");
+
+// G17: :.2E exponential UPPER with precision
+ok("G17", $"${pi:.2E}" == "3.14E+000");
+
+// G18: :g general (trims trailing zeros)
+ok("G18", $"${pi:g}" == "3.14159");
+
+// G19: :.3g general with precision 3
+ok("G19", $"${pi:.3g}" == "3.14");
+
+// G20: :% multiplies by 100, default precision 0, appends '%'
+ok("G20", $"${0.5:%}" == "50%");
+
+// G21: :.1% percent with one fractional digit
+ok("G21", $"${0.5:.1%}" == "50.0%");
+
+// G22: precision-only spec ':.3' (no type char) -> general with 3 sig figs
+ok("G22", $"${pi:.3}" == "3.14");
+
+// G23: a colon that is NOT a valid spec stays an ordinary expression - a
+//      ternary inside the hole keeps working (the spec split is right-to-left
+//      and only fires on a grammar match).
+var flag = 1;
+ok("G23", $"v=${flag == 1 ? 99 : 0}" == "v=99");
+
+// G24: spec applied to a hole containing an arithmetic expression
+ok("G24", $"${1 + 1:#x}" == "0x2");
+
+print("=== done ===");

@@ -1,0 +1,172 @@
+// Ra Language - builtins: os / env / time + filesystem.
+//
+// Fully asserted. Deterministic: every filesystem case creates its OWN temp
+// dir/file, writes known content, asserts the round-trip, then deletes what it
+// created so re-runs stay clean. os_* values that vary by machine are asserted
+// by SHAPE only (type / sanity), never by exact value.
+//
+// NOTE (suspected bug): fs_write_text() prepends a UTF-8 BOM (EF BB BF, 3 bytes)
+// to the file. fs_read_text() transparently strips it on read, but fs_size()
+// reports the on-disk byte count *including* the BOM. So after a write_text of
+// N content-bytes, fs_size() == N + 3. fs_append_text() does NOT add a second
+// BOM, and fs_write_bytes() writes exact bytes (no BOM). The size assertions
+// below encode this real behavior and flag it; if the BOM is later dropped,
+// case [F6]/[F9] are the ones to revisit.
+
+print("=== builtins/os_fs ===");
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+fn okd(id, cond, detail) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL: " + detail); }
+}
+
+// ---------------------------------------------------------------------------
+// OS info (shape / sanity only — values are machine-specific)
+// ---------------------------------------------------------------------------
+ok("OS1", is_string(os_name()));
+ok("OS2", is_string(os_arch()));
+ok("OS3", is_string(os_endian()));
+// endian is one of the two known values
+okd("OS4", os_endian() == "little" or os_endian() == "big", "endian=" + os_endian());
+ok("OS5", is_int(os_processor_count()));
+okd("OS6", os_processor_count() > 0, "count=" + (os_processor_count() as string));
+ok("OS7", is_string(os_path_sep()));
+// a single-character path separator
+okd("OS8", len(os_path_sep()) == 1, "sep len=" + (len(os_path_sep()) as string));
+ok("OS9", is_string(os_newline()));
+okd("OS10", len(os_newline()) >= 1, "newline len=" + (len(os_newline()) as string));
+ok("OS11", is_bool(os_is_64bit()));
+// os_is_64bit must agree with an x64 arch report (project is x64-only)
+okd("OS12", (os_arch() == "x64") == os_is_64bit(), "arch=" + os_arch() + " is64=" + (os_is_64bit() as string));
+
+// ---------------------------------------------------------------------------
+// env: set / get / has / unset round-trip on a var we own
+// ---------------------------------------------------------------------------
+var key = "RA_TEST_OSFS_VAR";
+try {
+    env_set(key, "alpha");
+    okd("E1", env_get(key) == "alpha", "got=" + env_get(key));
+    ok("E2", env_has(key) == true);
+    // overwrite
+    env_set(key, "beta");
+    okd("E3", env_get(key) == "beta", "got=" + env_get(key));
+    // unset clears presence
+    env_unset(key);
+    ok("E4", env_has(key) == false);
+    // unknown var is absent
+    ok("E5", env_has("RA_DEFINITELY_UNSET_ZZZ_OSFS") == false);
+} catch (e) {
+    print("[E1-E5] FAIL: " + e);
+}
+
+// ---------------------------------------------------------------------------
+// fs path-string ops (pure, deterministic — no disk touched).
+// Separator is the OS native sep; on the build host that is '\'.
+// ---------------------------------------------------------------------------
+var sep = os_path_sep();
+try {
+    // fs_join uses the native separator between components
+    okd("P1", fs_join("a", "b") == "a" + sep + "b", "got=" + fs_join("a", "b"));
+    okd("P2", fs_join("a", "b", "c") == "a" + sep + "b" + sep + "c", "got=" + fs_join("a", "b", "c"));
+    // basename / dirname
+    okd("P3", fs_basename("/foo/bar/baz.txt") == "baz.txt", "got=" + fs_basename("/foo/bar/baz.txt"));
+    okd("P4", fs_basename("solo.txt") == "solo.txt", "got=" + fs_basename("solo.txt"));
+    // dirname normalizes separators to native sep
+    okd("P5", fs_dirname("/foo/bar/baz.txt") == sep + "foo" + sep + "bar", "got=" + fs_dirname("/foo/bar/baz.txt"));
+    okd("P6", fs_dirname("solo.txt") == "", "got=" + fs_dirname("solo.txt"));
+    // extension (includes the dot; last extension only; empty when none)
+    okd("P7", fs_extension("baz.txt") == ".txt", "got=" + fs_extension("baz.txt"));
+    okd("P8", fs_extension("file.tar.gz") == ".gz", "got=" + fs_extension("file.tar.gz"));
+    okd("P9", fs_extension("README") == "", "got='" + fs_extension("README") + "'");
+    // stem (filename without final extension)
+    okd("P10", fs_stem("baz.txt") == "baz", "got=" + fs_stem("baz.txt"));
+    okd("P11", fs_stem("/a/b/file.tar.gz") == "file.tar", "got=" + fs_stem("/a/b/file.tar.gz"));
+    // is_absolute
+    ok("P12", fs_is_absolute("foo/bar") == false);
+    ok("P13", fs_is_absolute("C:\\foo") == true);
+} catch (e) {
+    print("[P1-P13] FAIL: " + e);
+}
+
+// ---------------------------------------------------------------------------
+// fs round-trip: create our OWN temp dir + file, write/read/append, then
+// delete everything we created. Nothing pre-existing is touched.
+// ---------------------------------------------------------------------------
+try {
+    var dir = fs_temp_dir_new();
+    okd("F1", fs_is_dir(dir) == true, "temp dir not created: " + dir);
+
+    var path = fs_join(dir, "round_trip.txt");
+    // before writing, the file does not exist
+    ok("F2", fs_exists(path) == false);
+
+    var content = "hello world";          // 11 ASCII bytes
+    fs_write_text(path, content);
+    ok("F3", fs_exists(path) == true);
+    ok("F4", fs_is_file(path) == true);
+    ok("F5", fs_is_dir(path) == false);
+    // round-trip: read back exactly what we wrote (BOM is stripped on read)
+    okd("F6", fs_read_text(path) == content, "read=" + fs_read_text(path));
+    // on-disk size = content bytes + 3 (UTF-8 BOM prepended by fs_write_text)
+    okd("F7", fs_size(path) == len(content) + 3, "size=" + (fs_size(path) as string) + " expected=" + ((len(content) + 3) as string));
+
+    // append: extra bytes add exactly their length, no second BOM
+    var extra = "!!";
+    fs_append_text(path, extra);
+    okd("F8", fs_read_text(path) == content + extra, "read=" + fs_read_text(path));
+    okd("F9", fs_size(path) == len(content) + len(extra) + 3, "size=" + (fs_size(path) as string));
+
+    // remove the file: it is gone, the dir remains
+    fs_remove(path);
+    ok("F10", fs_exists(path) == false);
+    ok("F11", fs_is_dir(dir) == true);
+
+    // clean up our temp dir
+    fs_remove_dir(dir);
+    ok("F12", fs_is_dir(dir) == false);
+} catch (e) {
+    print("[F1-F12] FAIL: " + e);
+}
+
+// fs_write_bytes / fs_read_bytes exact round-trip (no BOM), own temp file
+try {
+    var bdir = fs_temp_dir_new();
+    var bpath = fs_join(bdir, "bytes.bin");
+    fs_write_bytes(bpath, [72, 105]);          // "Hi"
+    okd("F13", fs_read_bytes(bpath) == [72, 105], "got=" + (fs_read_bytes(bpath) as string));
+    okd("F14", fs_size(bpath) == 2, "size=" + (fs_size(bpath) as string));
+    okd("F15", fs_read_text(bpath) == "Hi", "got=" + fs_read_text(bpath));
+    fs_remove(bpath);
+    fs_remove_dir(bdir);
+    ok("F16", fs_is_dir(bdir) == false);
+} catch (e) {
+    print("[F13-F16] FAIL: " + e);
+}
+
+// ---------------------------------------------------------------------------
+// time: monotonic + wall-clock sanity
+// ---------------------------------------------------------------------------
+try {
+    var s = now_unix_s();
+    ok("T1", is_int(s));
+    okd("T2", s > 0, "now_unix_s=" + (s as string));
+
+    // monotonic_ms is non-negative and non-decreasing across two reads
+    var m1 = monotonic_ms();
+    okd("T3", m1 >= 0, "monotonic_ms=" + (m1 as string));
+    var m2 = monotonic_ms();
+    okd("T4", m2 >= m1, "m1=" + (m1 as string) + " m2=" + (m2 as string));
+
+    // after a blocking sleep, monotonic must have advanced (>=) and the
+    // elapsed wall time is plausible
+    var b1 = monotonic_ms();
+    sleep_ms_blocking(10);
+    var b2 = monotonic_ms();
+    okd("T5", b2 >= b1, "b1=" + (b1 as string) + " b2=" + (b2 as string));
+} catch (e) {
+    print("[T1-T5] FAIL: " + e);
+}
+
+print("=== done ===");

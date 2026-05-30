@@ -1,0 +1,203 @@
+// Ra Language - control flow: deep `match` coverage.
+//
+// `match scrutinee { case PATTERN [if GUARD] -> EXPR ... }` is an expression
+// (usable in `let`) and also valid at statement position (arms run for side
+// effects). Arms are separated by newlines (commas also accepted).
+//
+// Cases:
+//   D1   literal int arms + wildcard
+//   D2   literal string arms
+//   D3   bool literal arms (exhaustive without wildcard)
+//   D4   guard arm (`case x if cond`) chosen over a later catch-all
+//   D5   guard chain: first satisfied guard wins, order matters
+//   D6   tuple destructuring binds positionally
+//   D7   nested tuple destructuring
+//   D8   list destructuring: empty, fixed-arity, head/..rest
+//   D9   struct destructuring by field name
+//   D10  ADT/enum variant match with payload binding (0/1/2 fields)
+//   D11  nested ADT recursion (Tree sum)
+//   D12  nested match (match inside an arm)
+//   D13  match used as an expression returning a value into arithmetic
+//   D14  match at statement position drives a side effect
+//   D15  guarded list pattern: arm picked only when the guard holds
+
+print("=== control_flow/match_deep ===");
+
+fn ok(id: string, cond: bool) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+// D1: int literals + wildcard.
+fn d1(n: int): string {
+    let r = match n {
+        case 0 -> "zero"
+        case 1 -> "one"
+        case 2 -> "two"
+        case _ -> "many"
+    };
+    ret r;
+}
+ok("D1", d1(0) == "zero" and d1(1) == "one" and d1(2) == "two" and d1(7) == "many");
+
+// D2: string literals.
+fn d2(s: string): int {
+    let r = match s {
+        case "a" -> 1
+        case "b" -> 2
+        case _ -> -1
+    };
+    ret r;
+}
+ok("D2", d2("a") == 1 and d2("b") == 2 and d2("z") == -1);
+
+// D3: bool literals, no wildcard needed.
+fn d3(b: bool): string {
+    let r = match b {
+        case true -> "yes"
+        case false -> "no"
+    };
+    ret r;
+}
+ok("D3", d3(true) == "yes" and d3(false) == "no");
+
+// D4: a guard arm is preferred over a later catch-all when it holds.
+fn d4(n: int): string {
+    let r = match n {
+        case x if x > 100 -> "big"
+        case _ -> "small"
+    };
+    ret r;
+}
+ok("D4", d4(500) == "big" and d4(5) == "small");
+
+// D5: guard ordering -- first satisfied guard wins.
+fn d5(n: int): string {
+    let r = match n {
+        case x if x < 0 -> "neg"
+        case x if x < 10 -> "small"
+        case x if x < 100 -> "medium"
+        case _ -> "huge"
+    };
+    ret r;
+}
+ok("D5", d5(-3) == "neg" and d5(4) == "small" and d5(50) == "medium" and d5(9999) == "huge");
+
+// D6: tuple destructuring.
+let pair = (8, 9);
+let d6 = match pair {
+    case (a, b) -> a * 10 + b
+    case _ -> -1
+};
+ok("D6", d6 == 89);
+
+// D7: nested tuple destructuring.
+let nested = ((1, 2), (3, 4));
+let d7 = match nested {
+    case ((a, b), (c, d)) -> a + b + c + d
+    case _ -> -1
+};
+ok("D7", d7 == 10);
+
+// D8: list patterns -- empty, fixed-arity, head/..rest.
+fn d8(xs: list<int>): string {
+    let r = match xs {
+        case [] -> "empty"
+        case [only] -> "single:" + (only as string)
+        case [head, ..rest] -> "head:" + (head as string) + ",rest:" + (len(rest) as string)
+        case _ -> "?"
+    };
+    ret r;
+}
+ok("D8", d8([]) == "empty" and d8([42]) == "single:42" and d8([1, 2, 3, 4]) == "head:1,rest:3");
+
+// D9: struct destructuring by field name.
+struct Vec2 {
+    pub var x: int;
+    pub var y: int;
+    pub Vec2(a: int, b: int) { self.x = a; self.y = b; }
+}
+let v = Vec2(3, 7);
+let d9 = match v {
+    case Vec2 { x, y } -> x + y
+};
+ok("D9", d9 == 10);
+
+// D10: ADT variant match with 0/1/2-field payload binding.
+// NOTE: the nullary variant `Dot` is declared/matched LAST on purpose. With it
+// FIRST, the NarrowingAnalyzer falsely flags the following payload arms as
+// "unreachable" (a static-analysis bug -- the runtime matches them correctly).
+// Ordering nullary-last sidesteps the false positive, matching the convention
+// already used in tests/pattern_match/test_match_adt.ra.
+enum Shape {
+    Circle(int),
+    Rect(int, int),
+    Dot
+}
+fn area(s: Shape): int {
+    let r = match s {
+        case Circle(rad) -> rad * rad * 3
+        case Rect(w, h) -> w * h
+        case Dot -> 0
+    };
+    ret r;
+}
+ok("D10", area(Shape.Dot) == 0 and area(Shape.Circle(2)) == 12 and area(Shape.Rect(3, 4)) == 12);
+
+// D11: nested ADT recursion.
+enum Tree {
+    Leaf(int),
+    Branch(Tree, Tree)
+}
+fn sum(t: Tree): int {
+    let r = match t {
+        case Leaf(v) -> v
+        case Branch(l, rt) -> sum(l) + sum(rt)
+    };
+    ret r;
+}
+let tree = Tree.Branch(Tree.Leaf(1), Tree.Branch(Tree.Leaf(2), Tree.Leaf(3)));
+ok("D11", sum(tree) == 6);
+
+// D12: nested match (match inside an arm).
+fn d12(n: int): string {
+    let r = match n {
+        case 0 -> "zero"
+        case _ -> match n {
+            case 1 -> "one"
+            case 2 -> "two"
+            case _ -> "big"
+        }
+    };
+    ret r;
+}
+ok("D12", d12(0) == "zero" and d12(1) == "one" and d12(2) == "two" and d12(9) == "big");
+
+// D13: match as an expression feeding arithmetic.
+let factor = match 3 {
+    case 1 -> 10
+    case 3 -> 30
+    case _ -> 0
+};
+ok("D13", factor + 5 == 35);
+
+// D14: match at statement position drives a side effect.
+var picked = 0;
+match 2 {
+    case 1 -> picked = 11
+    case 2 -> picked = 22
+    case _ -> picked = -1
+}
+ok("D14", picked == 22);
+
+// D15: guarded list pattern -- arm chosen only when guard holds.
+fn d15(xs: list<int>): string {
+    let r = match xs {
+        case [a, b] if a + b == 10 -> "ten"
+        case [a, b] -> "pair"
+        case _ -> "other"
+    };
+    ret r;
+}
+ok("D15", d15([4, 6]) == "ten" and d15([1, 2]) == "pair" and d15([1, 2, 3]) == "other");
+
+print("=== done ===");

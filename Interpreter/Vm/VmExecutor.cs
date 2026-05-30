@@ -2105,11 +2105,20 @@ namespace RaLanguage.Interpreter.Vm
                         byte aN = Encoding.A(instr);
                         byte bN = Encoding.B(instr);
                         byte cN = Encoding.C(instr);
-                        var ln = (NumberValue)locals[bN]!;
-                        var rn = (NumberValue)locals[cN]!;
-                        if (TryGetInt64(ln, out long lvNN) && TryGetInt64(rn, out long rvNN))
+                        var lb = locals[bN]!;
+                        var rc = locals[cN]!;
+                        var opN = (Opcode)(instr & 0xFF);
+                        // The static SlotTypeHints lattice proves both operands
+                        // are RuntimeValueType.Number, but that admits sibling
+                        // numeric value classes (IntegerValue / LongValue /
+                        // ByteValue / … — produced e.g. by an FFI int32 return
+                        // or a typed-int binding) which are NOT NumberValue. A
+                        // hard `(NumberValue)` cast threw InvalidCastException on
+                        // those; guard the int64 fast path with `is` instead and
+                        // let the virtual arithmetic handle every other case.
+                        if (lb is NumberValue ln && rc is NumberValue rn
+                            && TryGetInt64(ln, out long lvNN) && TryGetInt64(rn, out long rvNN))
                         {
-                            var opN = (Opcode)(instr & 0xFF);
                             RuntimeValue? prodNN = null;
                             if (opN == Opcode.AddNN)
                             {
@@ -2137,14 +2146,15 @@ namespace RaLanguage.Interpreter.Vm
                                 break;
                             }
                         }
-                        // Overflow / scale fallback: route through the boxed
-                        // dispatch path (which constructs the proper
-                        // BigNumber result via NumberValue's operator).
-                        ValueResult rNN = (Opcode)(instr & 0xFF) switch
+                        // Fallback for non-NumberValue numeric operands, int64
+                        // overflow, or fractional scale: the virtual arithmetic
+                        // ops are defined on every RuntimeValue and build the
+                        // proper (possibly BigNumber) result.
+                        ValueResult rNN = opN switch
                         {
-                            Opcode.AddNN => ln.AddedTo(rn),
-                            Opcode.SubNN => ln.SubbedBy(rn),
-                            Opcode.MulNN => ln.MultedBy(rn),
+                            Opcode.AddNN => lb.AddedTo(rc),
+                            Opcode.SubNN => lb.SubbedBy(rc),
+                            Opcode.MulNN => lb.MultedBy(rc),
                             _ => new ValueResult(null, null),
                         };
                         if (rNN.Error != null) throw new RaUserError(rNN.Error);

@@ -1,0 +1,101 @@
+// Ra Language - numbers: division, modulo, power.
+//
+// Probed facts (Ra v.current):
+//   * `/` is TRUE division, never integer division: 7/2 == 3.5, 1/3 == 0.3333...
+//     A divisible pair (10/2) yields a whole `number` (is_int true).
+//   * Divide-by-zero THROWS a catchable RuntimeError ("Division by zero").
+//   * Modulo-by-zero THROWS a catchable RuntimeError ("Modulo by zero").
+//   * `%` uses TRUNCATED (C#/C-style) semantics: result takes the sign of the
+//     DIVIDEND. -7 % 3 == -1, 7 % -3 == 1, -7 % -3 == -1.
+//   * `^` is the power operator (NOT bitwise xor). 0^0 == 1, 2^-1 == 0.5.
+//   * pow(a,b) builtin agrees with `^` and always yields a float-ish number.
+//
+// Cases:
+//   D1   true division with fraction (7/2 == 3.5)
+//   D2   divisible division yields whole number (10/2 == 5, is_int)
+//   D3   repeating fraction (1/3 starts 0.333...)
+//   D4   float division
+//   D5   integer divide-by-zero throws (catchable)
+//   D6   float divide-by-zero throws (catchable)
+//   D7   modulo basic (10 % 3 == 1)
+//   D8   modulo negative dividend (-7 % 3 == -1)
+//   D9   modulo negative divisor (7 % -3 == 1)
+//   D10  modulo both negative (-7 % -3 == -1)
+//   D11  modulo-by-zero throws (catchable)
+//   D12  modulo identity holds for big number
+//   D13  0^0 == 1
+//   D14  negative exponent (2^-1 == 0.5)
+//   D15  negative base, odd/even exponent ((-2)^3 == -8, (-2)^2 == 4)
+//   D16  pow builtin matches operator (pow(2,10) == 1024, pow(0,0) == 1, pow(2,-2) == 0.25)
+
+fn ok(id, cond) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); } }
+fn approx(a, b) { ret abs(a - b) < 0.0001; }
+
+print("=== numbers/division_modulo ===");
+
+var d1 = 7 / 2;
+ok("D1", d1 == 3.5 and is_int(d1) == false);
+
+var d2 = 10 / 2;
+ok("D2", d2 == 5 and is_int(d2));
+
+var d3 = 1 / 3;
+ok("D3", d3 > 0.33 and d3 < 0.34);
+
+var d4 = 9.0 / 4.0;
+ok("D4", approx(d4, 2.25));
+
+try {
+    var z = 5 / 0;
+    print("[D5] FAIL no throw " + (z as string));
+} catch (e) {
+    ok("D5", true);
+}
+
+try {
+    var z = 5.0 / 0.0;
+    print("[D6] FAIL no throw " + (z as string));
+} catch (e) {
+    ok("D6", true);
+}
+
+var m7 = 10 % 3;
+ok("D7", m7 == 1);
+
+var m8 = (0 - 7) % 3;
+ok("D8", m8 == 0 - 1);
+
+var m9 = 7 % (0 - 3);
+ok("D9", m9 == 1);
+
+var m10 = (0 - 7) % (0 - 3);
+ok("D10", m10 == 0 - 1);
+
+try {
+    var z = 5 % 0;
+    print("[D11] FAIL no throw " + (z as string));
+} catch (e) {
+    ok("D11", true);
+}
+
+var huge = 123456789012345678901234567890;
+var q = huge / 7;
+var r = huge % 7;
+ok("D12", (q * 7) + r == huge);
+
+var p00 = 0 ^ 0;
+ok("D13", p00 == 1);
+
+var pneg = 2 ^ (0 - 1);
+ok("D14", approx(pneg, 0.5));
+
+var podd = (0 - 2) ^ 3;
+var peven = (0 - 2) ^ 2;
+ok("D15", podd == 0 - 8 and peven == 4);
+
+var b1 = pow(2, 10);
+var b2 = pow(0, 0);
+var b3 = pow(2, -2);
+ok("D16", b1 == 1024 and b2 == 1 and approx(b3, 0.25));
+
+print("=== done ===");

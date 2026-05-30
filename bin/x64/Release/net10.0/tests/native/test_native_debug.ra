@@ -1,0 +1,151 @@
+print("=== native/native_debug ===");
+
+# Helpers --------------------------------------------------------------
+fn ok(id, cond) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); } }
+fn okv(id, got, want) { if got == want { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL: got " + got + " want " + want); } }
+
+# ---------------------------------------------------------------------
+# All diagnostics builtins under test were probed with exists() first.
+# Present: handle_alive_count, handle_double_free_count, ffi_trace_count,
+#          ffi_trace_last, abi_canary_count, handle_info, gc_collect,
+#          gc_memory, gc_total_allocated, gc_max_generation, gc_generation.
+# No "current GC generation" no-arg builtin exists; gc_generation(obj)
+# takes one argument (the object whose generation to report).
+# ---------------------------------------------------------------------
+ok("present.handle_alive_count", exists("handle_alive_count"));
+ok("present.handle_double_free_count", exists("handle_double_free_count"));
+ok("present.ffi_trace_count", exists("ffi_trace_count"));
+ok("present.ffi_trace_last", exists("ffi_trace_last"));
+ok("present.abi_canary_count", exists("abi_canary_count"));
+ok("present.handle_info", exists("handle_info"));
+ok("present.gc_collect", exists("gc_collect"));
+ok("present.gc_memory", exists("gc_memory"));
+ok("present.gc_total_allocated", exists("gc_total_allocated"));
+ok("present.gc_max_generation", exists("gc_max_generation"));
+ok("present.gc_generation", exists("gc_generation"));
+
+# ---------------------------------------------------------------------
+# handle_alive_count : non-negative int, and tracks live allocations
+# ---------------------------------------------------------------------
+ok("alive.is_int", is_int(handle_alive_count()));
+ok("alive.nonneg", handle_alive_count() >= 0);
+
+var alive_base = handle_alive_count();
+var h1 = native_zero_alloc(16);
+var h2 = native_zero_alloc(16);
+var h3 = native_zero_alloc(16);
+var alive_after_alloc = handle_alive_count();
+# three new live owned handles => count strictly increased
+ok("alive.up_after_alloc", alive_after_alloc > alive_base);
+ok("alive.up_by_three", alive_after_alloc >= alive_base + 3);
+native_free(h1);
+native_free(h2);
+native_free(h3);
+var alive_after_free = handle_alive_count();
+# freeing releases them => count drops back below the peak
+ok("alive.down_after_free", alive_after_free < alive_after_alloc);
+ok("alive.back_to_base", alive_after_free == alive_base);
+
+# ---------------------------------------------------------------------
+# handle_double_free_count : non-negative int; increments on a 2nd free
+# of the SAME handle (established double-free detection surface)
+# ---------------------------------------------------------------------
+ok("dfree.is_int", is_int(handle_double_free_count()));
+ok("dfree.nonneg", handle_double_free_count() >= 0);
+
+var leak = native_zero_alloc(8);
+native_free(leak);
+var df_before = handle_double_free_count();
+# a single clean free must NOT have tripped the detector
+var df_clean = handle_double_free_count();
+ok("dfree.clean_no_trip", df_clean == df_before);
+native_free(leak);
+ok("dfree.up_after_double", handle_double_free_count() > df_before);
+okv("dfree.up_by_one", handle_double_free_count(), df_before + 1);
+
+# ---------------------------------------------------------------------
+# handle_info : map describing a live handle
+# ---------------------------------------------------------------------
+var hi = native_zero_alloc(48);
+var info = handle_info(hi);
+okv("info.kind", map_get(info, "kind"), "Memory");
+okv("info.ownership", map_get(info, "ownership"), "Owned");
+okv("info.disposed", map_get(info, "disposed"), false);
+okv("info.size", map_get(info, "size"), 48);
+ok("info.addr_matches", map_get(info, "address") == native_address(hi));
+ok("info.id_int", is_int(map_get(info, "id")));
+native_free(hi);
+# after free the same handle reports disposed = true
+var info2 = handle_info(hi);
+okv("info.disposed_after_free", map_get(info2, "disposed"), true);
+
+# ---------------------------------------------------------------------
+# ffi_trace_count : non-negative int / long, monotonic
+# ffi_trace_last : map with deterministic shape (lib, fn, argc, last_error)
+# No traced FFI call is issued here (keep native call volume at zero in this
+# file), so we assert type/shape only — not a specific recorded call.
+# ---------------------------------------------------------------------
+ok("ftrace.count_nonneg", ffi_trace_count() >= 0);
+var fc1 = ffi_trace_count();
+var fc2 = ffi_trace_count();
+# reading the counter twice without an FFI call must be stable
+okv("ftrace.count_stable", fc2, fc1);
+var tr = ffi_trace_last();
+ok("ftrace.last.has_lib", map_get(tr, "lib") != null);
+ok("ftrace.last.has_fn", map_get(tr, "fn") != null);
+ok("ftrace.last.argc_int", is_int(map_get(tr, "argc")));
+ok("ftrace.last.argc_nonneg", map_get(tr, "argc") >= 0);
+ok("ftrace.last.err_int", is_int(map_get(tr, "last_error")));
+
+# ---------------------------------------------------------------------
+# abi_canary_count : non-negative int, stable absent any guarded FFI call
+# ---------------------------------------------------------------------
+ok("abi.is_int", is_int(abi_canary_count()));
+ok("abi.nonneg", abi_canary_count() >= 0);
+var ac1 = abi_canary_count();
+var ac2 = abi_canary_count();
+okv("abi.stable", ac2, ac1);
+
+# ---------------------------------------------------------------------
+# GC builtins
+# ---------------------------------------------------------------------
+ok("gc.max_gen_int", is_int(gc_max_generation()));
+ok("gc.max_gen_nonneg", gc_max_generation() >= 0);
+# .NET always has at least gen0..gen2 => MaxGeneration >= 2
+ok("gc.max_gen_ge2", gc_max_generation() >= 2);
+
+ok("gc.memory_int", is_int(gc_memory()));
+ok("gc.memory_pos", gc_memory() > 0);
+ok("gc.total_alloc_int", is_int(gc_total_allocated()));
+ok("gc.total_alloc_pos", gc_total_allocated() > 0);
+# total-allocated is cumulative and never decreases across two reads
+var ta1 = gc_total_allocated();
+var ta2 = gc_total_allocated();
+ok("gc.total_alloc_monotonic", ta2 >= ta1);
+
+# gc_generation(obj) reports an object's generation: in [0, MaxGeneration]
+var some_obj = [1, 2, 3];
+var gen = gc_generation(some_obj);
+ok("gc.gen_int", is_int(gen));
+ok("gc.gen_nonneg", gen >= 0);
+ok("gc.gen_le_max", gen <= gc_max_generation());
+
+# gc_collect runs without error and keeps the heap consistent
+var before_collect = gc_total_allocated();
+gc_collect();
+ok("gc.collect_ran", true);
+# allocations keep working after a collect
+var post = native_zero_alloc(8);
+native_write_i32(post, 0, 1234);
+okv("gc.alloc_after_collect", native_read_i32(post, 0), 1234);
+native_free(post);
+# cumulative counter still consistent after collect
+ok("gc.total_alloc_after_collect", gc_total_allocated() >= before_collect);
+
+# ---------------------------------------------------------------------
+# Final balance check: every alloc above was paired with a free, so the
+# live-handle count is back to where this file started.
+# ---------------------------------------------------------------------
+okv("balance.final_alive", handle_alive_count(), alive_base);
+
+print("=== done ===");

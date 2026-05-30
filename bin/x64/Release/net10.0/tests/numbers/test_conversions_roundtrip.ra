@@ -1,0 +1,114 @@
+// Ra Language - numbers: conversions & round-trips.
+//
+// Probed facts (Ra v.current):
+//   * to_int / to_long TRUNCATE toward zero on floats: to_int(3.7)==3, to_int(-3.7)==-3.
+//   * The `as int` CAST is STRICTER: it REJECTS non-integers (3.7 as int THROWS
+//     "Cannot cast non-integer number to int"). `as int` also throws on a
+//     non-numeric string ("abc" as int). So `as int` != to_int.
+//   * to_byte / to_short / to_uint... use UNCHECKED narrowing (wrap), e.g.
+//     to_byte(257)==1, to_short(40000)==-25536.
+//   * to_decimal goes through double internally (precision caveat for huge inputs).
+//   * parse_int(s[,radix]) / parse_float / parse_hex / parse_bin / parse_oct
+//     return NULL on invalid input (they do NOT throw). radix must be 2..36
+//     (out-of-range radix DOES throw).
+//   * format_hex / format_bin / format_oct lower-case, no prefix; round-trip with
+//     the matching parse_*.
+//
+// Cases:
+//   C1   to_int truncates positive (3.7 -> 3)
+//   C2   to_int truncates negative (-3.7 -> -3)
+//   C3   `as int` REJECTS non-integer (throws) -> NOTE strict cast
+//   C4   `as int` on bad string throws
+//   C5   to_long round-trips an int
+//   C6   to_byte wraps (257 -> 1) ; in-range stays (255 -> 255)
+//   C7   to_float / to_double of an int
+//   C8   to_decimal of an int
+//   C9   to_string of an int and of a float
+//   C10  parse_int base 10 and base 16
+//   C11  parse_float valid
+//   C12  parse_hex with and without 0x prefix
+//   C13  parse_bin with and without 0b prefix
+//   C14  parse_oct with and without 0o prefix
+//   C15  parse_int INVALID returns null (no throw) -> NOTE null-on-fail
+//   C16  parse_float INVALID returns null (no throw)
+//   C17  parse_int out-of-range radix THROWS
+//   C18  format_hex round-trip (n -> hex -> n)
+//   C19  format_bin round-trip
+//   C20  format_oct round-trip
+
+fn ok(id, cond) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); } }
+fn approx(a, b) { ret abs(a - b) < 0.0001; }
+
+print("=== numbers/conversions_roundtrip ===");
+
+try { ok("C1", to_int(3.7) == 3); } catch (e) { print("[C1] FAIL: " + e); }
+
+try { ok("C2", to_int(0 - 3.7) == 0 - 3); } catch (e) { print("[C2] FAIL: " + e); }
+
+try {
+    var x = 3.7 as int;
+    print("[C3] FAIL no throw " + (x as string));
+} catch (e) {
+    ok("C3", true);
+}
+
+try {
+    var x = "abc" as int;
+    print("[C4] FAIL no throw " + (x as string));
+} catch (e) {
+    ok("C4", true);
+}
+
+try { ok("C5", to_long(123) == 123); } catch (e) { print("[C5] FAIL: " + e); }
+
+try { ok("C6", to_byte(257) == 1 and to_byte(255) == 255); } catch (e) { print("[C6] FAIL: " + e); }
+
+try { ok("C7", to_float(2) == 2 and to_double(2) == 2); } catch (e) { print("[C7] FAIL: " + e); }
+
+try { ok("C8", to_decimal(7) == 7); } catch (e) { print("[C8] FAIL: " + e); }
+
+try { ok("C9", to_string(99) == "99" and str_contains(to_string(3.5), ".")); } catch (e) { print("[C9] FAIL: " + e); }
+
+try { ok("C10", parse_int("42") == 42 and parse_int("ff", 16) == 255); } catch (e) { print("[C10] FAIL: " + e); }
+
+try { ok("C11", approx(parse_float("3.14"), 3.14)); } catch (e) { print("[C11] FAIL: " + e); }
+
+try { ok("C12", parse_hex("ff") == 255 and parse_hex("0xff") == 255); } catch (e) { print("[C12] FAIL: " + e); }
+
+try { ok("C13", parse_bin("101") == 5 and parse_bin("0b101") == 5); } catch (e) { print("[C13] FAIL: " + e); }
+
+try { ok("C14", parse_oct("17") == 15 and parse_oct("0o17") == 15); } catch (e) { print("[C14] FAIL: " + e); }
+
+try {
+    var p = parse_int("notanumber");
+    ok("C15", p == null);
+} catch (e) { print("[C15] FAIL: " + e); }
+
+try {
+    var p = parse_float("notafloat");
+    ok("C16", p == null);
+} catch (e) { print("[C16] FAIL: " + e); }
+
+try {
+    var p = parse_int("10", 99);
+    print("[C17] FAIL no throw " + (p as string));
+} catch (e) {
+    ok("C17", true);
+}
+
+try {
+    var hx = format_hex(4095);
+    ok("C18", hx == "fff" and parse_hex(hx) == 4095);
+} catch (e) { print("[C18] FAIL: " + e); }
+
+try {
+    var bn = format_bin(5);
+    ok("C19", bn == "101" and parse_bin(bn) == 5);
+} catch (e) { print("[C19] FAIL: " + e); }
+
+try {
+    var oc = format_oct(64);
+    ok("C20", parse_oct(oc) == 64);
+} catch (e) { print("[C20] FAIL: " + e); }
+
+print("=== done ===");

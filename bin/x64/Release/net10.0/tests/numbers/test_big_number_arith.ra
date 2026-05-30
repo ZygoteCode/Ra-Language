@@ -1,0 +1,91 @@
+// Ra Language - numbers: big-number arithmetic (beyond int64).
+//
+// Probed facts (Ra v.current):
+//   * The unified `number` type is ARBITRARY PRECISION (BigNumber-backed).
+//     Products/powers that overflow 64 bits stay EXACT — no wrap, no error.
+//   * int128 / uint128 / decimal annotations all collapse to the same `number`
+//     runtime kind (type_of == "number"); arithmetic across them is exact.
+//   * Big values convert to/from strings losslessly (`as string`, str_len).
+//   * Big comparisons (< > == != >= <=) are exact across full magnitude.
+//   * Big modulo is exact; the (a/b)*b + (a%b) == a identity holds.
+//
+//   CAVEAT (see notes): abs(<value beyond ~int64>) routes through a double and
+//   returns scientific-notation / lossy form, so big magnitudes are negated via
+//   `0 - x` here rather than abs().
+//
+// Cases:
+//   G1   product overflowing 64-bit is exact (1e10 * 1e10 == 1e20)
+//   G2   int64-max squared is exact
+//   G3   2^100 exact
+//   G4   2^128 exact (one past uint128 range, still exact as `number`)
+//   G5   factorial via recursion to 25 (well beyond int64) exact
+//   G6   big subtraction keeps unit precision (n+1 - n == 1)
+//   G7   big comparison ordering (< and >)
+//   G8   big equality / inequality
+//   G9   big >= / <= at equality boundary
+//   G10  int128-declared value times 2 stays exact and is a number
+//   G11  big modulo exact + identity
+//   G12  big value -> string -> length round-trip (30 digits)
+//   G13  uint128-max literal preserved exactly (2^128 - 1)
+//   G14  sum of two 30-digit numbers is exact
+//   G15  negative big number compares below zero and below a positive big
+
+fn ok(id, cond) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); } }
+
+print("=== numbers/big_number_arith ===");
+
+var a = 10000000000;
+var b = 10000000000;
+ok("G1", a * b == 100000000000000000000);
+
+var i64max = 9223372036854775807;
+ok("G2", i64max * i64max == 85070591730234615847396907784232501249);
+
+var p100 = 2 ^ 100;
+ok("G3", p100 == 1267650600228229401496703205376);
+
+var p128 = 2 ^ 128;
+ok("G4", p128 == 340282366920938463463374607431768211456);
+
+fn fact(n) {
+    if n <= 1 { ret 1; }
+    ret n * fact(n - 1);
+}
+var f25 = fact(25);
+ok("G5", f25 == 15511210043330985984000000);
+
+var n1 = 123456789012345678901234567890;
+var n2 = 123456789012345678901234567891;
+ok("G6", n2 - n1 == 1);
+
+ok("G7", n1 < n2 and n2 > n1);
+
+ok("G8", n1 == 123456789012345678901234567890 and n1 != n2);
+
+ok("G9", n1 >= 123456789012345678901234567890 and n1 <= 123456789012345678901234567890);
+
+// A plain `number` beyond int64 doubles exactly and stays a number.
+// (We deliberately avoid an `int128`-annotated operand here: that path has a
+//  precision bug — see returned notes — that rounds int64.max through a double.)
+var bignum = 18446744073709551614;
+var dbl = bignum * 2;
+ok("G10", dbl == 36893488147419103228 and type_of(dbl) == "number");
+
+var huge = 123456789012345678901234567890;
+var q = huge / 7;
+var r = huge % 7;
+ok("G11", r == 0 and (q * 7) + r == huge);
+
+var s = n1 as string;
+ok("G12", str_len(s) == 30);
+
+var u: uint128 = 340282366920938463463374607431768211455;
+ok("G13", u == 340282366920938463463374607431768211455);
+
+var sum = 123456789012345678901234567890 + 987654321098765432109876543210;
+ok("G14", sum == 1111111110111111111011111111100);
+
+var neg = 0 - 999999999999999999999999999999;
+ok("G15", neg < 0 and neg < n1);
+
+print("=== done ===");

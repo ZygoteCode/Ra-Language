@@ -157,6 +157,23 @@ namespace RaLanguage.Interpreter.IR
             // and skips the second.
             public readonly HashSet<string> DirtyTypedAccs = new();
 
+            // Names of bindings whose declaration initializer is statically
+            // PROVABLY NUMERIC (a number literal, a negation/bitwise-not of
+            // one, or an arithmetic expression over such — never `+`, which
+            // is string-overloaded). Populated once per function by
+            // `CollectNumericInitBindingNames` before the body is compiled.
+            //
+            // The lazy-long while/for/foreach optimization promotes a loop
+            // accumulator / counter to a typed Int64 slot by `UnboxI`-ing its
+            // boxed value. For a non-numeric accumulator (`var out = ""`) that
+            // UnboxI yields 0 and the body's `out = out + x` miscompiles to a
+            // numeric AddII (result 0). The promotion gate therefore admits an
+            // accumulator / while-iter ONLY when its name is in this set —
+            // sound by construction (an unknown-typed binding is never
+            // promoted). Benchmarks are unaffected: every hot accumulator /
+            // counter is initialized from a numeric literal (`var sum = 0`).
+            public readonly HashSet<string> NumericInitBindings = new(StringComparer.Ordinal);
+
             // Loop-invariant pure-expression RHS slots for typed
             // accumulators. Keyed by the AstNode of the RHS expression;
             // value is the typed Int64 slot pre-loaded once before
@@ -261,6 +278,7 @@ namespace RaLanguage.Interpreter.IR
 
             var st = new State();
             st.FrameId = 0;
+            st.NumericInitBindings.UnionWith(CollectNumericInitBindingNames(root));
             const byte ScratchSlot = 0;
             var statements = FlattenStatements(root);
 
@@ -473,6 +491,193 @@ namespace RaLanguage.Interpreter.IR
                     // their absence may cause LICM to mis-hoist in
                     // pathological cases. The corpus regression sweep
                     // catches such cases empirically.
+                    return;
+            }
+        }
+
+        // Builds the set of binding names that are statically PROVABLY
+        // numeric: a name qualifies iff at least one declaration/assignment
+        // gives it a provably-numeric value AND no declaration/assignment
+        // ever gives it a provably-non-numeric value. Consumed by the typed-
+        // accumulator promotion gate (a string accumulator must never be
+        // promoted to a typed Int64 slot). Name-keyed to match the rest of
+        // the accumulator machinery; conservative across scopes (a name used
+        // numerically in one scope and as a string in another is excluded).
+        private static HashSet<string> CollectNumericInitBindingNames(AstNode? root)
+        {
+            var numeric = new HashSet<string>(StringComparer.Ordinal);
+            var tainted = new HashSet<string>(StringComparer.Ordinal);
+            CollectNumericInitWalk(root, numeric, tainted);
+            numeric.ExceptWith(tainted);
+            return numeric;
+        }
+
+        private enum InitTypeClass { Numeric, NonNumeric, Unknown }
+
+        // Classifies an initializer/RHS expression's static value type.
+        private static InitTypeClass ClassifyInitExpr(AstNode? node)
+        {
+            if (node == null) return InitTypeClass.Unknown;
+            switch (node.NodeType)
+            {
+                case AstNodeType.Number:
+                    return InitTypeClass.Numeric;
+                case AstNodeType.String:
+                case AstNodeType.Boolean:
+                case AstNodeType.Null:
+                case AstNodeType.List:
+                case AstNodeType.Map:
+                case AstNodeType.Set:
+                case AstNodeType.Tuple:
+                case AstNodeType.FormattedInterpolation:
+                    return InitTypeClass.NonNumeric;
+                case AstNodeType.UnaryOperation:
+                {
+                    var uo = (Parser.Nodes.Operations.UnaryOperationNode)node;
+                    var t = uo.OpTok.Type;
+                    // `!x` is boolean. `-x` / `~x` are numeric iff operand is.
+                    if (t == Lexer.Tokens.TokenType.MINUS || t == Lexer.Tokens.TokenType.BITWISE_NOT)
+                        return ClassifyInitExpr(uo.Node) == InitTypeClass.Numeric
+                            ? InitTypeClass.Numeric : InitTypeClass.Unknown;
+                    return InitTypeClass.Unknown;
+                }
+                case AstNodeType.BinaryOperation:
+                {
+                    var bo = (Parser.Nodes.Operations.BinaryOperationNode)node;
+                    var t = bo.OpTok.Type;
+                    switch (t)
+                    {
+                        // Strictly-numeric arithmetic / bitwise ops. NOTE: `+`
+                        // is intentionally excluded — it is string-overloaded.
+                        case Lexer.Tokens.TokenType.MINUS:
+                        case Lexer.Tokens.TokenType.MUL:
+                        case Lexer.Tokens.TokenType.DIV:
+                        case Lexer.Tokens.TokenType.MODULO:
+                        case Lexer.Tokens.TokenType.POW:
+                        case Lexer.Tokens.TokenType.BITWISE_AND:
+                        case Lexer.Tokens.TokenType.BITWISE_OR:
+                        case Lexer.Tokens.TokenType.BITWISE_LEFT_SHIFT:
+                        case Lexer.Tokens.TokenType.BITWISE_RIGHT_SHIFT:
+                        case Lexer.Tokens.TokenType.BITWISE_LOGICAL_LEFT_SHIFT:
+                        case Lexer.Tokens.TokenType.BITWISE_LOGICAL_RIGHT_SHIFT:
+                        case Lexer.Tokens.TokenType.BITWISE_ROTATE_LEFT:
+                        case Lexer.Tokens.TokenType.BITWISE_ROTATE_RIGHT:
+                            // Numeric only when BOTH operands are provably numeric
+                            // (an overloaded operator on user objects could differ).
+                            return (ClassifyInitExpr(bo.LeftNode) == InitTypeClass.Numeric
+                                    && ClassifyInitExpr(bo.RightNode) == InitTypeClass.Numeric)
+                                ? InitTypeClass.Numeric : InitTypeClass.Unknown;
+                        default:
+                            return InitTypeClass.Unknown;
+                    }
+                }
+                default:
+                    return InitTypeClass.Unknown;
+            }
+        }
+
+        private static void RecordInitClass(string? name, AstNode? value,
+            HashSet<string> numeric, HashSet<string> tainted)
+        {
+            if (string.IsNullOrEmpty(name)) return;
+            switch (ClassifyInitExpr(value))
+            {
+                case InitTypeClass.Numeric:    numeric.Add(name); break;
+                case InitTypeClass.NonNumeric: tainted.Add(name); break;
+            }
+        }
+
+        private static void CollectNumericInitWalk(
+            AstNode? node, HashSet<string> numeric, HashSet<string> tainted)
+        {
+            if (node == null) return;
+            switch (node.NodeType)
+            {
+                case AstNodeType.VariableDeclaration:
+                {
+                    var vd = (Parser.Nodes.Variables.VariableDeclarationNode)node;
+                    foreach (var d in vd.Declarations)
+                    {
+                        RecordInitClass(d.Item1.Value?.ToString(), d.Item2, numeric, tainted);
+                        if (d.Item2 != null) CollectNumericInitWalk(d.Item2, numeric, tainted);
+                    }
+                    return;
+                }
+                case AstNodeType.VariableAssignment:
+                {
+                    var va = (Parser.Nodes.Variables.VariableAssignmentNode)node;
+                    // Only a plain `=` assignment redefines the value's type;
+                    // a compound `+=` keeps whatever the binding already held.
+                    if (va.AssignmentToken.Type == Lexer.Tokens.TokenType.EQ)
+                        RecordInitClass(va.Name, va.ValueNode, numeric, tainted);
+                    CollectNumericInitWalk(va.ValueNode, numeric, tainted);
+                    return;
+                }
+                case AstNodeType.Scope:
+                {
+                    var sc = (Parser.Nodes.Special.ScopeNode)node;
+                    foreach (var c in sc.Nodes) CollectNumericInitWalk(c, numeric, tainted);
+                    return;
+                }
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)node;
+                    foreach (var cs in ifn.Cases)
+                    {
+                        CollectNumericInitWalk(cs.Condition, numeric, tainted);
+                        CollectNumericInitWalk(cs.Expr, numeric, tainted);
+                    }
+                    if (ifn.ElseCase.HasValue)
+                        CollectNumericInitWalk(ifn.ElseCase.Value.Expr, numeric, tainted);
+                    return;
+                }
+                case AstNodeType.While:
+                {
+                    var wn = (Parser.Nodes.Statements.WhileNode)node;
+                    CollectNumericInitWalk(wn.ConditionNode, numeric, tainted);
+                    CollectNumericInitWalk(wn.BodyNode, numeric, tainted);
+                    return;
+                }
+                case AstNodeType.DoWhile:
+                {
+                    var dw = (Parser.Nodes.Statements.DoWhileNode)node;
+                    CollectNumericInitWalk(dw.ConditionNode, numeric, tainted);
+                    CollectNumericInitWalk(dw.BodyNode, numeric, tainted);
+                    return;
+                }
+                case AstNodeType.For:
+                {
+                    var fnode = (Parser.Nodes.Statements.ForNode)node;
+                    CollectNumericInitWalk(fnode.BodyNode, numeric, tainted);
+                    return;
+                }
+                case AstNodeType.ForEach:
+                {
+                    var fe = (Parser.Nodes.Statements.ForEachNode)node;
+                    CollectNumericInitWalk(fe.BodyNode, numeric, tainted);
+                    return;
+                }
+                case AstNodeType.Try:
+                {
+                    var tn = (Parser.Nodes.Special.TryNode)node;
+                    CollectNumericInitWalk(tn.TryBody, numeric, tainted);
+                    CollectNumericInitWalk(tn.CatchBody, numeric, tainted);
+                    if (tn.FinallyBody != null) CollectNumericInitWalk(tn.FinallyBody, numeric, tainted);
+                    return;
+                }
+                case AstNodeType.FunctionDefinition:
+                {
+                    var fdn = (Parser.Nodes.Functions.FunctionDefinitionNode)node;
+                    CollectNumericInitWalk(fdn.BodyNode, numeric, tainted);
+                    return;
+                }
+                case AstNodeType.NamespaceDeclaration:
+                {
+                    var ns = (Parser.Nodes.Namespaces.NamespaceDeclarationNode)node;
+                    CollectNumericInitWalk(ns.Body, numeric, tainted);
+                    return;
+                }
+                default:
                     return;
             }
         }
@@ -698,6 +903,7 @@ namespace RaLanguage.Interpreter.IR
 
             var st = new State();
             st.FrameId = -1;
+            st.NumericInitBindings.UnionWith(CollectNumericInitBindingNames(node));
             const byte ScratchSlot = 0;
             byte topSlot = 1;
             byte retSlot = AllocTemp(ref topSlot);
@@ -749,6 +955,7 @@ namespace RaLanguage.Interpreter.IR
 
             var st = new State();
             st.FrameId = -1;
+            st.NumericInitBindings.UnionWith(CollectNumericInitBindingNames(node));
             const byte ScratchSlot = 0;
 
             CompileStatementWithFallback(node, st, ScratchSlot);
@@ -795,6 +1002,7 @@ namespace RaLanguage.Interpreter.IR
 
             var st = new State();
             st.FrameId = frameId;
+            st.NumericInitBindings.UnionWith(CollectNumericInitBindingNames(body));
             const byte ScratchSlot = 0;
 
             // Pre-register parameter slots so SlotCount accounts for them even
@@ -2230,6 +2438,10 @@ namespace RaLanguage.Interpreter.IR
             string iterName = iterAccess.Name;
             var iterBinding = iterAccess.Binding;
             var iterKind = iterAccess.BindingKind;
+            // Soundness gate: the counter must be provably numeric to be
+            // UnboxI-promoted into a typed Int64 slot. A non-numeric (e.g.
+            // string) `i` would unbox to 0 and corrupt the loop.
+            if (!st.NumericInitBindings.Contains(iterName)) return false;
             if (!IsSlotEligible(iterBinding, iterKind, st)) return false;
             if (iterBinding.Offset > ushort.MaxValue) return false;
             if (BodyDeclaresName(node.BodyNode, iterName)) return false;
@@ -2553,6 +2765,22 @@ namespace RaLanguage.Interpreter.IR
             int loopTopPc = st.Code.Pc;
             if (bodyNeedsScope)
                 st.Code.Emit3(Opcode.ClearScope, 0, 0, 0);
+
+            // Back-edge correctness: the body is compiled ONCE but runs many
+            // times. A typed iter / accumulator advanced near the body's END
+            // is already dirty (its boxed mirror stale) on RE-ENTRY to the
+            // body top from iteration 2 onward. The lazy publish-on-read
+            // (CompileExpression VariableAccess) only emits a BoxI+StoreLocalS
+            // when the name is in DirtyTypedAccs at compile time — so a
+            // non-redirectable read positioned BEFORE the advance (e.g.
+            // `while i<n { print(i); i=i+1 }`) would never get a publish and
+            // would read the stale pre-loop boxed value every iteration.
+            // Seed the dirty set at body-top so the first such read publishes
+            // the current typed value; that publish instruction then executes
+            // every iteration. Loops with no non-redirectable reads emit no
+            // extra publishes — zero cost on the hot numeric paths.
+            foreach (var __k in new List<string>(st.TypedAccumulators.Keys))
+                st.DirtyTypedAccs.Add(__k);
 
             // Compile the condition normally. The typed-Int64 / typed-iter
             // redirects in `CompileExpression` will lower it to a single
@@ -4689,6 +4917,11 @@ namespace RaLanguage.Interpreter.IR
             //   (d) Slot-eligible Resolver binding.
             foreach (var name in seen)
             {
+                // Soundness gate: only promote an accumulator to a typed
+                // Int64 slot when its binding is provably numeric. A string
+                // accumulator (`var out = ""`) would otherwise UnboxI to 0
+                // and miscompile `out = out + x` into a numeric AddII.
+                if (!st.NumericInitBindings.Contains(name)) continue;
                 if (HasNonRedirectableAccumulatorWrite(body, body, name, iterName, st)) continue;
                 if (BodyDeclaresName(body, name)) continue;
                 var binding = FindFirstBindingOfName(body, name);

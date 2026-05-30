@@ -1,0 +1,183 @@
+// Ra Language - integration: a record-oriented data pipeline.
+//
+// Builds a list of `record` "employees", then runs map / filter / reduce /
+// sort / group-by over them, mixing three transformation styles:
+//   * explicit for-loops with lambda kernels
+//   * the pipeline operator |>  feeding stream_* combinators
+//   * closures that capture outer state (running totals, predicates)
+// and asserts the aggregate results (sums, counts, sorted order, grouped
+// maps). Demonstrates the interactions between records, lambdas, closures,
+// maps, tuples, and the lazy stream layer.
+//
+// NOTE (probed): there is no list_map / list_filter / list_reduce builtin and
+// list_sort takes no comparator, so higher-order list work is done either with
+// for-loops + lambdas or by routing through stream_* (which DO have map/filter/
+// reduce/fold). `for k in <map>` yields (key,value) TUPLES, so key iteration
+// goes through map_keys / map_entries.
+
+print("=== integration/data_pipeline ===");
+
+fn ok(id, cond) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); } }
+fn okv(id, cond, detail) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL: " + detail); } }
+
+// ---------------------------------------------------------------------------
+// Domain model + dataset.
+// ---------------------------------------------------------------------------
+record Emp(name: string, dept: string, salary: int, age: int)
+
+let staff = [Emp("Ada", "eng", 120, 36), Emp("Bo", "eng", 90, 28), Emp("Cy", "sales", 70, 45), Emp("Di", "sales", 110, 39), Emp("Ev", "ops", 80, 31), Emp("Fi", "eng", 150, 52)];
+
+// ---------------------------------------------------------------------------
+// Reusable higher-order helpers built on top of for-loops + lambdas. These
+// stand in for the missing list_map / list_filter / list_reduce builtins.
+// ---------------------------------------------------------------------------
+fn lmap(xs: list, f): list {
+    var out = [];
+    for x in xs { out = out + [f(x)]; }
+    ret out;
+}
+fn lfilter(xs: list, pred): list {
+    var out = [];
+    for x in xs { if pred(x) { out = out + [x]; } }
+    ret out;
+}
+fn lreduce(xs: list, seed, f) {
+    var acc = seed;
+    for x in xs { acc = f(acc, x); }
+    ret acc;
+}
+
+// === D1: map a record list to a list of salaries ===========================
+let salaries = lmap(staff, |e| e.salary);
+okv("D1", salaries == [120, 90, 70, 110, 80, 150], salaries as string);
+
+// === D2: reduce salaries to a total (lambda accumulator) ===================
+let total = lreduce(salaries, 0, |acc, s| acc + s);
+okv("D2", total == 620, total as string);
+
+// === D3: builtin list_sum agrees with the hand-rolled reduce ===============
+ok("D3", list_sum(salaries) == total);
+
+// === D4: filter the engineers, then count ==================================
+let eng = lfilter(staff, |e| e.dept == "eng");
+okv("D4", len(eng) == 3, len(eng) as string);
+
+// === D5: map+filter compose — names of high earners (>= 110) ===============
+let rich_names = lmap(lfilter(staff, |e| e.salary >= 110), |e| e.name);
+okv("D5", rich_names == ["Ada", "Di", "Fi"], rich_names as string);
+
+// === D6: average salary via reduce + len (integer division) ================
+let avg = list_sum(salaries) / len(salaries);
+okv("D6", avg == 103, avg as string);
+
+// === D7: max salary via reduce with a max-lambda ===========================
+let top = lreduce(salaries, 0, |acc, s| s > acc ? s : acc);
+okv("D7", top == 150, top as string);
+
+// === D8: builtin list_max agrees =========================================
+ok("D8", list_max(salaries) == top);
+
+// ---------------------------------------------------------------------------
+// Pipeline-operator + stream_* style. Same dataset, lazy combinators.
+// ---------------------------------------------------------------------------
+
+// === D9: stream map+filter+collect — doubled salaries of the under-40s =====
+let young_doubled = stream_from(staff) |> stream_filter(|e| e.age < 40) |> stream_map(|e| e.salary * 2) |> stream_collect();
+okv("D9", young_doubled == [240, 180, 220, 160], young_doubled as string);
+
+// === D10: stream_reduce sums those doubled salaries ========================
+let young_sum = stream_from(staff) |> stream_filter(|e| e.age < 40) |> stream_map(|e| e.salary) |> stream_reduce(0, |a, s| a + s);
+okv("D10", young_sum == 400, young_sum as string);
+
+// === D11: stream_fold building a concatenated, comma-free name roster ======
+let roster = stream_from(staff) |> stream_map(|e| e.name) |> stream_fold("", |acc, n| acc == "" ? n : acc + "-" + n);
+okv("D11", roster == "Ada-Bo-Cy-Di-Ev-Fi", roster);
+
+// === D12: stream_count of the sales team ===================================
+let sales_n = stream_from(staff) |> stream_filter(|e| e.dept == "sales") |> stream_count();
+okv("D12", sales_n == 2, sales_n as string);
+
+// === D13: stream_any / stream_all predicates ===============================
+let any_over_140 = stream_from(staff) |> stream_any(|e| e.salary > 140);
+let all_paid = stream_from(staff) |> stream_all(|e| e.salary > 0);
+ok("D13", any_over_140 == true and all_paid == true);
+
+// ---------------------------------------------------------------------------
+// Sorting. list_sort has no comparator, so sort by building (key, value)
+// tuples (which sort by their first element) then projecting back.
+// ---------------------------------------------------------------------------
+
+// === D14: sort employees ascending by salary, read back the name order =====
+var keyed = [];
+for e in staff { keyed = keyed + [(e.salary, e.name)]; }
+let sorted_pairs = list_sort(keyed);
+let by_salary = lmap(sorted_pairs, |p| p[1]);
+okv("D14", by_salary == ["Cy", "Ev", "Bo", "Di", "Ada", "Fi"], by_salary as string);
+
+// === D15: the sorted salary column is monotonically non-decreasing =========
+let sorted_salaries = list_sort(salaries);
+var monotonic = true;
+for i = 1 to len(sorted_salaries) {
+    if sorted_salaries[i] < sorted_salaries[i - 1] { monotonic = false; }
+}
+ok("D15", monotonic);
+
+// === D16: descending sort via list_sort_desc ===============================
+okv("D16", list_sort_desc(salaries)[0] == 150, "max-first");
+
+// ---------------------------------------------------------------------------
+// Group-by into a map<dept, list<salary>> using map_get_or as the upsert.
+// ---------------------------------------------------------------------------
+
+// === D17: group salaries by department =====================================
+var by_dept = make_map();
+for e in staff {
+    let cur = map_get_or(by_dept, e.dept, []);
+    map_set(by_dept, e.dept, cur + [e.salary]);
+}
+ok("D17a", map_get(by_dept, "eng") == [120, 90, 150]);
+ok("D17b", map_get(by_dept, "sales") == [70, 110]);
+ok("D17c", map_get(by_dept, "ops") == [80]);
+
+// === D18: per-department total via a second pass over the grouped map ======
+var dept_totals = make_map();
+for dept in map_keys(by_dept) {
+    map_set(dept_totals, dept, list_sum(map_get(by_dept, dept)));
+}
+ok("D18a", map_get(dept_totals, "eng") == 360);
+ok("D18b", map_get(dept_totals, "sales") == 180);
+ok("D18c", map_get(dept_totals, "ops") == 80);
+
+// === D19: the grouped totals re-sum to the grand total =====================
+var regrand = 0;
+for dept in map_keys(dept_totals) { regrand = regrand + map_get(dept_totals, dept); }
+okv("D19", regrand == 620, regrand as string);
+
+// ---------------------------------------------------------------------------
+// Closures capturing outer state.
+// ---------------------------------------------------------------------------
+
+// === D20: a closure accumulating a running total as it is fed salaries =====
+fn make_accumulator() {
+    var running = 0;
+    fn feed(x: int): int { running = running + x; ret running; }
+    ret feed;
+}
+let acc_fn = make_accumulator();
+var last = 0;
+for s in salaries { last = acc_fn(s); }
+okv("D20", last == 620, last as string);
+
+// === D21: a closure capturing a threshold builds a reusable predicate ======
+fn at_least(threshold: int): fn(int) -> bool { ret |x| x >= threshold; }
+let big = at_least(100);
+let count_big = len(lfilter(salaries, big));
+okv("D21", count_big == 3, count_big as string);
+
+// === D22: pipeline + closure together — running cumulative sums via scan ====
+// stream_scan threads an accumulator and EMITS THE SEED FIRST, so a 6-element
+// input yields 7 prefixes [0, ...]; assert that shape and the final total.
+let prefixes = stream_from(salaries) |> stream_scan(0, |a, x| a + x) |> stream_collect();
+okv("D22", list_last(prefixes) == 620 and len(prefixes) == 7 and prefixes[0] == 0, prefixes as string);
+
+print("=== done ===");

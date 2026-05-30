@@ -1,0 +1,105 @@
+// Ra Language - builtins: broad cross-domain smoke sampler (asserted).
+//
+// Fast sanity check spanning reflection, collections, strings, math,
+// conversion, and time/os built-ins. One or two asserted cases per family;
+// every assertion checks a semantically-correct expected value (deterministic
+// only -- no clock / random / FS-state dependence).
+
+print("=== builtins/smoke ===");
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+// ---------------------------------------------------------------------------
+// reflection: type_of / type_kind / is_*
+// ---------------------------------------------------------------------------
+ok("S1", type_of(5) == "number");
+ok("S2", type_of("abc") == "string");
+ok("S3", type_of(true) == "boolean");
+ok("S4", type_of([1, 2, 3]) == "list");
+ok("S5", type_kind([1, 2, 3]) == "list");
+ok("S6", type_kind((1, 2)) == "tuple");
+ok("S7", is_int(5) == true);
+// `5` is a whole number so it also satisfies is_float; a fractional value does not satisfy is_int.
+ok("S8", is_int(3.14) == false);
+ok("S9", is_float(3.14) == true);
+ok("S10", is_string("x") == true);
+ok("S11", is_bool(true) == true);
+ok("S12", is_list([1]) == true);
+ok("S13", is_map({"a": 1}) == true);
+ok("S14", is_set({1, 2}) == true);
+
+// ---------------------------------------------------------------------------
+// collections
+// ---------------------------------------------------------------------------
+ok("S15", len([1, 2, 3, 4, 5]) == 5);
+ok("S16", len("hello") == 5);
+ok("S17", list_reverse([1, 2, 3]) == [3, 2, 1]);
+ok("S18", list_sort([3, 1, 2]) == [1, 2, 3]);
+ok("S19", list_sum([1, 2, 3, 4]) == 10);
+ok("S20", list_max([5, 3, 9, 1]) == 9);
+ok("S21", list_min([5, 3, 9, 1]) == 1);
+ok("S22", list_range(0, 5) == [0, 1, 2, 3, 4]);
+ok("S23", map_get({"a": 1, "b": 2}, "b") == 2);
+ok("S24", set_union({1, 2}, {2, 3}) == {1, 2, 3});
+
+// ---------------------------------------------------------------------------
+// strings
+// ---------------------------------------------------------------------------
+ok("S25", str_upper("hello") == "HELLO");
+ok("S26", str_lower("HELLO") == "hello");
+ok("S27", str_reverse("abc") == "cba");
+ok("S28", str_split("a,b,c", ",") == ["a", "b", "c"]);
+ok("S29", str_join(["a", "b", "c"], "-") == "a-b-c");
+ok("S30", str_contains("hello world", "world") == true);
+ok("S31", str_contains("hello world", "xyz") == false);
+ok("S32", str_repeat("ab", 3) == "ababab");
+
+// ---------------------------------------------------------------------------
+// math
+// ---------------------------------------------------------------------------
+ok("S33", abs(-7) == 7);
+ok("S34", sqrt(16) == 4);
+ok("S35", pow(2, 10) == 1024);
+ok("S36", math_min(3, 7, 1) == 1);
+ok("S37", math_max(3, 7, 1) == 7);
+ok("S38", floor(3.7) == 3);
+ok("S39", ceil(3.2) == 4);
+ok("S40", floor(-1.2) == -2);
+ok("S41", ceil(-1.8) == -1);
+// round uses round-half-to-even (banker's rounding): 3.5 -> 4, 2.5 -> 2.
+ok("S42", round(3.5) == 4);
+ok("S43", round(2.5) == 2);
+// pi() must be the mathematical constant to double precision.
+ok("S44", pi() > 3.141592 and pi() < 3.141593);
+
+// ---------------------------------------------------------------------------
+// conversion
+// ---------------------------------------------------------------------------
+ok("S45", to_int("42") == 42);
+ok("S46", to_string(123) == "123");
+ok("S47", to_float("3.5") == 3.5);
+ok("S48", parse_int("ff", 16) == 255);
+ok("S49", parse_int("1010", 2) == 10);
+ok("S50", format_hex(255) == "ff");
+
+// ---------------------------------------------------------------------------
+// time / os  (deterministic *properties* only -- exact values are machine
+// dependent, so assert type/shape, not a hard-coded host value)
+// ---------------------------------------------------------------------------
+ok("S51", is_string(os_name()) == true);
+ok("S52", is_string(os_arch()) == true);
+ok("S53", len(os_name()) > 0);
+ok("S54", is_int(os_processor_count()) == true);
+ok("S55", os_processor_count() > 0);
+
+// ---------------------------------------------------------------------------
+// debug helper: assert_eq raises on mismatch, is a no-op on match
+// ---------------------------------------------------------------------------
+assert_eq(2 + 2, 4, "math broke");
+var ae_threw = false;
+try { assert_eq(1, 2, "intentional mismatch"); } catch (e) { ae_threw = true; }
+ok("S56", ae_threw == true);
+
+print("=== done ===");

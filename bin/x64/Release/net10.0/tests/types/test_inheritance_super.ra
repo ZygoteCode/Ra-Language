@@ -1,0 +1,120 @@
+// Ra Language - types: inheritance, super(...), super.method(), multi-level
+// chains, reflection (base_class / super_classes / is_subclass_of), and
+// polymorphic dispatch through a base-typed variable.
+//
+// Cases:
+//   IS1   subclass inherits a parent field's value
+//   IS2   subclass inherits a parent method (no override)
+//   IS3   override changes dispatch on the subclass instance
+//   IS4   super(...) forwards constructor args up the chain
+//   IS5   super.method() calls the immediate parent's implementation
+//   IS6   multi-level field inheritance (A -> B -> C) reaches the root field
+//   IS7   multi-level super.method() chains through every level (C>B>A)
+//   IS8   super.method() skips a non-overriding middle class (C>A)
+//   IS9   base_class() reflects the direct parent; root has null base
+//   IS10  is_subclass_of() — strict, accepts a class
+//   IS11  is_subclass_of() — accepts an instance, not reflexive
+//   IS12  super_classes() lists the ancestor chain in order
+//   IS13  polymorphic dispatch: base-typed parameter sees the override
+//   IS14  default field initialisers apply through the whole chain
+
+print("=== types/inheritance_super ===");
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+pub class Animal {
+    pub var name: string = "?";
+    pub var legs: int = 4;
+    pub Animal(name: string) {
+        self.name = name;
+    }
+    pub fn speak(): string { ret "<silence>"; }
+    pub fn describe(): string { ret self.name + " says " + self.speak(); }
+}
+
+pub class Dog : Animal {
+    pub var breed: string = "mutt";
+    pub Dog(name: string, breed: string) {
+        super(name);
+        self.breed = breed;
+    }
+    pub override fn speak(): string { ret "woof"; }
+    pub fn parent_speak(): string { ret super.speak(); }
+}
+
+var d = Dog("Rex", "Lab");
+ok("IS1", d.name == "Rex");
+ok("IS2", d.describe() == "Rex says woof");
+ok("IS3", d.speak() == "woof");
+ok("IS4", d.name == "Rex" and d.breed == "Lab");
+ok("IS5", d.parent_speak() == "<silence>");
+
+// ---- multi-level chain A -> B -> C ----
+pub class A {
+    pub var root: int = 0;
+    pub A(r: int) { self.root = r; }
+    pub fn tag(): string { ret "A"; }
+}
+pub class B : A {
+    pub var mid: int = 0;
+    pub B(r: int, m: int) {
+        super(r);
+        self.mid = m;
+    }
+    pub override fn tag(): string { ret "B>" + super.tag(); }
+}
+pub class C : B {
+    pub var leaf: int = 0;
+    pub C(r: int, m: int, l: int) {
+        super(r, m);
+        self.leaf = l;
+    }
+    pub override fn tag(): string { ret "C>" + super.tag(); }
+}
+
+var c = C(1, 2, 3);
+ok("IS6", c.root == 1 and c.mid == 2 and c.leaf == 3);
+ok("IS7", c.tag() == "C>B>A");
+
+// ---- super.method() that skips a non-overriding middle class ----
+pub class M1 {
+    pub M1() { pass; }
+    pub fn name(): string { ret "M1"; }
+}
+pub class M2 : M1 {
+    pub M2() { pass; }
+    // M2 deliberately does NOT override name()
+}
+pub class M3 : M2 {
+    pub M3() { pass; }
+    pub override fn name(): string { ret "M3>" + super.name(); }
+}
+var m = M3();
+ok("IS8", m.name() == "M3>M1");
+
+// ---- reflection ----
+ok("IS9", type_name(base_class(C)) == "B" and type_name(base_class(B)) == "A" and is_null(base_class(A)));
+ok("IS10", is_subclass_of(C, A) == true and is_subclass_of(C, C) == false);
+ok("IS11", is_subclass_of(c, A) == true and is_subclass_of(c, B) == true);
+
+var chain = super_classes(C);
+ok("IS12", len(chain) == 2 and type_name(chain[0]) == "B" and type_name(chain[1]) == "A");
+
+// ---- polymorphic dispatch through a base-typed parameter ----
+// NOTE: this build rejects a class-type annotation on a `var`
+// (`var x: Animal = ...` fails to parse), so the base-typed binding is
+// expressed via a function parameter, which is the real dispatch site.
+fn voice(a: Animal): string { ret a.speak(); }
+var poly = d;
+ok("IS13", voice(poly) == "woof" and poly.speak() == "woof");
+
+// ---- default field initialisers through the chain ----
+pub class Cat : Animal {
+    pub Cat() { super("Tom"); }
+}
+var cat = Cat();
+ok("IS14", cat.name == "Tom" and cat.legs == 4 and cat.speak() == "<silence>");
+
+print("=== done ===");

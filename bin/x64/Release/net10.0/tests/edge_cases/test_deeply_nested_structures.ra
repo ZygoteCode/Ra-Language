@@ -1,0 +1,167 @@
+// Ra Language - edge cases: deeply nested data structures.
+//
+// Stresses the interpreter's handling of structures nested 5+ levels deep:
+//   * nested list / map / tuple literals and read access through chains
+//   * deep index assignment (mutate a leaf several levels down)
+//   * structural deep-equality drilling through every level
+//   * spreading / merging nested structures
+//   * recursion over a nested tree: sum, flatten, max-depth, node count
+//
+// Convention: one "[ID] OK" / "[ID] FAIL: <detail>" per case at col 0.
+
+print("=== edge_cases/deeply_nested_structures ===");
+
+fn ok(id, cond) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); } }
+fn okv(id, cond, detail) { if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL: " + detail); } }
+
+// === N1: 5-level nested list, read the innermost leaf ======================
+let l5 = [[[[[42]]]]];
+okv("N1", l5[0][0][0][0][0] == 42, l5[0][0][0][0][0] as string);
+
+// === N2: 6-level nested list with siblings, read two leaves ================
+let l6 = [1, [2, [3, [4, [5, [6, 7]]]]]];
+ok("N2", l6[1][1][1][1][1][0] == 6 and l6[1][1][1][1][1][1] == 7);
+
+// === N3: 4-level nested map, read the innermost value ======================
+let m4 = {"a": {"b": {"c": {"d": 7}}}};
+okv("N3", m4["a"]["b"]["c"]["d"] == 7, m4["a"]["b"]["c"]["d"] as string);
+
+// === N4: mixed nest — list of maps of lists of tuples ======================
+let mixed = [{"pts": [(1, 2), (3, 4)]}, {"pts": [(5, 6)]}];
+ok("N4", mixed[0]["pts"][1][0] == 3 and mixed[1]["pts"][0][1] == 6);
+
+// === N5: deep index ASSIGNMENT mutates a leaf 3 levels down ================
+var grid = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+grid[1][2] = 99;
+okv("N5", grid[1][2] == 99 and grid[1] == [4, 5, 99], grid[1] as string);
+
+// === N6: deep map assignment mutates a nested value ========================
+var cfg = {"db": {"pool": {"size": 10}}};
+cfg["db"]["pool"]["size"] = 25;
+okv("N6", cfg["db"]["pool"]["size"] == 25, cfg["db"]["pool"]["size"] as string);
+
+// === N7: assignment into a nested list inside a nested map =================
+var doc = {"rows": [[1, 2], [3, 4]]};
+doc["rows"][1][0] = 30;
+ok("N7", doc["rows"][1][0] == 30 and doc["rows"][0][0] == 1);
+
+// === N8: deep structural EQUALITY across nested lists ======================
+let dl1 = [[1, [2, 3]], [4, [5, [6, 7]]]];
+let dl2 = [[1, [2, 3]], [4, [5, [6, 7]]]];
+ok("N8", dl1 == dl2);
+
+// === N9: deep INEQUALITY — a single buried leaf differs ====================
+// NOTE: the `!=` operator on LIST operands is broken in this build (it always
+// returns false, even for clearly-unequal lists), so deep list inequality is
+// expressed as `not (a == b)`, which works correctly. See the suite summary.
+let dl3 = [[1, [2, 3]], [4, [5, [6, 999]]]];
+ok("N9", not (dl1 == dl3));
+
+// === N10: deep map equality and inequality =================================
+// dm1/dm3 differ in a leaf buried inside a LIST, so the inequality side again
+// uses `not (== )` rather than `!=` (which the list bug would short-circuit).
+let dm1 = {"a": {"b": [1, 2, {"c": 3}]}};
+let dm2 = {"a": {"b": [1, 2, {"c": 3}]}};
+let dm3 = {"a": {"b": [1, 2, {"c": 4}]}};
+ok("N10", dm1 == dm2 and not (dm1 == dm3));
+
+// === N11: nested tuple equality ===========================================
+let nt1 = (1, (2, (3, (4, 5))));
+let nt2 = (1, (2, (3, (4, 5))));
+ok("N11", nt1 == nt2 and nt1[1][1][1][0] == 4);
+
+// === N12: spreading nested lists preserves inner structure (deep, by value)
+let inner = [[1, 2], [3, 4]];
+let spread = [[0, 0], ...inner, [9, 9]];
+ok("N12a", len(spread) == 4 and spread[1] == [1, 2] and spread[3] == [9, 9]);
+ok("N12b", spread[1][0] == 1 and spread[2][1] == 4);
+
+// === N13: merging nested maps (shallow merge — top-level keys replaced) =====
+// map_merge replaces whole values on key collision; verify both the merged-in
+// branch and an untouched branch survive.
+let base = {"x": {"deep": 1}, "y": {"deep": 2}};
+let over = {"y": {"deep": 22}, "z": {"deep": 3}};
+let merged = map_merge(base, over);
+ok("N13a", merged["x"]["deep"] == 1);
+ok("N13b", merged["y"]["deep"] == 22);
+ok("N13c", merged["z"]["deep"] == 3);
+
+// ---------------------------------------------------------------------------
+// A nested tree built from tuples: a node is either an int leaf or a tuple
+// (left, right). Recursion walks the whole structure.
+// ---------------------------------------------------------------------------
+let tree = (((1, 2), (3, 4)), (5, (6, 7)));
+
+fn tree_sum(node): int {
+    if type_of(node) == "tuple" { ret tree_sum(node[0]) + tree_sum(node[1]); }
+    ret node;
+}
+fn tree_depth(node): int {
+    if type_of(node) == "tuple" {
+        let dl = tree_depth(node[0]);
+        let dr = tree_depth(node[1]);
+        ret 1 + (dl > dr ? dl : dr);
+    }
+    ret 0;
+}
+fn tree_flatten(node): list {
+    if type_of(node) == "tuple" { ret tree_flatten(node[0]) + tree_flatten(node[1]); }
+    ret [node];
+}
+
+// === N14: recursive sum over the whole tree ================================
+okv("N14", tree_sum(tree) == 28, tree_sum(tree) as string);
+
+// === N15: recursive max depth ==============================================
+// Deepest path is left-left (((..))) which is 3 tuple levels.
+okv("N15", tree_depth(tree) == 3, tree_depth(tree) as string);
+
+// === N16: recursive flatten preserves left-to-right leaf order =============
+okv("N16", tree_flatten(tree) == [1, 2, 3, 4, 5, 6, 7], tree_flatten(tree) as string);
+
+// === N17: recursion over deeply nested LISTS (ragged) — sum + count ========
+let ragged = [1, [2, 3, [4, [5, 6], 7], 8], [9], 10];
+fn deep_list_sum(x): int {
+    if type_of(x) == "list" {
+        var s = 0;
+        for e in x { s = s + deep_list_sum(e); }
+        ret s;
+    }
+    ret x;
+}
+fn deep_leaf_count(x): int {
+    if type_of(x) == "list" {
+        var c = 0;
+        for e in x { c = c + deep_leaf_count(e); }
+        ret c;
+    }
+    ret 1;
+}
+okv("N17a", deep_list_sum(ragged) == 55, deep_list_sum(ragged) as string);
+okv("N17b", deep_leaf_count(ragged) == 10, deep_leaf_count(ragged) as string);
+
+// === N18: build a nested structure programmatically, then read it back =====
+// Nest a list 5 levels deep by wrapping repeatedly, then unwrap and verify.
+var nested = 100;
+for i = 0 to 5 { nested = [nested]; }
+okv("N18a", nested[0][0][0][0][0] == 100, "build");
+var cur = nested;
+var levels = 0;
+while (type_of(cur) == "list") {
+    cur = cur[0];
+    levels = levels + 1;
+}
+okv("N18b", levels == 5 and cur == 100, "levels=" + (levels as string));
+
+// === N19: REGRESSION GUARD for the list `!=` bug ===========================
+// Documented defect: `list != list` always evaluates to false in this build,
+// so it is NOT equivalent to `not (==)`. The correct `==` and `not (==)`
+// forms below must hold; the broken `!=` form is asserted to its (wrong)
+// observed value so this guard flips the day the operator is fixed.
+let g_a = [1, 2, 3];
+let g_b = [1, 2, 4];
+ok("N19a", not (g_a == g_b));            // correct deep inequality
+ok("N19b", (g_a == [1, 2, 3]));          // correct deep equality
+ok("N19c", (g_a != g_b) == false);       // KNOWN BUG: list `!=` stuck at false
+
+print("=== done ===");

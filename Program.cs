@@ -193,6 +193,10 @@ namespace RaLanguage
             {
                 PrintDiagnostics(lexerDiagnostics);
                 Console.WriteLine($"[Ra Language] Compilation aborted: lexing failed ({lexerDiagnostics.Summary()}).");
+                // A compile-time abort is a failure regardless of the caller.
+                // Without this the CLI (path mode / run_tests) reports success
+                // on a file that never even parsed.
+                Environment.ExitCode = 1;
                 return (null, null);
             }
 
@@ -203,6 +207,7 @@ namespace RaLanguage
             {
                 PrintDiagnostics(parseResult.Diagnostics);
                 Console.WriteLine($"[Ra Language] Compilation aborted: parsing failed ({parseResult.Diagnostics.Summary()}).");
+                Environment.ExitCode = 1;
                 return (null, null);
             }
 
@@ -1722,6 +1727,11 @@ namespace RaLanguage
             // legitimate re-compilation if AST identity ever collided.
             Interpreter.Runtime.IrExpressionEvaluator.ClearCache();
             InitializeSymbolTable();
+            // Each run owns its exit code: clear any failure recorded by a
+            // previous menu iteration so a clean run reports success, and a
+            // failing run (compile abort inside Run, or an uncaught runtime
+            // error below) reports a non-zero code the shell / CI can observe.
+            Environment.ExitCode = 0;
             try
             {
                 string text = File.ReadAllText(fileName);
@@ -1733,6 +1743,7 @@ namespace RaLanguage
                 if (error != null)
                 {
                     Console.WriteLine(error.ToString());
+                    Environment.ExitCode = 1;
                 }
 
                 if (diagnostics)
@@ -1742,10 +1753,12 @@ namespace RaLanguage
             }
             catch (Exception ex)
             {
-                if (diagnostics)
-                {
-                    Console.WriteLine($"[Error] Could not read file: {ex.Message}");
-                }
+                // A managed exception escaped the run pipeline (file read, or
+                // an internal interpreter/VM/FFI failure). Surface it on stderr
+                // regardless of the diagnostics flag — silently swallowing it
+                // (the old behaviour) left path-mode failures invisible.
+                Environment.ExitCode = 1;
+                Console.Error.WriteLine($"[Ra Language] Unhandled error: {ex}");
             }
         }
     }
