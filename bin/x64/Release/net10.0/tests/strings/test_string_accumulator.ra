@@ -1,0 +1,203 @@
+import std.prelude.*;
+// Ra Language - strings: O(n) loop string-accumulator promotion.
+//
+// The IR compiler promotes a loop-carried `s = s + x` self-append into a
+// per-frame StringBuilder (opcodes StrAccBegin / StrAccAppend /
+// StrAccMaterialize) so 50k concatenations cost O(n) instead of O(n^2).
+// These cases lock down SEMANTIC EQUIVALENCE with the boxed `+` chain across
+// every shape the promotion (and its conservative gates) must handle.
+//
+// Cases:
+//   A1   empty-seed, exclusive-range foreach `for i in 0..N`  (CompileForEachLazyIntRange)
+//   A2   empty-seed, counted `for i = 0 to N`                 (CompileForLazyLong)
+//   A3   NON-empty seed is preserved
+//   A4   number coercion `s = s + i` matches StringValue.AddedTo
+//   A5   conditional append (only a subset of iterations append)
+//   A6   nested loops sharing the accumulator name
+//   A7   mid-loop READ blocks promotion -> boxed fallback stays correct
+//   A8   two distinct accumulators in one loop
+//   A9   post-loop value correct, then further appends after the loop
+//   A10  numeric + string accumulator coexist in the same loop
+//   A11  inclusive range `for v in 0..=N`
+//   A12  multi-char append, exact content equality
+
+print("=== strings/string_accumulator ===");
+
+// A1 — exclusive-range foreach (the dominant `for i in 0..N` shape)
+var s1 = "";
+for i in 0..5 { s1 = s1 + "x"; }
+if s1 == "xxxxx" and len(s1) == 5 { print("[A1] OK"); } else { print("[A1] FAIL " + s1); }
+
+// A2 — counted ForNode form -> CompileForLazyLong path
+var s2 = "";
+for i = 0 to 5 { s2 = s2 + "y"; }
+if s2 == "yyyyy" and len(s2) == 5 { print("[A2] OK"); } else { print("[A2] FAIL " + s2); }
+
+// A3 — non-empty seed must survive into the builder
+var s3 = "seed:";
+for i in 0..3 { s3 = s3 + "."; }
+if s3 == "seed:..." { print("[A3] OK"); } else { print("[A3] FAIL " + s3); }
+
+// A4 — int RHS coerces exactly like the boxed `string + number`
+var s4 = "";
+for i in 0..4 { s4 = s4 + i; }
+if s4 == "0123" { print("[A4] OK"); } else { print("[A4] FAIL " + s4); }
+
+// A5 — append only on a subset of iterations (conditional)
+var s5 = "";
+for i in 0..6 {
+    if i % 2 == 0 { s5 = s5 + "e"; }
+}
+if s5 == "eee" { print("[A5] OK"); } else { print("[A5] FAIL " + s5); }
+
+// A6 — nested loops appending the SAME accumulator. Inner re-seeds from the
+// running value each outer iteration and materialises back; total content
+// must equal 3*2 = 6 appends.
+var s6 = "";
+for i in 0..3 {
+    for j in 0..2 { s6 = s6 + "a"; }
+}
+if s6 == "aaaaaa" and len(s6) == 6 { print("[A6] OK"); } else { print("[A6] FAIL " + s6); }
+
+// A7 — a mid-loop READ of the accumulator disqualifies promotion (reads !=
+// appends). The boxed fallback must still produce the right answer.
+var s7 = "";
+var probe7 = -1;
+for i in 0..4 {
+    s7 = s7 + "z";
+    if len(s7) == 2 { probe7 = i; }
+}
+if s7 == "zzzz" and probe7 == 1 { print("[A7] OK"); } else { print("[A7] FAIL " + s7 + " probe=" + (probe7 as string)); }
+
+// A8 — two independent accumulators promoted in one loop body
+var s8a = "";
+var s8b = "";
+for i in 0..4 {
+    s8a = s8a + "L";
+    s8b = s8b + "R";
+}
+if s8a == "LLLL" and s8b == "RRRR" { print("[A8] OK"); } else { print("[A8] FAIL " + s8a + "/" + s8b); }
+
+// A9 — the materialised value is a normal string after the loop; appending
+// more must continue from it.
+var s9 = "";
+for i in 0..3 { s9 = s9 + "p"; }
+s9 = s9 + "Q";
+if s9 == "pppQ" { print("[A9] OK"); } else { print("[A9] FAIL " + s9); }
+
+// A10 — numeric typed-accumulator and string accumulator coexist
+var sum10 = 0;
+var s10 = "";
+for i in 0..5 {
+    sum10 = sum10 + i;
+    s10 = s10 + "q";
+}
+if sum10 == 10 and s10 == "qqqqq" { print("[A10] OK"); } else { print("[A10] FAIL " + (sum10 as string) + "/" + s10); }
+
+// A11 — inclusive range bound
+var s11 = "";
+for v in 0..=3 { s11 = s11 + "i"; }
+if s11 == "iiii" and len(s11) == 4 { print("[A11] OK"); } else { print("[A11] FAIL " + s11); }
+
+// A12 — multi-char chunk append, exact content (not just length)
+var s12 = "";
+for i in 0..3 { s12 = s12 + "ab"; }
+if s12 == "ababab" and len(s12) == 6 { print("[A12] OK"); } else { print("[A12] FAIL " + s12); }
+
+// A13 — `let mut` accumulator (mutable binding) promotes identically.
+let mut s13 = "";
+for i in 0..4 { s13 = s13 + "m"; }
+if s13 == "mmmm" { print("[A13] OK"); } else { print("[A13] FAIL " + s13); }
+
+// A14 — `for i = 0 to N` counted form with an int-coercion RHS exercises the
+// ForNode (CompileForLazyLong) publish path, mirroring A4's foreach case.
+var s14 = "";
+for i = 0 to 4 { s14 = s14 + i; }
+if s14 == "0123" { print("[A14] OK"); } else { print("[A14] FAIL " + s14); }
+
+// A15 — break mid-loop: the accumulator promotes; the StringBuilder is
+// materialised at the loop-exit (break) target, so the partial accumulation
+// appended BEFORE the break survives into `s`.
+var s15 = "";
+for i in 0..100 {
+    s15 = s15 + "k";
+    if i == 4 { break; }
+}
+if s15 == "kkkkk" and len(s15) == 5 { print("[A15] OK"); } else { print("[A15] FAIL " + s15); }
+
+// A16 — continue: the regression that surfaced (then fixed) the LICM
+// branch-retarget bug. `if c { continue }` BEFORE the append, in a foreach
+// range loop whose body hoists a loop-invariant constant load. Must not hang
+// and must append on exactly the non-continued iterations.
+var s16 = "";
+for i in 0..6 {
+    if i % 2 == 1 { continue; }
+    s16 = s16 + "c";
+}
+if s16 == "ccc" { print("[A16] OK"); } else { print("[A16] FAIL " + s16); }
+
+// A17 — continue + a SECOND loop-invariant constant in the body (two hoist
+// candidates), stressing the multi-instruction hoist + branch-retarget.
+var s17 = "";
+for i in 0..8 {
+    if i % 3 == 0 { continue; }
+    s17 = s17 + "ab";
+}
+if s17 == "ababababab" and len(s17) == 10 { print("[A17] OK"); } else { print("[A17] FAIL " + s17); }
+
+// A18 — StrAccAppendI typed-iter fast path with a non-unit step: `s = s + i`
+// reads the typed Int64 iter slot directly (no boxed publish). Stepped iters
+// must still produce the exact decimal forms.
+var s18 = "";
+for i = 0 to 10 step 2 { s18 = s18 + i; }
+if s18 == "02468" { print("[A18] OK"); } else { print("[A18] FAIL " + s18); }
+
+// A19 — iter is BOTH appended (StrAccAppendI, typed slot) AND read elsewhere
+// (`last = i`, a non-redirectable read forcing the boxed publish). The two
+// readers must agree: the appended string and the published mirror both track
+// the same iter value.
+var s19 = "";
+var last19 = -1;
+for i in 0..5 {
+    s19 = s19 + i;
+    last19 = i;
+}
+if s19 == "01234" and last19 == 4 { print("[A19] OK"); } else { print("[A19] FAIL " + s19 + "/" + (last19 as string)); }
+
+// A20 — multi-digit iter values: the int→string coercion must match the boxed
+// `s + i` chain across the 1→2 digit boundary (StrAccAppendI on i=8..11).
+var s20 = "";
+for i in 8..12 { s20 = s20 + i; }
+if s20 == "891011" { print("[A20] OK"); } else { print("[A20] FAIL " + s20); }
+
+// A21 — CHAINED append `s = s + (..) + ..`: the top-level LHS is a nested
+// BinaryOp, not a bare `s`. Each right-spine operand is appended in order.
+var s21 = "";
+for i in 0..2 { s21 = s21 + ("ciao" + "c") + "c"; }
+if s21 == "ciaoccciaocc" { print("[A21] OK"); } else { print("[A21] FAIL " + s21); }
+
+// A22 — multi-part chain mixing the typed iter (StrAccAppendI) with literals
+// (StrAccAppend) in one statement: `s = s + "[" + i + "]"`.
+var s22 = "";
+for i in 0..3 { s22 = s22 + "[" + i + "]"; }
+if s22 == "[0][1][2]" { print("[A22] OK"); } else { print("[A22] FAIL " + s22); }
+
+// A23 — function-call RHS `s = s + g()`. Regression: the gate promotes this,
+// and the append must still fire (previously dropped because the redirect sat
+// behind the numeric IsSafeRhsForSelfFuse gate → silent data loss / empty s).
+fn g23(): string { ret "z"; }
+var s23 = "";
+for i in 0..3 { s23 = s23 + g23(); }
+if s23 == "zzz" { print("[A23] OK"); } else { print("[A23] FAIL " + s23); }
+
+// A24 — a mid-loop READ of the accumulator disqualifies the CHAIN too (reads !=
+// appends); the boxed fallback must still build the right multi-part string.
+var s24 = "";
+var probe24 = "";
+for i in 0..3 {
+    s24 = s24 + "a" + "b";
+    if i == 1 { probe24 = s24; }
+}
+if s24 == "ababab" and probe24 == "abab" { print("[A24] OK"); } else { print("[A24] FAIL " + s24 + "/" + probe24); }
+
+print("=== done ===");

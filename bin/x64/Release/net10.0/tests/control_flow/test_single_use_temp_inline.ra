@@ -1,0 +1,54 @@
+import std.prelude.*;
+// Regression: the single-use-temp inliner (var c = e; if c ⋈ ... -> if e ⋈ ...)
+// must preserve semantics, including side-effect count and the rejection of
+// multi-use / written / body-used temps.
+
+// Case 1: compute-then-test, condition fires — inlined.
+var hits = 0
+for i in 0..10 {
+    var c = i - 5
+    if c >= 0 {
+        hits = hits + 1
+    }
+}
+if hits == 5 { print("[inline_fire] OK") } else { print("[inline_fire] FAIL: " + (hits as string)) }
+
+// Case 2: side-effecting initializer must run EXACTLY ONCE per iteration even
+// after being relocated into the condition.
+var calls = 0
+fn bump(): int {
+    calls = calls + 1
+    ret calls
+}
+var taken = 0
+for i in 0..4 {
+    var c = bump()
+    if c > 2 {
+        taken = taken + 1
+    }
+}
+if calls == 4 { print("[inline_sideeffect_once] OK") } else { print("[inline_sideeffect_once] FAIL: " + (calls as string)) }
+if taken == 2 { print("[inline_sideeffect_val] OK") } else { print("[inline_sideeffect_val] FAIL: " + (taken as string)) }
+
+// Case 3: temp used TWICE (condition + body) — must NOT inline, stays correct.
+var sum3 = 0
+for i in 0..5 {
+    var c = i * 2
+    if c > 4 {
+        sum3 = sum3 + c
+    }
+}
+if sum3 == 14 { print("[multi_use] OK") } else { print("[multi_use] FAIL: " + (sum3 as string)) }
+
+// Case 4: temp used only AFTER the if (not its condition) — must NOT inline.
+var sum4 = 0
+for i in 0..3 {
+    var c = i + 100
+    if i >= 0 {
+        pass
+    }
+    sum4 = sum4 + c
+}
+if sum4 == 303 { print("[use_after] OK") } else { print("[use_after] FAIL: " + (sum4 as string)) }
+
+print("=== single-use temp inliner: done ===")

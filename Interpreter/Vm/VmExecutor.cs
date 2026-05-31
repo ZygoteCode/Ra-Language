@@ -710,6 +710,71 @@ namespace RaLanguage.Interpreter.Vm
                         break;
                     }
 
+                    // O(n) string building. A loop string accumulator's
+                    // `s = s + x` self-appends into a per-frame StringBuilder
+                    // instead of reallocating the whole string each iteration.
+                    case Opcode.StrAccBegin:
+                    {
+                        byte a = Encoding.A(instr);
+                        ushort accIdx = Encoding.Imm16(instr);
+                        var sv = locals[a];
+                        string seed = sv is StringValue sstr0 ? sstr0.Value
+                            : (sv == null ? "" : Utilities.StringConversionUtility.ConvertToString(sv));
+                        if (accIdx < (uint)f.StrAcc.Length)
+                            f.StrAcc[accIdx] = new System.Text.StringBuilder(seed);
+                        break;
+                    }
+                    case Opcode.StrAccAppend:
+                    {
+                        byte a = Encoding.A(instr);
+                        ushort accIdx = Encoding.Imm16(instr);
+                        var v = locals[a];
+                        if (accIdx < (uint)f.StrAcc.Length)
+                        {
+                            var sb = f.StrAcc[accIdx] ?? (f.StrAcc[accIdx] = new System.Text.StringBuilder());
+                            // Match StringValue.AddedTo's right-operand coercion
+                            // exactly so the built string is identical to the
+                            // boxed `s + x` chain.
+                            if (v is StringValue vstr) sb.Append(vstr.Value);
+                            else if (v != null) sb.Append(Utilities.StringConversionUtility.ConvertToString(v));
+                        }
+                        break;
+                    }
+                    case Opcode.StrAccMaterialize:
+                    {
+                        byte a = Encoding.A(instr);
+                        ushort accIdx = Encoding.Imm16(instr);
+                        var sb = accIdx < (uint)f.StrAcc.Length ? f.StrAcc[accIdx] : null;
+                        locals[a] = new StringValue(sb?.ToString() ?? "").SetContext(ctx);
+                        break;
+                    }
+                    case Opcode.StrAccAppendI:
+                    {
+                        byte a = Encoding.A(instr);
+                        ushort accIdx = Encoding.Imm16(instr);
+                        if (accIdx < (uint)f.StrAcc.Length)
+                        {
+                            var sb = f.StrAcc[accIdx] ?? (f.StrAcc[accIdx] = new System.Text.StringBuilder());
+                            ref var slotRef = ref f.Slots[a];
+                            if (slotRef.Tag == ValueSlotTag.Int64)
+                            {
+                                // Decimal form of the int64 == NumberValue's
+                                // integer string (InvariantGlobalization), so the
+                                // built string matches the boxed `s + i` chain.
+                                sb.Append(slotRef.Bits);
+                            }
+                            else
+                            {
+                                // Deopt: the iter slot drifted off Int64 (boxed).
+                                // Fall back to the same coercion StrAccAppend uses.
+                                var boxed = slotRef.ToRuntimeValue();
+                                if (boxed is StringValue bvs) sb.Append(bvs.Value);
+                                else if (boxed != null) sb.Append(Utilities.StringConversionUtility.ConvertToString(boxed));
+                            }
+                        }
+                        break;
+                    }
+
                     // Typed-RHS fused self-additive slot. Layout matches
                     // AddIntoSlot ([op][rhsSlot:u8][selfSlot:u16]) but rhs
                     // is read DIRECTLY from `f.Slots[rhsSlot].Bits` as an
@@ -1830,7 +1895,7 @@ namespace RaLanguage.Interpreter.Vm
                         var fn = locals[fnSlot];
                         if (fn == null)
                             throw new RaUserError(MakeIcError(ctx, "VM: callee slot is null"));
-                        var argList = new System.Collections.Generic.List<RuntimeValue>(argCount);
+                        var argList = RentArgList(argCount);
                         for (int i = 0; i < argCount; i++)
                         {
                             var a = locals[fnSlot + 1 + i];
@@ -1838,7 +1903,7 @@ namespace RaLanguage.Interpreter.Vm
                                 throw new RaUserError(MakeIcError(ctx, $"VM: argument {i} slot is null"));
                             argList.Add(a);
                         }
-                        var emptyNamed = new System.Collections.Generic.Dictionary<string, RuntimeValue>();
+                        var emptyNamed = Runtime.Calls.FunctionCallExecutor.EmptyNamedArgs;
                         // M28.2: per-PC method-dispatch IC. When the callee is
                         // a BoundClassMethodGroupValue (`obj.foo` resolved to
                         // a group of overload candidates), cache the resolved
@@ -1871,11 +1936,28 @@ namespace RaLanguage.Interpreter.Vm
                             }
                             if (selectedMethod != null)
                             {
-                                var bound = new Values.Primitives.BoundClassMethodValue(
-                                    bgrp.Definition, bgrp.SelfInstance, selectedMethod, isStatic: false)
-                                    .SetContext(ctx)
-                                    .SetPos(bgrp.PositionStart, bgrp.PositionEnd);
-                                fn = bound;
+                                // PERF: reuse the bound-method wrapper when this
+                                // site re-binds the SAME receiver + method
+                                // (hot method loop). The wrapper holds only
+                                // (Definition, SelfInstance, MethodNode) — all
+                                // identity-stable here — plus Context/Pos which
+                                // we re-stamp. Eliminates the per-call
+                                // BoundClassMethodValue allocation.
+                                if (slot.CachedBound is Values.Primitives.BoundClassMethodValue cb
+                                    && ReferenceEquals(cb.SelfInstance, bgrp.SelfInstance)
+                                    && ReferenceEquals(cb.MethodNode, selectedMethod))
+                                {
+                                    fn = cb.SetContext(ctx).SetPos(bgrp.PositionStart, bgrp.PositionEnd);
+                                }
+                                else
+                                {
+                                    var bound = new Values.Primitives.BoundClassMethodValue(
+                                        bgrp.Definition, bgrp.SelfInstance, selectedMethod, isStatic: false)
+                                        .SetContext(ctx)
+                                        .SetPos(bgrp.PositionStart, bgrp.PositionEnd);
+                                    slot.CachedBound = bound;
+                                    fn = bound;
+                                }
                             }
                         }
                         var pos = DummyPos(ctx);
@@ -1883,7 +1965,14 @@ namespace RaLanguage.Interpreter.Vm
                             fn, argList, emptyNamed, null, pos, pos, ctx);
                         RuntimeResult invokeRes;
                         if (invokeTask.IsCompletedSuccessfully)
+                        {
                             invokeRes = invokeTask.Result;
+                            // Sync completion: the call (binding + body) is fully
+                            // done, so the transport list is dead — recycle it.
+                            // The async branch deliberately does NOT recycle: a
+                            // suspended async callee may still hold `argList`.
+                            ReturnArgList(argList);
+                        }
                         else
                             invokeRes = await invokeTask.ConfigureAwait(false);
                         if (invokeRes.Error != null) throw new RaUserError(invokeRes.Error);
@@ -1938,7 +2027,7 @@ namespace RaLanguage.Interpreter.Vm
                             && !fvTail.HasVarArgs
                             && fvTail.ArgNames.Count == argCount_tc)
                         {
-                            var tcArgs = new System.Collections.Generic.List<RuntimeValue>(argCount_tc);
+                            var tcArgs = RentArgList(argCount_tc);
                             bool tcArgsOk = true;
                             for (int i = 0; i < argCount_tc; i++)
                             {
@@ -1948,13 +2037,18 @@ namespace RaLanguage.Interpreter.Vm
                             }
                             if (tcArgsOk)
                             {
-                                var emptyNamedTc = new System.Collections.Generic.Dictionary<string, RuntimeValue>();
+                                var emptyNamedTc = Runtime.Calls.FunctionCallExecutor.EmptyNamedArgs;
                                 var prepTaskTc = fvTail.PrepareExecutionContextForCall(
                                     tcArgs, emptyNamedTc, fvTail.ArgNames, fvTail.ArgTypes,
                                     fvTail.ParamDefaults, false, null, null);
                                 if (prepTaskTc.IsCompletedSuccessfully)
                                 {
                                     var (execCtxTc, prepErrTc) = prepTaskTc.Result;
+                                    // Sync prep bound the args into execCtxTc —
+                                    // tcArgs is dead, recycle it. (The async-prep
+                                    // fall-through below leaves it for the GC: an
+                                    // un-awaited prep task may still hold it.)
+                                    ReturnArgList(tcArgs);
                                     if (prepErrTc != null) throw new RaUserError(prepErrTc);
                                     // Trampoline: swap frame, replace ctx,
                                     // jump to the dispatch-loop preamble
@@ -1979,7 +2073,7 @@ namespace RaLanguage.Interpreter.Vm
                             }
                         }
 
-                        var argList_tc = new System.Collections.Generic.List<RuntimeValue>(argCount_tc);
+                        var argList_tc = RentArgList(argCount_tc);
                         for (int i = 0; i < argCount_tc; i++)
                         {
                             var a = locals[argsBase_tc + i];
@@ -1987,7 +2081,7 @@ namespace RaLanguage.Interpreter.Vm
                                 throw new RaUserError(MakeIcError(ctx, $"VM: argument {i} slot is null"));
                             argList_tc.Add(a);
                         }
-                        var emptyNamed_tc = new System.Collections.Generic.Dictionary<string, RuntimeValue>();
+                        var emptyNamed_tc = Runtime.Calls.FunctionCallExecutor.EmptyNamedArgs;
                         var callIc_tc = f.Function.CallMethodIc;
                         int callIcPc_tc = pc - 1;
                         if (fn_tc is Values.Classes.BoundClassMethodGroupValue bgrp_tc
@@ -2019,7 +2113,10 @@ namespace RaLanguage.Interpreter.Vm
                             fn_tc, argList_tc, emptyNamed_tc, null, pos_tc, pos_tc, ctx);
                         RuntimeResult invokeRes_tc;
                         if (invokeTask_tc.IsCompletedSuccessfully)
+                        {
                             invokeRes_tc = invokeTask_tc.Result;
+                            ReturnArgList(argList_tc);
+                        }
                         else
                             invokeRes_tc = await invokeTask_tc.ConfigureAwait(false);
                         if (invokeRes_tc.Error != null) throw new RaUserError(invokeRes_tc.Error);
@@ -3889,6 +3986,46 @@ namespace RaLanguage.Interpreter.Vm
                 }
             }
             return new ValueResult(cv?.SetContext(ctx).SetPos(castNode.PositionStart, castNode.PositionEnd), null);
+        }
+
+        // PERF: per-thread freelist of positional-arg lists for OP_Call /
+        // OP_TailCall. The `positionalArgs` List is a C#-INTERNAL transport —
+        // Ra code only ever observes copied *elements* (bound into the callee's
+        // frame slots / symbol table), never the List object itself. So the
+        // sole way the List can escape a call is a C# field / async-closure
+        // capture; the only such capture (`FunctionValue`'s async dispatch,
+        // `capturedArgs = positionalArgs`) fires exclusively for async callees,
+        // which never report `IsCompletedSuccessfully`. Returning a list to the
+        // pool STRICTLY on the synchronous-completion branch is therefore
+        // escape-free: sync completion means the whole call (arg binding + body
+        // execution) finished and the transport is dead. The pool is a stack so
+        // nested calls each hold their own rented list (LIFO release).
+        [System.ThreadStatic]
+        private static System.Collections.Generic.Stack<System.Collections.Generic.List<RuntimeValue>>? t_argListPool;
+        private const int ArgListPoolCap = 64;
+        private const int ArgListMinCapacity = 4;
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static System.Collections.Generic.List<RuntimeValue> RentArgList(int capacity)
+        {
+            var pool = t_argListPool;
+            if (pool != null && pool.Count > 0)
+            {
+                var list = pool.Pop();
+                list.Clear();
+                return list;
+            }
+            return new System.Collections.Generic.List<RuntimeValue>(
+                capacity < ArgListMinCapacity ? ArgListMinCapacity : capacity);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static void ReturnArgList(System.Collections.Generic.List<RuntimeValue> list)
+        {
+            var pool = t_argListPool ??= new System.Collections.Generic.Stack<System.Collections.Generic.List<RuntimeValue>>();
+            if (pool.Count < ArgListPoolCap) pool.Push(list);
         }
 
         private static readonly bool[] s_writesLocalsA = BuildWritesLocalsATable();

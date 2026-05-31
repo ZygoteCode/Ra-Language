@@ -183,6 +183,28 @@ namespace RaLanguage.Interpreter.IR.Analysis
 
             if (newPos != oldLen) return 0; // safety net
 
+            // Branch targets need a DISTINCT map. A jump whose target
+            // instruction was HOISTED out of the loop body must land on the
+            // next SURVIVING body instruction (its control-flow successor) —
+            // NOT follow the hoisted copy up to the preheader. `pcMap` for a
+            // hoisted PC points at the preheader relocation, which is correct
+            // for moving the instruction together with its per-PC IC / EH
+            // metadata, but wrong as a jump DESTINATION: the hoisted op's
+            // effect (e.g. `LoadConst "c"`) is now executed once in the
+            // preheader, so control reaching the old site should simply
+            // continue at whatever instruction now occupies that position.
+            // Without this, a forward branch (an `if`-skip / `if`-end jump)
+            // whose target is the first instruction of a hoisted sequence is
+            // redirected backwards into the preheader → the loop never makes
+            // progress (counter-advance is skipped). Resolve hoisted targets to
+            // the next non-hoisted PC by scanning downward.
+            var targetMap = new int[oldLen + 1];
+            targetMap[oldLen] = pcMap[oldLen];
+            for (int oldPc = oldLen - 1; oldPc >= 0; oldPc--)
+                targetMap[oldPc] = hoistedSet.Contains(oldPc)
+                    ? targetMap[oldPc + 1]
+                    : pcMap[oldPc];
+
             // Rewrite PC-relative branch offsets.
             for (int newPc = 0; newPc < oldLen; newPc++)
             {
@@ -193,7 +215,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 int oldSourcePc = newToOldPc[newPc];
                 int oldTargetPc = oldSourcePc + 1 + oldOffset;
                 if (oldTargetPc < 0 || oldTargetPc > oldLen) return 0; // bail
-                int newTargetPc = pcMap[oldTargetPc];
+                int newTargetPc = targetMap[oldTargetPc];
                 int newOffset = newTargetPc - newPc - 1;
                 if (newOffset < short.MinValue || newOffset > short.MaxValue)
                     return 0; // would overflow imm16 — bail out cleanly
@@ -537,6 +559,18 @@ namespace RaLanguage.Interpreter.IR.Analysis
                         case Opcode.SetLocalDirect:
                         case Opcode.AssignBinding:
                         case Opcode.DeclareLocal:
+                            return true;
+                        // Opaque AST-visitor dispatch. A NativeDefine runs an
+                        // arbitrary node visitor (while-let / for-let loop
+                        // control flags, try-catch bindings, finally bodies, …)
+                        // that mutates SymbolEntries BY NAME at runtime — writes
+                        // that never surface in the AST-derived `MutatedNames`.
+                        // Hoisting a LoadLocalS across it is unsound: e.g. a
+                        // `while let … { … }` reloads its synthetic loop flag via
+                        // LoadLocalS each iteration; the NativeDefine body sets
+                        // that flag false to terminate, so hoisting the reload
+                        // out of the loop spins forever. Refuse for ANY binding.
+                        case Opcode.NativeDefine:
                             return true;
                         // Indirect mutation via call → bridge through
                         // MutatedNames. If the function never assigns

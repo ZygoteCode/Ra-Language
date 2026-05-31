@@ -154,6 +154,13 @@ namespace RaLanguage.Interpreter.IR
         public object? ChosenMethod;
         public bool IsStatic;
         public bool Primed;
+        // PERF: receiver-identity cache for the per-call bound-method wrapper.
+        // A hot `obj.m(...)` loop re-binds the SAME instance every iteration;
+        // when the cached BoundClassMethodValue still wraps that receiver (and
+        // the same chosen method) it is reused instead of re-allocated. Null
+        // until the first bind; re-stamped (Context/Pos) and replaced when the
+        // receiver changes.
+        public object? CachedBound;
         // M81 PIC overflow — Pic[] holds 2 extra (shape, argCount,
         // method) triples. On primary miss, scan Pic; on PIC miss,
         // evict oldest entry (ring index advances) and prime.
@@ -195,6 +202,32 @@ namespace RaLanguage.Interpreter.IR
         // parameter slots (slot 0 is `self` for methods, otherwise the first
         // positional parameter).
         public int Arity;
+
+        // PERF (direct-slot arg binding): the frame SlotLocals offset of each
+        // positional parameter, in declaration order — i.e. ParamSlots[i] is
+        // where param `i`'s SymbolEntry lives in VmFrame.SlotLocals. Populated
+        // by IrCompiler from the Resolver's ParamBindings. An entry is -1 when
+        // the parameter has no stable slot (unresolved / cross-frame binding);
+        // the presence of any -1 disqualifies the direct-slot call fast path.
+        // Lets the call entry write args straight into the frame, bypassing the
+        // per-call SymbolTable dictionary insert + the first-read name lookup.
+        public int[] ParamSlots;
+
+        // PERF (direct-slot METHOD dispatch): cached frame-backing arrays for
+        // the method fast path — names = ["self", arg0, ...], slots =
+        // [0, ParamSlots[0], ...]. `self` is slot 0 (Resolver-reserved) and is
+        // read by name (`self` lowers to OP_LOAD_GLOBAL "self"), so it must be
+        // resolvable through SymbolTable.AttachFrameParams. Built once on the
+        // first method call (the compiled body is cached per MethodNode) so no
+        // per-call array allocation. Both null on functions / until first use.
+        internal string[]? _methodFrameNames;
+        internal int[]? _methodFrameSlots;
+
+        // PERF (O(n) string building): number of loop string accumulators in
+        // this function. VmFrame allocates a `StringBuilder?[StrAccCount]` only
+        // when > 0, indexed by the StrAcc* opcodes' imm16. Zero for functions
+        // that never build a string in a loop — no per-frame cost.
+        public int StrAccCount;
 
         // Reserved for future flags (variadic, has-default-args, is-async,
         // is-async-stream). M1 leaves this at zero.
@@ -467,6 +500,7 @@ namespace RaLanguage.Interpreter.IR
             SlotCount = 0;
             SlotNames = System.Array.Empty<string?>();
             DeclSlotByAstRef = System.Array.Empty<int>();
+            ParamSlots = System.Array.Empty<int>();
         }
     }
 }

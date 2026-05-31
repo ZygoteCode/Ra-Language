@@ -331,6 +331,7 @@ namespace RaLanguage.Interpreter.Pipeline
             }
             frame.OwnerNode = fn;
             fn.FrameId = frame.FrameId;
+            fn.ReservesSelfSlot = isMethodFrame;
             var savedScope = s.CurrentScope;
             s.CurrentScope = new ScopeRecord(frame, parent: null);
 

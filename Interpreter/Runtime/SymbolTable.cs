@@ -8,7 +8,25 @@ namespace RaLanguage.Interpreter.Runtime
 {
     public class SymbolTable
     {
-        private Dictionary<string, SymbolEntry> _symbols = new();
+        // PERF: every scope (function call, loop body, block) historically
+        // allocated a backing dictionary up-front, even when it declared no
+        // names at all (the common case once locals/params resolve to frame
+        // slots). `_symbols` now starts pointing at a shared, never-mutated
+        // empty sentinel; the FIRST real write swaps in a private dictionary
+        // via Mutable(). Reads (TryGetValue / Count / enumerate / Remove of an
+        // absent key) are correct against the empty sentinel unchanged. Any
+        // sharing path (LocalDict, the shared-symbols ctor) materialises a real
+        // dict first so the shared reference stays stable.
+        private static readonly Dictionary<string, SymbolEntry> s_emptySymbols = new();
+        private Dictionary<string, SymbolEntry> _symbols = s_emptySymbols;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private Dictionary<string, SymbolEntry> Mutable()
+        {
+            if (ReferenceEquals(_symbols, s_emptySymbols)) _symbols = new();
+            return _symbols;
+        }
+
         public SymbolTable? Parent { get; private set; }
 
         // Optional slot-indexed view of the local entries. Populated only when
@@ -77,11 +95,56 @@ namespace RaLanguage.Interpreter.Runtime
             Parent = parent;
         }
 
-        internal Dictionary<string, SymbolEntry> LocalDict => _symbols;
+        // Materialises a real dict: callers use this to SHARE the backing store
+        // (namespace scope views) or to iterate-and-mutate, so the sentinel must
+        // not leak here.
+        internal Dictionary<string, SymbolEntry> LocalDict => Mutable();
 
         public void SetParent(SymbolTable? parent)
         {
             Parent = parent;
+        }
+
+        // PERF (direct-slot arg binding): optional frame-backing. A call scope
+        // that binds its parameters straight into the VmFrame's SlotLocals
+        // (skipping this table's dictionary) attaches the parameter names +
+        // their frame-slot offsets + the live SlotLocals array here, so that
+        // name-based lookups (reflection, bridged visitors, a stray helper)
+        // still resolve a parameter by name. The local dictionary is still
+        // consulted FIRST, so an explicit body shadow wins. null on ordinary
+        // tables — a single null-check on the hot lookup path.
+        private IReadOnlyList<string>? _frameParamNames;
+        private int[]? _frameParamSlots;
+        private SymbolEntry?[]? _frameSlots;
+
+        public void AttachFrameParams(IReadOnlyList<string> paramNames, int[] paramSlots, SymbolEntry?[] frameSlots)
+        {
+            _frameParamNames = paramNames;
+            _frameParamSlots = paramSlots;
+            _frameSlots = frameSlots;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private SymbolEntry? FrameParamEntry(string name)
+        {
+            var pn = _frameParamNames;
+            if (pn == null) return null;
+            int n = pn.Count;
+            for (int i = 0; i < n; i++)
+            {
+                if (string.Equals(pn[i], name, System.StringComparison.Ordinal))
+                {
+                    var ps = _frameParamSlots;
+                    var fs = _frameSlots;
+                    if (ps != null && fs != null)
+                    {
+                        int slot = ps[i];
+                        if ((uint)slot < (uint)fs.Length) return fs[slot];
+                    }
+                    return null;
+                }
+            }
+            return null;
         }
 
         public virtual RuntimeValue? Get(string name)
@@ -97,6 +160,11 @@ namespace RaLanguage.Interpreter.Runtime
             while (st != null)
             {
                 if (st._symbols.TryGetValue(name, out var e)) return e;
+                if (st._frameParamNames != null)
+                {
+                    var fe = st.FrameParamEntry(name);
+                    if (fe != null) return fe;
+                }
                 st = st.Parent;
             }
             return null;
@@ -134,7 +202,7 @@ namespace RaLanguage.Interpreter.Runtime
                 }
                 return;
             }
-            _symbols[name] = new SymbolEntry(value, isLet, isPublic, declaredType, isStaticallyTyped,
+            Mutable()[name] = new SymbolEntry(value, isLet, isPublic, declaredType, isStaticallyTyped,
                 declarationType ?? VariableDeclarationType.VARIABLE);
             _localGeneration++;
         }
@@ -144,7 +212,10 @@ namespace RaLanguage.Interpreter.Runtime
         // redeclaration of a local (illegal).
         public SymbolEntry? GetLocalEntry(string name)
         {
-            return _symbols.TryGetValue(name, out var e) ? e : null;
+            if (_symbols.TryGetValue(name, out var e)) return e;
+            // A frame-bound parameter counts as a local of this scope (so the
+            // redeclaration / shadow check sees it exactly as the dict did).
+            return FrameParamEntry(name);
         }
 
         public void SetWithDeclarationType(string name, RuntimeValue value, bool isLet, TypeDescriptor? declaredType, bool isStaticallyTyped, bool isPublic, VariableDeclarationType? declarationType)
@@ -173,7 +244,7 @@ namespace RaLanguage.Interpreter.Runtime
 
             var entry = new SymbolEntry(value, isLet, isPublic, declaredType, isStaticallyTyped,
                 declarationType ?? VariableDeclarationType.VARIABLE);
-            _symbols[name] = entry;
+            Mutable()[name] = entry;
             _localGeneration++;
         }
 
@@ -186,6 +257,32 @@ namespace RaLanguage.Interpreter.Runtime
                 {
                     st._localGeneration++;
                     return;
+                }
+                if (st._frameParamNames != null)
+                {
+                    // Drop a frame-bound parameter by clearing its slot entry —
+                    // a subsequent read then fails "not defined" as for any
+                    // dropped binding.
+                    var pn = st._frameParamNames;
+                    for (int i = 0; i < pn.Count; i++)
+                    {
+                        if (string.Equals(pn[i], name, System.StringComparison.Ordinal))
+                        {
+                            var ps = st._frameParamSlots;
+                            var fs = st._frameSlots;
+                            if (ps != null && fs != null)
+                            {
+                                int slot = ps[i];
+                                if ((uint)slot < (uint)fs.Length && fs[slot] != null)
+                                {
+                                    fs[slot] = null;
+                                    st._localGeneration++;
+                                    return;
+                                }
+                            }
+                            break;
+                        }
+                    }
                 }
                 st = st.Parent;
             }
@@ -205,6 +302,11 @@ namespace RaLanguage.Interpreter.Runtime
                 {
                     existing.Value = value;
                     return true;
+                }
+                if (st._frameParamNames != null)
+                {
+                    var fe = st.FrameParamEntry(name);
+                    if (fe != null) { fe.Value = value; return true; }
                 }
                 st = st.Parent;
             }

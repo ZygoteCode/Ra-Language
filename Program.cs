@@ -285,6 +285,11 @@ namespace RaLanguage
             // AFTER DeriveTransformer (which can rewrite the AST) and BEFORE the
             // analyzers that consume the post-derive shape.
             Resolver.Resolve(parseResult.Node);
+            // PERF: inline single-use loop/block temporaries into the following
+            // `if` condition (drops the boxing OP_DECLARE_LOCAL). Runs after the
+            // Resolver (needs BindingIds) — semantics-preserving, so the
+            // warning-only analyzers downstream see an equivalent tree.
+            Interpreter.Runtime.Optimizations.SingleUseTempInliner.Apply(parseResult.Node);
 
             var staticDiagnostics = StaticAnalyzer.Analyze(parseResult.Node, GlobalSymbolTable);
             if (staticDiagnostics.Count > 0)
@@ -319,6 +324,37 @@ namespace RaLanguage
             var vm = new VmExecutor(interpreter);
             var task = vm.RunScript(script, context);
             var result = task.IsCompletedSuccessfully ? task.Result : task.AsTask().GetAwaiter().GetResult();
+            return (result.Value, result.Error);
+        }
+
+        // Diagnostic-only twin of Run that executes the post-front-end AST
+        // through the pure visitor tree-walk instead of compiling to IR + VM.
+        // Identical lex/parse/derive/resolve pipeline; the ONLY difference is
+        // the executor. Used by `--bench-ast` to measure the VM-vs-tree-walk
+        // delta on the exact same build. NOT wired into the default run path.
+        public static ValueResult RunAst(string fn, string text)
+        {
+            var lexer = new Lexer.Lexer(fn, text);
+            var (tokens, lexerDiagnostics) = lexer.MakeTokens();
+            if (lexerDiagnostics.HasErrors) { Environment.ExitCode = 1; return (null, null); }
+
+            var parser = new Parser.Parser(tokens);
+            var parseResult = parser.Parse();
+            if (parseResult.HasErrors) { Environment.ExitCode = 1; return (null, null); }
+
+            DeriveTransformer.Apply(parseResult.Node);
+            Interpreter.Runtime.Patterns.MatchSimplifier.Apply(parseResult.Node);
+            Resolver.Resolve(parseResult.Node);
+            // PERF: inline single-use loop/block temporaries into the following
+            // `if` condition (drops the boxing OP_DECLARE_LOCAL). Runs after the
+            // Resolver (needs BindingIds) — semantics-preserving, so the
+            // warning-only analyzers downstream see an equivalent tree.
+            Interpreter.Runtime.Optimizations.SingleUseTempInliner.Apply(parseResult.Node);
+
+            var interpreter = new Interpreter.Interpreter();
+            var context = new Context(fn);
+            context.SymbolTable = GlobalSymbolTable;
+            var result = interpreter.VisitBlocking(parseResult.Node, context);
             return (result.Value, result.Error);
         }
 
@@ -398,9 +434,20 @@ namespace RaLanguage
 
             if (args.Length > 0)
             {
-                if (args.Length == 1 && string.Equals(args[0], "--bench", StringComparison.OrdinalIgnoreCase))
+                if (args.Length >= 1 && string.Equals(args[0], "--bench", StringComparison.OrdinalIgnoreCase))
                 {
-                    RunMicrobenchmark();
+                    RunMicrobenchmark(astPath: false, customBenches: args.Length > 1 ? args[1..] : null);
+                    return;
+                }
+
+                // Diagnostic harness: run the bench corpus (or arbitrary files
+                // passed as extra args) through the pure AST-visitor path
+                // (interpreter.VisitBlocking) instead of the IR+VM pipeline.
+                // Same front-end passes, swapped executor — the apples-to-apples
+                // baseline for the VM-vs-tree-walk delta.
+                if (args.Length >= 1 && string.Equals(args[0], "--bench-ast", StringComparison.OrdinalIgnoreCase))
+                {
+                    RunMicrobenchmark(astPath: true, customBenches: args.Length > 1 ? args[1..] : null);
                     return;
                 }
 
@@ -724,6 +771,11 @@ namespace RaLanguage
             if (parseResult.HasErrors) { PrintDiagnostics(parseResult.Diagnostics); return; }
             DeriveTransformer.Apply(parseResult.Node);
             Resolver.Resolve(parseResult.Node);
+            // PERF: inline single-use loop/block temporaries into the following
+            // `if` condition (drops the boxing OP_DECLARE_LOCAL). Runs after the
+            // Resolver (needs BindingIds) — semantics-preserving, so the
+            // warning-only analyzers downstream see an equivalent tree.
+            Interpreter.Runtime.Optimizations.SingleUseTempInliner.Apply(parseResult.Node);
             InitializeSymbolTable();
             var fn = IrCompiler.CompileScript(parseResult.Node, path);
             // Note: fn.Analysis was attached during CompileScript and
@@ -794,6 +846,11 @@ namespace RaLanguage
             if (parseResult.HasErrors) { PrintDiagnostics(parseResult.Diagnostics); return; }
             DeriveTransformer.Apply(parseResult.Node);
             Resolver.Resolve(parseResult.Node);
+            // PERF: inline single-use loop/block temporaries into the following
+            // `if` condition (drops the boxing OP_DECLARE_LOCAL). Runs after the
+            // Resolver (needs BindingIds) — semantics-preserving, so the
+            // warning-only analyzers downstream see an equivalent tree.
+            Interpreter.Runtime.Optimizations.SingleUseTempInliner.Apply(parseResult.Node);
             InitializeSymbolTable();
             var fn = IrCompiler.CompileScript(parseResult.Node, path);
             Console.WriteLine($"# IR dump for {path}");
@@ -834,14 +891,18 @@ namespace RaLanguage
             }
         }
 
-        private static void RunMicrobenchmark()
+        private static void RunMicrobenchmark(bool astPath = false, string[]? customBenches = null)
         {
             // Two-phase microbenchmark: warmup to populate JIT + AOT inlining decisions, then
             // measured runs. Reports wall-clock time and managed-heap allocation delta per
             // benchmark so optimization passes have a numerical regression signal.
-            string[] benches = { "bench_hotloop.ra", "bench_arithmetic.ra", "bench_counter.ra", "bench_hybrid_read.ra", "bench_while.ra", "bench_branchy.ra", "bench_dirty.ra", "bench_bindcmp.ra", "bench_invariant.ra" };
+            // bench_calls / bench_method added to cover the function- and
+            // method-call paths — the corpus previously had ZERO call-heavy
+            // benches, which is exactly why a multi-KB-per-call allocation
+            // regression in the shared call machinery went unmeasured.
+            string[] benches = customBenches ?? new[] { "bench_hotloop.ra", "bench_arithmetic.ra", "bench_counter.ra", "bench_hybrid_read.ra", "bench_while.ra", "bench_branchy.ra", "bench_dirty.ra", "bench_bindcmp.ra", "bench_invariant.ra", "bench_calls.ra", "bench_method.ra", "bench_strcat.ra" };
 
-            Console.WriteLine("[Ra Language] Microbenchmark mode.");
+            Console.WriteLine($"[Ra Language] Microbenchmark mode{(astPath ? " (AST-visitor path)" : "")}.");
             foreach (var bench in benches)
             {
                 if (!File.Exists(bench))
@@ -856,7 +917,7 @@ namespace RaLanguage
                 for (int i = 0; i < 3; i++)
                 {
                     InitializeSymbolTable();
-                    Run(bench, text);
+                    if (astPath) RunAst(bench, text); else Run(bench, text);
                 }
 
                 const int Iterations = 5;
@@ -869,7 +930,7 @@ namespace RaLanguage
                 {
                     InitializeSymbolTable();
                     var sw = Stopwatch.StartNew();
-                    Run(bench, text);
+                    if (astPath) RunAst(bench, text); else Run(bench, text);
                     sw.Stop();
                     if (sw.ElapsedMilliseconds < bestMs) bestMs = sw.ElapsedMilliseconds;
                     totalMs += sw.ElapsedMilliseconds;

@@ -1,0 +1,24 @@
+import std.prelude.*;
+// Microbench: loop string-building. Without the O(n) string-accumulator
+// promotion (StrAccBegin/Append/Materialize) each `s = s + x` reallocates the
+// whole string -> O(n^2) time and ~2.4 GB of throwaway allocation for 50k
+// concats. With promotion it is amortised O(1) per append (single StringBuilder
+// per loop, materialised once on exit): ~1 MB/run, ~50x faster.
+//
+// Two loops to guard both lowering paths:
+//   1. literal-chunk append  (RHS is a constant — pure StrAccAppend)
+//   2. iter-coercion append  (RHS is the typed iter — StrAccAppendI reads the
+//      Int64 iter slot directly, eliding the per-iter BoxI/AssignBinding
+//      publish + its NumberValue allocation; was ~8.5 MB, now ~1.4 MB)
+
+var s = "";
+for i in 0..50000 {
+    s = s + "x";
+}
+
+var t = "";
+for i in 0..50000 {
+    t = t + i;
+}
+
+print(len(s) + len(t));

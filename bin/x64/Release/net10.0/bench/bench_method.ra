@@ -1,0 +1,19 @@
+import std.prelude.*;
+// Regression bench: instance-method dispatch throughput + per-call alloc.
+//
+// Exercises the BoundClassMethodValue path (member-access -> overload IC ->
+// bound-method invoke -> compiled body). Shares the same per-call execution
+// machinery as plain functions, so it guards the OOP side of the call-path
+// allocation fixes (dead per-call context, non-generic fast path, ...).
+class Counter {
+    pub var v: int
+    pub Counter(v: int) { self.v = v }
+    pub fn bump(d: int): int { ret self.v + d }
+}
+
+let c = Counter(10)
+var sum = 0
+for i in 0..100000 {
+    sum = sum + c.bump(i)
+}
+print(sum)

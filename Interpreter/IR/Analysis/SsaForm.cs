@@ -492,6 +492,10 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.NegI: case Opcode.NegF:
                 // M80 typed Pow writes A.
                 case Opcode.PowII: case Opcode.PowFF:
+                // String accumulator materialize writes the finished string
+                // into locals[A]. Begin/Append define no slot (they mutate the
+                // off-band per-frame StringBuilder) → they fall to `default`.
+                case Opcode.StrAccMaterialize:
                     return Encoding.A(instr);
 
                 // -------- M67 Memory-SSA: SymbolEntry writers --------
@@ -744,6 +748,21 @@ namespace RaLanguage.Interpreter.IR.Analysis
                     // simm16 is the literal RHS — no slot read.
                     if (fn != null && pc >= 0 && MemSsaEligibleAt(fn, pc))
                         yield return (SymbolEntrySlotBase + Encoding.A(instr), true);
+                    break;
+                // String accumulators: A is a `locals[]` read (the seed for
+                // Begin, the append value for Append, the typed iter long slot
+                // for AppendI). The StringBuilder side (imm16) is off-band
+                // per-frame state, NOT a tracked SE/register slot — so it never
+                // appears as a read or a def. Without this case the DCE would
+                // drop the producer of the value slot.
+                case Opcode.StrAccBegin:
+                case Opcode.StrAccAppend:
+                case Opcode.StrAccAppendI:
+                    yield return (Encoding.A(instr), true);
+                    break;
+                // Materialize WRITES locals[A] (the finished string) and reads
+                // only the off-band builder — no operand reads.
+                case Opcode.StrAccMaterialize:
                     break;
                 case Opcode.LoadLocalS:
                     // M67: SymbolEntry read of the slot referenced

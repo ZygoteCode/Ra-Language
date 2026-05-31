@@ -13,6 +13,15 @@ namespace RaLanguage.Interpreter.Runtime.Annotations
         private static readonly MetadataRegistry _global = new();
         public static MetadataRegistry Global => _global;
 
+        // PERF: cheap global fast-out. When no annotation has ever been
+        // registered (the overwhelming common case — most programs use no
+        // user annotations at all), every per-call / per-return annotation
+        // hook is a guaranteed no-op: GetEffective walks the target/parent
+        // chain and finds nothing. Hot call paths read this to skip building
+        // metadata keys (string allocations) and registry lookups entirely.
+        // Correct because a non-empty result requires at least one Register().
+        public bool IsEmpty => _byTarget.Count == 0;
+
         public void Register(MetadataTarget target, AnnotationInstanceValue instance)
         {
             if (!_byTarget.TryGetValue(target.Key, out var list))

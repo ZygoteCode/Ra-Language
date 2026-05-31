@@ -1,0 +1,79 @@
+import std.prelude.*;
+// Ra Language - functions: OP_Call / OP_TailCall positional-arg-list pooling.
+//
+// The VM recycles the per-call `argList` transport via a thread-static
+// freelist (rent on call, return on synchronous completion). These cases
+// stress the pool where a correctness bug (aliasing a reused list, returning
+// a still-live list, clobbering a caller's args) would corrupt results:
+//   P1  deep NON-tail recursion (2 rented lists live per frame, LIFO release)
+//   P2  tail recursion (trampoline `tcArgs` path)
+//   P3  mutual recursion (alternating callee frames)
+//   P4  3-arg tail recursion (multi-element list reuse)
+//   P5  arg interleaving: caller args must survive two pooled child calls
+//   P6  arity mixing: 1-arg then 4-arg calls reuse the same pooled list
+//   P7  recursion through a value returned into the SAME loop (pool churn)
+
+print("=== functions/call_arg_pooling ===");
+
+// P1 — fib: two recursive calls per frame keep two rented lists alive at once.
+fn fib(n: int): int {
+    if n < 2 { ret n }
+    ret fib(n - 1) + fib(n - 2);
+}
+if fib(20) == 6765 { print("[P1] OK"); } else { print("[P1] FAIL " + (fib(20) as string)); }
+
+// P2 — tail-recursive accumulate → trampoline path (tcArgs rented/returned).
+fn sum_to(n: int, acc: int): int {
+    if n == 0 { ret acc }
+    ret sum_to(n - 1, acc + n);
+}
+if sum_to(1000, 0) == 500500 { print("[P2] OK"); } else { print("[P2] FAIL " + (sum_to(1000, 0) as string)); }
+
+// P3 — mutual recursion: callee frames alternate, each renting its own list.
+fn is_even(n: int): bool {
+    if n == 0 { ret true }
+    ret is_odd(n - 1);
+}
+fn is_odd(n: int): bool {
+    if n == 0 { ret false }
+    ret is_even(n - 1);
+}
+if is_even(500) and !is_odd(500) { print("[P3] OK"); } else { print("[P3] FAIL"); }
+
+// P4 — 3-arg tail recursion: the rented list carries three elements each call.
+fn march(a: int, b: int, c: int): int {
+    if a == 0 { ret b + c }
+    ret march(a - 1, b + 1, c + 2);
+}
+if march(10, 0, 0) == 30 { print("[P4] OK"); } else { print("[P4] FAIL " + (march(10, 0, 0) as string)); }
+
+// P5 — arg interleaving: `x` (the caller's bound arg) must stay intact across
+// two child calls that rent + return the same pooled list between them.
+fn dbl(y: int): int { ret y * 2; }
+fn outer(x: int): int {
+    let a = dbl(x + 1);
+    let b = dbl(x + 2);
+    ret x + a + b;
+}
+if outer(10) == 56 { print("[P5] OK"); } else { print("[P5] FAIL " + (outer(10) as string)); }
+
+// P6 — arity mixing: a 1-arg call then a 4-arg call recycle the same list
+// object (Clear keeps capacity); the 4-arg result must be correct.
+fn one(a: int): int { ret a; }
+fn four(a: int, b: int, c: int, d: int): int { ret a + b + c + d; }
+var mix = 0;
+for i in 0..1000 {
+    mix = mix + one(1);
+    mix = mix + four(1, 2, 3, 4);
+}
+if mix == 1000 + 10000 { print("[P6] OK"); } else { print("[P6] FAIL " + (mix as string)); }
+
+// P7 — tight call-in-loop churns the pool 50k times; result is deterministic.
+fn inc(x: int): int { ret x + 1; }
+var acc = 0;
+for i in 0..50000 {
+    acc = acc + inc(i);
+}
+if acc == 1250025000 { print("[P7] OK"); } else { print("[P7] FAIL " + (acc as string)); }
+
+print("=== done ===");

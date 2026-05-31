@@ -288,8 +288,21 @@ namespace RaLanguage.Interpreter.Runtime
                             // visit. Reusing it skips the inheritance walk
                             // + LINQ allocation per dispatch.
                             var inst = (ClassInstanceValue)target;
+                            // PERF: receiver-identity cache. A hot method loop
+                            // (`c.m(...)` each iteration) re-binds the SAME
+                            // instance; reuse the previously-built group wrapper
+                            // when its receiver is identity-stable, eliminating
+                            // the per-iteration BoundClassMethodGroupValue
+                            // allocation. The wrapper carries no per-call mutable
+                            // state beyond Context/Pos (re-stamped below). On a
+                            // receiver change the slot re-primes for the new one.
+                            if (icSlot.CachedResult is BoundClassMethodGroupValue cachedGrp
+                                && ReferenceEquals(cachedGrp.SelfInstance, inst))
+                                return res.Success(cachedGrp.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                             var methods = (System.Collections.Generic.List<FunctionDefinitionNode>)icSlot.CachedAux!;
-                            return res.Success(new BoundClassMethodGroupValue(inst.Definition, inst, methods).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                            var grp = new BoundClassMethodGroupValue(inst.Definition, inst, methods).SetContext(context).SetPos(node.PositionStart, node.PositionEnd);
+                            icSlot.CachedResult = grp;
+                            return res.Success(grp);
                         }
                         case BR_CLASSTYPE_STATIC:
                         {

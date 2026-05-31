@@ -608,6 +608,22 @@ namespace RaLanguage.Interpreter.IR
         JmpNotEqII      = 0xE7,   // if !(a == b) pc += (sbyte)c
         JmpNotNeII      = 0xE8,   // if !(a != b) pc += (sbyte)c
 
+        // --- string accumulator (O(n) string building) ---
+        // A loop string accumulator `var s = ""; for ... { s = s + x }` whose
+        // ONLY in-loop access is the self-append is promoted to a per-frame
+        // StringBuilder (VmFrame.StrAcc[imm16]), turning O(n^2) reallocating
+        // concatenation into O(n) append. The boxed `s` SymbolEntry is left
+        // untouched during the loop and refreshed once on exit via
+        // StrAccMaterialize, so aliases / post-loop reads see a correct string.
+        StrAccBegin     = 0xE9,   // StrAcc[imm16] = new StringBuilder(locals[a] as string)
+        StrAccAppend    = 0xEA,   // StrAcc[imm16].Append(locals[a].ToString())
+        StrAccMaterialize = 0xEB, // locals[a] = StringValue(StrAcc[imm16].ToString())
+        // Typed-iter fast append: `s = s + i` where `i` is the loop's typed
+        // Int64 iter. Reads f.Slots[a].Bits directly (no boxed mirror), appends
+        // its decimal form — identical to NumberValue's integer string. Skips
+        // the per-iter BoxI (a NumberValue allocation) + AssignBinding publish.
+        StrAccAppendI   = 0xEC,   // StrAcc[imm16].Append(f.Slots[a] as int64)
+
         // --- misc ---
         Pass            = 0xF0,
         Delete          = 0xF1,   // a (slot)

@@ -45,18 +45,32 @@ namespace RaLanguage.Interpreter
         // majority) return a synchronously-completed ValueTask so dispatch
         // pays no allocation. Only visitors that genuinely suspend (the await
         // path) yield to their caller, propagating the suspension up.
-        private readonly Func<AstNode, Context, IInterpreter, ValueTask<RuntimeResult>>[] _visitors;
+        // PERF: the visitor dispatch table is identical for every Interpreter
+        // instance — it is pure, stateless, read-only dispatch. Hoisting it to a
+        // build-once static field makes `new Interpreter()` nearly free. This
+        // matters because the per-call function-execution path (FunctionValue,
+        // BoundClassMethodValue, operators, properties, …) constructs an
+        // Interpreter on EVERY invocation; the old per-instance table allocated
+        // ~100 visitor objects + ~100 delegates + the array on each call
+        // (~20 KB/call, the dominant call-path allocation). The CLR's
+        // type-initializer guarantee makes this thread-safe with no lock.
+        // `Visit` still passes `this`, so any per-instance state (Labels) stays
+        // isolated per Interpreter.
+        private static readonly Func<AstNode, Context, IInterpreter, ValueTask<RuntimeResult>>[] _visitors;
 
-        public Interpreter()
+        static Interpreter()
         {
             var typesCount = Enum.GetValues<AstNodeType>().Length;
             _visitors = new Func<AstNode, Context, IInterpreter, ValueTask<RuntimeResult>>[typesCount];
             RegisterVisitors();
         }
 
-        public void RegisterVisitors()
+        public Interpreter()
         {
-            var typesCount = Enum.GetValues<AstNodeType>().Length;
+        }
+
+        private static void RegisterVisitors()
+        {
 
             _visitors[(int)AstNodeType.Number] = new NumberNodeVisitor().Visit;
             _visitors[(int)AstNodeType.String] = new StringNodeVisitor().Visit;
