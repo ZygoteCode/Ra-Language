@@ -67,27 +67,46 @@ namespace RaLanguage.Lexer
 
         private void AdvanceMultiple(int count, ReadOnlySpan<char> span)
         {
-            int end = Math.Min(_idx + count, span.Length);
-            int col = _col;
-            int ln = _ln;
+            AdvanceTo(Math.Min(_idx + count, span.Length), span);
+        }
 
-            for (int i = _idx; i < end; i++)
+        // Bulk-advance the cursor to absolute index `end` (>= _idx, <= length),
+        // updating line/column exactly as a per-char Advance loop would. Short
+        // runs use a scalar loop (cheaper than vector setup); longer runs use
+        // the vectorised Count/LastIndexOf intrinsics (AVX2 on x64) to tally
+        // newlines in one pass instead of branching on every character.
+        private void AdvanceTo(int end, ReadOnlySpan<char> span)
+        {
+            int len = end - _idx;
+            if (len <= 0) return;
+
+            if (len < 16)
             {
-                char ch = span[i];
-                if (ch == '\n')
+                int col = _col;
+                int ln = _ln;
+                for (int i = _idx; i < end; i++)
                 {
-                    ln++;
-                    col = 0;
+                    if (span[i] == '\n') { ln++; col = 0; }
+                    else { col++; }
                 }
-                else
-                {
-                    col++;
-                }
+                _ln = ln;
+                _col = col;
+                _idx = end;
+                return;
             }
 
+            ReadOnlySpan<char> slice = span.Slice(_idx, len);
+            int newlines = slice.Count('\n');
+            if (newlines == 0)
+            {
+                _col += len;
+            }
+            else
+            {
+                _ln += newlines;
+                _col = len - slice.LastIndexOf('\n') - 1;
+            }
             _idx = end;
-            _ln = ln;
-            _col = col;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -95,8 +114,20 @@ namespace RaLanguage.Lexer
 
         public (List<Token> Tokens, DiagnosticBag Diagnostics) MakeTokens()
         {
-            var tokens = new List<Token>(Math.Max(256, _text.Length / 8));
             ReadOnlySpan<char> span = _text.AsSpan();
+
+            // Size the token list to clear the final count in a single
+            // allocation — a too-small guess forces a grow-and-copy whose
+            // discarded array is pure GC garbage. Tokens-per-LINE (~5-6) is far
+            // more stable across coding styles than tokens-per-char, because a
+            // long string literal inflates the char count without adding tokens.
+            // So estimate from the (vectorised) newline count, with a char-based
+            // floor to cover minified / single-line sources. The low overall
+            // floor keeps the recursive interpolation sub-lexers — which tokenise
+            // tiny `${expr}` slices — from each grabbing a large backing array.
+            int lineEstimate = (1 + span.Count('\n')) * 8;
+            int capacity = Math.Max(16, Math.Max(lineEstimate, span.Length / 16));
+            var tokens = new List<Token>(capacity);
 
             while (_idx < span.Length)
             {
@@ -437,7 +468,7 @@ namespace RaLanguage.Lexer
                 tokens.Add(new Token(TokenType.NE, null, posStart, GetPos()));
                 return;
             }
-            tokens.Add(new Token(TokenType.KEYWORD, Keyword.Not, posStart, GetPos()));
+            tokens.Add(new Token(TokenType.KEYWORD, BoxKeyword(Keyword.Not), posStart, GetPos()));
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -598,7 +629,7 @@ namespace RaLanguage.Lexer
                         tokens.Add(new Token(TokenType.AND_EQ, null, posStart, GetPos()));
                         return;
                     }
-                    tokens.Add(new Token(TokenType.KEYWORD, Keyword.And, posStart, GetPos()));
+                    tokens.Add(new Token(TokenType.KEYWORD, BoxKeyword(Keyword.And), posStart, GetPos()));
                     return;
                 }
                 if (span[_idx] == '=') { Advance(span[_idx]); tokens.Add(new Token(TokenType.BITWISE_AND_EQ, null, posStart, GetPos())); return; }
@@ -622,7 +653,7 @@ namespace RaLanguage.Lexer
                         tokens.Add(new Token(TokenType.OR_EQ, null, posStart, GetPos()));
                         return;
                     }
-                    tokens.Add(new Token(TokenType.KEYWORD, Keyword.Or, posStart, GetPos()));
+                    tokens.Add(new Token(TokenType.KEYWORD, BoxKeyword(Keyword.Or), posStart, GetPos()));
                     return;
                 }
                 if (span[_idx] == '>')
@@ -644,7 +675,7 @@ namespace RaLanguage.Lexer
         {
             var posStart = GetPos();
             Advance(span[_idx]);
-            if (_idx < span.Length && span[_idx] == ':') { Advance(span[_idx]); tokens.Add(new Token(TokenType.KEYWORD, Keyword.As, posStart, GetPos())); return; }
+            if (_idx < span.Length && span[_idx] == ':') { Advance(span[_idx]); tokens.Add(new Token(TokenType.KEYWORD, BoxKeyword(Keyword.As), posStart, GetPos())); return; }
             tokens.Add(new Token(TokenType.COLON, null, posStart, GetPos()));
         }
 
@@ -691,6 +722,14 @@ namespace RaLanguage.Lexer
 
         #region Complex Tokens (Numbers, Strings, Identifiers)
 
+        // Initial capacity for a string/regex builder. Proportional to the
+        // text already scanned for this literal (real content we must hold),
+        // never to the remaining buffer; the builder grows on demand for the
+        // tail. A small floor avoids a 0-capacity builder when the very first
+        // character is an escape.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static int StringBuilderSeed(int scanned) => scanned < 16 ? 16 : scanned;
+
         private static string BuildStringNoUnderscores(ReadOnlySpan<char> span)
         {
             int idx = span.IndexOf('_');
@@ -722,7 +761,10 @@ namespace RaLanguage.Lexer
                     char c1Lower = (char)(c1 | 0x20);
                     if (c1Lower == 'i' || c1Lower == 'l' || c1Lower == 's')
                     {
-                        suffix = new string(new[] { c0, c1 });
+                        Span<char> two = stackalloc char[2];
+                        two[0] = c0;
+                        two[1] = c1;
+                        suffix = new string(two);
                         AdvanceMultiple(2, span);
                         return true;
                     }
@@ -816,7 +858,7 @@ namespace RaLanguage.Lexer
 
                     TryReadNumberSuffix(span, ref suffix, ref isFloat);
 
-                    string numValStr = BuildStringNoUnderscores(_text.Substring(startIdx, _idx - startIdx));
+                    string numValStr = BuildStringNoUnderscores(span.Slice(startIdx, _idx - startIdx));
                     tokens.Add(new Token(isFloat ? TokenType.FLOAT : TokenType.INT, numValStr, posStart, GetPos()));
                     return;
                 }
@@ -854,7 +896,7 @@ namespace RaLanguage.Lexer
                     if (_idx < span.Length && (span[_idx] == '+' || span[_idx] == '-'))
                         Advance(span[_idx]);
 
-                    if (_idx >= span.Length || !s_isDigit[span[_idx]])
+                    if (_idx >= span.Length || span[_idx] >= 128 || !s_isDigit[span[_idx]])
                     {
                         _diagnostics.AddError(
                             title: "exponent has no digits",
@@ -867,7 +909,7 @@ namespace RaLanguage.Lexer
                         break;
                     }
 
-                    while (_idx < span.Length && s_isDigit[span[_idx]])
+                    while (_idx < span.Length && span[_idx] < 128 && s_isDigit[span[_idx]])
                         Advance(span[_idx]);
 
                     break;
@@ -879,7 +921,7 @@ namespace RaLanguage.Lexer
             }
 
             TryReadNumberSuffix(span, ref suffix, ref isFloat);
-            string finalNum = BuildStringNoUnderscores(_text.Substring(startIdx, _idx - startIdx));
+            string finalNum = BuildStringNoUnderscores(span.Slice(startIdx, _idx - startIdx));
             tokens.Add(new Token(isFloat ? TokenType.FLOAT : TokenType.INT, finalNum, posStart, GetPos()));
         }
 
@@ -894,13 +936,35 @@ namespace RaLanguage.Lexer
 
             while (_idx < span.Length)
             {
+                // Skip the run of ordinary characters in one AVX2-accelerated
+                // step (BCL IndexOfAny vectorises on x64) up to the next char
+                // that needs per-char handling: the closing quote, an escape,
+                // or — when interpolating — a '$'. AdvanceTo folds the line/col
+                // bookkeeping (including any newlines in the run) into a single
+                // pass instead of a branch per character.
+                ReadOnlySpan<char> rest = span.Slice(_idx);
+                int rel = allowInterpolation
+                    ? rest.IndexOfAny(stringChar, '\\', '$')
+                    : rest.IndexOfAny(stringChar, '\\');
+                if (rel < 0)
+                {
+                    AdvanceTo(span.Length, span);
+                    break;
+                }
+                if (rel > 0) AdvanceTo(_idx + rel, span);
+
                 char c = span[_idx];
 
                 if (c == stringChar) break;
 
                 if (c == '\\')
                 {
-                    sb ??= new StringBuilder(span.Length - segStartIdx);
+                    // Seed the builder to the segment already scanned (+ a small
+                    // margin), NOT `span.Length - segStartIdx`. The latter is the
+                    // whole remaining buffer, so an escaped string in a large
+                    // source allocated a multi-MB builder per literal; the
+                    // builder grows on demand anyway.
+                    sb ??= new StringBuilder(StringBuilderSeed(_idx - segStartIdx));
                     sb.Append(span.Slice(segStartIdx, _idx - segStartIdx));
 
                     Advance(c);
@@ -999,6 +1063,10 @@ namespace RaLanguage.Lexer
                     continue;
                 }
 
+                // Reached only for a '$' that is not followed by '{' (a literal
+                // dollar in an interpolated string): step over it and resume the
+                // bulk skip. Ordinary characters never get here — they were
+                // consumed by the IndexOfAny skip at the top of the loop.
                 Advance(c);
             }
 
@@ -1043,7 +1111,7 @@ namespace RaLanguage.Lexer
                 char c = span[_idx];
                 if (c == '\\' && _idx + 1 < span.Length && span[_idx + 1] == '"')
                 {
-                    sb ??= new StringBuilder(span.Length - patternStart);
+                    sb ??= new StringBuilder(StringBuilderSeed(_idx - segStart));
                     sb.Append(span.Slice(segStart, _idx - segStart));
                     sb.Append('"');
                     AdvanceMultiple(2, span);
@@ -1240,6 +1308,25 @@ namespace RaLanguage.Lexer
         private static readonly Dictionary<string, Keyword>.AlternateLookup<ReadOnlySpan<char>> s_keywordsSpan
             = s_keywords.GetAlternateLookup<ReadOnlySpan<char>>();
 
+        // Token.Value is `object?`, so every KEYWORD token would box its
+        // Keyword enum — one heap allocation per keyword token (the single most
+        // common token class after identifiers). Box each enum value exactly
+        // once up front and hand out the shared reference. Boxed value types are
+        // immutable and compare by value, so reuse is indistinguishable from a
+        // fresh box at every call site (`Token.Matches`, `Value is Keyword k`).
+        private static readonly object[] s_boxedKeywords = BuildBoxedKeywords();
+
+        private static object[] BuildBoxedKeywords()
+        {
+            int count = Enum.GetValues<Keyword>().Length; // contiguous 0..N enum
+            var arr = new object[count];
+            for (int i = 0; i < count; i++) arr[i] = (Keyword)i; // boxes once
+            return arr;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static object BoxKeyword(Keyword keyword) => s_boxedKeywords[(int)keyword];
+
         private static Dictionary<string, Keyword> CreateKeywordTable()
         {
             return new Dictionary<string, Keyword>(StringComparer.Ordinal)
@@ -1340,17 +1427,36 @@ namespace RaLanguage.Lexer
             return false;
         }
 
+        // First index at or after `start` that cannot continue an identifier.
+        // ASCII [A-Za-z0-9_] only; the `>= 128` guard both enforces that and
+        // keeps the 128-entry table index in range (a non-ASCII byte directly
+        // after an identifier previously threw IndexOutOfRangeException).
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static int ScanIdentifierEnd(ReadOnlySpan<char> span, int start)
+        {
+            int i = start;
+            int n = span.Length;
+            while (i < n)
+            {
+                char ch = span[i];
+                if (ch >= 128 || !s_isLetterOrDigit[ch]) break;
+                i++;
+            }
+            return i;
+        }
+
         private void ProcessIdentifier(ReadOnlySpan<char> span, List<Token> tokens)
         {
             var posStart = GetPos();
             int startIdx = _idx;
 
-            while (_idx < span.Length && (s_isLetterOrDigit[span[_idx]]))
-            {
-                Advance(span[_idx]);
-            }
+            // Identifiers hold no newline, so scan the end once and bulk-advance
+            // the cursor — no per-char Advance, no per-char '\n' test.
+            int end = ScanIdentifierEnd(span, startIdx);
+            _col += end - startIdx;
+            _idx = end;
 
-            var idSpan = span.Slice(startIdx, _idx - startIdx);
+            var idSpan = span.Slice(startIdx, end - startIdx);
 
             if (idSpan.Length == 2 && idSpan.SequenceEqual("is"))
             {
@@ -1378,14 +1484,14 @@ namespace RaLanguage.Lexer
                         && IsWordBoundaryAt(span, afterNot + 2))
                     {
                         AdvanceMultiple(afterNot + 2 - _idx, span);
-                        tokens.Add(new Token(TokenType.KEYWORD, Keyword.NotIn, posStart, GetPos()));
+                        tokens.Add(new Token(TokenType.KEYWORD, BoxKeyword(Keyword.NotIn), posStart, GetPos()));
                         return;
                     }
                     // `is not <something else>` — the parser handles the
                     // negation as part of the `is`-expression grammar, so
                     // emit a single `is` keyword and let the next call
                     // tokenise the `not` separately.
-                    tokens.Add(new Token(TokenType.KEYWORD, Keyword.Is, posStart, GetPos()));
+                    tokens.Add(new Token(TokenType.KEYWORD, BoxKeyword(Keyword.Is), posStart, GetPos()));
                     return;
                 }
 
@@ -1394,11 +1500,11 @@ namespace RaLanguage.Lexer
                     && IsWordBoundaryAt(span, peekIdx + 2))
                 {
                     AdvanceMultiple(peekIdx + 2 - _idx, span);
-                    tokens.Add(new Token(TokenType.KEYWORD, Keyword.In, posStart, GetPos()));
+                    tokens.Add(new Token(TokenType.KEYWORD, BoxKeyword(Keyword.In), posStart, GetPos()));
                     return;
                 }
 
-                tokens.Add(new Token(TokenType.KEYWORD, Keyword.Is, posStart, GetPos()));
+                tokens.Add(new Token(TokenType.KEYWORD, BoxKeyword(Keyword.Is), posStart, GetPos()));
                 return;
             }
 
@@ -1412,7 +1518,7 @@ namespace RaLanguage.Lexer
                     && IsWordBoundaryAt(span, peekIdx + 2))
                 {
                     AdvanceMultiple(peekIdx + 2 - _idx, span);
-                    tokens.Add(new Token(TokenType.KEYWORD, Keyword.NotIn, posStart, GetPos()));
+                    tokens.Add(new Token(TokenType.KEYWORD, BoxKeyword(Keyword.NotIn), posStart, GetPos()));
                     return;
                 }
             }
@@ -1420,7 +1526,7 @@ namespace RaLanguage.Lexer
             // Keyword fast-path: zero-allocation lookup using the span alternate key.
             if (s_keywordsSpan.TryGetValue(idSpan, out Keyword keyword))
             {
-                tokens.Add(new Token(TokenType.KEYWORD, keyword, posStart, GetPos()));
+                tokens.Add(new Token(TokenType.KEYWORD, BoxKeyword(keyword), posStart, GetPos()));
 
                 if (keyword == Keyword.Asm)
                 {

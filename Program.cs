@@ -451,6 +451,25 @@ namespace RaLanguage
                     return;
                 }
 
+                // --bench-lex [file.ra] [iter]
+                // Isolated lexer throughput + allocation benchmark. With no
+                // file argument it builds a corpus from every tests/**/*.ra
+                // and bench/*.ra next to the executable. Measures the lexer
+                // alone (no parse / no VM) so a Lexer-only change shows up
+                // cleanly in ns/token, MB/s and bytes-allocated-per-iteration.
+                if (args.Length >= 1 && string.Equals(args[0], "--bench-lex", StringComparison.OrdinalIgnoreCase))
+                {
+                    string? lexFile = null;
+                    int lexIter = 0;
+                    for (int ai = 1; ai < args.Length; ai++)
+                    {
+                        if (int.TryParse(args[ai], out int n) && n > 0) lexIter = n;
+                        else lexFile = args[ai];
+                    }
+                    BenchLexCli(lexFile, lexIter);
+                    return;
+                }
+
                 // M35: --dump-ir <file.ra> prints the compiled IR + constant
                 // pool + Names table for the given source. Read-only debug
                 // aid; does not execute the script.
@@ -1865,6 +1884,129 @@ namespace RaLanguage
             Console.WriteLine($"  mean  : {mean:F2} us");
             Console.WriteLine($"  p95   : {p95:F2} us");
             Console.WriteLine($"  p99   : {p99:F2} us");
+        }
+
+        // Bench harness for `--bench-lex`. Lexes a fixed in-memory source
+        // buffer in a tight loop and reports throughput + allocation. The
+        // lexer runs in complete isolation (no parser, no static analysis,
+        // no VM) so a Lexer-only optimisation is measured without downstream
+        // noise. Allocation is sampled via GC.GetAllocatedBytesForCurrentThread
+        // across a batch, divided by iteration count.
+        private static void BenchLexCli(string? file, int iter)
+        {
+            string text;
+            string label;
+            if (!string.IsNullOrEmpty(file))
+            {
+                if (!File.Exists(file))
+                {
+                    Console.WriteLine($"[Ra Language] --bench-lex: file not found: {file}");
+                    Environment.ExitCode = 1;
+                    return;
+                }
+                text = File.ReadAllText(file);
+                label = file;
+            }
+            else
+            {
+                // Build a corpus from the test + bench .ra files shipped next
+                // to the executable. Falls back to the CWD if not present.
+                var roots = new[]
+                {
+                    Path.Combine(AppContext.BaseDirectory, "tests"),
+                    Path.Combine(AppContext.BaseDirectory, "bench"),
+                    Path.Combine(Directory.GetCurrentDirectory(), "tests"),
+                    Path.Combine(Directory.GetCurrentDirectory(), "bench"),
+                };
+                var sb = new System.Text.StringBuilder(1 << 20);
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                int fileCount = 0;
+                foreach (var root in roots)
+                {
+                    if (!Directory.Exists(root)) continue;
+                    foreach (var path in Directory.EnumerateFiles(root, "*.ra", SearchOption.AllDirectories))
+                    {
+                        var full = Path.GetFullPath(path);
+                        if (!seen.Add(full)) continue;
+                        try { sb.Append(File.ReadAllText(path)); sb.Append('\n'); fileCount++; }
+                        catch { }
+                    }
+                }
+                if (fileCount == 0)
+                {
+                    Console.WriteLine("[Ra Language] --bench-lex: no corpus found (looked for tests/ and bench/ next to the exe and in the CWD); pass an explicit .ra file");
+                    Environment.ExitCode = 1;
+                    return;
+                }
+                text = sb.ToString();
+                label = $"corpus ({fileCount} files)";
+            }
+
+            int charCount = text.Length;
+            long byteCount = (long)charCount * 2;
+            if (iter <= 0) iter = Math.Max(50, (int)(40_000_000L / Math.Max(1, charCount)));
+
+            // Warm-up (also gives us the token count for ns/token).
+            int tokenCount = 0;
+            var hist = new Dictionary<RaLanguage.Lexer.Tokens.TokenType, int>();
+            for (int i = 0; i < Math.Min(16, iter); i++)
+            {
+                var lx = new RaLanguage.Lexer.Lexer("bench", text);
+                var (tk, _) = lx.MakeTokens();
+                tokenCount = tk.Count;
+                if (i == 0)
+                    foreach (var t in tk)
+                        hist[t.Type] = hist.TryGetValue(t.Type, out var cnt) ? cnt + 1 : 1;
+            }
+
+            Console.WriteLine($"[Ra Language] --bench-lex: {label}");
+            Console.WriteLine($"  source : {charCount:N0} chars ({byteCount / 1024.0:N1} KiB UTF-16), {tokenCount:N0} tokens/iter, iter={iter:N0}");
+            var top = new List<KeyValuePair<RaLanguage.Lexer.Tokens.TokenType, int>>(hist);
+            top.Sort((a, b) => b.Value.CompareTo(a.Value));
+            var histLine = new System.Text.StringBuilder("  tokens : ");
+            for (int i = 0; i < Math.Min(8, top.Count); i++)
+                histLine.Append($"{top[i].Key}={top[i].Value:N0}  ");
+            Console.WriteLine(histLine.ToString());
+
+            var gcBefore = (GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2));
+            long allocBefore = GC.GetAllocatedBytesForCurrentThread();
+
+            long[] tickArr = new long[iter];
+            for (int i = 0; i < iter; i++)
+            {
+                long t0 = Stopwatch.GetTimestamp();
+                var lx = new RaLanguage.Lexer.Lexer("bench", text);
+                var (tk, _) = lx.MakeTokens();
+                long t1 = Stopwatch.GetTimestamp();
+                tickArr[i] = t1 - t0;
+                if (tk.Count == int.MinValue) Console.WriteLine("unreachable"); // defeat dead-code elimination
+            }
+
+            long allocAfter = GC.GetAllocatedBytesForCurrentThread();
+            var gcAfter = (GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2));
+
+            Array.Sort(tickArr);
+            double tickToNs = 1_000_000_000.0 / Stopwatch.Frequency;
+            double best = tickArr[0] * tickToNs;
+            double median = tickArr[iter / 2] * tickToNs;
+            double p95 = tickArr[(int)(iter * 0.95)] * tickToNs;
+            double sum = 0;
+            for (int i = 0; i < iter; i++) sum += tickArr[i] * tickToNs;
+            double mean = sum / iter;
+
+            double bestMs = best / 1_000_000.0;
+            double medMs = median / 1_000_000.0;
+            double mbPerSec = (byteCount / (best / 1_000_000_000.0)) / (1024.0 * 1024.0);
+            double nsPerToken = tokenCount > 0 ? best / tokenCount : 0;
+            long allocPerIter = (allocAfter - allocBefore) / iter;
+            double allocPerToken = tokenCount > 0 ? (double)allocPerIter / tokenCount : 0;
+
+            Console.WriteLine($"  best   : {bestMs:F3} ms/iter   ({mbPerSec:N0} MiB/s, {nsPerToken:F1} ns/token)");
+            Console.WriteLine($"  median : {medMs:F3} ms/iter");
+            Console.WriteLine($"  mean   : {mean / 1_000_000.0:F3} ms/iter");
+            Console.WriteLine($"  p95    : {p95 / 1_000_000.0:F3} ms/iter");
+            Console.WriteLine($"  alloc  : {allocPerIter:N0} B/iter ({allocPerToken:F1} B/token)");
+            Console.WriteLine($"  GC     : gen0 {gcAfter.Item1 - gcBefore.Item1}, gen1 {gcAfter.Item2 - gcBefore.Item2}, gen2 {gcAfter.Item3 - gcBefore.Item3} (over {iter:N0} iters)");
         }
 
         // Archive CLI: `--inspect-archive <file.rac>`.
