@@ -1,4 +1,5 @@
-﻿using RaLanguage.Errors;
+﻿using System.Runtime.CompilerServices;
+using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Lexer;
 using RaLanguage.Lexer.Tokens;
@@ -26,124 +27,141 @@ namespace RaLanguage.Parser
     {
         private ParserResult ParseExpression()
         {
-            var res = new ParserResult();
-
-            if (_currentToken.Matches(Keyword.Var) || _currentToken.Matches(Keyword.Const) || _currentToken.Matches(Keyword.Final) || _currentToken.Matches(Keyword.Let))
+            // Prefix-keyword expression forms (var/const/final/let declarations,
+            // typeof, await, spawn, nameof). These are uncommon, so each owns its
+            // result wrapper locally instead of taxing every expression — most of
+            // which start with an identifier, literal or `(` — with one. The
+            // `Type == KEYWORD` gate skips the Matches probes entirely for the
+            // common non-keyword openers.
+            if (_currentToken.Type == TokenType.KEYWORD)
             {
-                var variableDeclaration = res.Register(ParseVariableDeclaration());
-                if (res.Error != null) return res;
-                return res.Success(variableDeclaration);
-            }
-            else if (_currentToken.Matches(Keyword.TypeOf))
-            {
-                res.RegisterAdvancement();
-                Advance();
-                var expr = res.Register(ParseExpression());
-
-                if (res.Error != null)
+                if (_currentToken.Matches(Keyword.Var) || _currentToken.Matches(Keyword.Const) || _currentToken.Matches(Keyword.Final) || _currentToken.Matches(Keyword.Let))
                 {
-                    return res;
+                    var res = new ParserResult();
+                    var variableDeclaration = res.Register(ParseVariableDeclaration());
+                    if (res.Error != null) return res;
+                    return res.Success(variableDeclaration);
                 }
-
-                return res.Success(new TypeofNode(expr));
-            }
-            else if (_currentToken.Matches(Keyword.Await))
-            {
-                var awaitStart = _currentToken.PositionStart;
-                res.RegisterAdvancement();
-                Advance();
-                var inner = res.Register(ParseExpression());
-                if (res.Error != null) return res;
-                return res.Success(new RaLanguage.Parser.Nodes.Async.AwaitNode(inner, awaitStart, _currentToken.PositionStart));
-            }
-            else if (_currentToken.Matches(Keyword.Spawn))
-            {
-                var spawnStart = _currentToken.PositionStart;
-                res.RegisterAdvancement();
-                Advance();
-                var inner = res.Register(ParseExpression());
-                if (res.Error != null) return res;
-                return res.Success(new RaLanguage.Parser.Nodes.Async.SpawnNode(inner, spawnStart, _currentToken.PositionStart));
-            }
-            else if (_currentToken.Matches(Keyword.NameOf))
-            {
-                res.RegisterAdvancement();
-                Advance();
-
-                if (_currentToken.Type == TokenType.LPAREN)
+                else if (_currentToken.Matches(Keyword.TypeOf))
                 {
+                    var res = new ParserResult();
                     res.RegisterAdvancement();
                     Advance();
-
-                    if (_currentToken.Type != TokenType.IDENTIFIER)
-                    {
-                        return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
-                            after: "'nameof('",
-                            help: "nameof(x) returns the textual name of a declared symbol"));
-                    }
-
-                    Token tok = _currentToken;
-                    res.RegisterAdvancement();
-                    Advance();
-
-                    if (_currentToken.Type != TokenType.RPAREN)
-                    {
-                        return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, ')', '(', context: "the 'nameof' argument"));
-                    }
-
-                    res.RegisterAdvancement();
-                    Advance();
-
-                    return res.Success(new NameofNode(tok));
+                    var expr = res.Register(ParseExpression());
+                    if (res.Error != null) return res;
+                    return res.Success(new TypeofNode(expr));
                 }
-                else
+                else if (_currentToken.Matches(Keyword.Await))
                 {
-                    if (_currentToken.Type != TokenType.IDENTIFIER)
-                    {
-                        return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
-                            after: "'nameof'",
-                            help: "nameof requires a symbol name, e.g. 'nameof myVar' or 'nameof(myVar)'"));
-                    }
-
-                    Token tok = _currentToken;
-
+                    var res = new ParserResult();
+                    var awaitStart = _currentToken.PositionStart;
+                    res.RegisterAdvancement();
+                    Advance();
+                    var inner = res.Register(ParseExpression());
+                    if (res.Error != null) return res;
+                    return res.Success(new RaLanguage.Parser.Nodes.Async.AwaitNode(inner, awaitStart, _currentToken.PositionStart));
+                }
+                else if (_currentToken.Matches(Keyword.Spawn))
+                {
+                    var res = new ParserResult();
+                    var spawnStart = _currentToken.PositionStart;
+                    res.RegisterAdvancement();
+                    Advance();
+                    var inner = res.Register(ParseExpression());
+                    if (res.Error != null) return res;
+                    return res.Success(new RaLanguage.Parser.Nodes.Async.SpawnNode(inner, spawnStart, _currentToken.PositionStart));
+                }
+                else if (_currentToken.Matches(Keyword.NameOf))
+                {
+                    var res = new ParserResult();
                     res.RegisterAdvancement();
                     Advance();
 
-                    return res.Success(new NameofNode(tok));
+                    if (_currentToken.Type == TokenType.LPAREN)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        if (_currentToken.Type != TokenType.IDENTIFIER)
+                        {
+                            return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
+                                after: "'nameof('",
+                                help: "nameof(x) returns the textual name of a declared symbol"));
+                        }
+
+                        Token tok = _currentToken;
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        if (_currentToken.Type != TokenType.RPAREN)
+                        {
+                            return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, ')', '(', context: "the 'nameof' argument"));
+                        }
+
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        return res.Success(new NameofNode(tok));
+                    }
+                    else
+                    {
+                        if (_currentToken.Type != TokenType.IDENTIFIER)
+                        {
+                            return res.Failure(ParserDiagnostics.ExpectedIdentifier(_currentToken,
+                                after: "'nameof'",
+                                help: "nameof requires a symbol name, e.g. 'nameof myVar' or 'nameof(myVar)'"));
+                        }
+
+                        Token tok = _currentToken;
+
+                        res.RegisterAdvancement();
+                        Advance();
+
+                        return res.Success(new NameofNode(tok));
+                    }
                 }
+                // Other keywords (if / match / while / fn / …) are atom-position
+                // expressions handled deeper in the chain — fall through.
             }
 
-            var leftNode = res.Register(ParsePipelineExpression());
-
-            if (res.Error != null)
+            var leftRes = ParsePipelineExpression();
+            if (leftRes.Error != null)
             {
                 // ParsePipelineExpression / inner parsers already produced a
                 // precise diagnostic for the offending token; bubble it up
                 // untouched.
-                return res;
+                return leftRes;
             }
 
-            if (_currentToken.Type == TokenType.QUESTION_MARK)
+            // Fast path: a bare expression with no trailing ternary `?:` and no
+            // assignment operator — by far the most common shape — flows straight
+            // back, with no wrapper ParserResult allocated at this level.
+            var ct = _currentToken.Type;
+            if (ct != TokenType.QUESTION_MARK && !IsAssignmentToken(ct)) return leftRes;
+
+            var res2 = new ParserResult();
+            var leftNode = res2.Register(leftRes);
+
+            if (ct == TokenType.QUESTION_MARK)
             {
                 var qTok = _currentToken;
-                res.RegisterAdvancement();
+                res2.RegisterAdvancement();
                 Advance();
 
-                var trueExpr = res.Register(ParseExpression());
-                if (res.Error != null) return res;
+                var trueExpr = res2.Register(ParseExpression());
+                if (res2.Error != null) return res2;
 
                 if (_currentToken.Type != TokenType.COLON)
                 {
-                    return res.Failure(ParserDiagnostics.ExpectedColon(_currentToken,
+                    return res2.Failure(ParserDiagnostics.ExpectedColon(_currentToken,
                         context: "to separate the two branches of the '?:' ternary"));
                 }
 
-                res.RegisterAdvancement();
+                res2.RegisterAdvancement();
                 Advance();
 
-                var falseExpr = res.Register(ParseExpression());
-                if (res.Error != null) return res;
+                var falseExpr = res2.Register(ParseExpression());
+                if (res2.Error != null) return res2;
 
                 leftNode = new TernaryNode(leftNode, trueExpr, falseExpr, qTok);
             }
@@ -151,43 +169,43 @@ namespace RaLanguage.Parser
             if (IsAssignmentToken(_currentToken.Type))
             {
                 Token assignmentToken = _currentToken;
-                res.RegisterAdvancement();
+                res2.RegisterAdvancement();
                 Advance();
 
-                var rightNode = res.Register(ParseExpression());
-                if (res.Error != null) return res;
+                var rightNode = res2.Register(ParseExpression());
+                if (res2.Error != null) return res2;
 
                 if (leftNode.NodeType == AstNodeType.VariableAccess)
                 {
                     VariableAccessNode varAccess = (VariableAccessNode)leftNode;
-                    return res.Success(new VariableAssignmentNode(varAccess.VarNameTok, assignmentToken, rightNode));
+                    return res2.Success(new VariableAssignmentNode(varAccess.VarNameTok, assignmentToken, rightNode));
                 }
                 else if (leftNode.NodeType == AstNodeType.ListAccess)
                 {
                     ListAccessNode listAccess = (ListAccessNode)leftNode;
-                    return res.Success(new ListAssignmentNode(listAccess, assignmentToken, rightNode));
+                    return res2.Success(new ListAssignmentNode(listAccess, assignmentToken, rightNode));
                 }
                 else if (leftNode.NodeType == AstNodeType.MemberAccess)
                 {
                     MemberAccessNode memberAccess = (MemberAccessNode)leftNode;
-                    return res.Success(new MemberAssignmentNode(memberAccess, assignmentToken, rightNode));
+                    return res2.Success(new MemberAssignmentNode(memberAccess, assignmentToken, rightNode));
                 }
                 else if (leftNode.NodeType == AstNodeType.Dereference)
                 {
                     DereferenceNode derefNode = (DereferenceNode)leftNode;
-                    return res.Success(new DereferenceAssignmentNode(
+                    return res2.Success(new DereferenceAssignmentNode(
                         derefNode.Target, assignmentToken, rightNode,
                         leftNode.PositionStart, rightNode.PositionEnd));
                 }
                 else
                 {
-                    return res.Failure(ParserDiagnostics.InvalidAssignmentTarget(
+                    return res2.Failure(ParserDiagnostics.InvalidAssignmentTarget(
                         leftNode.PositionStart, leftNode.PositionEnd,
                         "only variables, indexed access (a[i]), member access (a.b), and dereferences (*ref) may appear on the left of an assignment"));
                 }
             }
 
-            return res.Success(leftNode);
+            return res2.Success(leftNode);
         }
 
         // Pipeline layer sits between the cast layer (which is itself the
@@ -197,11 +215,27 @@ namespace RaLanguage.Parser
         // The right-hand expression is parsed at the same precedence band as
         // the left so a call expression on the RHS (`value |> pow(2)`) binds
         // naturally without requiring parentheses.
+        // No-allocation lookahead: is the next significant token (skipping
+        // newlines) a `|>`? Lets ParsePipelineExpression bail before allocating
+        // a wrapper, and without touching the token stream, when the operand is
+        // not actually the head of a pipeline.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private bool NextSignificantIsPipeForward()
+        {
+            int i = _tokenIndex;
+            var toks = _tokens;
+            int n = toks.Count;
+            while (i < n && toks[i].Type == TokenType.NEWLINE) i++;
+            return i < n && toks[i].Type == TokenType.PIPE_FORWARD;
+        }
+
         private ParserResult ParsePipelineExpression()
         {
+            var inner = ParseCastExpression();
+            if (inner.Error != null || !NextSignificantIsPipeForward()) return inner;
+
             var res = new ParserResult();
-            var left = res.Register(ParseCastExpression());
-            if (res.Error != null) return res;
+            var left = res.Register(inner);
 
             while (true)
             {
@@ -266,14 +300,17 @@ namespace RaLanguage.Parser
         // ParseExpression so the pipeline layer can sit above it cleanly.
         private ParserResult ParseCastExpression()
         {
-            var res = new ParserResult();
             // `or` sits at the lowest band, `and` binds tighter; both are
             // above bitwise-or. This matches the Python / Ruby precedence
-            // most users expect.
-            var leftNode = res.Register(ParseBinaryOperation(ParseLogicalAndExpression, s_opsLogicalOr));
-            if (res.Error != null) return res;
+            // most users expect. With no trailing `as`, the operand result
+            // flows back untouched — no wrapper allocation.
+            var inner = ParseBinaryOperation(_parseLogicalAnd, s_opsLogicalOr);
+            if (inner.Error != null || !_currentToken.Matches(Keyword.As)) return inner;
 
-            while (_currentToken.Matches(Keyword.As))
+            var res = new ParserResult();
+            var leftNode = res.Register(inner);
+
+            do
             {
                 res.RegisterAdvancement();
                 Advance();
@@ -289,65 +326,67 @@ namespace RaLanguage.Parser
                 castNode.PositionEnd = _currentToken.PositionEnd;
                 leftNode = castNode;
             }
+            while (_currentToken.Matches(Keyword.As));
 
             return res.Success(leftNode);
         }
 
         private ParserResult ParseLogicalAndExpression()
         {
-            return ParseBinaryOperation(ParseBitwiseOrExpression, s_opsLogicalAnd);
+            return ParseBinaryOperation(_parseBitwiseOr, s_opsLogicalAnd);
         }
 
         private ParserResult ParseBitwiseOrExpression()
         {
-            return ParseBinaryOperation(ParseBitwiseAndExpression, s_opsBitwiseOr);
+            return ParseBinaryOperation(_parseBitwiseAnd, s_opsBitwiseOr);
         }
 
         private ParserResult ParseBitwiseAndExpression()
         {
-            return ParseBinaryOperation(ParseComparisonExpression, s_opsBitwiseAnd);
+            return ParseBinaryOperation(_parseComparison, s_opsBitwiseAnd);
         }
 
         private ParserResult ParseRangeExpression()
         {
-            var res = new ParserResult();
+            var startRes = ParseArithmeticExpression();
+            if (startRes.Error != null) return startRes;
 
-            var start = res.Register(ParseArithmeticExpression());
+            var ct = _currentToken.Type;
+            if (ct != TokenType.DOUBLE_DOT && ct != TokenType.DOUBLE_DOT_EQ) return startRes;
+
+            var res = new ParserResult();
+            var start = res.Register(startRes);
+
+            var opTok = _currentToken;
+            res.RegisterAdvancement();
+            Advance();
+
+            var end = res.Register(ParseArithmeticExpression());
             if (res.Error != null) return res;
 
-            if (_currentToken.Type == TokenType.DOUBLE_DOT || _currentToken.Type == TokenType.DOUBLE_DOT_EQ)
+            AstNode? step = null;
+
+            if (_currentToken.Type == TokenType.COLON)
             {
-                var opTok = _currentToken;
                 res.RegisterAdvancement();
                 Advance();
 
-                var end = res.Register(ParseArithmeticExpression());
+                step = res.Register(ParseArithmeticExpression());
                 if (res.Error != null) return res;
-
-                AstNode? step = null;
-
-                if (_currentToken.Type == TokenType.COLON)
-                {
-                    res.RegisterAdvancement();
-                    Advance();
-
-                    step = res.Register(ParseArithmeticExpression());
-                    if (res.Error != null) return res;
-                }
-
-                return res.Success(new RangeNode(start, end, opTok, step));
             }
 
-            return res.Success(start);
+            return res.Success(new RangeNode(start, end, opTok, step));
         }
 
         private ParserResult ParseNullCoalescing()
         {
-            var res = new ParserResult();
-            var left = res.Register(ParseShiftExpression());
-            if (res.Error != null) return res;
+            var inner = ParseShiftExpression();
+            if (inner.Error != null || _currentToken.Type != TokenType.NULL_COALESCE) return inner;
 
-            while (_currentToken.Type == TokenType.NULL_COALESCE)
+            var res = new ParserResult();
+            var left = res.Register(inner);
+
+            do
             {
                 var opTok = _currentToken;
                 res.RegisterAdvancement();
@@ -358,16 +397,16 @@ namespace RaLanguage.Parser
 
                 left = new NullCoalescingNode(left, right, opTok);
             }
+            while (_currentToken.Type == TokenType.NULL_COALESCE);
 
             return res.Success(left);
         }
 
         private ParserResult ParseComparisonExpression()
         {
-            var res = new ParserResult();
-
             if (_currentToken.Matches(Keyword.Not))
             {
+                var res = new ParserResult();
                 var opTok = _currentToken;
                 res.RegisterAdvancement();
                 Advance();
@@ -377,24 +416,17 @@ namespace RaLanguage.Parser
                 return res.Success(new UnaryOperationNode(opTok, node));
             }
 
-            // Comparison operands now go through ParseNullCoalescingThenIs,
-            // which binds `expr is Type` / `expr is not Type` tighter than
+            // Comparison operands go through ParseNullCoalescingThenIs, which
+            // binds `expr is Type` / `expr is not Type` tighter than
             // `==` / `!=` / `<` / `>` but looser than additive / shift /
             // null-coalescing operators. The placement matches mainstream
-            // languages (C# 'is' at relational precedence) and lets the
-            // common pattern `if x is int and y is string` parse without
-            // parentheses.
-            var b_node = res.Register(ParseBinaryOperation(ParseNullCoalescingThenIs, s_opsComparison));
-
-            if (res.Error != null)
-            {
-                // The inner comparison parser already produced a precise diagnostic
-                // for the offending token; preserve it rather than overwriting with a
-                // generic "expected one of N tokens" fallback.
-                return res;
-            }
-
-            return res.Success(b_node);
+            // languages (C# 'is' at relational precedence) and lets the common
+            // pattern `if x is int and y is string` parse without parentheses.
+            //
+            // Without a leading `not`, the comparison-band binary parse already
+            // returns a finished result (carrying any precise inner diagnostic),
+            // so hand it straight back rather than re-wrapping it.
+            return ParseBinaryOperation(_parseNullCoalescingThenIs, s_opsComparison);
         }
 
         // Wraps ParseNullCoalescing with a postfix `is Type` / `is not Type`
@@ -404,11 +436,13 @@ namespace RaLanguage.Parser
         // for the "operand at the level just below comparison" notion.
         private ParserResult ParseNullCoalescingThenIs()
         {
-            var res = new ParserResult();
-            var left = res.Register(ParseNullCoalescing());
-            if (res.Error != null) return res;
+            var inner = ParseNullCoalescing();
+            if (inner.Error != null || !_currentToken.Matches(Keyword.Is)) return inner;
 
-            while (_currentToken.Matches(Keyword.Is))
+            var res = new ParserResult();
+            var left = res.Register(inner);
+
+            do
             {
                 res.RegisterAdvancement();
                 Advance();
@@ -432,115 +466,128 @@ namespace RaLanguage.Parser
                 isNode.PositionEnd = _currentToken.PositionEnd;
                 left = isNode;
             }
+            while (_currentToken.Matches(Keyword.Is));
 
             return res.Success(left);
         }
 
         private ParserResult ParseShiftExpression()
         {
-            return ParseBinaryOperation(ParseRangeExpression, s_opsShift);
+            return ParseBinaryOperation(_parseRange, s_opsShift);
         }
 
         private ParserResult ParseArithmeticExpression()
         {
-            return ParseBinaryOperation(ParseTerm, s_opsArith);
+            return ParseBinaryOperation(_parseTerm, s_opsArith);
         }
 
         private ParserResult ParseTerm()
         {
-            return ParseBinaryOperation(ParseFactor, s_opsTerm);
+            return ParseBinaryOperation(_parseFactor, s_opsTerm);
         }
 
         private ParserResult ParseFactor()
         {
-            var res = new ParserResult();
             var tok = _currentToken;
 
-            if (tok.Type == TokenType.DOUBLE_PLUS || tok.Type == TokenType.DOUBLE_MINUS)
+            // Only a genuine unary prefix needs a result wrapper here. The
+            // overwhelmingly common case is no prefix at all, where we descend
+            // straight into ParsePower() and let the operand's own result flow
+            // back — allocating nothing at this level.
+            switch (tok.Type)
             {
-                res.RegisterAdvancement();
-                Advance();
-                var factor = res.Register(ParseFactor());
-                if (res.Error != null) return res;
-                return res.Success(new UnaryOperationNode(tok, factor, isLeft: true));
-            }
-
-            if (tok.Type == TokenType.PLUS || tok.Type == TokenType.MINUS)
-            {
-                res.RegisterAdvancement();
-                Advance();
-                var factor = res.Register(ParseFactor());
-                if (res.Error != null) return res;
-                return res.Success(new UnaryOperationNode(tok, factor, isLeft: true));
-            }
-
-            // Bitwise NOT binds at the factor level so `~0 + 1` parses as
-            // `(~0) + 1`, not `~(0 + 1)`.
-            if (tok.Type == TokenType.BITWISE_NOT)
-            {
-                res.RegisterAdvancement();
-                Advance();
-                var factor = res.Register(ParseFactor());
-                if (res.Error != null) return res;
-                return res.Success(new UnaryOperationNode(tok, factor, isLeft: true));
-            }
-
-            // Unary borrow: `&place` (shared) or `&mut place` (exclusive). Optional
-            // lifetime annotation slots between: `&'a place` / `&'a mut place`.
-            // The `&` is BITWISE_AND in tokenstream; at factor-start position it can
-            // never be a binary operand, so reinterpretation is unambiguous.
-            if (tok.Type == TokenType.BITWISE_AND)
-            {
-                var posStart = tok.PositionStart;
-                res.RegisterAdvancement();
-                Advance();
-
-                string? lifetime = null;
-                if (_currentToken.Type == TokenType.LIFETIME)
+                // Prefix `++`/`--`, unary `+`/`-`, and bitwise NOT all build the
+                // same left-unary node. (NOT binds at factor level so `~0 + 1`
+                // parses as `(~0) + 1`, not `~(0 + 1)`.)
+                case TokenType.DOUBLE_PLUS:
+                case TokenType.DOUBLE_MINUS:
+                case TokenType.PLUS:
+                case TokenType.MINUS:
+                case TokenType.BITWISE_NOT:
                 {
-                    lifetime = _currentToken.Value?.ToString();
+                    var res = new ParserResult();
                     res.RegisterAdvancement();
                     Advance();
+                    var factor = res.Register(ParseFactor());
+                    if (res.Error != null) return res;
+                    return res.Success(new UnaryOperationNode(tok, factor, isLeft: true));
                 }
 
-                bool isMut = false;
-                if (_currentToken.Matches(Keyword.Mut))
+                // Unary borrow: `&place` (shared) or `&mut place` (exclusive),
+                // with an optional lifetime: `&'a place` / `&'a mut place`. The
+                // `&` is BITWISE_AND in the token stream; at factor-start it can
+                // never be a binary operand, so the reinterpretation is
+                // unambiguous.
+                case TokenType.BITWISE_AND:
                 {
-                    isMut = true;
+                    var res = new ParserResult();
+                    var posStart = tok.PositionStart;
                     res.RegisterAdvancement();
                     Advance();
+
+                    string? lifetime = null;
+                    if (_currentToken.Type == TokenType.LIFETIME)
+                    {
+                        lifetime = _currentToken.Value?.ToString();
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    bool isMut = false;
+                    if (_currentToken.Matches(Keyword.Mut))
+                    {
+                        isMut = true;
+                        res.RegisterAdvancement();
+                        Advance();
+                    }
+
+                    var target = res.Register(ParseFactor());
+                    if (res.Error != null) return res;
+                    return res.Success(new BorrowNode(target, isMut, posStart, target.PositionEnd, lifetime));
                 }
 
-                var target = res.Register(ParseFactor());
-                if (res.Error != null) return res;
-                return res.Success(new BorrowNode(target, isMut, posStart, target.PositionEnd, lifetime));
-            }
+                // Unary dereference: `*expr`. Same factor-start disambiguation as `&`.
+                case TokenType.MUL:
+                {
+                    var res = new ParserResult();
+                    var posStart = tok.PositionStart;
+                    res.RegisterAdvancement();
+                    Advance();
+                    var target = res.Register(ParseFactor());
+                    if (res.Error != null) return res;
+                    return res.Success(new DereferenceNode(target, posStart, target.PositionEnd));
+                }
 
-            // Unary dereference: `*expr`. Same factor-start disambiguation as `&`.
-            if (tok.Type == TokenType.MUL)
-            {
-                var posStart = tok.PositionStart;
-                res.RegisterAdvancement();
-                Advance();
-                var target = res.Register(ParseFactor());
-                if (res.Error != null) return res;
-                return res.Success(new DereferenceNode(target, posStart, target.PositionEnd));
+                default:
+                    return ParsePower();
             }
-
-            return ParsePower();
         }
 
         private ParserResult ParsePower()
         {
-            return ParseBinaryOperation(ParseCall, s_opsPow, ParseFactor);
+            return ParseBinaryOperation(_parseCall, s_opsPow, _parseFactor);
         }
 
         private ParserResult ParseCall()
         {
-            var res = new ParserResult();
+            var atomRes = ParseAtom();
+            if (atomRes.Error != null) return atomRes;
 
-            var atom = res.Register(ParseAtom());
-            if (res.Error != null) return res;
+            // Fast path: a bare atom with nothing that can begin a postfix —
+            // generic args (`<`), call (`(`), index (`[`), member (`.`),
+            // try-unwrap (`?`), postfix `not`, or record-update `with` — flows
+            // straight back with no wrapper allocation. This is the shape of
+            // every plain variable read and literal, i.e. the common case.
+            var nt = _currentToken.Type;
+            if (nt != TokenType.LT && nt != TokenType.LPAREN && nt != TokenType.LSQUARE
+                && nt != TokenType.DOT && nt != TokenType.QUESTION_MARK
+                && !_currentToken.Matches(Keyword.Not) && !_currentToken.Matches(Keyword.With))
+            {
+                return atomRes;
+            }
+
+            var res = new ParserResult();
+            var atom = res.Register(atomRes);
 
             var resultNode = atom;
 
@@ -1274,14 +1321,22 @@ namespace RaLanguage.Parser
             res.RegisterAdvancement();
             Advance();
 
-            bool anyPair = rawElements.Any(e => e.IsPair);
+            // A single index walk decides map-vs-set and builds the node list,
+            // replacing a LINQ `.Any` closure + `.Select().ToList()` (each of
+            // which allocated a delegate and an enumerator on the literal path).
+            bool anyPair = false;
+            for (int i = 0; i < rawElements.Count; i++)
+            {
+                if (rawElements[i].IsPair) { anyPair = true; break; }
+            }
 
             if (anyPair)
             {
-                var pairs = new List<(AstNode, AstNode)>();
+                var pairs = new List<(AstNode, AstNode)>(rawElements.Count);
 
-                foreach (var el in rawElements)
+                for (int i = 0; i < rawElements.Count; i++)
                 {
+                    var el = rawElements[i];
                     if (!el.IsPair)
                     {
                         return res.Failure(ParserDiagnostics.MapAndSetCannotMix(positionStart, rBracketEndPos));
@@ -1293,7 +1348,9 @@ namespace RaLanguage.Parser
             }
             else
             {
-                var elementNodes = rawElements.Select(e => e.Key!).ToList();
+                var elementNodes = new List<AstNode>(rawElements.Count);
+                for (int i = 0; i < rawElements.Count; i++)
+                    elementNodes.Add(rawElements[i].Key!);
                 return res.Success(new SetNode(elementNodes, positionStart, rBracketEndPos));
             }
         }

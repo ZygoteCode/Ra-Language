@@ -1,0 +1,86 @@
+import std.prelude.*;
+// Ra Language - parser: precedence-chain fast-path regression.
+//
+// Guards the expression-parser optimisation that returns an operand's own
+// result directly when no operator / postfix follows at a given precedence
+// band (instead of re-wrapping it in a throwaway ParserResult). The risk of
+// such a change is a subtle associativity, advance-count, or postfix-attach
+// regression, so every case below pins an exact value that descends through
+// several precedence levels — exercising both the "no operator, pass through"
+// and the "operator present, build node" arms of each band.
+//
+// Cases:
+//   X1  full mixed-precedence chain (add/mul/pow/div in one expression)
+//   X2  left-associative subtraction chain
+//   X3  right-associative power chain
+//   X4  not / and / or with comparisons (comparison + logical bands)
+//   X5  bitwise & binds tighter than |, shift tighter than compare
+//   X6  nested ternary as a declaration initializer
+//   X7  assignment target detection right after the fast-path check
+//   X8  compound assignment after a parsed l-value
+//   X9  null-coalescing chain (multiple ?? at one band)
+//   X10 is / as postfix bands
+//   X11 single- and multi-stage pipeline (|>), left-to-right
+//   X12 deep redundant parentheses
+//   X13 postfix index after an atom, plus the bare-atom no-postfix path
+//   X14 unary prefixes (negate, bitwise-not, pre-increment)
+
+fn inc(n) { ret n + 1 }
+fn dbl(n) { ret n * 2 }
+fn sq(n) { ret n * n }
+
+print("=== parser/precedence_fastpath ===");
+
+// X1: 1 + 2*(3^2) - (4/2) = 1 + 18 - 2 = 17
+if 1 + 2 * 3 ^ 2 - 4 / 2 == 17 { print("[X1] OK"); } else { print("[X1] FAIL " + ((1 + 2 * 3 ^ 2 - 4 / 2) as string)); }
+
+// X2: ((20-5)-3)-2 = 10
+if 20 - 5 - 3 - 2 == 10 { print("[X2] OK"); } else { print("[X2] FAIL " + ((20 - 5 - 3 - 2) as string)); }
+
+// X3: 2^(3^2) = 2^9 = 512 (right associative)
+if 2 ^ 3 ^ 2 == 512 { print("[X3] OK"); } else { print("[X3] FAIL " + ((2 ^ 3 ^ 2) as string)); }
+
+// X4: not(1>2)=true; true and (3<=3)=true; true or false=true
+if not (1 > 2) and 3 <= 3 or false { print("[X4] OK"); } else { print("[X4] FAIL"); }
+
+// X5: (12 & 10) | 1  and  (1 << 3) > 4
+if (12 & 10 | 1) == 9 and (1 << 3) > 4 { print("[X5] OK"); } else { print("[X5] FAIL " + ((12 & 10 | 1) as string)); }
+
+// X6: nested ternary initializer
+var x6 = true ? (false ? 1 : 2) : 3;
+if x6 == 2 { print("[X6] OK"); } else { print("[X6] FAIL " + (x6 as string)); }
+
+// X7: assignment immediately after a parsed l-value (fast-path -> slow-path)
+var x7 = 0;
+x7 = 5 + 3;
+if x7 == 8 { print("[X7] OK"); } else { print("[X7] FAIL " + (x7 as string)); }
+
+// X8: compound assignment
+x7 += 2 * 3;
+if x7 == 14 { print("[X8] OK"); } else { print("[X8] FAIL " + (x7 as string)); }
+
+// X9: chained null-coalescing
+var x9a = null;
+var x9 = x9a ?? x9a ?? 7;
+if x9 == 7 { print("[X9] OK"); } else { print("[X9] FAIL " + (x9 as string)); }
+
+// X10: is / as postfix bands
+var x10 = "42" as int;
+if 5 is int and x10 == 42 { print("[X10] OK"); } else { print("[X10] FAIL " + (x10 as string)); }
+
+// X11: pipeline single + multi-stage, left-to-right
+if (5 |> inc) == 6 and (2 |> inc |> dbl |> sq) == 36 { print("[X11] OK"); } else { print("[X11] FAIL"); }
+
+// X12: deep redundant parentheses
+if ((((7)))) == 7 { print("[X12] OK"); } else { print("[X12] FAIL"); }
+
+// X13: postfix index after atom, and a bare atom with no postfix
+var lst = [10, 20, 30];
+var bare = 42;
+if lst[1] == 20 and bare == 42 { print("[X13] OK"); } else { print("[X13] FAIL " + (lst[1] as string)); }
+
+// X14: unary prefixes
+var x14 = -5 + 3;
+if x14 == -2 and ~0 == -1 { print("[X14] OK"); } else { print("[X14] FAIL " + (x14 as string)); }
+
+print("=== done ===");

@@ -161,9 +161,9 @@ namespace RaLanguage.Parser
             // If recovery emitted diagnostics but produced no fatal Error, the outer
             // driver still needs to know parsing failed. Surface the first error so
             // ParseResult.HasErrors reports correctly.
-            if (res.Error == null && res.Diagnostics.HasErrors)
+            if (res.Error == null && res.HasErrors)
             {
-                var firstErr = res.Diagnostics.FirstError;
+                var firstErr = res.FirstError;
                 if (firstErr != null)
                 {
                     res.Error = new InvalidSyntaxError(
@@ -200,10 +200,45 @@ namespace RaLanguage.Parser
 
         private ParserResult ParseStatementCore()
         {
+            var curType = _currentToken.Type;
+
+            if (curType == TokenType.KEYWORD)
+            {
+                switch ((Keyword)_currentToken.Value!)
+                {
+                    case Keyword.Ret:
+                    case Keyword.Yield:
+                    case Keyword.Emit:
+                    case Keyword.Continue:
+                    case Keyword.Break:
+                    case Keyword.Pass:
+                    case Keyword.Del:
+                    case Keyword.Goto:
+                    case Keyword.Throw:
+                        return ParseSimpleKeywordStatement();
+                }
+                // Any other keyword (if / while / for / match / fn / …) is an
+                // expression-position statement — fall through to ParseExpression.
+            }
+            else if (curType == TokenType.IDENTIFIER && _tokens[_tokenIndex + 1].Type == TokenType.COLON)
+            {
+                return ParseLabelStatement();
+            }
+
+            // Expression statement (the common case): return the expression's
+            // own result directly — no statement-level wrapper allocation.
+            return ParseExpression();
+        }
+
+        // The small family of leading-keyword statement forms. Only reached
+        // when the current token is one of the statement keywords switched on
+        // by ParseStatementCore, so it owns the result wrapper that the common
+        // expression-statement path no longer pays for.
+        private ParserResult ParseSimpleKeywordStatement()
+        {
             var res = new ParserResult();
             var positionStart = _currentToken.PositionStart;
 
-            if (_currentToken.Type == TokenType.KEYWORD)
             {
                 switch (_currentToken.Value)
                 {
@@ -281,34 +316,33 @@ namespace RaLanguage.Parser
                 }
             }
 
-            if (_currentToken.Type == TokenType.IDENTIFIER && _tokens[_tokenIndex + 1].Type == TokenType.COLON)
-            {
-                Token varName = _currentToken;
+            // Defensive: a keyword that slipped past ParseStatementCore's
+            // dispatch gate is treated as an expression statement.
+            return ParseExpression();
+        }
 
-                res.RegisterAdvancement();
-                Advance();
+        // `label:` prefix introducing a labelled statement block. Only reached
+        // from ParseStatementCore once it has confirmed IDENTIFIER followed by
+        // COLON, so it owns its result wrapper.
+        private ParserResult ParseLabelStatement()
+        {
+            var res = new ParserResult();
+            Token varName = _currentToken;
 
-                res.RegisterAdvancement();
-                Advance();
+            res.RegisterAdvancement();
+            Advance();
 
-                var statements = res.Register(ParseStatements());
+            res.RegisterAdvancement();
+            Advance();
 
-                if (res.Error != null)
-                {
-                    return res;
-                }
+            var statements = res.Register(ParseStatements());
 
-                return res.Success(new LabelNode(varName, statements));
-            }
-
-            var expression = res.Register(ParseExpression());
             if (res.Error != null)
             {
-                // Preserve the deeper parser error (ParseExpression already produced a
-                // specific diagnostic). Only fall back to a synthetic message if none.
                 return res;
             }
-            return res.Success(expression);
+
+            return res.Success(new LabelNode(varName, statements));
         }
 
 
