@@ -174,6 +174,22 @@ namespace RaLanguage.Interpreter.IR
             // counter is initialized from a numeric literal (`var sum = 0`).
             public readonly HashSet<string> NumericInitBindings = new(StringComparer.Ordinal);
 
+            // PERF (O(n) string building): names whose declaration initializer
+            // is provably a STRING (string literal / interpolation), used to
+            // gate the loop string-accumulator promotion. `StringAccumulators`
+            // maps a promoted accumulator name to its per-frame StringBuilder
+            // index (the StrAcc* opcodes' imm16); `NextStrAcc` allocates those
+            // indices and becomes RaFunction.StrAccCount at finalize.
+            public readonly HashSet<string> StringInitBindings = new(StringComparer.Ordinal);
+            public readonly Dictionary<string, int> StringAccumulators = new(StringComparer.Ordinal);
+            public int NextStrAcc;
+            // Names the CURRENT loop will promote to a StringBuilder. Computed
+            // BEFORE the iter-publish decision so `s = s + i` (RHS = typed iter)
+            // counts as a redirectable iter access (it lowers to StrAccAppendI
+            // reading the typed slot directly — no boxed publish needed). The
+            // actual promotion (slot alloc + StrAccBegin) still happens later.
+            public readonly HashSet<string> PromotableStrAccNames = new(StringComparer.Ordinal);
+
             // Loop-invariant pure-expression RHS slots for typed
             // accumulators. Keyed by the AstNode of the RHS expression;
             // value is the typed Int64 slot pre-loaded once before
@@ -240,6 +256,9 @@ namespace RaLanguage.Interpreter.IR
             public readonly Dictionary<string, (byte LongSlot, BindingId Binding)> TypedLongBindings;
             public readonly Dictionary<AstNode, byte> TypedAccumulatorExprs;
             public readonly HashSet<string> DirtyTypedAccs;
+            // String accumulator name→StrAcc-index map (NextStrAcc is NOT
+            // snapshotted — it is a monotonic slot allocator == StrAccCount).
+            public readonly Dictionary<string, int> StringAccumulators;
 
             public TypedPromotionSnapshot(State st)
             {
@@ -249,10 +268,13 @@ namespace RaLanguage.Interpreter.IR
                 TypedLongBindings = new Dictionary<string, (byte, BindingId)>(st.TypedLongBindings);
                 TypedAccumulatorExprs = new Dictionary<AstNode, byte>(st.TypedAccumulatorExprs);
                 DirtyTypedAccs = new HashSet<string>(st.DirtyTypedAccs);
+                StringAccumulators = new Dictionary<string, int>(st.StringAccumulators, StringComparer.Ordinal);
             }
 
             public void RestoreInto(State st)
             {
+                st.StringAccumulators.Clear();
+                foreach (var kv in StringAccumulators) st.StringAccumulators[kv.Key] = kv.Value;
                 st.ActiveTypedIters.Clear();
                 foreach (var kv in ActiveTypedIters) st.ActiveTypedIters[kv.Key] = kv.Value;
                 st.TypedAccumulators.Clear();
@@ -279,6 +301,7 @@ namespace RaLanguage.Interpreter.IR
             var st = new State();
             st.FrameId = 0;
             st.NumericInitBindings.UnionWith(CollectNumericInitBindingNames(root));
+            st.StringInitBindings.UnionWith(CollectStringInitBindingNames(root));
             const byte ScratchSlot = 0;
             var statements = FlattenStatements(root);
 
@@ -682,6 +705,353 @@ namespace RaLanguage.Interpreter.IR
             }
         }
 
+        // Names whose binding is provably a STRING throughout the function: a
+        // string-literal / interpolation initializer, with every `=` assignment
+        // either another string literal OR a `name = name + <expr>` self-append
+        // (which preserves string-ness). Any other `=` taints the name. Mirrors
+        // CollectNumericInitWalk's coverage so the gate is sound.
+        private static HashSet<string> CollectStringInitBindingNames(AstNode? root)
+        {
+            var strs = new HashSet<string>(StringComparer.Ordinal);
+            var tainted = new HashSet<string>(StringComparer.Ordinal);
+            CollectStringInitWalk(root, strs, tainted);
+            strs.ExceptWith(tainted);
+            return strs;
+        }
+
+        private static void RecordStringInitClass(string? name, AstNode? value,
+            HashSet<string> strs, HashSet<string> tainted)
+        {
+            if (string.IsNullOrEmpty(name)) return;
+            if (value != null
+                && (value.NodeType == AstNodeType.String
+                    || value.NodeType == AstNodeType.FormattedInterpolation))
+            {
+                strs.Add(name!);
+                return;
+            }
+            // `name = name + …` (single or chained) keeps the binding a string
+            // (string + x is always a string via StringValue.AddedTo) — the
+            // canonical accumulator self-append; neutral.
+            if (IsStringAppendChainShape(value, name!))
+                return;
+            // Anything else assigned with `=` makes the type non-string/unknown.
+            tainted.Add(name!);
+        }
+
+        private static void CollectStringInitWalk(
+            AstNode? node, HashSet<string> strs, HashSet<string> tainted)
+        {
+            if (node == null) return;
+            switch (node.NodeType)
+            {
+                case AstNodeType.VariableDeclaration:
+                {
+                    var vd = (Parser.Nodes.Variables.VariableDeclarationNode)node;
+                    foreach (var d in vd.Declarations)
+                    {
+                        RecordStringInitClass(d.Item1.Value?.ToString(), d.Item2, strs, tainted);
+                        if (d.Item2 != null) CollectStringInitWalk(d.Item2, strs, tainted);
+                    }
+                    return;
+                }
+                case AstNodeType.VariableAssignment:
+                {
+                    var va = (Parser.Nodes.Variables.VariableAssignmentNode)node;
+                    if (va.AssignmentToken.Type == Lexer.Tokens.TokenType.EQ)
+                        RecordStringInitClass(va.Name, va.ValueNode, strs, tainted);
+                    CollectStringInitWalk(va.ValueNode, strs, tainted);
+                    return;
+                }
+                case AstNodeType.Scope:
+                {
+                    var sc = (Parser.Nodes.Special.ScopeNode)node;
+                    foreach (var c in sc.Nodes) CollectStringInitWalk(c, strs, tainted);
+                    return;
+                }
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)node;
+                    foreach (var cs in ifn.Cases)
+                    {
+                        CollectStringInitWalk(cs.Condition, strs, tainted);
+                        CollectStringInitWalk(cs.Expr, strs, tainted);
+                    }
+                    if (ifn.ElseCase.HasValue) CollectStringInitWalk(ifn.ElseCase.Value.Expr, strs, tainted);
+                    return;
+                }
+                case AstNodeType.While:
+                {
+                    var wn = (Parser.Nodes.Statements.WhileNode)node;
+                    CollectStringInitWalk(wn.ConditionNode, strs, tainted);
+                    CollectStringInitWalk(wn.BodyNode, strs, tainted);
+                    return;
+                }
+                case AstNodeType.DoWhile:
+                {
+                    var dw = (Parser.Nodes.Statements.DoWhileNode)node;
+                    CollectStringInitWalk(dw.ConditionNode, strs, tainted);
+                    CollectStringInitWalk(dw.BodyNode, strs, tainted);
+                    return;
+                }
+                case AstNodeType.For:
+                {
+                    var fnode = (Parser.Nodes.Statements.ForNode)node;
+                    CollectStringInitWalk(fnode.BodyNode, strs, tainted);
+                    return;
+                }
+                case AstNodeType.ForEach:
+                {
+                    var fe = (Parser.Nodes.Statements.ForEachNode)node;
+                    CollectStringInitWalk(fe.BodyNode, strs, tainted);
+                    return;
+                }
+                case AstNodeType.Try:
+                {
+                    var tn = (Parser.Nodes.Special.TryNode)node;
+                    CollectStringInitWalk(tn.TryBody, strs, tainted);
+                    CollectStringInitWalk(tn.CatchBody, strs, tainted);
+                    if (tn.FinallyBody != null) CollectStringInitWalk(tn.FinallyBody, strs, tainted);
+                    return;
+                }
+                case AstNodeType.FunctionDefinition:
+                {
+                    var fdn = (Parser.Nodes.Functions.FunctionDefinitionNode)node;
+                    CollectStringInitWalk(fdn.BodyNode, strs, tainted);
+                    return;
+                }
+                case AstNodeType.NamespaceDeclaration:
+                {
+                    var ns = (Parser.Nodes.Namespaces.NamespaceDeclarationNode)node;
+                    CollectStringInitWalk(ns.Body, strs, tainted);
+                    return;
+                }
+                default:
+                    return;
+            }
+        }
+
+        // Loop string-accumulator candidates: a string-init binding whose ONLY
+        // in-loop access is a `name = name + <expr>` self-append. Then the boxed
+        // `name` SymbolEntry can be left untouched during the loop (appends go
+        // to a StringBuilder) and refreshed once on exit — turning O(n^2)
+        // reallocating concatenation into O(n) append. Conservative: any node
+        // shape the stat walk does not model counts as an opaque read, which
+        // breaks the `reads == appends` equality and blocks promotion.
+        private static List<(string Name, Pipeline.BindingId Binding)> CollectStringAccumulatorCandidates(AstNode body, State st)
+        {
+            var result = new List<(string, Pipeline.BindingId)>();
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            GatherStringSelfAppendNames(body, names);
+            foreach (var name in names)
+            {
+                if (!st.StringInitBindings.Contains(name)) continue;
+                if (st.TypedAccumulators.ContainsKey(name)) continue;
+                if (BodyDeclaresName(body, name)) continue;
+                int reads = 0, writes = 0, appends = 0;
+                CountStringAppendStats(body, name, ref reads, ref writes, ref appends);
+                // Every read is the LHS operand of a self-append, and every
+                // write IS a self-append. No other access exists.
+                if (appends == 0 || reads != appends || writes != appends) continue;
+                var binding = FindFirstBindingOfName(body, name);
+                if (!binding.IsResolved) continue;
+                if (!IsSlotEligible(binding, BindingKind.Local, st)
+                    && !IsSlotEligible(binding, BindingKind.Global, st)
+                    && !IsSlotEligible(binding, BindingKind.Parameter, st))
+                    continue;
+                result.Add((name, binding));
+            }
+            return result;
+        }
+
+        // Pre-compute (into `st.PromotableStrAccNames`) the set of string
+        // accumulators THIS loop will promote, EXCLUDING names an enclosing loop
+        // already promoted. Run before the iter-publish decision so
+        // `CountRedirectableIterAccess` can treat `s = s + iter` as a
+        // publish-eliding access (it lowers to StrAccAppendI). Transient — only
+        // read during the owning loop's Step 1; each loop refreshes it.
+        private static void PopulatePromotableStrAccNames(AstNode body, State st)
+        {
+            st.PromotableStrAccNames.Clear();
+            foreach (var sa in CollectStringAccumulatorCandidates(body, st))
+                if (!st.StringAccumulators.ContainsKey(sa.Name))
+                    st.PromotableStrAccNames.Add(sa.Name);
+        }
+
+        // Is `value` a left-associative `+` chain whose LEFTMOST leaf is a
+        // VariableAccess of `name`? Covers both the single `name + x` and the
+        // chained `name + p1 + p2 + …` self-append. Once the leftmost operand
+        // is the (string) accumulator, every `+` down the left spine is a
+        // string concat, so each right-spine operand is appended in source
+        // order. A non-`+` anywhere on the spine, or a leftmost leaf that is
+        // not `name`, disqualifies it.
+        private static bool IsStringAppendChainShape(AstNode? value, string name)
+        {
+            if (value is not Parser.Nodes.Operations.BinaryOperationNode bo) return false;
+            var node = bo;
+            while (true)
+            {
+                if (node.OpTok.Type != Lexer.Tokens.TokenType.PLUS) return false;
+                if (node.LeftNode is Parser.Nodes.Variables.VariableAccessNode lvn)
+                    return lvn.Name == name;
+                if (node.LeftNode is Parser.Nodes.Operations.BinaryOperationNode inner) { node = inner; continue; }
+                return false;
+            }
+        }
+
+        // Ordered append parts of a `name = name + p1 + … + pn` chain (leftmost
+        // leaf is `name`): the right-spine operands, in SOURCE order. Returns
+        // null when `va` is not such a chain. When bindings are resolved the
+        // leftmost leaf's binding must match `accBinding` (guards shadowing).
+        private static List<AstNode>? GetStringAppendChainParts(
+            Parser.Nodes.Variables.VariableAssignmentNode va, Pipeline.BindingId accBinding)
+        {
+            if (va.AssignmentToken.Type != Lexer.Tokens.TokenType.EQ) return null;
+            if (va.ValueNode is not Parser.Nodes.Operations.BinaryOperationNode bo) return null;
+            var parts = new List<AstNode>();
+            var node = bo;
+            while (true)
+            {
+                if (node.OpTok.Type != Lexer.Tokens.TokenType.PLUS) return null;
+                parts.Add(node.RightNode);
+                if (node.LeftNode is Parser.Nodes.Variables.VariableAccessNode lvn)
+                {
+                    if (lvn.Name != va.Name) return null;
+                    if (lvn.Binding.IsResolved && accBinding.IsResolved && lvn.Binding != accBinding) return null;
+                    parts.Reverse();
+                    return parts;
+                }
+                if (node.LeftNode is Parser.Nodes.Operations.BinaryOperationNode inner) { node = inner; continue; }
+                return null;
+            }
+        }
+
+        // Emit the append of one chain part into StrAcc[accIdx]. A part that IS
+        // the active typed iter goes through StrAccAppendI (typed slot, no
+        // box); anything else is compiled to a temp and StrAccAppend'd (its
+        // value is coerced to string exactly as StringValue.AddedTo would).
+        private static void EmitStringAccumulatorPart(AstNode part, int accIdx, State st, ref byte topSlot)
+        {
+            if (part is VariableAccessNode rv && !string.IsNullOrEmpty(rv.Name)
+                && st.ActiveTypedIters.TryGetValue(rv.Name, out byte iterSlot))
+            {
+                st.Code.Emit2(Opcode.StrAccAppendI, iterSlot, (ushort)accIdx);
+                st.RedirectedTypedIterAccessCount++;
+                return;
+            }
+            byte xs = AllocTemp(ref topSlot);
+            CompileExpression(part, xs, st, ref topSlot);
+            st.Code.Emit2(Opcode.StrAccAppend, xs, (ushort)accIdx);
+        }
+
+        // Is `va` a `name = name + … ` self-append (single or chained)?
+        private static bool IsStringSelfAppend(Parser.Nodes.Variables.VariableAssignmentNode va, string name)
+            => va.AssignmentToken.Type == Lexer.Tokens.TokenType.EQ
+               && va.Name == name
+               && IsStringAppendChainShape(va.ValueNode, name);
+
+        private static void GatherStringSelfAppendNames(AstNode? node, HashSet<string> outNames)
+        {
+            if (node == null) return;
+            if (node is Parser.Nodes.Variables.VariableAssignmentNode va
+                && va.AssignmentToken.Type == Lexer.Tokens.TokenType.EQ
+                && IsStringAppendChainShape(va.ValueNode, va.Name))
+                outNames.Add(va.Name);
+            foreach (var c in EnumerateChildStatements(node)) GatherStringSelfAppendNames(c, outNames);
+        }
+
+        // Single conservative walk counting, for `name`: total reads
+        // (VariableAccess), total `=` writes, and self-appends. Unmodelled nodes
+        // bump `reads` so the caller's `reads == appends` test fails (safe).
+        private static void CountStringAppendStats(AstNode? node, string name,
+            ref int reads, ref int writes, ref int appends)
+        {
+            if (node == null) return;
+            switch (node)
+            {
+                case Parser.Nodes.Variables.VariableAccessNode va:
+                    if (va.Name == name) reads++;
+                    return;
+                // Early-exit / no-op control-flow statements provably do not
+                // read the accumulator, so they are known no-ops here (instead
+                // of the conservative `default` read bump). This lets a loop
+                // that builds a string and `break`s / `continue`s on a
+                // condition still promote: `break` lands on the loop-exit
+                // materialize target (partial accumulation preserved) and
+                // `continue` skips to the iter-advance. (Previously these were
+                // blocked to dodge a LICM jump-retarget miscompile on
+                // `for v in lo..hi { if c { continue } … }`; that bug is now
+                // fixed in LicmHoist's branch-target remap.) Pass is a no-op.
+                case Parser.Nodes.Iterations.BreakNode:
+                case Parser.Nodes.Iterations.ContinueNode:
+                case Parser.Nodes.Operations.PassNode:
+                    return;
+                case NumberNode: case StringNode: case BooleanNode: case NullNode:
+                    return;
+                case Parser.Nodes.Operations.BinaryOperationNode bo:
+                    CountStringAppendStats(bo.LeftNode, name, ref reads, ref writes, ref appends);
+                    CountStringAppendStats(bo.RightNode, name, ref reads, ref writes, ref appends);
+                    return;
+                case Parser.Nodes.Operations.UnaryOperationNode uo:
+                    CountStringAppendStats(uo.Node, name, ref reads, ref writes, ref appends);
+                    return;
+                case Parser.Nodes.Variables.VariableAssignmentNode vas:
+                {
+                    if (vas.Name == name && vas.AssignmentToken.Type == Lexer.Tokens.TokenType.EQ)
+                    {
+                        writes++;
+                        if (IsStringSelfAppend(vas, name)) appends++;
+                    }
+                    else if (vas.Name == name)
+                    {
+                        // compound op on the accumulator — not modelled.
+                        writes++;
+                    }
+                    CountStringAppendStats(vas.ValueNode, name, ref reads, ref writes, ref appends);
+                    return;
+                }
+                case Parser.Nodes.Special.ScopeNode sc:
+                    foreach (var c in sc.Nodes) CountStringAppendStats(c, name, ref reads, ref writes, ref appends);
+                    return;
+                case Parser.Nodes.Statements.IfNode ifn:
+                    foreach (var cs in ifn.Cases)
+                    {
+                        CountStringAppendStats(cs.Condition, name, ref reads, ref writes, ref appends);
+                        CountStringAppendStats(cs.Expr, name, ref reads, ref writes, ref appends);
+                    }
+                    if (ifn.ElseCase.HasValue) CountStringAppendStats(ifn.ElseCase.Value.Expr, name, ref reads, ref writes, ref appends);
+                    return;
+                case Parser.Nodes.Functions.FunctionCallNode fc:
+                    CountStringAppendStats(fc.NodeToCall, name, ref reads, ref writes, ref appends);
+                    foreach (var a in fc.ArgNodes) CountStringAppendStats(a.Expr, name, ref reads, ref writes, ref appends);
+                    return;
+                default:
+                    // Unmodelled — assume it may read `name`. Breaks reads==appends.
+                    reads += 2;
+                    return;
+            }
+        }
+
+        // Direct child statements for the self-append-name gather (broad but
+        // conservative: unhandled containers simply yield nothing).
+        private static System.Collections.Generic.IEnumerable<AstNode> EnumerateChildStatements(AstNode node)
+        {
+            switch (node)
+            {
+                case Parser.Nodes.Special.ScopeNode sc:
+                    foreach (var c in sc.Nodes) yield return c;
+                    break;
+                case Parser.Nodes.Statements.IfNode ifn:
+                    foreach (var cs in ifn.Cases) { if (cs.Condition != null) yield return cs.Condition; if (cs.Expr != null) yield return cs.Expr; }
+                    if (ifn.ElseCase.HasValue && ifn.ElseCase.Value.Expr != null) yield return ifn.ElseCase.Value.Expr;
+                    break;
+                case Parser.Nodes.Statements.ForNode f: if (f.BodyNode != null) yield return f.BodyNode; break;
+                case Parser.Nodes.Statements.WhileNode w: if (w.BodyNode != null) yield return w.BodyNode; break;
+                case Parser.Nodes.Statements.DoWhileNode d: if (d.BodyNode != null) yield return d.BodyNode; break;
+                case Parser.Nodes.Statements.ForEachNode fe: if (fe.BodyNode != null) yield return fe.BodyNode; break;
+            }
+        }
+
         // M88: returns true iff `node` contains any kind of import /
         // namespace-using statement. Used by `LicmHoist` to gate the
         // closure-alias check: with imports active, callees may live
@@ -884,7 +1254,8 @@ namespace RaLanguage.Interpreter.IR
                 paramBindings: fnNode.ParamBindings,
                 argNameToks: fnNode.ArgNameToks,
                 body: fnNode.BodyNode,
-                shouldAutoReturn: fnNode.ShouldAutoReturn);
+                shouldAutoReturn: fnNode.ShouldAutoReturn,
+                reserveSelfSlot: fnNode.ReservesSelfSlot);
         }
 
         // M24: compile a single AstNode as an expression-shape RaFunction.
@@ -904,6 +1275,7 @@ namespace RaLanguage.Interpreter.IR
             var st = new State();
             st.FrameId = -1;
             st.NumericInitBindings.UnionWith(CollectNumericInitBindingNames(node));
+            st.StringInitBindings.UnionWith(CollectStringInitBindingNames(node));
             const byte ScratchSlot = 0;
             byte topSlot = 1;
             byte retSlot = AllocTemp(ref topSlot);
@@ -956,6 +1328,7 @@ namespace RaLanguage.Interpreter.IR
             var st = new State();
             st.FrameId = -1;
             st.NumericInitBindings.UnionWith(CollectNumericInitBindingNames(node));
+            st.StringInitBindings.UnionWith(CollectStringInitBindingNames(node));
             const byte ScratchSlot = 0;
 
             CompileStatementWithFallback(node, st, ScratchSlot);
@@ -981,7 +1354,8 @@ namespace RaLanguage.Interpreter.IR
             Pipeline.BindingId[]? paramBindings,
             IReadOnlyList<Lexer.Tokens.Token>? argNameToks,
             AstNode? body,
-            bool shouldAutoReturn)
+            bool shouldAutoReturn,
+            bool reserveSelfSlot = false)
         {
             var fn = new RaFunction(name);
             fn.FrameId = frameId;
@@ -1003,6 +1377,7 @@ namespace RaLanguage.Interpreter.IR
             var st = new State();
             st.FrameId = frameId;
             st.NumericInitBindings.UnionWith(CollectNumericInitBindingNames(body));
+            st.StringInitBindings.UnionWith(CollectStringInitBindingNames(body));
             const byte ScratchSlot = 0;
 
             // Pre-register parameter slots so SlotCount accounts for them even
@@ -1011,6 +1386,13 @@ namespace RaLanguage.Interpreter.IR
             // SymbolTable setup; FunctionValue.PrepareExecutionContextForCall
             // already runs SetLocal for each parameter, so the lazy-fallback
             // path will materialise the slot on first read.
+            // PERF (direct-slot method dispatch): reserve frame slot 0 for
+            // `self` so SlotCount accounts for it even on zero-arg / zero-local
+            // methods (pure getters). The Resolver already reserved offset 0 in
+            // the frame; this mirrors it into the IR slot table so the method
+            // fast path can bind `self` into VmFrame.SlotLocals[0].
+            if (reserveSelfSlot) st.RegisterSlot(0, "self");
+
             if (paramBindings != null)
             {
                 for (int i = 0; i < paramBindings.Length; i++)
@@ -1022,6 +1404,18 @@ namespace RaLanguage.Interpreter.IR
                         pname = argNameToks[i].Value?.ToString();
                     st.RegisterSlot(pb.Offset, pname);
                 }
+
+                // PERF (direct-slot arg binding): cache each positional
+                // parameter's frame slot. -1 = no stable slot (disqualifies the
+                // fast path for the whole call). The call entry uses this to
+                // write args straight into VmFrame.SlotLocals.
+                var pslots = new int[paramBindings.Length];
+                for (int i = 0; i < paramBindings.Length; i++)
+                {
+                    var pb = paramBindings[i];
+                    pslots[i] = (pb.IsResolved && pb.FrameId == st.FrameId) ? pb.Offset : -1;
+                }
+                fn.ParamSlots = pslots;
             }
 
             // M17: arrow-form (ShouldAutoReturn) functions must return the
@@ -1117,6 +1511,7 @@ namespace RaLanguage.Interpreter.IR
             fn.DefineRefs = st.DefineRefs.ToArray();
             fn.EhTable = st.EhTable.ToArray();
             fn.LocalCount = st.MaxTempUsed;
+            fn.StrAccCount = st.NextStrAcc;
 
             if (st.MaxSlot < 0)
             {
@@ -1558,6 +1953,30 @@ namespace RaLanguage.Interpreter.IR
             if (va.ValueNode is not BinaryOperationNode bo) return false;
             var opType = bo.OpTok.Type;
             if (opType != TokenType.PLUS && opType != TokenType.MINUS) return false;
+
+            // String accumulator append: `s = s + p1 + … + pn` (single or
+            // chained, leftmost leaf is the PROMOTED accumulator). Each part is
+            // appended to the per-frame StringBuilder (amortised O(1)) instead
+            // of the boxed O(n) reallocating concat; `s`'s SymbolEntry is
+            // refreshed once at loop exit. Runs FIRST — before the bare
+            // `bo.LeftNode is VariableAccessNode` requirement (a chain's
+            // top-level LHS is a nested BinaryOp) and before IsSafeRhsForSelfFuse
+            // (the append evaluates the part's VALUE; unlike the numeric fused
+            // slot-read it tolerates function-call / side-effecting parts, which
+            // the gate already permits — so this is also where `s = s + f()`
+            // gets its append, previously dropped).
+            if (opType == TokenType.PLUS
+                && st.StringAccumulators.TryGetValue(va.Name, out int strAccIdx))
+            {
+                var parts = GetStringAppendChainParts(va, va.Binding);
+                if (parts != null)
+                {
+                    foreach (var part in parts)
+                        EmitStringAccumulatorPart(part, strAccIdx, st, ref topSlot);
+                    return true;
+                }
+            }
+
             if (bo.LeftNode is not VariableAccessNode lvn) return false;
             // Self-additive: LHS of the binary op must reference the same
             // resolved binding as the assignment target. BindingId comparison
@@ -2073,6 +2492,24 @@ namespace RaLanguage.Interpreter.IR
                         && IsSlotEligible(va.Binding, va.BindingKind, st)
                         && TryEmitSelfAdditiveSlot(va, st, ref topSlot))
                     {
+                        return true;
+                    }
+                    // PERF: a plain const-int64 write to a promoted typed
+                    // accumulator (e.g. the `a = 0` reset inside
+                    // `if c < 0 { a = 0; b = 1 }`). Write the typed Int64 slot
+                    // directly so the accumulator keeps its unboxed promotion
+                    // across the non-additive write, instead of being
+                    // disqualified and boxed for the whole loop. Mark dirty so a
+                    // later boxed read republishes. Kept in lock-step with the
+                    // matching relaxation in HasNonRedirectableAccumulatorWrite:
+                    // both gate on the SAME const-int64 test, so the typed slot
+                    // is always the source of truth for this binding.
+                    if (va.AssignmentToken.Type == TokenType.EQ
+                        && st.TypedAccumulators.TryGetValue(va.Name, out var accConstW)
+                        && TryGetLiteralLongFromConstExpr(va.ValueNode, out long accConstVal))
+                    {
+                        EmitLiteralLongLoad(accConstVal, accConstW.LongSlot, st, ref topSlot);
+                        st.DirtyTypedAccs.Add(va.Name);
                         return true;
                     }
                     byte src = AllocTemp(ref topSlot);
@@ -3221,6 +3658,7 @@ namespace RaLanguage.Interpreter.IR
             // Any other access requires the per-iter `BoxI +
             // AssignBinding` publish so `LoadLocalS iter` sees a fresh
             // boxed mirror in the symbol entry.
+            PopulatePromotableStrAccNames(node.BodyNode, st);
             int totalIterAccess = CountVariableAccess(node.BodyNode, iterName);
             int redirectableIterAccess = CountRedirectableIterAccess(node.BodyNode, iterName, st);
             int typedComparableIterAccess = CountTypedIterComparisonAccess(node.BodyNode, iterName);
@@ -3255,6 +3693,26 @@ namespace RaLanguage.Interpreter.IR
                 st.Code.Emit2(Opcode.LoadLocalS, accBoxedTmp, (ushort)acc.Binding.Offset);
                 st.Code.Emit3(Opcode.UnboxI, accLong, accBoxedTmp, 0);
                 st.TypedAccumulators[acc.Name] = (accLong, acc.Binding);
+            }
+
+            // PERF (O(n) string building): promote loop string accumulators to a
+            // per-frame StringBuilder. Pre-loop seeds it from `s`'s current
+            // value; the body's `s = s + x` self-appends; loop exit materialises
+            // back into `s`. `forStrAccs` records only the accumulators THIS
+            // loop registers, so a nested loop reusing the same name (already
+            // promoted by an outer loop) appends into the outer builder and is
+            // materialised exactly once, by the outer loop.
+            var forStrAccs = new List<(string Name, Pipeline.BindingId Binding, int AccIdx)>();
+            foreach (var sa in CollectStringAccumulatorCandidates(node.BodyNode, st))
+            {
+                if (sa.Binding.Offset > ushort.MaxValue) continue;
+                if (st.StringAccumulators.ContainsKey(sa.Name)) continue;
+                int accIdx = st.NextStrAcc++;
+                byte sBoxed = AllocTemp(ref topSlot);
+                st.Code.Emit2(Opcode.LoadLocalS, sBoxed, (ushort)sa.Binding.Offset);
+                st.Code.Emit2(Opcode.StrAccBegin, sBoxed, (ushort)accIdx);
+                st.StringAccumulators[sa.Name] = accIdx;
+                forStrAccs.Add((sa.Name, sa.Binding, accIdx));
             }
 
             // Pre-load every distinct int64 literal value used either as
@@ -3388,6 +3846,16 @@ namespace RaLanguage.Interpreter.IR
                 byte accBoxedTmp = AllocTemp(ref topSlot);
                 st.Code.Emit3(Opcode.BoxI, accBoxedTmp, st.TypedAccumulators[acc.Name].LongSlot, 0);
                 st.Code.Emit2(Opcode.StoreLocalS, accBoxedTmp, (ushort)acc.Binding.Offset);
+            }
+            // O(n) string building: materialise each string accumulator THIS
+            // loop owns back into its boxed `s` SymbolEntry, then retire it from
+            // the active set so post-loop code reads the finished string.
+            foreach (var sa in forStrAccs)
+            {
+                byte matTmp = AllocTemp(ref topSlot);
+                st.Code.Emit2(Opcode.StrAccMaterialize, matTmp, (ushort)sa.AccIdx);
+                st.Code.Emit2(Opcode.StoreLocalS, matTmp, (ushort)sa.Binding.Offset);
+                st.StringAccumulators.Remove(sa.Name);
             }
             // M87: restore the entry-snapshot rather than blow away the
             // outer loop's typed dicts. Preserves correctness of nested
@@ -3796,6 +4264,10 @@ namespace RaLanguage.Interpreter.IR
             // Step 1: classify iter accesses to decide whether the boxed
             // `BoxI + AssignBinding` publish is dead. Mirrors
             // `CompileForLazyLong`'s redirect counting.
+            // Pre-compute which string accumulators THIS loop will promote, so
+            // `s = s + iter` counts as a redirectable (publish-eliding) access
+            // below (it lowers to StrAccAppendI reading the typed slot).
+            PopulatePromotableStrAccNames(node.BodyNode, st);
             int feTotalIterAccess = CountVariableAccess(node.BodyNode, iterName);
             int feRedirectableIterAccess = CountRedirectableIterAccess(node.BodyNode, iterName, st);
             int feTypedComparableIterAccess = CountTypedIterComparisonAccess(node.BodyNode, iterName);
@@ -3883,6 +4355,25 @@ namespace RaLanguage.Interpreter.IR
                 st.TypedLongBindings[nm] = (bndLong, binding);
             }
 
+            // Step 7: O(n) string building. Promote loop string accumulators
+            // (`s = s + x`) to a per-frame StringBuilder seeded from `s`'s
+            // current value; the body self-appends; loop exit materialises back
+            // into `s`. Mirrors `CompileForLazyLong`'s Step. `feStrAccs` records
+            // only accumulators THIS loop registers, so a nested loop reusing
+            // the name appends into the outer builder, materialised once outside.
+            var feStrAccs = new List<(string Name, Pipeline.BindingId Binding, int AccIdx)>();
+            foreach (var sa in CollectStringAccumulatorCandidates(node.BodyNode, st))
+            {
+                if (sa.Binding.Offset > ushort.MaxValue) continue;
+                if (st.StringAccumulators.ContainsKey(sa.Name)) continue;
+                int accIdx = st.NextStrAcc++;
+                byte sBoxed = AllocTemp(ref topSlot);
+                st.Code.Emit2(Opcode.LoadLocalS, sBoxed, (ushort)sa.Binding.Offset);
+                st.Code.Emit2(Opcode.StrAccBegin, sBoxed, (ushort)accIdx);
+                st.StringAccumulators[sa.Name] = accIdx;
+                feStrAccs.Add((sa.Name, sa.Binding, accIdx));
+            }
+
             int loopTopPc = st.Code.Pc;
             if (foreachBodyNeedsScope)
                 st.Code.Emit3(Opcode.ClearScope, 0, 0, 0);
@@ -3943,6 +4434,16 @@ namespace RaLanguage.Interpreter.IR
                 byte accBoxedTmp = AllocTemp(ref topSlot);
                 st.Code.Emit3(Opcode.BoxI, accBoxedTmp, st.TypedAccumulators[acc.Name].LongSlot, 0);
                 st.Code.Emit2(Opcode.StoreLocalS, accBoxedTmp, (ushort)acc.Binding.Offset);
+            }
+            // O(n) string building: materialise each string accumulator THIS
+            // loop owns back into its boxed `s` SymbolEntry, then retire it from
+            // the active set so post-loop code reads the finished string.
+            foreach (var sa in feStrAccs)
+            {
+                byte matTmp = AllocTemp(ref topSlot);
+                st.Code.Emit2(Opcode.StrAccMaterialize, matTmp, (ushort)sa.AccIdx);
+                st.Code.Emit2(Opcode.StoreLocalS, matTmp, (ushort)sa.Binding.Offset);
+                st.StringAccumulators.Remove(sa.Name);
             }
             // M87: restore the entry-snapshot rather than blow away the
             // outer loop's typed dicts. Preserves correctness of nested
@@ -5353,6 +5854,14 @@ namespace RaLanguage.Interpreter.IR
                     if (va.Name == name)
                     {
                         if (va.AssignmentToken.Type != Lexer.Tokens.TokenType.EQ) return false;
+                        // A plain const-int64 reset (e.g. `b = 1` inside a
+                        // conditional) is redirectable to the typed slot by the
+                        // assignment lowering — accept it here so it does not
+                        // demote the accumulator chain. Stays in lock-step with
+                        // the same const-int64 test in the lowering and in
+                        // HasNonRedirectableAccumulatorWrite.
+                        if (TryGetLiteralLongFromConstExpr(va.ValueNode, out _))
+                            return IsCandidateAccumulatorOnly(va.ValueNode, bodyRoot, name, iterName, st);
                         if (va.ValueNode is not Parser.Nodes.Operations.BinaryOperationNode bo) return false;
                         var opT = bo.OpTok.Type;
                         if (opT != Lexer.Tokens.TokenType.PLUS
@@ -5446,7 +5955,17 @@ namespace RaLanguage.Interpreter.IR
                 case AstNodeType.VariableAssignment:
                 {
                     var va = (Parser.Nodes.Variables.VariableAssignmentNode)node;
-                    if (va.Name == name && !IsRedirectableSelfAdditive(va, name, iterName, bodyRoot, st))
+                    // A plain const-int64 write (`a = 0`) is now REDIRECTABLE:
+                    // the assignment lowering writes it straight into the typed
+                    // Int64 slot (see the VariableAssignment compile path), so
+                    // it does NOT break the typed accumulator's source-of-truth
+                    // invariant. Must stay in lock-step with that lowering.
+                    bool redirectableConstWrite =
+                        va.AssignmentToken.Type == Lexer.Tokens.TokenType.EQ
+                        && TryGetLiteralLongFromConstExpr(va.ValueNode, out _);
+                    if (va.Name == name
+                        && !IsRedirectableSelfAdditive(va, name, iterName, bodyRoot, st)
+                        && !redirectableConstWrite)
                         return true;
                     // Recurse into RHS for nested assignments.
                     return HasNonRedirectableAccumulatorWrite(va.ValueNode, bodyRoot, name, iterName, st);
@@ -6399,7 +6918,16 @@ namespace RaLanguage.Interpreter.IR
                     if (!lvn.Binding.IsResolved || lvn.Binding != vasn.Binding) return 0;
                     if (lvn.BindingKind != vasn.BindingKind) return 0;
                     if (bo.RightNode is not Parser.Nodes.Variables.VariableAccessNode rvn) return 0;
-                    return (rvn.Name == name) ? 1 : 0;
+                    if (rvn.Name != name) return 0;
+                    // String self-append `s = s + i`. When `s` will be PROMOTED,
+                    // it lowers to StrAccAppendI which reads the iter's typed
+                    // long slot directly — redirectable, no boxed publish. When
+                    // `s` is NOT promoted (e.g. an extra in-loop read disqualifies
+                    // it) it falls back to the boxed AddIntoSlot reading the iter
+                    // MIRROR, so the publish must stay — NOT redirectable.
+                    if (st.StringInitBindings.Contains(lvn.Name))
+                        return st.PromotableStrAccNames.Contains(lvn.Name) ? 1 : 0;
+                    return 1;
                 }
                 // Other statements may contain non-redirectable iter accesses
                 // — those are counted by `CountVariableAccess` and not here.

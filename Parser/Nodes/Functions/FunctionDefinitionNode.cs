@@ -17,6 +17,13 @@ namespace RaLanguage.Parser.Nodes.Functions
         public BindingId[]? ParamBindings;
         public List<ResolvedCapture>? ResolvedCaptures;
 
+        // PERF (direct-slot method dispatch): set by the Resolver when this is a
+        // method frame (slot 0 reserved for `self`). The IR compiler reserves
+        // frame slot 0 so the method fast path can bind `self` there even for
+        // zero-arg / zero-local methods (pure getters), whose SlotCount would
+        // otherwise be 0.
+        public bool ReservesSelfSlot;
+
         // M17: cached IR compile of the body. Populated lazily by any caller
         // that wants to dispatch the body through VmExecutor (top-level
         // functions via FunctionDefinitionHelper, class methods via

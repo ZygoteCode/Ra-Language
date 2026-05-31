@@ -1,0 +1,51 @@
+import std.prelude.*;
+// Regression: typed-accumulator promotion must stay correct when a
+// non-additive const write (`a = 0`) targets a promoted accumulator inside a
+// conditional. The IR compiler now redirects such writes straight into the
+// accumulator's typed Int64 slot (instead of disqualifying it and boxing the
+// whole loop). The failure mode is SILENT miscompilation, so these assert
+// exact values — including a branch that actually FIRES.
+
+// Case 1: conditional reset that fires every 3rd iteration.
+var a = 0
+var b = 0
+for i in 0..10 {
+    a = a + 1
+    b = b + a
+    if a == 3 {
+        a = 0
+    }
+}
+// a: 1,2,(3→0),1,2,(3→0),1,2,(3→0),1  -> final 1
+// b: 1,3,6,7,9,12,13,15,18,19         -> final 19
+if a == 1 { print("[acc_reset_a] OK") } else { print("[acc_reset_a] FAIL: a=" + (a as string)) }
+if b == 19 { print("[acc_reset_b] OK") } else { print("[acc_reset_b] FAIL: b=" + (b as string)) }
+
+// Case 2: never-firing conditional reset + multiplication reads of the typed
+// accumulators (mirrors bench_arithmetic). x = sum(1..100) = 5050, y = 101.
+var x = 0
+var y = 1
+for i in 0..100 {
+    x = x + y
+    y = y + 1
+    var z = x * 2 + y * 3 - i
+    if z < 0 {
+        x = 0
+        y = 1
+    }
+}
+if x == 5050 { print("[acc_mul_x] OK") } else { print("[acc_mul_x] FAIL: x=" + (x as string)) }
+if y == 101 { print("[acc_mul_y] OK") } else { print("[acc_mul_y] FAIL: y=" + (y as string)) }
+
+// Case 3: reset to a non-zero const, reads by name after the loop.
+var c = 100
+for i in 0..5 {
+    c = c + 10
+    if c > 130 {
+        c = 7
+    }
+}
+// c: 110,120,130,(140→7),17  -> final 17
+if c == 17 { print("[acc_reset_nonzero] OK") } else { print("[acc_reset_nonzero] FAIL: c=" + (c as string)) }
+
+print("=== typed accumulator conditional: done ===")

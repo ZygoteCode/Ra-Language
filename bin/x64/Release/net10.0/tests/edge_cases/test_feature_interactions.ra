@@ -135,11 +135,8 @@ fn rev_acc(xs: list, acc: list): list {
 okv("FI12", rev_acc([1, 2, 3, 4, 5], []) == [5, 4, 3, 2, 1], rev_acc([1, 2, 3, 4, 5], []) as string);
 
 // === FI13: build a delimited string from a counted loop ====================
-// IMPLEMENTATION NOTE: building "0-1-2-3-4" via a branched string accumulator
-// (`if i==0 { acc += (i as string) } else { acc += "-" + (i as string) }`) is
-// MISCOMPILED in this build — the typed-accumulator promotion fires on that
-// shape and the result collapses to 0. The robust route is to collect the
-// parts into a list and str_join them, which is correct. See suite summary.
+// Building "0-1-2-3-4" via the str_join workaround. (The branched
+// string-accumulator shape below in FI13b is now ALSO correct — see note.)
 fn dash_join(n: int): string {
     var parts = [];
     for i = 0 to n { parts = parts + [(i as string)]; }
@@ -147,9 +144,14 @@ fn dash_join(n: int): string {
 }
 okv("FI13", dash_join(5) == "0-1-2-3-4", dash_join(5));
 
-// === FI13b: REGRESSION GUARD documenting the branched-accumulator miscompile
-// Asserts the (wrong) observed value so the guard flips when the bug is fixed,
-// and asserts the str_join workaround is correct.
+// === FI13b: REGRESSION GUARD — branched string accumulator ==================
+// `if i==0 { acc += (i as string) } else { acc += "-" + (i as string) }` once
+// MISCOMPILED to "0": the LICM pass hoisted the loop-invariant constant loads
+// out of the if/else arms but retargeted the arms' forward branches to the
+// preheader instead of the next surviving body instruction, so every iteration
+// after the first was skipped. Fixed in LicmHoist (branch-target remap +
+// NativeDefine hoist guard); this guard now asserts the CORRECT delimited
+// string. See tests/control_flow/test_licm_branch_retarget.ra.
 fn dash_buggy(n: int): string {
     var acc = "";
     for i = 0 to n {
@@ -157,7 +159,7 @@ fn dash_buggy(n: int): string {
     }
     ret acc;
 }
-ok("FI13b", (dash_buggy(5) as string) == "0");   // KNOWN BUG: collapses to 0
+okv("FI13b", dash_buggy(5) == "0-1-2-3-4", dash_buggy(5));
 
 // === FI14: mutual recursion — even/odd ====================================
 fn is_even(n: int): bool {

@@ -32,6 +32,16 @@ namespace RaLanguage.Interpreter.Runtime.Calls
     // accidentally bypass the annotation / borrow / null-handling rules.
     public static class FunctionCallExecutor
     {
+        // PERF: shared empty named-args dictionary for positional-only calls.
+        // The call sinks (Invoke → ExecuteWithNamedArgs / Construct /
+        // PrepareExecutionContextForCall) only READ namedArgs (iterate / count);
+        // none mutate the passed-in dictionary — every dictionary that IS
+        // written is freshly built in EvaluatedArguments / SpawnNodeVisitor. So
+        // a single never-mutated instance can stand in for the per-call
+        // `new Dictionary<string,RuntimeValue>()` at every positional call site.
+        public static readonly Dictionary<string, RuntimeValue> EmptyNamedArgs =
+            new(System.StringComparer.Ordinal);
+
         public readonly struct EvaluatedArguments
         {
             public readonly RuntimeResult Result;
@@ -125,8 +135,12 @@ namespace RaLanguage.Interpreter.Runtime.Calls
 
             if (calleeVal is BaseFunctionValue bfunc)
             {
-                var metaKey = AnnotationInterceptors.ResolveCalleeMetadataKey(calleeVal);
-                var calleeName = AnnotationInterceptors.ResolveCalleeName(calleeVal);
+                // PERF: @intercept hooks live in the metadata registry. When it
+                // is empty no interceptor can exist, so skip resolving the
+                // callee's metadata key / name (string work) on every call.
+                bool anyAnnotations = !MetadataRegistry.Global.IsEmpty;
+                var metaKey = anyAnnotations ? AnnotationInterceptors.ResolveCalleeMetadataKey(calleeVal) : null;
+                var calleeName = anyAnnotations ? AnnotationInterceptors.ResolveCalleeName(calleeVal) : string.Empty;
 
                 if (metaKey != null)
                 {

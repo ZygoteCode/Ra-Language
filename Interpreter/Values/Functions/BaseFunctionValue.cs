@@ -159,8 +159,15 @@ namespace RaLanguage.Interpreter.Values.Functions
         public Context GenerateNewContext()
         {
             var closure = BindingContext ?? Context;
+            // PERF: the Context constructor already allocates
+            // `new SymbolTable(parent?.SymbolTable)` with parent == closure, so
+            // the execution scope is fully formed here. The previous code
+            // immediately overwrote it with a second, IDENTICAL SymbolTable
+            // (newCtx.Parent IS closure ⇒ same parent chain) — allocating a
+            // table + its eager backing dictionary per call only to discard
+            // them. Context.Copy() already avoids this double-alloc; do the same
+            // here. One SymbolTable per call instead of two.
             var newCtx = new Context(Name, closure, PositionStart);
-            newCtx.SymbolTable = new SymbolTable(newCtx.Parent?.SymbolTable);
 
             // Explicit captures shadow the lexical chain. The remaining free
             // variables of the body still resolve through the parent (so
@@ -221,6 +228,44 @@ namespace RaLanguage.Interpreter.Values.Functions
             TypeDescriptor? varArgType)
         {
             var execCtx = GenerateNewContext();
+
+            int formalCountFast = formalNames?.Count ?? 0;
+
+            // PERF fast path: the overwhelmingly common call shape — purely
+            // positional arguments, exact arity, no varargs, and no parameter
+            // annotations in the program. Bind each arg straight into the
+            // execution scope and run the declared type checks, skipping the
+            // `finalAssigned` dictionary, the `extras` list, the defaults pass,
+            // the missing-arg scan, and the metadata coercion loop entirely.
+            // Any deviation (named args, wrong arity needing defaults, varargs,
+            // or a non-empty annotation registry) falls through to the original
+            // general path below, byte-for-byte unchanged.
+            if (positionalArgs.Count == formalCountFast
+                && (namedArgs == null || namedArgs.Count == 0)
+                && !hasVarArgs
+                && MetadataRegistry.Global.IsEmpty)
+            {
+                for (int i = 0; i < formalCountFast; i++)
+                {
+                    var v = positionalArgs[i];
+                    v.SetContext(execCtx);
+                    execCtx.SymbolTable.SetLocal(formalNames![i], v);
+                }
+                if (argTypes != null)
+                {
+                    for (int i = 0; i < formalCountFast; i++)
+                    {
+                        var expected = i < argTypes.Count ? argTypes[i] : null;
+                        if (expected != null && !expected.IsTypeParameter())
+                        {
+                            var actual = positionalArgs[i];
+                            if (!TypeSystem.IsAssignable(execCtx, expected, actual))
+                                return (null, new RuntimeError(PositionStart, PositionEnd, $"Type mismatch for argument '{formalNames![i]}': expected '{expected}', got '{actual.Type}'", Context));
+                        }
+                    }
+                }
+                return (execCtx, null);
+            }
 
             var finalAssigned = new Dictionary<string, RuntimeValue>(StringComparer.Ordinal);
             var extras = new List<RuntimeValue>();
@@ -360,8 +405,12 @@ namespace RaLanguage.Interpreter.Values.Functions
                 execCtx.SymbolTable.SetLocal(varname, listVal);
             }
 
+            // PERF: the per-parameter coercion / validation pass builds a
+            // MetadataTarget key string per parameter and probes the registry.
+            // When the program declares no annotations the whole pass is a
+            // guaranteed no-op — skip it (and its `keys` list allocation).
             var owner = ParameterOwnerForMetadata;
-            if (owner != null)
+            if (owner != null && !MetadataRegistry.Global.IsEmpty)
             {
                 var keys = new List<string>(finalAssigned.Keys);
                 foreach (var key in keys)

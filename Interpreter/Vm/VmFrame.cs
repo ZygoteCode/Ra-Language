@@ -71,6 +71,11 @@ namespace RaLanguage.Interpreter.Vm
         // iteration stay correct.
         public SymbolEntry?[] SlotLocals;
 
+        // PERF (O(n) string building): per-loop-string-accumulator
+        // StringBuilders, indexed by the StrAcc* opcodes' imm16. Allocated only
+        // when Function.StrAccCount > 0 (the common case allocates nothing).
+        public System.Text.StringBuilder?[] StrAcc;
+
         public int Pc;
 
         // Runtime ctx depth — maintained by Push/Pop scope opcodes. The
@@ -94,6 +99,9 @@ namespace RaLanguage.Interpreter.Vm
             Slots = function.LocalCount > 0
                 ? new ValueSlot[function.LocalCount]
                 : System.Array.Empty<ValueSlot>();
+            StrAcc = function.StrAccCount > 0
+                ? new System.Text.StringBuilder?[function.StrAccCount]
+                : System.Array.Empty<System.Text.StringBuilder?>();
             Parent = parent;
             Pc = 0;
             CtxDepth = 0;
@@ -138,6 +146,8 @@ namespace RaLanguage.Interpreter.Vm
                 System.Array.Clear(frame.Slots, 0, frame.Slots.Length);
             if (frame.SlotLocals.Length > 0)
                 System.Array.Clear(frame.SlotLocals, 0, frame.SlotLocals.Length);
+            if (frame.StrAcc.Length > 0)
+                System.Array.Clear(frame.StrAcc, 0, frame.StrAcc.Length);
             frame.Upvalues = System.Array.Empty<RuntimeValue?>();
             frame.Parent = null;
             frame.Pc = 0;
@@ -179,6 +189,16 @@ namespace RaLanguage.Interpreter.Vm
             else if (Slots.Length > 0)
             {
                 System.Array.Clear(Slots, 0, Slots.Length);
+            }
+            if (StrAcc.Length != function.StrAccCount)
+            {
+                StrAcc = function.StrAccCount > 0
+                    ? new System.Text.StringBuilder?[function.StrAccCount]
+                    : System.Array.Empty<System.Text.StringBuilder?>();
+            }
+            else if (StrAcc.Length > 0)
+            {
+                System.Array.Clear(StrAcc, 0, StrAcc.Length);
             }
             Parent = parent;
             Pc = 0;

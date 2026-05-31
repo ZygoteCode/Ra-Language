@@ -1,0 +1,18 @@
+import std.prelude.*;
+// Regression bench: function-call throughput + per-call allocation.
+//
+// This is the workload that exposed the IR+VM's worst regression vs the
+// AST walker: the SHARED function-call machinery allocated ~21.5 KB per
+// call (a fresh Interpreter with its full visitor table on every call,
+// redundant SymbolTables, generic-inference + annotation work for plain
+// non-generic functions, ...). A tight call-in-loop keeps that path hot so
+// `--bench` / `--bench-ast` surface any per-call allocation regression.
+//
+// Expected steady-state: ~1 KB alloc/run, NOT hundreds of MB.
+fn inc(x: int): int { ret x + 1 }
+
+var sum = 0
+for i in 0..100000 {
+    sum = sum + inc(i)
+}
+print(sum)

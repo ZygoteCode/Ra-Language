@@ -1,0 +1,44 @@
+import std.prelude.*;
+// Regression: the per-call-site method-dispatch inline caches (group wrapper +
+// bound-method wrapper, keyed on receiver identity) must stay correct under a
+// stable receiver, alternating receivers (cache thrash), and polymorphism.
+class Box {
+    pub var v: int
+    pub Box(v: int) { self.v = v }
+    pub fn get(): int { ret self.v }
+    pub fn add(d: int): int { ret self.v + d }
+}
+
+// Case 1: stable receiver, hot loop (the cached fast path).
+let b = Box(10)
+var s = 0
+for i in 0..100 {
+    s = s + b.add(i)
+}
+if s == 5950 { print("[ic_stable] OK") } else { print("[ic_stable] FAIL: " + (s as string)) }
+
+// Case 2: alternating receivers at one site — each call must use its OWN self.
+let b1 = Box(1)
+let b2 = Box(1000)
+var s2 = 0
+for i in 0..10 {
+    var bx = b1
+    if i % 2 == 1 {
+        bx = b2
+    }
+    s2 = s2 + bx.get()
+}
+if s2 == 5005 { print("[ic_alternating] OK") } else { print("[ic_alternating] FAIL: " + (s2 as string)) }
+
+// Case 3: polymorphic dispatch at the same call site (PIC).
+class Animal { pub fn sound(): int { ret 1 } }
+class Cat : Animal { pub override fn sound(): int { ret 2 } }
+class Pup : Animal { pub override fn sound(): int { ret 3 } }
+var s3 = 0
+let animals = [Cat(), Pup(), Cat(), Pup()]
+for a in animals {
+    s3 = s3 + a.sound()
+}
+if s3 == 10 { print("[ic_poly] OK") } else { print("[ic_poly] FAIL: " + (s3 as string)) }
+
+print("=== method dispatch IC caching: done ===")

@@ -70,7 +70,7 @@ namespace RaLanguage.Interpreter.Values.Functions
 
         public sealed override async ValueTask<RuntimeResult> Execute(List<RuntimeValue> args)
         {
-            return await ExecuteWithNamedArgs(args, new Dictionary<string, RuntimeValue>(StringComparer.Ordinal));
+            return await ExecuteWithNamedArgs(args, RaLanguage.Interpreter.Runtime.Calls.FunctionCallExecutor.EmptyNamedArgs);
         }
 
         public sealed override async ValueTask<RuntimeResult> ExecuteWithNamedArgs(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs)
@@ -137,7 +137,30 @@ namespace RaLanguage.Interpreter.Values.Functions
         private async ValueTask<RuntimeResult> ExecuteBodySync(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs, AsyncContext? asyncCtxOverride)
         {
             var res = new RuntimeResult();
-            var bindings = new Dictionary<string, TypeDescriptor>(StringComparer.Ordinal);
+
+            // PERF: non-generic fast path. A function with no generic type
+            // parameters and no explicit type arguments needs no binding
+            // inference, no `where` constraint checks, and no type-argument
+            // substitution — the declared formal arg / vararg / return types
+            // ARE the instantiated types. Skipping the generic machinery avoids
+            // two dictionaries + a list + InferBindingsFromArgs + a
+            // SubstituteBindings per formal on every ordinary call (the
+            // overwhelming common case). The generic path below is byte-for-byte
+            // the original logic, now reached only when generics are in play.
+            Dictionary<string, TypeDescriptor>? bindings = null;
+            List<TypeDescriptor?>? instantiatedArgTypes;
+            TypeDescriptor? instantiatedVarArgType;
+            TypeDescriptor? instantiatedReturnType;
+            bool hasExplicitTypeArgs = explicitTypeArgs != null && explicitTypeArgs.Count > 0;
+            if (GenericTypeParams.Count == 0 && !hasExplicitTypeArgs)
+            {
+                instantiatedArgTypes = ArgTypes;
+                instantiatedVarArgType = VarArgType;
+                instantiatedReturnType = ReturnType;
+            }
+            else
+            {
+            bindings = new Dictionary<string, TypeDescriptor>(StringComparer.Ordinal);
 
             if (explicitTypeArgs != null && explicitTypeArgs.Count > 0)
             {
@@ -225,9 +248,9 @@ namespace RaLanguage.Interpreter.Values.Functions
                         help: "review the 'where' clause of the function and the inferred / supplied type arguments"));
             }
 
-            List<TypeDescriptor?> instantiatedArgTypes = null;
-            TypeDescriptor? instantiatedVarArgType = null;
-            TypeDescriptor? instantiatedReturnType = null;
+            instantiatedArgTypes = null;
+            instantiatedVarArgType = null;
+            instantiatedReturnType = null;
             try
             {
                 if (ArgTypes != null)
@@ -248,6 +271,80 @@ namespace RaLanguage.Interpreter.Values.Functions
                 instantiatedVarArgType = VarArgType;
                 instantiatedReturnType = ReturnType;
             }
+            } // end generic-instantiation path
+
+            // PERF: direct-slot arg binding. For an ordinary leaf call —
+            // non-generic (bindings == null), synchronous, exact positional
+            // arity, no varargs, no named args, no parameter annotations, and
+            // crucially defining NO nested functions / closures (Children AND
+            // FuncDefRefs both empty ⇒ no closure can capture a parameter
+            // binding and outlive the pooled frame, which Return() clears) —
+            // write each argument's SymbolEntry straight into the rented
+            // frame's SlotLocals and run with a frame-backed scope. The scope's
+            // backing dictionary is never allocated (sentinel) and the
+            // per-parameter first-read name lookup in OP_LOAD_LOCAL_S
+            // disappears. Bypasses PrepareExecutionContextForCall entirely. Any
+            // deviation falls through to the original path below, unchanged.
+            if (bindings == null
+                && CompiledBody != null
+                && !IsAsync && !IsAsyncStream
+                && CompiledBody.Children.Length == 0
+                && CompiledBody.FuncDefRefs.Length == 0
+                && !HasVarArgs
+                && (namedArgs == null || namedArgs.Count == 0)
+                && ArgNames.Count == positionalArgs.Count
+                && CompiledBody.ParamSlots.Length == ArgNames.Count
+                && MetadataRegistry.Global.IsEmpty)
+            {
+                var pslots = CompiledBody.ParamSlots;
+                bool eligible = true;
+                for (int i = 0; i < pslots.Length; i++) { if (pslots[i] < 0) { eligible = false; break; } }
+                if (eligible)
+                {
+                    var execCtxF = GenerateNewContext();
+                    if (asyncCtxOverride != null) execCtxF.AsyncCtx = asyncCtxOverride;
+                    var frameF = Vm.VmFrame.Rent(CompiledBody);
+                    var slotLocalsF = frameF.SlotLocals;
+                    for (int i = 0; i < pslots.Length; i++)
+                    {
+                        var v = positionalArgs[i];
+                        v.SetContext(execCtxF);
+                        var expectedT = (instantiatedArgTypes != null && i < instantiatedArgTypes.Count) ? instantiatedArgTypes[i] : null;
+                        if (expectedT != null && !expectedT.IsTypeParameter() && !TypeSystem.IsAssignable(execCtxF, expectedT, v))
+                        {
+                            Vm.VmFrame.Return(frameF);
+                            return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Type mismatch for argument '{ArgNames[i]}': expected '{expectedT}', got '{v.Type}'", Context));
+                        }
+                        int slot = pslots[i];
+                        if ((uint)slot < (uint)slotLocalsF.Length)
+                            slotLocalsF[slot] = new RaLanguage.Interpreter.Runtime.SymbolEntry(v, false, true, null, false, RaLanguage.Parser.Nodes.Variables.VariableDeclarationType.VARIABLE);
+                    }
+                    execCtxF.SymbolTable.AttachFrameParams(ArgNames, pslots, slotLocalsF);
+
+                    var interpreterF = new Interpreter();
+                    var vmF = new Vm.VmExecutor(interpreterF);
+                    var bodyResF = await vmF.Execute(frameF, execCtxF);
+                    if (bodyResF.Error == null) Vm.VmFrame.Return(frameF);
+                    if (bodyResF.Error != null) return res.Failure(bodyResF.Error);
+
+                    if (bodyResF.FuncReturnValue != null)
+                    {
+                        var retValF = bodyResF.FuncReturnValue;
+                        if (instantiatedReturnType != null && !instantiatedReturnType.IsTypeParameter()
+                            && !TypeSystem.IsAssignable(execCtxF, instantiatedReturnType, retValF))
+                            return res.Failure(new RuntimeError(PositionStart, PositionEnd,
+                                $"return type mismatch in function '{Name}': expected '{instantiatedReturnType}', got '{retValF.Type}'", Context));
+                        return res.Success(retValF.SetContext(Context).SetPos(PositionStart, PositionEnd));
+                    }
+
+                    var valueF = bodyResF.Value ?? NullValue.Null.SetContext(Context).SetPos(PositionStart, PositionEnd);
+                    var retValueF = (ShouldAutoReturn ? valueF : null) ?? valueF;
+                    if (instantiatedReturnType != null && !instantiatedReturnType.IsTypeParameter()
+                        && !TypeSystem.IsAssignable(execCtxF, instantiatedReturnType, retValueF))
+                        return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Return type mismatch in function '{Name}': expected '{instantiatedReturnType}', got '{retValueF.Type}'", Context));
+                    return res.Success(retValueF.SetContext(Context).SetPos(PositionStart, PositionEnd));
+                }
+            }
 
             var (execCtx, err) = await PrepareExecutionContextForCall(positionalArgs, namedArgs, ArgNames, instantiatedArgTypes, ParamDefaults, HasVarArgs, VarArgNameTok, instantiatedVarArgType);
             if (err != null)
@@ -260,10 +357,13 @@ namespace RaLanguage.Interpreter.Values.Functions
                 execCtx!.AsyncCtx = asyncCtxOverride;
             }
 
-            foreach (var kv in bindings)
+            if (bindings != null)
             {
-                var gtv = new GenericTypeValue(kv.Key, kv.Value).SetContext(execCtx).SetPos(PositionStart, PositionEnd);
-                execCtx.SymbolTable.Set(kv.Key, gtv, isLet: true, declaredType: new TypeDescriptor("type"), isStaticallyTyped: true, isPublic: false);
+                foreach (var kv in bindings)
+                {
+                    var gtv = new GenericTypeValue(kv.Key, kv.Value).SetContext(execCtx).SetPos(PositionStart, PositionEnd);
+                    execCtx.SymbolTable.Set(kv.Key, gtv, isLet: true, declaredType: new TypeDescriptor("type"), isStaticallyTyped: true, isPublic: false);
+                }
             }
 
             var interpreter = new Interpreter();
@@ -327,6 +427,10 @@ namespace RaLanguage.Interpreter.Values.Functions
 
         private RaLanguage.Errors.Error? ValidateReturnValue(RuntimeValue value, RaLanguage.Interpreter.Runtime.Context execCtx)
         {
+            // PERF: skip the two BuildKey string allocations + registry lookups
+            // when the program declares no annotations (no @returns validators,
+            // no @ensures contracts can exist if nothing was ever registered).
+            if (MetadataRegistry.Global.IsEmpty) return null;
             if (string.IsNullOrEmpty(Name) || Name == "<anonymous>") return null;
             var key = MetadataTarget.BuildKey(AnnotationTargetKind.Return, null, Name);
             var verr = AnnotationValidator.ValidateTarget(key, value, $"return of '{Name}'", execCtx);

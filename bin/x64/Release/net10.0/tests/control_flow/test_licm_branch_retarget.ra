@@ -1,0 +1,93 @@
+import std.prelude.*;
+// Ra Language - control flow: LICM branch-target retarget correctness.
+//
+// Regression for a LICM bug: when the IR compiler hoists a loop-invariant
+// instruction (e.g. a `LoadConst` for a >int16 literal, or a pure
+// `p * q`) out of a loop body into the preheader, any FORWARD branch whose
+// target was that instruction must be retargeted to the next SURVIVING body
+// instruction — NOT follow the hoisted copy up to the preheader. The old
+// `pcMap[hoistedPc]` resolved to the preheader, so an `if c { continue }`
+// skip-jump / if-end-jump landed BEFORE the loop top → the counter never
+// advanced → infinite loop.
+//
+// Every case below builds a hoistable loop-invariant whose original position
+// is a branch target (the `if`-end), then exercises continue / break / while /
+// nested-if / loop-invariant-arithmetic / inclusive-range. A hang or a wrong
+// sum means the retarget regressed.
+
+print("=== control_flow/licm_branch_retarget ===");
+
+// L1 — continue + hoisted LoadConst (the original repro). 100000 > int16 so it
+// is a LoadConst (hoistable), not a fused AddIntoSlotImm.
+var x = 0;
+for i in 0..6 {
+    if i % 2 == 1 { continue; }
+    x = x + 100000;
+}
+if x == 300000 { print("[L1] OK"); } else { print("[L1] FAIL " + (x as string)); }
+
+// L2 — break + hoisted LoadConst: appended on iters before the break.
+var y = 0;
+for i in 0..100 {
+    y = y + 100000;
+    if i == 2 { break; }
+}
+if y == 300000 { print("[L2] OK"); } else { print("[L2] FAIL " + (y as string)); }
+
+// L3 — while loop with continue + hoisted const.
+var z = 0;
+var w = 0;
+while w < 6 {
+    w = w + 1;
+    if w % 2 == 1 { continue; }
+    z = z + 100000;
+}
+if z == 300000 { print("[L3] OK"); } else { print("[L3] FAIL " + (z as string)); }
+
+// L4 — TWO hoistable consts in the body (multi-instruction hoist) + continue.
+var a = 0;
+for i in 0..6 {
+    if i % 2 == 1 { continue; }
+    a = a + 100000;
+    a = a + 200000;
+}
+if a == 900000 { print("[L4] OK"); } else { print("[L4] FAIL " + (a as string)); }
+
+// L5 — loop-invariant ARITHMETIC (p * q) is hoisted as a branch target.
+var p = 7;
+var q = 11;
+var r = 0;
+for i in 0..6 {
+    if i % 2 == 1 { continue; }
+    r = r + p * q;
+}
+if r == 231 { print("[L5] OK"); } else { print("[L5] FAIL " + (r as string)); }
+
+// L6 — nested if guarding the continue, still followed by a hoisted const.
+var s = 0;
+for i in 0..6 {
+    if i % 2 == 1 {
+        if i > 0 { continue; }
+    }
+    s = s + 100000;
+}
+if s == 300000 { print("[L6] OK"); } else { print("[L6] FAIL " + (s as string)); }
+
+// L7 — control: no hoistable const (1 fits imm16 → AddIntoSlotImm, nothing
+// hoisted). Plain continue must still be correct.
+var t = 0;
+for i in 0..6 {
+    if i % 2 == 1 { continue; }
+    t = t + 1;
+}
+if t == 3 { print("[L7] OK"); } else { print("[L7] FAIL " + (t as string)); }
+
+// L8 — inclusive range + continue + hoisted const.
+var u = 0;
+for i in 0..=5 {
+    if i % 2 == 1 { continue; }
+    u = u + 100000;
+}
+if u == 300000 { print("[L8] OK"); } else { print("[L8] FAIL " + (u as string)); }
+
+print("=== done ===");
