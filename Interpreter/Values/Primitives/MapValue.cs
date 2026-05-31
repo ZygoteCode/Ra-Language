@@ -4,7 +4,7 @@ using RaLanguage.Errors.Types;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
-    public class MapValue : RuntimeValue
+    public sealed class MapValue : RuntimeValue
     {
         public List<(RuntimeValue Key, RuntimeValue Value)> Pairs { get; }
         public sealed override bool IsCopy => false;

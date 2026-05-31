@@ -5,7 +5,7 @@ using RaLanguage.Lexer.Tokens;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
-    public class ListValue : RuntimeValue
+    public sealed class ListValue : RuntimeValue
     {
         public List<RuntimeValue> Elements { get; set;  }
         public ListValue(List<RuntimeValue> elements) { Elements = elements; }

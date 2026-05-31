@@ -7,7 +7,7 @@ using System.Globalization;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
-    public class ByteValue : RuntimeValue
+    public sealed class ByteValue : RuntimeValue
     {
         public byte Value { get; }
 

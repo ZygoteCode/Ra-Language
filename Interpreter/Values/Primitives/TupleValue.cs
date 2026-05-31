@@ -4,7 +4,7 @@ using RaLanguage.Errors.Types;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
-    public class TupleValue : RuntimeValue
+    public sealed class TupleValue : RuntimeValue
     {
         public List<RuntimeValue> Elements { get; }
         public sealed override bool IsCopy => true;

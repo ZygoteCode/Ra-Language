@@ -5,7 +5,7 @@ using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
-    public class LongValue : RuntimeValue
+    public sealed class LongValue : RuntimeValue
     {
         public long Value { get; }
 

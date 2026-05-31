@@ -4,10 +4,11 @@ using RaLanguage.Errors.Types;
 using RaLanguage.Types;
 using System.Globalization;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
-    public class NumberValue : RuntimeValue
+    public sealed class NumberValue : RuntimeValue
     {
         public BigNumber Value { get; }
         public static readonly NumberValue One = new NumberValue(1);
@@ -63,18 +64,39 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return new NumberValue(value);
         }
 
+        // Fast producer for an int64-valued number — the hot result type of every
+        // VM integer-valued add/sub/mul. The intern-range test runs on the native
+        // `long` (a register compare) instead of `OfBigNumber`'s BigInteger
+        // comparisons, which under NativeAOT are out-of-line framework calls; the
+        // cache-hit path also skips materialising the BigNumber struct entirely.
+        // Semantically identical to OfBigNumber(new BigNumber(value, 0)).
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static NumberValue OfInt64(long value)
+        {
+            if (value >= SmallIntMin && value <= SmallIntMax)
+                return s_smallInts[(int)value - SmallIntMin];
+            return new NumberValue(new BigNumber(new BigInteger(value), BigInteger.Zero));
+        }
+
+        // Integer-typed operands promote to an exact BigNumber directly.
+        // Building the BigInteger from the native integer skips the
+        // ToString()->Parse() round-trip (a string alloc + decimal scan) the
+        // old path paid on every mixed `number op <int-family>` operation.
         private static NumberValue Promote(IntegerValue value)
         {
-            return new NumberValue(BigNumber.Parse(value.Value.ToString()));
+            return new NumberValue(new BigNumber(new BigInteger(value.Value), BigInteger.Zero));
         }
 
         private static NumberValue Promote(LongValue value)
         {
-            return new NumberValue(BigNumber.Parse(value.Value.ToString()));
+            return new NumberValue(new BigNumber(new BigInteger(value.Value), BigInteger.Zero));
         }
 
         private static NumberValue Promote(FloatValue value)
         {
+            // Float/double/decimal keep the textual conversion: it captures the
+            // exact decimal expansion (scale) the binary value rounds to, which
+            // a direct BigInteger build cannot reproduce.
             return new NumberValue(BigNumber.Parse(value.Value.ToString()));
         }
 
@@ -85,32 +107,32 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         private static NumberValue Promote(UnsignedIntegerValue value)
         {
-            return new NumberValue(BigNumber.Parse(value.Value.ToString()));
+            return new NumberValue(new BigNumber(new BigInteger(value.Value), BigInteger.Zero));
         }
 
         private static NumberValue Promote(UnsignedLongValue value)
         {
-            return new NumberValue(BigNumber.Parse(value.Value.ToString()));
+            return new NumberValue(new BigNumber(new BigInteger(value.Value), BigInteger.Zero));
         }
 
         private static NumberValue Promote(ShortValue value)
         {
-            return new NumberValue(BigNumber.Parse(value.Value.ToString()));
+            return new NumberValue(new BigNumber(new BigInteger(value.Value), BigInteger.Zero));
         }
 
         private static NumberValue Promote(UnsignedShortValue value)
         {
-            return new NumberValue(BigNumber.Parse(value.Value.ToString()));
+            return new NumberValue(new BigNumber(new BigInteger(value.Value), BigInteger.Zero));
         }
 
         private static NumberValue Promote(Int128Value value)
         {
-            return new NumberValue(BigNumber.Parse(value.Value.ToString()));
+            return new NumberValue(new BigNumber((BigInteger)value.Value, BigInteger.Zero));
         }
 
         private static NumberValue Promote(UnsignedInt128Value value)
         {
-            return new NumberValue(BigNumber.Parse(value.Value.ToString()));
+            return new NumberValue(new BigNumber((BigInteger)value.Value, BigInteger.Zero));
         }
 
         private static NumberValue Promote(DecimalValue value)
@@ -120,7 +142,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
         private static NumberValue Promote(ByteValue value)
         {
-            return new NumberValue(BigNumber.Parse(value.Value.ToString()));
+            return new NumberValue(new BigNumber(new BigInteger(value.Value), BigInteger.Zero));
         }
 
         public sealed override ValueResult AddedTo(RuntimeValue other)
@@ -146,7 +168,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Float)
             {
                 var f = (FloatValue)other;
-                var lhs = BigNumber.Parse(Value.ToString());
+                var lhs = Value;
                 var rhs = BigNumber.Parse(f.Value.ToString("R", CultureInfo.InvariantCulture));
                 return (new NumberValue(lhs + rhs).SetContext(Context), null);
             }
@@ -232,7 +254,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Float)
             {
                 var f = (FloatValue)other;
-                var lhs = BigNumber.Parse(Value.ToString());
+                var lhs = Value;
                 var rhs = BigNumber.Parse(f.Value.ToString("R", CultureInfo.InvariantCulture));
                 return (new NumberValue(lhs - rhs).SetContext(Context), null);
             }
@@ -318,7 +340,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Float)
             {
                 var f = (FloatValue)other;
-                var lhs = BigNumber.Parse(Value.ToString());
+                var lhs = Value;
                 var rhs = BigNumber.Parse(f.Value.ToString("R", CultureInfo.InvariantCulture));
                 return (new NumberValue(lhs * rhs).SetContext(Context), null);
             }
@@ -433,7 +455,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Float)
             {
                 var f = (FloatValue)other;
-                var lhs = BigNumber.Parse(Value.ToString());
+                var lhs = Value;
                 var rhs = BigNumber.Parse(f.Value.ToString("R", CultureInfo.InvariantCulture));
                 return (new NumberValue(lhs / rhs).SetContext(Context), null);
             }
@@ -610,7 +632,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             else if (other.Type == RuntimeValueType.Float)
             {
                 var f = (FloatValue)other;
-                var lhs = BigNumber.Parse(Value.ToString());
+                var lhs = Value;
                 var rhs = BigNumber.Parse(f.Value.ToString("R", CultureInfo.InvariantCulture));
                 return (BooleanValue.Of(lhs == rhs).SetContext(Context), null);
             }
@@ -694,7 +716,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             else if (other.Type == RuntimeValueType.Float)
             {
                 var f = (FloatValue)other;
-                var lhs = BigNumber.Parse(Value.ToString());
+                var lhs = Value;
                 var rhs = BigNumber.Parse(f.Value.ToString("R", CultureInfo.InvariantCulture));
                 return (BooleanValue.Of(lhs != rhs).SetContext(Context), null);
             }
@@ -771,7 +793,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Float)
             {
                 var f = (FloatValue)other;
-                var lhs = BigNumber.Parse(Value.ToString());
+                var lhs = Value;
                 var rhs = BigNumber.Parse(f.Value.ToString("R", CultureInfo.InvariantCulture));
                 return (BooleanValue.Of(lhs < rhs).SetContext(Context), null);
             }
@@ -857,7 +879,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Float)
             {
                 var f = (FloatValue)other;
-                var lhs = BigNumber.Parse(Value.ToString());
+                var lhs = Value;
                 var rhs = BigNumber.Parse(f.Value.ToString("R", CultureInfo.InvariantCulture));
                 return (BooleanValue.Of(lhs > rhs).SetContext(Context), null);
             }
@@ -943,7 +965,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Float)
             {
                 var f = (FloatValue)other;
-                var lhs = BigNumber.Parse(Value.ToString());
+                var lhs = Value;
                 var rhs = BigNumber.Parse(f.Value.ToString("R", CultureInfo.InvariantCulture));
                 return (BooleanValue.Of(lhs <= rhs).SetContext(Context), null);
             }
@@ -1029,7 +1051,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Float)
             {
                 var f = (FloatValue)other;
-                var lhs = BigNumber.Parse(Value.ToString());
+                var lhs = Value;
                 var rhs = BigNumber.Parse(f.Value.ToString("R", CultureInfo.InvariantCulture));
                 return (BooleanValue.Of(lhs >= rhs).SetContext(Context), null);
             }

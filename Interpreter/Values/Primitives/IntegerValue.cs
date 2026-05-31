@@ -7,7 +7,7 @@ using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
-    public class IntegerValue : RuntimeValue
+    public sealed class IntegerValue : RuntimeValue
     {
         public int Value { get; }
 
@@ -145,17 +145,13 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Integer)
             {
                 var i = (IntegerValue)other;
-                try
-                {
-                    checked
-                    {
-                        return (new IntegerValue(Value + i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
-                    }
-                }
-                catch
-                {
+                // Branchless overflow detection in place of try/catch(checked):
+                // the int+int sum always fits in long, so a single range check
+                // replaces the SEH frame (matches the VM number path, M26.2).
+                long sum = (long)Value + i.Value;
+                if (sum < int.MinValue || sum > int.MaxValue)
                     return (null, new RuntimeError(PositionStart, PositionEnd, "Integer overflow", Context));
-                }
+                return (new IntegerValue((int)sum).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
@@ -231,17 +227,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Integer)
             {
                 var i = (IntegerValue)other;
-                try
-                {
-                    checked
-                    {
-                        return (new IntegerValue(Value - i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
-                    }
-                }
-                catch
-                {
+                long diff = (long)Value - i.Value;
+                if (diff < int.MinValue || diff > int.MaxValue)
                     return (null, new RuntimeError(PositionStart, PositionEnd, "Integer overflow", Context));
-                }
+                return (new IntegerValue((int)diff).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             if (other.Type == RuntimeValueType.Number)
@@ -317,17 +306,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
             if (other.Type == RuntimeValueType.Integer)
             {
                 var i = (IntegerValue)other;
-                try
-                {
-                    checked
-                    {
-                        return (new IntegerValue(Value * i.Value).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
-                    }
-                }
-                catch
-                {
+                long prod = (long)Value * i.Value;
+                if (prod < int.MinValue || prod > int.MaxValue)
                     return (null, new RuntimeError(PositionStart, PositionEnd, "Integer overflow", Context));
-                }
+                return (new IntegerValue((int)prod).SetContext(Context).SetPos(PositionStart, PositionEnd), null);
             }
 
             if (other.Type == RuntimeValueType.Number)

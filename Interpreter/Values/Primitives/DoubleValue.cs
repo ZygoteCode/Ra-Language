@@ -6,7 +6,7 @@ using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
-    public class DoubleValue : RuntimeValue
+    public sealed class DoubleValue : RuntimeValue
     {
         public double Value { get; }
 

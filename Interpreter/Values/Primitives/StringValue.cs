@@ -7,7 +7,7 @@ using RaLanguage.Utilities;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
-    public class StringValue : RuntimeValue
+    public sealed class StringValue : RuntimeValue
     {
         public string Value { get; private set; }
         public StringValue(string value) { Value = value; }

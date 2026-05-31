@@ -6,7 +6,7 @@ using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
-    public class UnsignedIntegerValue : RuntimeValue
+    public sealed class UnsignedIntegerValue : RuntimeValue
     {
         public uint Value { get; }
 
