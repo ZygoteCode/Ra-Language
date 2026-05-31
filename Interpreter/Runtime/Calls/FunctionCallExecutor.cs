@@ -64,10 +64,16 @@ namespace RaLanguage.Interpreter.Runtime.Calls
             IInterpreter interpreter)
         {
             var positionalArgs = new List<RuntimeValue>(argNodes?.Count ?? 0);
-            var namedArgs = new Dictionary<string, RuntimeValue>(System.StringComparer.Ordinal);
+            // PERF: defer the named-args dictionary. The overwhelmingly common
+            // call shape is purely positional, yet a fresh Dictionary was
+            // allocated on every call. Stay null until the first named argument
+            // actually appears; positional-only calls return the shared,
+            // never-mutated EmptyNamedArgs (the downstream sinks — Invoke /
+            // Construct / PrepareExecutionContextForCall — only READ namedArgs).
+            Dictionary<string, RuntimeValue>? namedArgs = null;
 
             var res = new RuntimeResult();
-            if (argNodes == null) return new EvaluatedArguments(res, positionalArgs, namedArgs);
+            if (argNodes == null) return new EvaluatedArguments(res, positionalArgs, EmptyNamedArgs);
 
             foreach (var argNode in argNodes)
             {
@@ -76,18 +82,19 @@ namespace RaLanguage.Interpreter.Runtime.Calls
                 if (argNode.IsRef)
                 {
                     var refRes = await CreateReferenceFromNode(argNode.Expr, context, interpreter);
-                    if (refRes.Error != null) return new EvaluatedArguments(res.Failure(refRes.Error), positionalArgs, namedArgs);
+                    if (refRes.Error != null) return new EvaluatedArguments(res.Failure(refRes.Error), positionalArgs, namedArgs ?? EmptyNamedArgs);
                     evaluated = refRes.Value!;
                 }
                 else
                 {
                     evaluated = res.Register(await IrExpressionEvaluator.Evaluate(argNode.Expr, context, interpreter))!;
-                    if (res.ShouldReturn()) return new EvaluatedArguments(res, positionalArgs, namedArgs);
+                    if (res.ShouldReturn()) return new EvaluatedArguments(res, positionalArgs, namedArgs ?? EmptyNamedArgs);
                 }
 
                 if (argNode.NameTok != null)
                 {
                     string name = argNode.NameTok.Value.ToString() ?? "";
+                    namedArgs ??= new Dictionary<string, RuntimeValue>(System.StringComparer.Ordinal);
                     if (namedArgs.ContainsKey(name))
                     {
                         return new EvaluatedArguments(res.Failure(new RuntimeError(argNode.PositionStart, argNode.PositionEnd,
@@ -105,7 +112,7 @@ namespace RaLanguage.Interpreter.Runtime.Calls
                 }
             }
 
-            return new EvaluatedArguments(res, positionalArgs, namedArgs);
+            return new EvaluatedArguments(res, positionalArgs, namedArgs ?? EmptyNamedArgs);
         }
 
         // Async version. Invoke is on the call hot path: anything inside the
