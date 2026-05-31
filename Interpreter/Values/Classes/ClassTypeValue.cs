@@ -24,6 +24,16 @@ namespace RaLanguage.Interpreter.Values.Primitives
     public class ClassTypeValue : BaseFunctionValue
     {
         public string ClassName { get; }
+
+        // Cached self-type descriptor for binding `self` in instance methods.
+        // `new TypeDescriptor(ClassName)` is otherwise rebuilt on every method
+        // call; the descriptor is immutable and consumed read-only (stored as a
+        // SymbolEntry.DeclaredType and fed to IsAssignable), so a single shared
+        // instance per class is correct. Lazily built; the init race is benign
+        // (both instances are structurally identical and immutable).
+        private TypeDescriptor? _selfTypeDescriptor;
+        public TypeDescriptor SelfTypeDescriptor => _selfTypeDescriptor ??= new TypeDescriptor(ClassName);
+
         public bool IsPublic { get; }
         public bool IsAbstract { get; set; }
         public TypeDescriptor? BaseType { get; }
@@ -704,8 +714,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
             var res = new RuntimeResult();
             callSite ??= Context!;
 
-            var bindings = new Dictionary<string, TypeDescriptor>(StringComparer.Ordinal);
-            var genErr = ResolveGenericBindings(explicitTypeArgs, bindings, posStart, posEnd, callSite);
+            var bindings = ResolveGenericBindings(explicitTypeArgs, posStart, posEnd, callSite, out var genErr);
             if (genErr != null) return res.Failure(genErr);
 
             var candidates = ResolveConstructorCandidates(ctorName, positionalArgs, namedArgs);
@@ -850,27 +859,54 @@ namespace RaLanguage.Interpreter.Values.Primitives
             return res.Success(produced ?? NullValue.Null.SetContext(callSite).SetPos(posStart, posEnd));
         }
 
-        private Error? ResolveGenericBindings(List<TypeDescriptor?>? explicitTypeArgs, Dictionary<string, TypeDescriptor> bindings, Position posStart, Position posEnd, Context ctx)
+        // Shared immutable empty binding set for non-generic constructions.
+        // A non-generic class binds no type parameters, so every such instance
+        // can carry the same empty dict instead of allocating one per `T(args)`.
+        // ClassInstanceValue.GenericBindings is read-only after construction
+        // (verified repo-wide: no write/Add/index-set sites), so sharing is safe.
+        private static readonly Dictionary<string, TypeDescriptor> s_emptyBindings =
+            new Dictionary<string, TypeDescriptor>(0, StringComparer.Ordinal);
+
+        // Resolves the generic-binding dict for one construction. Returns the
+        // shared empty sentinel for a non-generic class (no per-construction
+        // allocation), a freshly populated dict for a generic class, or null
+        // with `error` set on a diagnostic. The allocation decision lives here
+        // so Construct never news a dict it does not need.
+        private Dictionary<string, TypeDescriptor>? ResolveGenericBindings(List<TypeDescriptor?>? explicitTypeArgs, Position posStart, Position posEnd, Context ctx, out Error? error)
         {
+            error = null;
             if (GenericTypeParams.Count > 0)
             {
                 if (explicitTypeArgs == null || explicitTypeArgs.Count == 0)
-                    return new RuntimeError(posStart, posEnd,
+                {
+                    error = new RuntimeError(posStart, posEnd,
                         $"Generic class '{ClassName}' requires explicit type arguments (e.g., {ClassName}<{string.Join(", ", GenericTypeParams)}>(...))", ctx);
+                    return null;
+                }
                 if (explicitTypeArgs.Count != GenericTypeParams.Count)
-                    return new RuntimeError(posStart, posEnd,
+                {
+                    error = new RuntimeError(posStart, posEnd,
                         $"Wrong number of type arguments for class '{ClassName}': expected {GenericTypeParams.Count}, got {explicitTypeArgs.Count}", ctx);
+                    return null;
+                }
+                var bindings = new Dictionary<string, TypeDescriptor>(StringComparer.Ordinal);
                 for (int i = 0; i < GenericTypeParams.Count; i++)
                     bindings[GenericTypeParams[i]] = explicitTypeArgs[i] ?? new TypeDescriptor("any");
                 var constraintErr = TypeSystem.ValidateWhereConstraints(bindings, WhereConstraints);
                 if (constraintErr != null)
-                    return new RuntimeError(posStart, posEnd, $"Where-constraint violated in class '{ClassName}': {constraintErr}", ctx);
+                {
+                    error = new RuntimeError(posStart, posEnd, $"Where-constraint violated in class '{ClassName}': {constraintErr}", ctx);
+                    return null;
+                }
+                return bindings;
             }
-            else if (explicitTypeArgs != null && explicitTypeArgs.Count > 0)
+
+            if (explicitTypeArgs != null && explicitTypeArgs.Count > 0)
             {
-                return new RuntimeError(posStart, posEnd, $"Class '{ClassName}' is not generic and cannot take type arguments", ctx);
+                error = new RuntimeError(posStart, posEnd, $"Class '{ClassName}' is not generic and cannot take type arguments", ctx);
+                return null;
             }
-            return null;
+            return s_emptyBindings;
         }
 
         // A private constructor is reachable only from inside the declaring

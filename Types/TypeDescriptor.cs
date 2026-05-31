@@ -60,6 +60,24 @@ namespace RaLanguage.Types
         public TypeDescriptor? RefElementType { get; }
         public PrimitiveTypeKind PrimitiveKind { get; }
 
+        // Precomputed `Name == "any"` tag. `any` is the single most common
+        // early-out in every assignability / narrowing entry point, so we
+        // resolve it once at construction and read a bool instead of running
+        // an ordinal string compare on every check. Only the public nominal
+        // ctor can yield it — union/fn/ref/tuple/type-parameter descriptors
+        // are never the unconstrained `any`.
+        public bool IsAny { get; }
+
+        // Precomputed "this names a canonical lowercase scalar primitive" tag,
+        // resolved CASE-SENSITIVELY (unlike PrimitiveKind, which is case-
+        // insensitive for the benefit of `is`-test matching). IsAssignable's
+        // primitive fast path gates on this so that capitalized names such as
+        // `String` / `Int` keep their historical "opaque user type that accepts
+        // anything" behavior (CLAUDE.md backward-compat) instead of being
+        // reclassified as the lowercase primitive. When true, PrimitiveKind is
+        // the exact kind for this descriptor.
+        public bool IsScalarPrimitive { get; }
+
         // Borrow-system extensions. Populated when ParseType reads `&T` / `&mut T` /
         // `&'a T`. Pure metadata: TypeSystem.IsAssignable still treats them as ref
         // types; the borrow checker is what enforces mutability and lifetime.
@@ -96,10 +114,40 @@ namespace RaLanguage.Types
         public bool IsUnionType { get; }
         public List<TypeDescriptor>? UnionMembers { get; }
 
+        // Shared immutable empty generic-argument list. The descriptor's
+        // GenericArgs list is never mutated anywhere in the codebase (verified),
+        // so every zero-arg descriptor can point at the same instance instead
+        // of allocating a fresh List<> per construction — and descriptors are
+        // constructed very frequently (every parsed type annotation, every
+        // GetDescriptorFromRuntimeValue, every Substitute rebuild).
+        internal static readonly List<TypeDescriptor> EmptyArgs = new List<TypeDescriptor>(0);
+
+        // Interned singletons for the bare scalar primitives + `any`. These are
+        // immutable and carry no generic args, so the same instance is reused
+        // everywhere a primitive descriptor is needed at runtime — chiefly
+        // GetDescriptorFromRuntimeValue on the generic-inference path, which
+        // previously newed a descriptor per argument per call.
+        public static readonly TypeDescriptor Any = new TypeDescriptor("any");
+        internal static readonly TypeDescriptor Number = new TypeDescriptor("number");
+        internal static readonly TypeDescriptor String = new TypeDescriptor("string");
+        internal static readonly TypeDescriptor Bool = new TypeDescriptor("bool");
+        internal static readonly TypeDescriptor Int = new TypeDescriptor("int");
+        internal static readonly TypeDescriptor Long = new TypeDescriptor("long");
+        internal static readonly TypeDescriptor Float = new TypeDescriptor("float");
+        internal static readonly TypeDescriptor Double = new TypeDescriptor("double");
+        internal static readonly TypeDescriptor UInt = new TypeDescriptor("uint");
+        internal static readonly TypeDescriptor ULong = new TypeDescriptor("ulong");
+        internal static readonly TypeDescriptor Short = new TypeDescriptor("short");
+        internal static readonly TypeDescriptor UShort = new TypeDescriptor("ushort");
+        internal static readonly TypeDescriptor Int128T = new TypeDescriptor("int128");
+        internal static readonly TypeDescriptor UInt128T = new TypeDescriptor("uint128");
+        internal static readonly TypeDescriptor Decimal = new TypeDescriptor("decimal");
+        internal static readonly TypeDescriptor Byte = new TypeDescriptor("byte");
+
         public TypeDescriptor(string name, List<TypeDescriptor>? genericArgs = null, bool isRefType = false, TypeDescriptor? refElementType = null, bool isMutableRef = false, string? lifetime = null)
         {
             Name = name;
-            GenericArgs = genericArgs ?? new List<TypeDescriptor>();
+            GenericArgs = genericArgs ?? EmptyArgs;
             IsTypeParameter = false;
             TypeParameterName = null;
             IsRefType = isRefType;
@@ -107,6 +155,9 @@ namespace RaLanguage.Types
             IsMutableRef = isMutableRef;
             Lifetime = lifetime;
             PrimitiveKind = ResolvePrimitive(name);
+            IsAny = name is "any";
+            // Canonical lowercase scalar primitive only — see the field doc.
+            IsScalarPrimitive = PrimitiveKind != PrimitiveTypeKind.None && HasNoUpperAscii(name);
             IsFunctionType = false;
             FunctionParamTypes = null;
             FunctionReturnType = null;
@@ -117,7 +168,7 @@ namespace RaLanguage.Types
         private TypeDescriptor(List<TypeDescriptor> paramTypes, TypeDescriptor? returnType)
         {
             Name = "fn";
-            GenericArgs = new List<TypeDescriptor>();
+            GenericArgs = EmptyArgs;
             IsTypeParameter = false;
             TypeParameterName = null;
             IsRefType = false;
@@ -125,6 +176,8 @@ namespace RaLanguage.Types
             IsMutableRef = false;
             Lifetime = null;
             PrimitiveKind = PrimitiveTypeKind.None;
+            IsAny = false;
+            IsScalarPrimitive = false;
             IsFunctionType = true;
             FunctionParamTypes = paramTypes ?? new List<TypeDescriptor>();
             FunctionReturnType = returnType;
@@ -143,7 +196,7 @@ namespace RaLanguage.Types
         private TypeDescriptor(List<TypeDescriptor> unionMembers)
         {
             Name = "union";
-            GenericArgs = new List<TypeDescriptor>();
+            GenericArgs = EmptyArgs;
             IsTypeParameter = false;
             TypeParameterName = null;
             IsRefType = false;
@@ -151,6 +204,8 @@ namespace RaLanguage.Types
             IsMutableRef = false;
             Lifetime = null;
             PrimitiveKind = PrimitiveTypeKind.None;
+            IsAny = false;
+            IsScalarPrimitive = false;
             IsFunctionType = false;
             FunctionParamTypes = null;
             FunctionReturnType = null;
@@ -207,12 +262,14 @@ namespace RaLanguage.Types
             TypeParameterName = typeParamName;
             IsTypeParameter = isTypeParam;
             Name = typeParamName;
-            GenericArgs = new List<TypeDescriptor>();
+            GenericArgs = EmptyArgs;
             IsRefType = false;
             RefElementType = null;
             IsMutableRef = false;
             Lifetime = null;
             PrimitiveKind = PrimitiveTypeKind.None;
+            IsAny = false;
+            IsScalarPrimitive = false;
             IsFunctionType = false;
             FunctionParamTypes = null;
             FunctionReturnType = null;
@@ -254,6 +311,20 @@ namespace RaLanguage.Types
                     break;
             }
             return PrimitiveTypeKind.None;
+        }
+
+        // True when `name` contains no uppercase ASCII letter — i.e. it is the
+        // canonical lowercase spelling of a primitive. Used to gate IsScalarPrimitive
+        // case-sensitively while PrimitiveKind itself stays case-insensitive.
+        private static bool HasNoUpperAscii(string? name)
+        {
+            if (name == null) return false;
+            for (int i = 0; i < name.Length; i++)
+            {
+                char c = name[i];
+                if (c >= 'A' && c <= 'Z') return false;
+            }
+            return true;
         }
 
         private static bool EqualsIgnoreAsciiCase(string a, string b)
@@ -393,6 +464,11 @@ namespace RaLanguage.Types
 
         public TypeDescriptor Substitute(Dictionary<string, TypeDescriptor> bindings)
         {
+            // Empty binding set can never rewrite anything — identity. This is
+            // a common call shape (callers that probe with no bound params) and
+            // skipping it avoids rebuilding+reallocating composite descriptors.
+            if (bindings.Count == 0) return this;
+
             if (IsTypeParameter)
             {
                 if (bindings.TryGetValue(TypeParameterName, out var bound)) return bound;
@@ -402,25 +478,60 @@ namespace RaLanguage.Types
             {
                 // Substitute each member then re-normalize: a substitution
                 // can collapse two distinct members to the same concrete
-                // type (e.g. `T | U` with T=U=int becomes just `int`).
-                var newMembers = UnionMembers.Select(m => m.Substitute(bindings));
-                return Union(newMembers);
+                // type (e.g. `T | U` with T=U=int becomes just `int`). Only
+                // re-normalize (allocate) if a member actually changed.
+                var um = UnionMembers;
+                List<TypeDescriptor>? newMembers = null;
+                for (int i = 0; i < um.Count; i++)
+                {
+                    var s = um[i].Substitute(bindings);
+                    if (newMembers == null && !ReferenceEquals(s, um[i]))
+                    {
+                        newMembers = new List<TypeDescriptor>(um.Count);
+                        for (int j = 0; j < i; j++) newMembers.Add(um[j]);
+                    }
+                    newMembers?.Add(s);
+                }
+                return newMembers == null ? this : Union(newMembers);
             }
             if (IsRefType && RefElementType != null)
             {
                 var substitutedElement = RefElementType.Substitute(bindings);
+                if (ReferenceEquals(substitutedElement, RefElementType)) return this;
                 return RefType(substitutedElement, IsMutableRef, Lifetime);
             }
             if (IsFunctionType)
             {
-                var newParams = (FunctionParamTypes ?? new List<TypeDescriptor>())
-                    .Select(p => p.Substitute(bindings)).ToList();
+                var ps = FunctionParamTypes ?? EmptyArgs;
+                List<TypeDescriptor>? newParams = null;
+                for (int i = 0; i < ps.Count; i++)
+                {
+                    var s = ps[i].Substitute(bindings);
+                    if (newParams == null && !ReferenceEquals(s, ps[i]))
+                    {
+                        newParams = new List<TypeDescriptor>(ps.Count);
+                        for (int j = 0; j < i; j++) newParams.Add(ps[j]);
+                    }
+                    newParams?.Add(s);
+                }
                 var newRet = FunctionReturnType?.Substitute(bindings);
-                return FunctionType(newParams, newRet);
+                if (newParams == null && ReferenceEquals(newRet, FunctionReturnType)) return this;
+                return FunctionType(newParams ?? ps, newRet);
             }
             if (GenericArgs.Count == 0) return this;
-            var substituted = GenericArgs.Select(a => a.Substitute(bindings)).ToList();
-            return new TypeDescriptor(Name, substituted);
+            var ga = GenericArgs;
+            List<TypeDescriptor>? substituted = null;
+            for (int i = 0; i < ga.Count; i++)
+            {
+                var s = ga[i].Substitute(bindings);
+                if (substituted == null && !ReferenceEquals(s, ga[i]))
+                {
+                    substituted = new List<TypeDescriptor>(ga.Count);
+                    for (int j = 0; j < i; j++) substituted.Add(ga[j]);
+                }
+                substituted?.Add(s);
+            }
+            return substituted == null ? this : new TypeDescriptor(Name, substituted);
         }
 
         public bool ReferencesAnyTypeParameter(IEnumerable<string> paramNames)

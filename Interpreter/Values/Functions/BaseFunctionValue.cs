@@ -607,15 +607,15 @@ namespace RaLanguage.Interpreter.Values.Functions
 
     internal static class TypeDescriptorExtensions
     {
+        // Runs as a guard before EVERY typed arg / return assignability check
+        // on the hot call paths. `td.IsTypeParameter` is an auto-property that
+        // cannot throw, so the former try/catch (and its char.IsUpper fallback,
+        // which was therefore unreachable) only added a try-frame that blocked
+        // inlining. Reduced to a null-checked field read.
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
         public static bool IsTypeParameter(this TypeDescriptor? td)
         {
-            if (td == null) return false;
-            try
-            {
-                return td != null && td.IsTypeParameter;
-            }
-            catch { }
-            return !string.IsNullOrEmpty(td.Name) && char.IsUpper(td.Name[0]) && td.GenericArgs.Count == 0;
+            return td != null && td.IsTypeParameter;
         }
 
         public static TypeDescriptor? SubstituteBindings(this TypeDescriptor? td, Dictionary<string, TypeDescriptor> bindings)
