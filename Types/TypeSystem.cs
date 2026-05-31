@@ -13,7 +13,7 @@ namespace RaLanguage.Types
         public static bool IsAssignable(Context context, TypeDescriptor target, RuntimeValue value)
         {
             if (target == null) return true;
-            if (string.Equals(target.Name, "any", StringComparison.Ordinal)) return true;
+            if (target.IsAny) return true;
             if (target.IsTypeParameter) return true;
 
             // Union targets accept a value when at least one alternative
@@ -70,8 +70,51 @@ namespace RaLanguage.Types
                 return false;
             }
 
-            if (string.Equals(target.Name, "string", StringComparison.Ordinal))
-                return true;
+            // Primitive-target fast path. IsScalarPrimitive marks a canonical
+            // lowercase scalar primitive (int/long/.../bool/string/number); its
+            // assignability is fully determined by the runtime value tag, so we
+            // skip the SymbolTable parent-chain walk that EVERY typed function-
+            // call argument/return check would otherwise pay (the lookup always
+            // misses for a primitive name). Semantics are identical to the
+            // general path that follows:
+            //   - `string` sponges any value (Ra coerces via ToString)
+            //   - a null value flows into any primitive slot
+            //   - any numeric runtime tag lands in any numeric primitive slot
+            //   - bool<->Boolean match by tag; everything else is rejected.
+            // IMPORTANT: the gate is IsScalarPrimitive (case-SENSITIVE), NOT
+            // raw PrimitiveKind (case-INSENSITIVE). A capitalized name like
+            // `String`/`Int` must keep its historical "unresolved user type that
+            // accepts anything" behavior (the symbol-miss fall-through below via
+            // IsLikelyUnresolvedUserType), exactly as lowercase `string` has
+            // always short-circuited here before any symbol lookup. Do not
+            // weaken this to `PrimitiveKind != None`.
+            if (target.IsScalarPrimitive)
+            {
+                var pk = target.PrimitiveKind;
+                if (pk == PrimitiveTypeKind.String) return true;
+                var vt0 = value.Type;
+                if (vt0 == RuntimeValueType.Null) return true;
+                if (pk == PrimitiveTypeKind.Bool) return vt0 == RuntimeValueType.Boolean;
+                switch (vt0)
+                {
+                    case RuntimeValueType.Number:
+                    case RuntimeValueType.Integer:
+                    case RuntimeValueType.Long:
+                    case RuntimeValueType.Float:
+                    case RuntimeValueType.Double:
+                    case RuntimeValueType.UnsignedInteger:
+                    case RuntimeValueType.UnsignedLong:
+                    case RuntimeValueType.Short:
+                    case RuntimeValueType.UnsignedShort:
+                    case RuntimeValueType.Int128:
+                    case RuntimeValueType.UnsignedInt128:
+                    case RuntimeValueType.Decimal:
+                    case RuntimeValueType.Byte:
+                        return true;
+                    default:
+                        return false;
+                }
+            }
 
             var symbol = context?.SymbolTable?.Get(target.Name);
 
@@ -179,7 +222,7 @@ namespace RaLanguage.Types
                     if (target.GenericArgs.Count == 0) return true;
                     var inner = target.GenericArgs[0];
                     foreach (var el in l.Elements)
-                        if (!IsAssignable(context, inner.Substitute(new Dictionary<string, TypeDescriptor>()), el)) return false;
+                        if (!IsAssignable(context, inner, el)) return false;
                     return true;
                 case RuntimeValueType.Set:
                     if (!string.Equals(target.Name, "set", StringComparison.Ordinal)) return false;
@@ -834,21 +877,26 @@ namespace RaLanguage.Types
         {
             switch (val.Type)
             {
-                case RuntimeValueType.Number: return new TypeDescriptor("number");
-                case RuntimeValueType.String: return new TypeDescriptor("string");
-                case RuntimeValueType.Boolean: return new TypeDescriptor("bool");
-                case RuntimeValueType.Integer: return new TypeDescriptor("int");
-                case RuntimeValueType.Long: return new TypeDescriptor("long");
-                case RuntimeValueType.Float: return new TypeDescriptor("float");
-                case RuntimeValueType.Double: return new TypeDescriptor("double");
-                case RuntimeValueType.UnsignedInteger: return new TypeDescriptor("uint");
-                case RuntimeValueType.UnsignedLong: return new TypeDescriptor("ulong");
-                case RuntimeValueType.Short: return new TypeDescriptor("short");
-                case RuntimeValueType.UnsignedShort: return new TypeDescriptor("ushort");
-                case RuntimeValueType.Int128: return new TypeDescriptor("int128");
-                case RuntimeValueType.UnsignedInt128: return new TypeDescriptor("uint128");
-                case RuntimeValueType.Decimal: return new TypeDescriptor("decimal");
-                case RuntimeValueType.Byte: return new TypeDescriptor("byte");
+                // Interned scalar singletons — these flow read-only through
+                // generic inference, named-arg unification, and typeof; reusing
+                // the shared instance avoids a descriptor + empty-list alloc per
+                // value. Equals/GetHashCode are structural, so interning is
+                // transparent to every consumer (binding keys, set membership).
+                case RuntimeValueType.Number: return TypeDescriptor.Number;
+                case RuntimeValueType.String: return TypeDescriptor.String;
+                case RuntimeValueType.Boolean: return TypeDescriptor.Bool;
+                case RuntimeValueType.Integer: return TypeDescriptor.Int;
+                case RuntimeValueType.Long: return TypeDescriptor.Long;
+                case RuntimeValueType.Float: return TypeDescriptor.Float;
+                case RuntimeValueType.Double: return TypeDescriptor.Double;
+                case RuntimeValueType.UnsignedInteger: return TypeDescriptor.UInt;
+                case RuntimeValueType.UnsignedLong: return TypeDescriptor.ULong;
+                case RuntimeValueType.Short: return TypeDescriptor.Short;
+                case RuntimeValueType.UnsignedShort: return TypeDescriptor.UShort;
+                case RuntimeValueType.Int128: return TypeDescriptor.Int128T;
+                case RuntimeValueType.UnsignedInt128: return TypeDescriptor.UInt128T;
+                case RuntimeValueType.Decimal: return TypeDescriptor.Decimal;
+                case RuntimeValueType.Byte: return TypeDescriptor.Byte;
                 case RuntimeValueType.List:
                     var l = (ListValue)val;
                     if (l.Elements.Count == 0) return new TypeDescriptor("list");

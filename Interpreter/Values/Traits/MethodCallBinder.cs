@@ -208,7 +208,7 @@ namespace RaLanguage.Interpreter.Values.Traits
                 "self",
                 Instance,
                 isLet: true,
-                declaredType: new TypeDescriptor(OwnerType.ClassName),
+                declaredType: OwnerType.SelfTypeDescriptor,
                 isStaticallyTyped: true,
                 isPublic: false);
 

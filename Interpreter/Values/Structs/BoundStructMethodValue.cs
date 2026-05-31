@@ -60,7 +60,7 @@ namespace RaLanguage.Interpreter.Values.Structs
                 "self",
                 SelfInstance,
                 isLet: true,
-                declaredType: new TypeDescriptor(Definition.StructName),
+                declaredType: Definition.SelfTypeDescriptor,
                 isStaticallyTyped: true,
                 isPublic: false);
 

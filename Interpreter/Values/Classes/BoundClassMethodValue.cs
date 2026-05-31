@@ -199,7 +199,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                     var frameF = Vm.VmFrame.Rent(compiled);
                     var slotLocalsF = frameF.SlotLocals;
                     if (slotLocalsF.Length > 0)
-                        slotLocalsF[0] = new RaLanguage.Interpreter.Runtime.SymbolEntry(SelfInstance, true, false, new TypeDescriptor(Definition.ClassName), true, RaLanguage.Parser.Nodes.Variables.VariableDeclarationType.VARIABLE);
+                        slotLocalsF[0] = new RaLanguage.Interpreter.Runtime.SymbolEntry(SelfInstance, true, false, Definition.SelfTypeDescriptor, true, RaLanguage.Parser.Nodes.Variables.VariableDeclarationType.VARIABLE);
                     for (int i = 0; i < pslots.Length; i++)
                     {
                         var v = positionalArgs[i];
@@ -259,7 +259,7 @@ namespace RaLanguage.Interpreter.Values.Primitives
                     "self",
                     SelfInstance,
                     isLet: true,
-                    declaredType: new TypeDescriptor(Definition.ClassName),
+                    declaredType: Definition.SelfTypeDescriptor,
                     isStaticallyTyped: true,
                     isPublic: false
                 );

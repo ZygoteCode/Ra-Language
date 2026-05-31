@@ -18,6 +18,13 @@ namespace RaLanguage.Interpreter.Values.Structs
     public class StructTypeValue : RuntimeValue
     {
         public string StructName { get; }
+
+        // Cached self-type descriptor for binding `self` in struct/record
+        // methods — see ClassTypeValue.SelfTypeDescriptor. Immutable and
+        // read-only; one shared instance per struct definition.
+        private TypeDescriptor? _selfTypeDescriptor;
+        public TypeDescriptor SelfTypeDescriptor => _selfTypeDescriptor ??= new TypeDescriptor(StructName);
+
         public bool IsPublic { get; }
         public List<StructFieldDefinitionNode> Fields { get; }
         public List<StructMethodDefinitionNode> Methods { get; }

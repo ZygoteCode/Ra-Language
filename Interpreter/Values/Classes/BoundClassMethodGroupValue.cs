@@ -94,7 +94,7 @@ namespace RaLanguage.Interpreter.Values.Classes
                 "self",
                 SelfInstance,
                 isLet: true,
-                declaredType: new TypeDescriptor(Definition.ClassName),
+                declaredType: Definition.SelfTypeDescriptor,
                 isStaticallyTyped: true,
                 isPublic: false);
 
