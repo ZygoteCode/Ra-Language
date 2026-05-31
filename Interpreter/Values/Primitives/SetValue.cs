@@ -5,7 +5,7 @@ using RaLanguage.Lexer.Tokens;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
-    public class SetValue : RuntimeValue
+    public sealed class SetValue : RuntimeValue
     {
         public HashSet<RuntimeValue> Elements { get; }
         public sealed override bool IsCopy => false;

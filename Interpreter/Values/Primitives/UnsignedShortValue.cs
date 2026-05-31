@@ -6,7 +6,7 @@ using System.Runtime.CompilerServices;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
-    public class UnsignedShortValue : RuntimeValue
+    public sealed class UnsignedShortValue : RuntimeValue
     {
         public ushort Value { get; }
 

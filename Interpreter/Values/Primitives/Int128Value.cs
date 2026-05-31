@@ -6,7 +6,7 @@ using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
-    public class Int128Value : RuntimeValue
+    public sealed class Int128Value : RuntimeValue
     {
         public Int128 Value { get; }
 

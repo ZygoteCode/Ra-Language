@@ -687,13 +687,13 @@ namespace RaLanguage.Interpreter.Vm
                                 {
                                     long sum = lv + rv;
                                     if (((lv ^ sum) & (rv ^ sum)) >= 0)
-                                        produced = NumberValue.OfBigNumber(BigNumberFromLong(sum));
+                                        produced = NumberValue.OfInt64(sum);
                                 }
                                 else
                                 {
                                     long diff = lv - rv;
                                     if (((lv ^ rv) & (lv ^ diff)) >= 0)
-                                        produced = NumberValue.OfBigNumber(BigNumberFromLong(diff));
+                                        produced = NumberValue.OfInt64(diff);
                                 }
                             }
                         }
@@ -873,13 +873,13 @@ namespace RaLanguage.Interpreter.Vm
                                 {
                                     long sumI = lvI + rvI;
                                     if (((lvI ^ sumI) & (rvI ^ sumI)) >= 0)
-                                        producedI = NumberValue.OfBigNumber(BigNumberFromLong(sumI));
+                                        producedI = NumberValue.OfInt64(sumI);
                                 }
                                 else
                                 {
                                     long diffI = lvI - rvI;
                                     if (((lvI ^ rvI) & (lvI ^ diffI)) >= 0)
-                                        producedI = NumberValue.OfBigNumber(BigNumberFromLong(diffI));
+                                        producedI = NumberValue.OfInt64(diffI);
                                 }
                             }
                         }
@@ -888,7 +888,7 @@ namespace RaLanguage.Interpreter.Vm
                             // Overflow / scale mismatch: box rhs and route
                             // through the boxed dispatch path. Matches the
                             // AddIntoSlot fallback semantics.
-                            var rhsBoxedSlow = NumberValue.OfBigNumber(BigNumberFromLong(rvI));
+                            var rhsBoxedSlow = NumberValue.OfInt64(rvI);
                             var rSlow = isAddI ? leftValI.AddedTo(rhsBoxedSlow) : leftValI.SubbedBy(rhsBoxedSlow);
                             if (rSlow.Error != null) throw new RaUserError(rSlow.Error);
                             producedI = rSlow.Value!;
@@ -974,13 +974,13 @@ namespace RaLanguage.Interpreter.Vm
                                 {
                                     long sum = lv + rv;
                                     if (((lv ^ sum) & (rv ^ sum)) >= 0)
-                                        producedImm = NumberValue.OfBigNumber(BigNumberFromLong(sum));
+                                        producedImm = NumberValue.OfInt64(sum);
                                 }
                                 else
                                 {
                                     long diff = lv - rv;
                                     if (((lv ^ rv) & (lv ^ diff)) >= 0)
-                                        producedImm = NumberValue.OfBigNumber(BigNumberFromLong(diff));
+                                        producedImm = NumberValue.OfInt64(diff);
                                 }
                             }
                         }
@@ -991,7 +991,7 @@ namespace RaLanguage.Interpreter.Vm
                             // semantics AddIntoSlot uses when the int64 fast
                             // path doesn't apply (decimal/scale targets, BigNumber
                             // beyond int64, etc.).
-                            var rhsVal = NumberValue.OfBigNumber(BigNumberFromLong(simm));
+                            var rhsVal = NumberValue.OfInt64(simm);
                             var rr = isAddImm ? leftVal.AddedTo(rhsVal) : leftVal.SubbedBy(rhsVal);
                             if (rr.Error != null) throw new RaUserError(rr.Error);
                             producedImm = rr.Value!;
@@ -2221,13 +2221,13 @@ namespace RaLanguage.Interpreter.Vm
                             {
                                 long s = lvNN + rvNN;
                                 if (((lvNN ^ s) & (rvNN ^ s)) >= 0)
-                                    prodNN = NumberValue.OfBigNumber(BigNumberFromLong(s));
+                                    prodNN = NumberValue.OfInt64(s);
                             }
                             else if (opN == Opcode.SubNN)
                             {
                                 long d = lvNN - rvNN;
                                 if (((lvNN ^ rvNN) & (lvNN ^ d)) >= 0)
-                                    prodNN = NumberValue.OfBigNumber(BigNumberFromLong(d));
+                                    prodNN = NumberValue.OfInt64(d);
                             }
                             else // MulNN
                             {
@@ -2235,7 +2235,7 @@ namespace RaLanguage.Interpreter.Vm
                                 // fits int64 iff hi == sign-extension of lo.
                                 long hiNN = System.Math.BigMul(lvNN, rvNN, out long loNN);
                                 if (hiNN == (loNN >> 63))
-                                    prodNN = NumberValue.OfBigNumber(BigNumberFromLong(loNN));
+                                    prodNN = NumberValue.OfInt64(loNN);
                             }
                             if (prodNN != null)
                             {
@@ -2737,7 +2737,7 @@ namespace RaLanguage.Interpreter.Vm
             switch (s.Tag)
             {
                 case ValueSlotTag.Int64:
-                    locals[slot] = NumberValue.OfBigNumber(BigNumberFromLong(s.Bits));
+                    locals[slot] = NumberValue.OfInt64(s.Bits);
                     s.Tag = ValueSlotTag.Ref;
                     break;
                 case ValueSlotTag.Float64:
@@ -2811,7 +2811,7 @@ namespace RaLanguage.Interpreter.Vm
                 {
                     byte b = Encoding.B(instr);
                     long lv = f.Slots[b].Bits;
-                    var boxed = NumberValue.OfBigNumber(BigNumberFromLong(lv));
+                    var boxed = NumberValue.OfInt64(lv);
                     ref var sa = ref f.Slots[a];
                     sa.Tag = ValueSlotTag.Ref;
                     sa.Ref = boxed;
@@ -3646,14 +3646,14 @@ namespace RaLanguage.Interpreter.Vm
                         {
                             long sum = lv + rv;
                             if (((lv ^ sum) & (rv ^ sum)) < 0) { handled = false; break; }
-                            produced = NumberValue.OfBigNumber(BigNumberFromLong(sum));
+                            produced = NumberValue.OfInt64(sum);
                             break;
                         }
                         case BinOp.Sub:
                         {
                             long diff = lv - rv;
                             if (((lv ^ rv) & (lv ^ diff)) < 0) { handled = false; break; }
-                            produced = NumberValue.OfBigNumber(BigNumberFromLong(diff));
+                            produced = NumberValue.OfInt64(diff);
                             break;
                         }
                         case BinOp.Mul:
@@ -3666,7 +3666,7 @@ namespace RaLanguage.Interpreter.Vm
                             long hi = System.Math.BigMul(lv, rv, out long lo);
                             if (hi == (lo >> 63))
                             {
-                                produced = NumberValue.OfBigNumber(BigNumberFromLong(lo));
+                                produced = NumberValue.OfInt64(lo);
                             }
                             else { handled = false; }
                             break;
@@ -3683,7 +3683,7 @@ namespace RaLanguage.Interpreter.Vm
                             // produced unchanged. Mirrors DivII's deopt gate.
                             if (rv != 0 && !(lv == long.MinValue && rv == -1) && (lv % rv) == 0)
                             {
-                                produced = NumberValue.OfBigNumber(BigNumberFromLong(lv / rv));
+                                produced = NumberValue.OfInt64(lv / rv);
                             }
                             else { handled = false; }
                             break;
@@ -3700,7 +3700,7 @@ namespace RaLanguage.Interpreter.Vm
                             // no special guard is needed.
                             if (rv != 0)
                             {
-                                produced = NumberValue.OfBigNumber(BigNumberFromLong(lv % rv));
+                                produced = NumberValue.OfInt64(lv % rv);
                             }
                             else { handled = false; }
                             break;
@@ -4094,11 +4094,6 @@ namespace RaLanguage.Interpreter.Vm
             // assigns the final tag itself.
             return t;
         }
-
-        [System.Runtime.CompilerServices.MethodImpl(
-            System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        private static BigNumber BigNumberFromLong(long v)
-            => new BigNumber(new System.Numerics.BigInteger(v), System.Numerics.BigInteger.Zero);
 
         private enum BinOp
         {

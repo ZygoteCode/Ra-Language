@@ -8,7 +8,7 @@ using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
-    public class UnsignedInt128Value : RuntimeValue
+    public sealed class UnsignedInt128Value : RuntimeValue
     {
         public UInt128 Value { get; }
 

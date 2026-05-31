@@ -6,7 +6,7 @@ using RaLanguage.Types;
 
 namespace RaLanguage.Interpreter.Values.Primitives
 {
-    public class UnsignedLongValue : RuntimeValue
+    public sealed class UnsignedLongValue : RuntimeValue
     {
         public ulong Value { get; }
 
