@@ -10,7 +10,25 @@ namespace RaLanguage.Parser
         public int LastRegisteredAdvanceCount { get; private set; } = 0;
         public int AdvanceCount { get; private set; } = 0;
         public int ToReverseCount { get; private set; } = 0;
-        public DiagnosticBag Diagnostics { get; } = new DiagnosticBag();
+
+        // The diagnostic bag is the single largest source of parser allocation:
+        // a fresh ParserResult is created for every grammar rule (and the deep
+        // expression precedence chain visits ~15 of them for a trivial `a + b`),
+        // yet the overwhelming majority never record a diagnostic. Allocating a
+        // DiagnosticBag (+ its inner List) up-front for each was pure waste.
+        //
+        // The bag is now created lazily on first need (an error via Failure, or
+        // merging a non-empty child via Register). Empty results never touch the
+        // heap for diagnostics, and propagation still works because a child only
+        // forces an allocation in `this` when it actually carries diagnostics.
+        private DiagnosticBag? _diagnostics;
+
+        public DiagnosticBag Diagnostics => _diagnostics ??= new DiagnosticBag();
+
+        // Null-safe queries used on the hot path / by the driver so a result
+        // with no diagnostics is not forced to allocate a bag just to be asked.
+        public bool HasErrors => _diagnostics != null && _diagnostics.HasErrors;
+        public Diagnostic? FirstError => _diagnostics?.FirstError;
 
         public void RegisterAdvancement()
         {
@@ -23,7 +41,10 @@ namespace RaLanguage.Parser
             LastRegisteredAdvanceCount = res.AdvanceCount;
             AdvanceCount += res.AdvanceCount;
             if (res.Error != null) Error = res.Error;
-            Diagnostics.AddRange(res.Diagnostics);
+            // Only force a bag (in either result) when the child actually carries
+            // diagnostics. The common case — a clean sub-parse — allocates nothing.
+            var child = res._diagnostics;
+            if (child != null && child.Count > 0) Diagnostics.AddRange(child);
             return res.Node!;
         }
 
@@ -61,10 +82,14 @@ namespace RaLanguage.Parser
         private bool ContainsSameDiagnostic(Diagnostic candidate)
         {
             if (candidate == null) return true;
+            // No bag yet ⇒ nothing recorded ⇒ nothing to dedupe against. Avoids
+            // forcing a lazy allocation on the first Failure of a result.
+            if (_diagnostics == null) return false;
             var span = candidate.PrimarySpan;
-            for (int i = 0; i < Diagnostics.Diagnostics.Count; i++)
+            var list = _diagnostics.Diagnostics;
+            for (int i = 0; i < list.Count; i++)
             {
-                var existing = Diagnostics.Diagnostics[i];
+                var existing = list[i];
                 if (existing.PrimarySpan.Start.Idx == span.Start.Idx &&
                     existing.PrimarySpan.End.Idx == span.End.Idx &&
                     existing.Code == candidate.Code &&

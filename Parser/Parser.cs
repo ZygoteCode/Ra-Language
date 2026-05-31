@@ -1,4 +1,5 @@
-﻿using RaLanguage.Errors;
+﻿using System.Runtime.CompilerServices;
+using RaLanguage.Errors;
 using RaLanguage.Errors.Types;
 using RaLanguage.Lexer;
 using RaLanguage.Lexer.Tokens;
@@ -28,6 +29,23 @@ namespace RaLanguage.Parser
         private int _tokenIndex;
         private Token _currentToken;
 
+        // Cached method-group delegates for the precedence-climbing chain.
+        // A `Func<ParserResult>` produced from an *instance* method group is NOT
+        // cached by the C# compiler (it closes over `this`), so passing
+        // `ParseTerm` et al. straight into ParseBinaryOperation allocated a fresh
+        // delegate on every single call — ~9 per deep expression. Binding them
+        // once in the constructor makes the precedence chain allocation-free
+        // apart from the AST nodes it actually produces.
+        private readonly Func<ParserResult> _parseLogicalAnd;
+        private readonly Func<ParserResult> _parseBitwiseOr;
+        private readonly Func<ParserResult> _parseBitwiseAnd;
+        private readonly Func<ParserResult> _parseComparison;
+        private readonly Func<ParserResult> _parseNullCoalescingThenIs;
+        private readonly Func<ParserResult> _parseRange;
+        private readonly Func<ParserResult> _parseTerm;
+        private readonly Func<ParserResult> _parseFactor;
+        private readonly Func<ParserResult> _parseCall;
+
         private readonly Stack<HashSet<string>> _genericScopes = new Stack<HashSet<string>>();
 
         private void PushGenericScope(IEnumerable<string> names)
@@ -50,32 +68,22 @@ namespace RaLanguage.Parser
             return false;
         }
 
-        private static readonly HashSet<TokenType> AssignmentTokens = new()
-        {
-            TokenType.EQ,
-            TokenType.PLUS_EQ,
-            TokenType.MINUS_EQ,
-            TokenType.MUL_EQ,
-            TokenType.DIV_EQ,
-            TokenType.MODULO_EQ,
-            TokenType.BITWISE_AND_EQ,
-            TokenType.BITWISE_OR_EQ,
-            TokenType.BITWISE_LEFT_SHIFT_EQ,
-            TokenType.BITWISE_RIGHT_SHIFT_EQ,
-            TokenType.BITWISE_LOGICAL_LEFT_SHIFT_EQ,
-            TokenType.BITWISE_LOGICAL_RIGHT_SHIFT_EQ,
-            TokenType.BITWISE_ROTATE_LEFT_EQ,
-            TokenType.BITWISE_ROTATE_RIGHT_EQ,
-            TokenType.POW_EQ,
-            TokenType.AND_EQ,
-            TokenType.OR_EQ,
-            TokenType.NULL_COALESCE_EQ,
-        };
-
         public Parser(List<Token> tokens)
         {
             _tokens = tokens;
             _tokenIndex = -1;
+
+            // Bind the precedence-chain delegates once (see field declarations).
+            _parseLogicalAnd = ParseLogicalAndExpression;
+            _parseBitwiseOr = ParseBitwiseOrExpression;
+            _parseBitwiseAnd = ParseBitwiseAndExpression;
+            _parseComparison = ParseComparisonExpression;
+            _parseNullCoalescingThenIs = ParseNullCoalescingThenIs;
+            _parseRange = ParseRangeExpression;
+            _parseTerm = ParseTerm;
+            _parseFactor = ParseFactor;
+            _parseCall = ParseCall;
+
             Advance();
         }
 
@@ -130,9 +138,37 @@ namespace RaLanguage.Parser
         }
 
 
-        private bool IsAssignmentToken(TokenType type)
+        // Hot: queried once per ParseExpression to detect a trailing assignment.
+        // A switch lowers to a jump table over the (densely-packed) *_EQ token
+        // range — branch-predictable and allocation-free, versus hashing a
+        // TokenType through a static HashSet on every expression.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static bool IsAssignmentToken(TokenType type)
         {
-            return AssignmentTokens.Contains(type);
+            switch (type)
+            {
+                case TokenType.EQ:
+                case TokenType.PLUS_EQ:
+                case TokenType.MINUS_EQ:
+                case TokenType.MUL_EQ:
+                case TokenType.DIV_EQ:
+                case TokenType.MODULO_EQ:
+                case TokenType.BITWISE_AND_EQ:
+                case TokenType.BITWISE_OR_EQ:
+                case TokenType.BITWISE_LEFT_SHIFT_EQ:
+                case TokenType.BITWISE_RIGHT_SHIFT_EQ:
+                case TokenType.BITWISE_LOGICAL_LEFT_SHIFT_EQ:
+                case TokenType.BITWISE_LOGICAL_RIGHT_SHIFT_EQ:
+                case TokenType.BITWISE_ROTATE_LEFT_EQ:
+                case TokenType.BITWISE_ROTATE_RIGHT_EQ:
+                case TokenType.POW_EQ:
+                case TokenType.AND_EQ:
+                case TokenType.OR_EQ:
+                case TokenType.NULL_COALESCE_EQ:
+                    return true;
+                default:
+                    return false;
+            }
         }
 
 
@@ -293,29 +329,46 @@ namespace RaLanguage.Parser
             (TokenType.POW, null),
         };
 
+        // True when the current token is one of `ops`. A `null` keyword slot
+        // matches on TokenType alone; otherwise the boxed Keyword value must
+        // also match. `_currentToken.Value` is only touched for keyword ops, so
+        // the overwhelmingly common symbol operators (`+`, `*`, `==`, …) never
+        // pay the unbox probe.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private bool CurrentMatchesOps((TokenType, Keyword?)[] ops)
+        {
+            var curType = _currentToken.Type;
+            for (int i = 0; i < ops.Length; i++)
+            {
+                var (type, kw) = ops[i];
+                if (curType != type) continue;
+                if (kw == null) return true;
+                if (_currentToken.Value is Keyword k && k == kw) return true;
+            }
+            return false;
+        }
+
         private ParserResult ParseBinaryOperation(Func<ParserResult> funcA, (TokenType, Keyword?)[] ops, Func<ParserResult>? funcB = null)
         {
+            // Parse the higher-precedence operand first. If no operator at this
+            // band follows — the common case, since a given expression only
+            // actually binds at one or two of the ~9 precedence levels it
+            // descends through — return that operand's result *directly*.
+            //
+            // Wrapping it in a fresh ParserResult would allocate a throwaway
+            // object on every pass-through level; the caller's Register() reads
+            // exactly the same AdvanceCount / Node / Error / diagnostics off the
+            // inner result, so the wrapper is pure overhead here. This removes
+            // the bulk of the per-expression ParserResult allocations.
+            var first = funcA();
+            if (first.Error != null || !CurrentMatchesOps(ops)) return first;
+
             if (funcB == null) funcB = funcA;
             var res = new ParserResult();
-            var left = res.Register(funcA());
-            if (res.Error != null) return res;
+            var left = res.Register(first);
 
-            while (true)
+            do
             {
-                var curType = _currentToken.Type;
-                object? curVal = _currentToken.Value;
-                bool matched = false;
-                for (int i = 0; i < ops.Length; i++)
-                {
-                    var (type, kw) = ops[i];
-                    if (curType != type) continue;
-                    if (kw == null || (curVal is Keyword k && k == kw))
-                    {
-                        matched = true;
-                        break;
-                    }
-                }
-                if (!matched) break;
                 var opTok = _currentToken;
                 res.RegisterAdvancement();
                 Advance();
@@ -323,6 +376,8 @@ namespace RaLanguage.Parser
                 if (res.Error != null) return res;
                 left = new BinaryOperationNode(left, opTok, right);
             }
+            while (CurrentMatchesOps(ops));
+
             return res.Success(left);
         }
 

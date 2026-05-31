@@ -470,6 +470,28 @@ namespace RaLanguage
                     return;
                 }
 
+                // --bench-parse [file.ra] [iter]
+                // Isolated parser throughput + allocation benchmark. Lexing is
+                // performed ONCE per file up-front (outside the timed loop), so
+                // only the tokens -> AST parse step is measured. With no file
+                // argument it builds the corpus from every tests/**/*.ra and
+                // bench/*.ra next to the executable, lexing each file
+                // independently. The per-pass parse-error count is printed and
+                // is a hard regression guard: any parser change that alters it
+                // has changed behaviour, not just performance.
+                if (args.Length >= 1 && string.Equals(args[0], "--bench-parse", StringComparison.OrdinalIgnoreCase))
+                {
+                    string? parseFile = null;
+                    int parseIter = 0;
+                    for (int ai = 1; ai < args.Length; ai++)
+                    {
+                        if (int.TryParse(args[ai], out int n) && n > 0) parseIter = n;
+                        else parseFile = args[ai];
+                    }
+                    BenchParseCli(parseFile, parseIter);
+                    return;
+                }
+
                 // M35: --dump-ir <file.ra> prints the compiled IR + constant
                 // pool + Names table for the given source. Read-only debug
                 // aid; does not execute the script.
@@ -2000,6 +2022,146 @@ namespace RaLanguage
             double nsPerToken = tokenCount > 0 ? best / tokenCount : 0;
             long allocPerIter = (allocAfter - allocBefore) / iter;
             double allocPerToken = tokenCount > 0 ? (double)allocPerIter / tokenCount : 0;
+
+            Console.WriteLine($"  best   : {bestMs:F3} ms/iter   ({mbPerSec:N0} MiB/s, {nsPerToken:F1} ns/token)");
+            Console.WriteLine($"  median : {medMs:F3} ms/iter");
+            Console.WriteLine($"  mean   : {mean / 1_000_000.0:F3} ms/iter");
+            Console.WriteLine($"  p95    : {p95 / 1_000_000.0:F3} ms/iter");
+            Console.WriteLine($"  alloc  : {allocPerIter:N0} B/iter ({allocPerToken:F1} B/token)");
+            Console.WriteLine($"  GC     : gen0 {gcAfter.Item1 - gcBefore.Item1}, gen1 {gcAfter.Item2 - gcBefore.Item2}, gen2 {gcAfter.Item3 - gcBefore.Item3} (over {iter:N0} iters)");
+        }
+
+        // Bench harness for `--bench-parse`. Lexes each corpus file ONCE
+        // up-front, then drives the parser (tokens -> AST) in a tight loop with
+        // a freshly-constructed Parser per pass so the token index resets. The
+        // lexer, static analysis and VM never run inside the timed region, so a
+        // parser-only optimisation shows up cleanly in ns/token, MB/s and
+        // bytes-allocated-per-iteration. The per-pass parse-error total is a
+        // behaviour fingerprint: a pure perf change MUST leave it unchanged.
+        private static void BenchParseCli(string? file, int iter)
+        {
+            // Lex the corpus once into a stable list of (label, tokens, chars).
+            // Each entry is parsed with its own Parser instance per pass.
+            var units = new List<(string Label, List<RaLanguage.Lexer.Tokens.Token> Tokens, int Chars)>();
+            long totalChars = 0;
+
+            if (!string.IsNullOrEmpty(file))
+            {
+                if (!File.Exists(file))
+                {
+                    Console.WriteLine($"[Ra Language] --bench-parse: file not found: {file}");
+                    Environment.ExitCode = 1;
+                    return;
+                }
+                string t = File.ReadAllText(file);
+                var lx = new RaLanguage.Lexer.Lexer("bench", t);
+                var (tk, ld) = lx.MakeTokens();
+                if (ld.HasErrors)
+                {
+                    Console.WriteLine($"[Ra Language] --bench-parse: lexing failed for {file}");
+                    Environment.ExitCode = 1;
+                    return;
+                }
+                units.Add((file, tk, t.Length));
+                totalChars = t.Length;
+            }
+            else
+            {
+                var roots = new[]
+                {
+                    Path.Combine(AppContext.BaseDirectory, "tests"),
+                    Path.Combine(AppContext.BaseDirectory, "bench"),
+                    Path.Combine(Directory.GetCurrentDirectory(), "tests"),
+                    Path.Combine(Directory.GetCurrentDirectory(), "bench"),
+                };
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var root in roots)
+                {
+                    if (!Directory.Exists(root)) continue;
+                    foreach (var path in Directory.EnumerateFiles(root, "*.ra", SearchOption.AllDirectories))
+                    {
+                        var full = Path.GetFullPath(path);
+                        if (!seen.Add(full)) continue;
+                        try
+                        {
+                            string t = File.ReadAllText(path);
+                            var lx = new RaLanguage.Lexer.Lexer("bench", t);
+                            var (tk, ld) = lx.MakeTokens();
+                            if (ld.HasErrors) continue; // skip files that don't even lex
+                            units.Add((Path.GetFileName(path), tk, t.Length));
+                            totalChars += t.Length;
+                        }
+                        catch { }
+                    }
+                }
+                if (units.Count == 0)
+                {
+                    Console.WriteLine("[Ra Language] --bench-parse: no corpus found (looked for tests/ and bench/ next to the exe and in the CWD); pass an explicit .ra file");
+                    Environment.ExitCode = 1;
+                    return;
+                }
+            }
+
+            long totalTokens = 0;
+            foreach (var u in units) totalTokens += u.Tokens.Count;
+            long byteCount = totalChars * 2;
+            if (iter <= 0) iter = Math.Max(50, (int)(20_000_000L / Math.Max(1, totalTokens)));
+
+            // Warm-up + capture the behaviour fingerprint (parse-error total).
+            int errFingerprint = 0;
+            for (int i = 0; i < Math.Min(8, iter); i++)
+            {
+                int errs = 0;
+                foreach (var u in units)
+                {
+                    var p = new Parser.Parser(u.Tokens);
+                    var pr = p.Parse();
+                    if (pr.HasErrors) errs += pr.Diagnostics.ErrorCount;
+                }
+                errFingerprint = errs;
+            }
+
+            Console.WriteLine($"[Ra Language] --bench-parse: corpus ({units.Count} files)");
+            Console.WriteLine($"  source : {totalChars:N0} chars ({byteCount / 1024.0:N1} KiB UTF-16), {totalTokens:N0} tokens/iter, iter={iter:N0}");
+            Console.WriteLine($"  parse  : {errFingerprint:N0} parse-errors/pass (behaviour fingerprint — must be stable across perf changes)");
+
+            var gcBefore = (GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2));
+            long allocBefore = GC.GetAllocatedBytesForCurrentThread();
+
+            long[] tickArr = new long[iter];
+            int sink = 0;
+            for (int i = 0; i < iter; i++)
+            {
+                long t0 = Stopwatch.GetTimestamp();
+                for (int u = 0; u < units.Count; u++)
+                {
+                    var p = new Parser.Parser(units[u].Tokens);
+                    var pr = p.Parse();
+                    if (pr.Node != null) sink++;
+                }
+                long t1 = Stopwatch.GetTimestamp();
+                tickArr[i] = t1 - t0;
+            }
+            if (sink == int.MinValue) Console.WriteLine("unreachable"); // defeat DCE
+
+            long allocAfter = GC.GetAllocatedBytesForCurrentThread();
+            var gcAfter = (GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2));
+
+            Array.Sort(tickArr);
+            double tickToNs = 1_000_000_000.0 / Stopwatch.Frequency;
+            double best = tickArr[0] * tickToNs;
+            double median = tickArr[iter / 2] * tickToNs;
+            double p95 = tickArr[(int)(iter * 0.95)] * tickToNs;
+            double sum = 0;
+            for (int i = 0; i < iter; i++) sum += tickArr[i] * tickToNs;
+            double mean = sum / iter;
+
+            double bestMs = best / 1_000_000.0;
+            double medMs = median / 1_000_000.0;
+            double mbPerSec = (byteCount / (best / 1_000_000_000.0)) / (1024.0 * 1024.0);
+            double nsPerToken = totalTokens > 0 ? best / totalTokens : 0;
+            long allocPerIter = (allocAfter - allocBefore) / iter;
+            double allocPerToken = totalTokens > 0 ? (double)allocPerIter / totalTokens : 0;
 
             Console.WriteLine($"  best   : {bestMs:F3} ms/iter   ({mbPerSec:N0} MiB/s, {nsPerToken:F1} ns/token)");
             Console.WriteLine($"  median : {medMs:F3} ms/iter");
