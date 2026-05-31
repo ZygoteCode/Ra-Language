@@ -100,7 +100,7 @@ namespace RaLanguage.Interpreter.Visitors.Operations
             EnsureCallable(rhsCallee, node, context, ref res);
             if (res.Error != null) return res;
 
-            var emptyNamed = new Dictionary<string, RuntimeValue>(System.StringComparer.Ordinal);
+            var emptyNamed = FunctionCallExecutor.EmptyNamedArgs;
             var singleArg = new List<RuntimeValue>(1) { leftValue };
 
             return await FunctionCallExecutor.Invoke(

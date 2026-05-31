@@ -126,6 +126,18 @@ namespace RaLanguage.Interpreter.Vm
             int wideHiB = -1, wideHiC = -1;
             int pendingWideHiB = -1, pendingWideHiC = -1;
 
+            // The frame `f` we were handed is owned by the EXTERNAL caller
+            // (RunScript / IrExpressionEvaluator), which returns it to the pool
+            // on the success path. A tail-call trampoline below replaces `f`
+            // with a freshly-rented callee frame and pools the outgoing one —
+            // but it must NOT pool this entry frame, or the caller's own
+            // VmFrame.Return would double-return it (aliasing the same frame
+            // into the pool while it is still live). Cleared after the first
+            // trampoline hop, so every Execute-rented intermediate frame is
+            // still pooled normally. Declared before the restart label so it
+            // survives the `goto`.
+            bool fIsEntryFrame = true;
+
             TAILCALL_RESTART:
             wideHiB = wideHiC = -1;
             pendingWideHiB = pendingWideHiC = -1;
@@ -2064,7 +2076,10 @@ namespace RaLanguage.Interpreter.Vm
                                     f.Pc = pc; // unreachable but keeps invariants
                                     var prevFrame = f;
                                     f = VmFrame.Rent(fvTail.CompiledBody);
-                                    VmFrame.Return(prevFrame);
+                                    // Pool the outgoing frame UNLESS it is the
+                                    // caller-owned entry frame (see fIsEntryFrame).
+                                    if (!fIsEntryFrame) VmFrame.Return(prevFrame);
+                                    fIsEntryFrame = false;
                                     ctx = execCtxTc!;
                                     goto TAILCALL_RESTART;
                                 }

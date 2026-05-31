@@ -33,6 +33,28 @@ namespace RaLanguage.Interpreter.Runtime
     {
         private static readonly ConcurrentDictionary<(AstNode Node, bool Statement), RaFunction> s_cache = new();
 
+        // PERF: the VmExecutor is stateless apart from the readonly
+        // `_interpreter` field (the call-depth counter it uses is
+        // [ThreadStatic] on the type, not per-instance). Every sub-expression
+        // evaluation funnelled through here used to allocate a fresh executor;
+        // since the interpreter is a per-run singleton, one cached executor per
+        // thread eliminates that allocation entirely. Rebuilt only on the rare
+        // event of the interpreter identity changing on this thread.
+        [System.ThreadStatic] private static VmExecutor? s_vm;
+        [System.ThreadStatic] private static IInterpreter? s_vmInterp;
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static VmExecutor RentExecutor(IInterpreter interpreter)
+        {
+            var vm = s_vm;
+            if (vm != null && ReferenceEquals(s_vmInterp, interpreter)) return vm;
+            vm = new VmExecutor(interpreter);
+            s_vm = vm;
+            s_vmInterp = interpreter;
+            return vm;
+        }
+
         // M43: drop every cached (AstNode → RaFunction) compile so a
         // hot-restart of the script frees the old AST + IR memory and
         // the next run starts from a clean cache. Called from
@@ -41,38 +63,82 @@ namespace RaLanguage.Interpreter.Runtime
         // for full reset.
         public static void ClearCache() => s_cache.Clear();
 
-        public static async ValueTask<RuntimeResult> Evaluate(AstNode node, Context context, IInterpreter interpreter)
+        // PERF: every entry point rents its frame from the per-RaFunction
+        // pool (VmFrame.Rent) instead of `new VmFrame`. The same sub-expression
+        // node is re-evaluated on every loop iteration, so its cached RaFunction
+        // is rented and returned millions of times — pooling reuses the Slots /
+        // SlotLocals arrays across cycles and drops the per-evaluation frame +
+        // array allocations to near zero. The frame is returned to the pool only
+        // on the success path (no error escape), mirroring VmExecutor.RunScript:
+        // error back-traces capture the Parent chain and must keep a live frame.
+        // PERF: sync-completion fast path. The overwhelming majority of
+        // sub-expression evaluations never hit a real Ra `await`, so
+        // vm.Execute returns an already-completed ValueTask. Returning the
+        // result directly — instead of `await`-ing it — keeps this method
+        // non-async on that path, so the JIT/AOT emits a plain call with no
+        // async state-machine setup (builder + MoveNext + awaiter plumbing)
+        // per evaluation. Only a genuinely-suspending Execute (Ra `await`)
+        // falls through to the async continuation helper.
+        public static ValueTask<RuntimeResult> Evaluate(AstNode node, Context context, IInterpreter interpreter)
         {
             var fn = GetOrCompile(node, statement: false);
-            var vm = new VmExecutor(interpreter);
-            var frame = new VmFrame(fn);
-            return await vm.Execute(frame, context);
+            var vm = RentExecutor(interpreter);
+            var frame = VmFrame.Rent(fn);
+            var task = vm.Execute(frame, context);
+            if (task.IsCompletedSuccessfully)
+            {
+                var res = task.Result;
+                if (res.Error == null) VmFrame.Return(frame);
+                return new ValueTask<RuntimeResult>(res);
+            }
+            return AwaitAndReturn(task, frame);
         }
 
         public static RuntimeResult EvaluateBlocking(AstNode node, Context context, IInterpreter interpreter)
         {
             var fn = GetOrCompile(node, statement: false);
-            var vm = new VmExecutor(interpreter);
-            var frame = new VmFrame(fn);
+            var vm = RentExecutor(interpreter);
+            var frame = VmFrame.Rent(fn);
             var task = vm.Execute(frame, context);
-            return task.IsCompletedSuccessfully ? task.Result : task.AsTask().GetAwaiter().GetResult();
+            var res = task.IsCompletedSuccessfully ? task.Result : task.AsTask().GetAwaiter().GetResult();
+            if (res.Error == null) VmFrame.Return(frame);
+            return res;
         }
 
-        public static async ValueTask<RuntimeResult> EvaluateStatement(AstNode node, Context context, IInterpreter interpreter)
+        public static ValueTask<RuntimeResult> EvaluateStatement(AstNode node, Context context, IInterpreter interpreter)
         {
             var fn = GetOrCompile(node, statement: true);
-            var vm = new VmExecutor(interpreter);
-            var frame = new VmFrame(fn);
-            return await vm.Execute(frame, context);
+            var vm = RentExecutor(interpreter);
+            var frame = VmFrame.Rent(fn);
+            var task = vm.Execute(frame, context);
+            if (task.IsCompletedSuccessfully)
+            {
+                var res = task.Result;
+                if (res.Error == null) VmFrame.Return(frame);
+                return new ValueTask<RuntimeResult>(res);
+            }
+            return AwaitAndReturn(task, frame);
+        }
+
+        // Async continuation for the rare suspending path. Awaits the
+        // in-flight Execute, then returns the frame on success — same
+        // discipline as the sync path.
+        private static async ValueTask<RuntimeResult> AwaitAndReturn(ValueTask<RuntimeResult> task, VmFrame frame)
+        {
+            var res = await task.ConfigureAwait(false);
+            if (res.Error == null) VmFrame.Return(frame);
+            return res;
         }
 
         public static RuntimeResult EvaluateStatementBlocking(AstNode node, Context context, IInterpreter interpreter)
         {
             var fn = GetOrCompile(node, statement: true);
-            var vm = new VmExecutor(interpreter);
-            var frame = new VmFrame(fn);
+            var vm = RentExecutor(interpreter);
+            var frame = VmFrame.Rent(fn);
             var task = vm.Execute(frame, context);
-            return task.IsCompletedSuccessfully ? task.Result : task.AsTask().GetAwaiter().GetResult();
+            var res = task.IsCompletedSuccessfully ? task.Result : task.AsTask().GetAwaiter().GetResult();
+            if (res.Error == null) VmFrame.Return(frame);
+            return res;
         }
 
         private static RaFunction GetOrCompile(AstNode node, bool statement)
