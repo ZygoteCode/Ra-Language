@@ -220,6 +220,10 @@ namespace RaLanguage.Interpreter.Archive
                     case Opcode.ListLen:
                     case Opcode.ForEachIterable:
                     case Opcode.Await:
+                    // L7 variant patterns: a (dst) + b (scrutinee) are slots;
+                    // c is an immediate (Names index / payload index), not a slot.
+                    case Opcode.EnumTagEq:
+                    case Opcode.EnumPayload:
                         CheckSlot(a, local, pc, opName, "a", diags, path);
                         CheckSlot(effB, local, pc, opName, "b", diags, path);
                         break;

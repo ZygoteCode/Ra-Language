@@ -592,6 +592,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.NativeDefine:
                 case Opcode.DefineType:
                 case Opcode.Await: case Opcode.Spawn:
+                case Opcode.EnumTagEq: case Opcode.EnumPayload: // L7 variant patterns
                 // M66 II opcodes also write A (or the long shadow).
                 case Opcode.LoadIntS64:
                 case Opcode.UnboxI:

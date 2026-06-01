@@ -457,6 +457,16 @@ namespace RaLanguage.Interpreter.IR
         GetEvent        = 0x93,
         EmitEvent       = 0x94,
 
+        // L7 (Match variant patterns). Two single-write enum-introspection
+        // opcodes used to lower `case Ok(v)` / `case Some(x)` without the
+        // visitor. Both write locals[A], read locals[B] (the scrutinee); C is an
+        // immediate (a Names index / a payload index), not a slot.
+        //   EnumTagEq    [op][dst][scrut][nameIdx:c]  dst = (scrut is EnumValue
+        //                                             && scrut.MemberName == Names[c])
+        //   EnumPayload  [op][dst][scrut][index:c]    dst = scrut.Payload[index]
+        EnumTagEq       = 0x95,
+        EnumPayload     = 0x96,
+
         // --- exceptions ---
         Throw           = 0xA0,   // a (err src)
         EnterTry        = 0xA1,   // _, handlerIdx:u16

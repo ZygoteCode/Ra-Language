@@ -2526,6 +2526,23 @@ namespace RaLanguage.Interpreter.Vm
                         break;
                     }
 
+                    // L7 (Match variant patterns). EnumTagEq: dst = scrutinee is
+                    // an EnumValue whose member name == Names[c]. EnumPayload: dst
+                    // = scrutinee.Payload[c]. Both read locals[B] (the scrutinee),
+                    // C is an immediate. The bodies live in NoInlining helpers so
+                    // their locals stay OUT of this async method's MoveNext frame:
+                    // Execute recurses via `await Execute(...)` and that frame is
+                    // held across every synchronous recursion level, so each byte
+                    // added here is paid ×depth against the worker stack (the M85
+                    // deep-recursion trap). The helper frame is popped before the
+                    // recursive await, so it costs nothing per level.
+                    case Opcode.EnumTagEq:
+                        OpEnumTagEq(locals, instr, names);
+                        break;
+                    case Opcode.EnumPayload:
+                        OpEnumPayload(locals, instr, ctx);
+                        break;
+
                     default:
                         throw new RaUserError(MakeIcError(ctx,
                             $"VM: opcode {op} (0x{(byte)op:X2}) not implemented yet (PC={pc - 1})"));
@@ -4778,6 +4795,37 @@ namespace RaLanguage.Interpreter.Vm
         {
             var empty = DummyPos(ctx);
             return new Errors.Types.RuntimeError(empty, empty, message, ctx!);
+        }
+
+        // L7 variant-pattern opcode bodies, kept OUT of the recursive async
+        // Execute frame (see the call sites). NoInlining is load-bearing: an
+        // inlined body would re-merge these locals into Execute's MoveNext frame
+        // and reintroduce the per-recursion-level stack cost. LocalsView is a
+        // readonly struct over the live ValueSlot[], so writes through the
+        // by-value copy land in the caller's slots.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpEnumTagEq(LocalsView locals, uint instr, string[] names)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            int nameIdx = Encoding.C(instr);
+            var sv = locals[b];
+            bool matched = sv is EnumValue ev
+                && string.Equals(ev.MemberName, names[nameIdx], System.StringComparison.Ordinal);
+            locals[a] = BooleanValue.Of(matched);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpEnumPayload(LocalsView locals, uint instr, Context ctx)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            int payIdx = Encoding.C(instr);
+            if (locals[b] is not EnumValue ev2)
+                throw new RaUserError(MakeIcError(ctx, "VM: EnumPayload on non-enum value"));
+            locals[a] = payIdx < ev2.Payload.Count ? ev2.Payload[payIdx] : NullValue.Null;
         }
     }
 }

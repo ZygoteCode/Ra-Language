@@ -1,0 +1,130 @@
+import std.prelude.*;
+// Ra Language - L7 (Match widening): ENUM VARIANT patterns now lower. A
+// `case Some(x)` / `case Rect(w, h)` / `case Pair(_, b)` arm lowers to:
+//   - OP_ENUM_TAG_EQ (scrutinee is the named variant?) -> JmpIfNot next-arm
+//   - per payload subpattern: OP_ENUM_PAYLOAD (extract slot i) + either a
+//     DECLARE_LOCAL bind (variable subpattern) or nothing (`_` wildcard)
+// all inside the SAME fresh per-arm scope the variable-binding arms use (so a
+// later arm can re-bind the same name and a failed-tag/guard arm doesn't leak).
+//
+// First cut deliberately requires: INFERRED enum (no `Enum.Variant`), payload
+// subpatterns limited to wildcard / confirmed-variable bindings, and a trailing
+// wildcard/variable CATCH-ALL (a variant pattern tests the tag, so it is never
+// itself a catch-all). Anything outside that falls back to the visitor.
+//
+// Every match below carries a `case _` so the variant arms genuinely LOWER
+// (verified out-of-band with --dump-ir: EnumTagEq/EnumPayload present, no
+// NativeDefine) and --parity Match proves native == forced-fallback.
+
+print("=== pattern_match/match_variant_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// V1/V2: single-payload variant bind, used in the body, wildcard catch-all.
+enum Opt {
+    Some(int),
+    Nothing
+}
+fn unwrap_or(o: Opt, d: int): int {
+    ret match o {
+        case Some(x) -> x
+        case _ -> d
+    };
+}
+ck("[V1]", unwrap_or(Opt.Some(7), 0) == 7);
+ck("[V2]", unwrap_or(Opt.Nothing, -1) == -1);
+
+// V3-V5: 0/1/2-field payloads in one match, each bind used.
+enum Shape2 {
+    Circle(int),
+    Rect(int, int),
+    Other
+}
+fn area2(s: Shape2): int {
+    ret match s {
+        case Circle(r) -> r * r * 3
+        case Rect(w, h) -> w * h
+        case _ -> -1
+    };
+}
+ck("[V3]", area2(Shape2.Circle(2)) == 12);
+ck("[V4]", area2(Shape2.Rect(3, 4)) == 12);
+ck("[V5]", area2(Shape2.Other) == -1);
+
+// V6: a `_` wildcard SUBPATTERN drops one payload field, keeps the other.
+fn width_of(s: Shape2): int {
+    ret match s {
+        case Rect(w, _) -> w
+        case Circle(r) -> r
+        case _ -> 0
+    };
+}
+ck("[V6]", width_of(Shape2.Rect(9, 4)) == 9);
+
+// V7-V9: GUARD reads a payload bind; two `case Some(x)` arms (same name,
+// per-arm scope) - first guarded, second a plain variant test.
+fn pos_only(o: Opt): string {
+    ret match o {
+        case Some(x) if x > 0 -> "pos:" + (x as string)
+        case Some(x) -> "nonpos:" + (x as string)
+        case _ -> "none"
+    };
+}
+ck("[V7]", pos_only(Opt.Some(5)) == "pos:5");
+ck("[V8]", pos_only(Opt.Some(-3)) == "nonpos:-3");
+ck("[V9]", pos_only(Opt.Nothing) == "none");
+
+// V10: variant arms MIXED with a literal-via-bind fallthrough and a binding
+// catch-all (`case rest`) - the catch-all binds + uses the scrutinee.
+enum Tagged {
+    Num(int),
+    Word(string),
+    Blank
+}
+fn render(t: Tagged): string {
+    ret match t {
+        case Num(n) -> "n=" + (n as string)
+        case Word(w) -> "w=" + w
+        case rest -> "other"
+    };
+}
+ck("[V10]", render(Tagged.Num(42)) == "n=42");
+ck("[V11]", render(Tagged.Word("hi")) == "w=hi");
+ck("[V12]", render(Tagged.Blank) == "other");
+
+// V13: nested match - a variant arm body is itself a lowered variant match.
+fn classify(o: Opt): string {
+    ret match o {
+        case Some(x) -> match x {
+            case 0 -> "zero"
+            case _ -> "some"
+        }
+        case _ -> "none"
+    };
+}
+ck("[V13]", classify(Opt.Some(0)) == "zero");
+ck("[V14]", classify(Opt.Some(9)) == "some");
+ck("[V15]", classify(Opt.Nothing) == "none");
+
+// V16: STATEMENT-position variant match drives a side effect (not an
+// expression result) - the binding must still be live in the arm body.
+fn sum_payload(s: Shape2): int {
+    var acc = 0;
+    match s {
+        case Circle(r) -> acc = r
+        case Rect(w, h) -> acc = w + h
+        case _ -> acc = 0
+    }
+    ret acc;
+}
+ck("[V16]", sum_payload(Shape2.Circle(5)) == 5);
+ck("[V17]", sum_payload(Shape2.Rect(3, 4)) == 7);
+
+if failures == 0 {
+    print("=== done (all lowered variant cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

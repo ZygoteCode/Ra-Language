@@ -3854,6 +3854,50 @@ namespace RaLanguage.Interpreter.IR
                         if (arm.Guard == null && catchAllIdx < 0) catchAllIdx = i;
                         break;
                     }
+                    case Parser.Nodes.Patterns.VariantPatternNode vap:
+                    {
+                        // First-cut variant lowering (`case Ok(v)` / `case Some(x)`
+                        // / `case Pair(a, b)`): INFERRED enum only, payload
+                        // subpatterns limited to wildcards + confirmed variable
+                        // bindings. Everything else falls back to the visitor.
+                        //  - explicit `case Enum.Variant(..)` -> defer (EnumName set)
+                        //  - zero-arity `case None` is a VariablePatternNode, not
+                        //    this node; a parenless variant here would have null
+                        //    SubPatterns -> defer.
+                        //  - nested/literal/tuple/struct subpatterns -> defer.
+                        if (vap.EnumName != null)
+                            throw new IrCompileException("match: explicit-enum variant pattern -> fallback");
+                        if (vap.SubPatterns == null)
+                            throw new IrCompileException("match: parenless variant pattern -> fallback");
+                        // EnumPayload's payload index rides the 8-bit C operand.
+                        if (vap.SubPatterns.Count > byte.MaxValue)
+                            throw new IrCompileException("match: variant payload arity out of 8-bit range -> fallback");
+                        // The tag name must index into the 8-bit C operand of
+                        // EnumTagEq (interned, so usually tiny) — guard the bound.
+                        if (st.Names.Add(vap.VariantName) > byte.MaxValue)
+                            throw new IrCompileException("match: variant name index out of 8-bit range -> fallback");
+                        foreach (var sub in vap.SubPatterns)
+                        {
+                            switch (sub)
+                            {
+                                case Parser.Nodes.Patterns.WildcardPatternNode _:
+                                    break;
+                                case Parser.Nodes.Patterns.VariablePatternNode svp:
+                                {
+                                    int sbslot = FindMatchBindingSlot(svp.Name, arm.Guard, arm.Body, st);
+                                    if (sbslot < 0)
+                                        throw new IrCompileException("match: unconfirmable variant binding -> fallback");
+                                    if (sbslot > maxBindingSlot) maxBindingSlot = sbslot;
+                                    break;
+                                }
+                                default:
+                                    throw new IrCompileException("match: nested/complex variant subpattern -> fallback");
+                            }
+                        }
+                        // A variant pattern TESTS the tag — it is never a catch-all;
+                        // exhaustiveness still needs a trailing wildcard/variable arm.
+                        break;
+                    }
                     default:
                         throw new IrCompileException("match: non-literal/wildcard pattern -> fallback");
                 }
@@ -3895,40 +3939,47 @@ namespace RaLanguage.Interpreter.IR
             {
                 var arm = node.Arms[i];
                 bool isBinding = arm.Pattern is Parser.Nodes.Patterns.VariablePatternNode;
+                bool isVariant = arm.Pattern is Parser.Nodes.Patterns.VariantPatternNode;
 
-                // A binding arm runs in a FRESH scope so the declared name is
-                // isolated to this arm (mirrors the visitor's per-arm scope): a
-                // later arm may bind the SAME name (re-declaration would error),
-                // and a failed-guard arm must not leak the binding. PushScope
-                // here; PopScope on BOTH the match exit and the no-match skip.
-                if (isBinding)
-                {
-                    EmitPushScope(st);
-                    var vp = (Parser.Nodes.Patterns.VariablePatternNode)arm.Pattern;
-                    // DECLARE the binding bound to the scrutinee. (StoreLocalS
-                    // can't — it assigns to an EXISTING SymbolEntry; the pattern
-                    // var is new.) A synthesized `var <name>` decl whose
-                    // Bindings[0] is the slot the body/guard resolved the name to
-                    // → DeclareLocal: DeclarationHelper.ApplySingle creates the
-                    // SymbolEntry from the scrutinee value + caches it into that
-                    // slot, so the body's LoadLocalS(slot) reads it.
-                    int slot = FindMatchBindingSlot(vp.Name, arm.Guard, arm.Body, st);
-                    var nameTok = new Lexer.Tokens.Token(
-                        Lexer.Tokens.TokenType.IDENTIFIER, vp.Name, node.PositionStart, node.PositionEnd);
-                    var declNode = new Parser.Nodes.Variables.VariableDeclarationNode(
-                        Parser.Nodes.Variables.VariableDeclarationType.VARIABLE,
-                        new List<(Lexer.Tokens.Token, AstNode?, Types.TypeDescriptor?)> { (nameTok, null, null) });
-                    declNode.Bindings = new[] { new RaLanguage.Interpreter.Pipeline.BindingId(st.FrameId, slot) };
-                    if (st.AstRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("AstRefs overflow");
-                    ushort declRefIdx = (ushort)st.AstRefs.Count;
-                    st.AstRefs.Add(declNode);
-                    st.RegisterSlot(slot, vp.Name);
-                    st.Code.Emit2(Opcode.DeclareLocal, scrutSlot, declRefIdx);
-                }
+                // Any arm that introduces pattern bindings runs in a FRESH scope so
+                // the declared name(s) are isolated to this arm (mirrors the
+                // visitor's per-arm scope): a later arm may bind the SAME name
+                // (re-declaration would error), and a failed-guard / failed-tag arm
+                // must not leak a binding. PushScope here; PopScope on BOTH the
+                // match exit and the no-match skip.
+                bool hasScope = isBinding || isVariant;
+                if (hasScope) EmitPushScope(st);
 
                 var skips = new List<int>(); // jumps to this arm's no-match cleanup
-                if (arm.Pattern is Parser.Nodes.Patterns.LiteralPatternNode lp)
+
+                if (isBinding)
+                {
+                    // Bind the whole scrutinee to the variable, in the arm scope.
+                    var vp = (Parser.Nodes.Patterns.VariablePatternNode)arm.Pattern;
+                    EmitMatchBinding(vp.Name, scrutSlot, arm.Guard, arm.Body, node, st);
+                }
+                else if (isVariant)
+                {
+                    var vap = (Parser.Nodes.Patterns.VariantPatternNode)arm.Pattern;
+                    // 1) Tag test: the scrutinee must be the named enum variant. On
+                    //    mismatch, skip the payload extraction + body entirely.
+                    byte tagSlot = AllocTemp(ref topSlot);
+                    int nameIdx = st.Names.Add(vap.VariantName); // interned; <=255 (guard-checked)
+                    st.Code.Emit3(Opcode.EnumTagEq, tagSlot, scrutSlot, (byte)nameIdx);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, tagSlot));
+                    // 2) Extract each payload slot, bind it (or ignore on `_`).
+                    //    Reached only when the tag matched, so EnumPayload is safe.
+                    var subs = vap.SubPatterns!;
+                    for (int s = 0; s < subs.Count; s++)
+                    {
+                        if (subs[s] is Parser.Nodes.Patterns.WildcardPatternNode) continue;
+                        var svp = (Parser.Nodes.Patterns.VariablePatternNode)subs[s];
+                        byte paySlot = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.EnumPayload, paySlot, scrutSlot, (byte)s);
+                        EmitMatchBinding(svp.Name, paySlot, arm.Guard, arm.Body, node, st);
+                    }
+                }
+                else if (arm.Pattern is Parser.Nodes.Patterns.LiteralPatternNode lp)
                 {
                     byte litSlot = AllocTemp(ref topSlot);
                     CompileExpression(lp.Expression, litSlot, st, ref topSlot);
@@ -3936,8 +3987,8 @@ namespace RaLanguage.Interpreter.IR
                     st.Code.Emit3(Opcode.Eq, condSlot, scrutSlot, litSlot);
                     skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, condSlot));
                 }
-                // Wildcard / variable arms have no pattern test. Guard runs after
-                // the pattern test + binding (it can see a variable-pattern bind).
+                // Wildcard arms have no pattern test. Guard runs after the pattern
+                // test + binding (it can see variable / variant-payload binds).
                 if (arm.Guard != null)
                 {
                     byte gSlot = AllocTemp(ref topSlot);
@@ -3947,13 +3998,13 @@ namespace RaLanguage.Interpreter.IR
 
                 // Match: body -> dest, close the arm scope, jump to the end.
                 CompileExpression(arm.Body, destSlot, st, ref topSlot);
-                if (isBinding) st.Code.Emit3(Opcode.PopScope, 0, 0, 0);
+                if (hasScope) st.Code.Emit3(Opcode.PopScope, 0, 0, 0);
                 endJumps.Add(st.Code.EmitForwardJump(Opcode.Jmp));
 
                 // No-match: close the arm scope (if the skip is reachable) and
                 // fall through to the next arm.
                 foreach (var s in skips) st.Code.PatchJumpToHere(s);
-                if (isBinding)
+                if (hasScope)
                 {
                     if (skips.Count > 0) st.Code.Emit3(Opcode.PopScope, 0, 0, 0);
                     st.ScopeDepth--; // balance the EmitPushScope (no EmitPopScope used)
@@ -4001,6 +4052,32 @@ namespace RaLanguage.Interpreter.IR
             if (acc == null) return -1;
             if (!IsSlotEligible(acc.Binding, acc.BindingKind, st)) return -1;
             return acc.Binding.Offset;
+        }
+
+        // L7: emit the DECLARE of one match pattern binding `<name>`, bound to the
+        // value already in `valueSlot`, at the slot the arm body/guard resolved the
+        // name to. StoreLocalS can't be used (it writes an EXISTING SymbolEntry; a
+        // pattern var is new). A synthesized `var <name>` decl whose Bindings[0] is
+        // that slot → DeclareLocal: DeclarationHelper.ApplySingle creates the entry
+        // from valueSlot's value + caches it into the slot, so the body's
+        // LoadLocalS(slot) reads it. Shared by the variable arm (value = scrutinee)
+        // and each variant subpattern bind (value = extracted EnumPayload). The
+        // caller must have opened a scope (PushScope) for the binding to land in.
+        private static void EmitMatchBinding(string name, byte valueSlot, AstNode? guard, AstNode? body, AstNode node, State st)
+        {
+            int slot = FindMatchBindingSlot(name, guard, body, st);
+            var nameTok = new Lexer.Tokens.Token(
+                Lexer.Tokens.TokenType.IDENTIFIER, name, node.PositionStart, node.PositionEnd);
+            var declNode = new Parser.Nodes.Variables.VariableDeclarationNode(
+                Parser.Nodes.Variables.VariableDeclarationType.VARIABLE,
+                new List<(Lexer.Tokens.Token, AstNode?, Types.TypeDescriptor?)> { (nameTok, null, null) });
+            declNode.Bindings = new[] { new RaLanguage.Interpreter.Pipeline.BindingId(st.FrameId, slot) };
+            if (st.AstRefs.Count > ushort.MaxValue)
+                throw new IrCompileException("AstRefs overflow");
+            ushort declRefIdx = (ushort)st.AstRefs.Count;
+            st.AstRefs.Add(declNode);
+            st.RegisterSlot(slot, name);
+            st.Code.Emit2(Opcode.DeclareLocal, valueSlot, declRefIdx);
         }
 
         // Find a VariableAccess to `name` in an expression subtree (common pure-

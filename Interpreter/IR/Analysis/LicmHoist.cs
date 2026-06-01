@@ -750,6 +750,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.NativeDefine:
                 case Opcode.DefineType:
                 case Opcode.Await: case Opcode.Spawn:
+                case Opcode.EnumTagEq: case Opcode.EnumPayload: // L7 variant patterns
                     return Encoding.A(instr) == slot;
                 default:
                     return false;

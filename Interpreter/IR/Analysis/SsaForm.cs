@@ -504,6 +504,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.NativeDefine:
                 case Opcode.DefineType:
                 case Opcode.Await: case Opcode.Spawn:
+                case Opcode.EnumTagEq: case Opcode.EnumPayload:
                 // M66.5 / M66.6: II tagged-union opcodes also write
                 // `locals[a]` (or the `LongLocals[a]` shadow). SSA
                 // tracks both arrays' writes uniformly so chain
@@ -679,6 +680,10 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.ListLen:
                 case Opcode.Deref:
                 case Opcode.Await:
+                // L7 variant patterns: read the scrutinee at B; C is an immediate
+                // (Names index / payload index), not a slot.
+                case Opcode.EnumTagEq:
+                case Opcode.EnumPayload:
                     yield return (Encoding.B(instr), true);
                     break;
                 case Opcode.Ret:
