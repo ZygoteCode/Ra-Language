@@ -68,6 +68,7 @@ namespace RaLanguage.Interpreter.Archive
             int superLen = fn.SuperRefs?.Length ?? 0;
             int funcDefLen = fn.FuncDefRefs?.Length ?? 0;
             int defineLen = fn.DefineRefs?.Length ?? 0;
+            int typeDefsLen = fn.TypeDefs?.Length ?? 0;
             int declSlotLen = fn.DeclSlotByAstRef?.Length ?? 0;
 
             if (codeLen == 0)
@@ -145,6 +146,9 @@ namespace RaLanguage.Interpreter.Archive
                     case Opcode.StoreGlobal:
                     case Opcode.SetLocalDirect:
                     case Opcode.AssignBinding:
+                    // L3: borrows carry a Names[] index in imm16 (same shape).
+                    case Opcode.Borrow:
+                    case Opcode.BorrowMut:
                         CheckSlot(a, local, pc, opName, "a", diags, path);
                         CheckIndex(imm16, nameLen, pc, opName, "name", diags, path);
                         break;
@@ -218,11 +222,6 @@ namespace RaLanguage.Interpreter.Archive
                     case Opcode.Await:
                         CheckSlot(a, local, pc, opName, "a", diags, path);
                         CheckSlot(effB, local, pc, opName, "b", diags, path);
-                        break;
-                    case Opcode.Borrow:
-                        CheckSlot(a, local, pc, opName, "a", diags, path);
-                        CheckSlot(effB, local, pc, opName, "b", diags, path);
-                        // c = mut bool, no range check
                         break;
 
                     // ----- Arithmetic / comparisons (all 3-address) -----
@@ -330,6 +329,14 @@ namespace RaLanguage.Interpreter.Archive
                         CheckSlot(effB, local, pc, opName, "b (expr)", diags, path);
                         CheckIndex(cLo, constLen, pc, opName, "fmt-const", diags, path);
                         break;
+                    case Opcode.With:
+                        // [dst:a][base:b][defineRefIdx:c]. recv@base, values
+                        // @base+1.. ; the VM handler bounds-checks base+N at
+                        // runtime against the live frame.
+                        CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
+                        CheckSlot(effB, local, pc, opName, "b (base)", diags, path);
+                        CheckIndex(cLo, defineLen, pc, opName, "DefineRefs", diags, path);
+                        break;
 
                     // ----- Containers -----
                     case Opcode.NewList:
@@ -419,6 +426,10 @@ namespace RaLanguage.Interpreter.Archive
                     case Opcode.NativeDefine:
                         CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
                         CheckIndex(imm16, defineLen, pc, opName, "DefineRefs", diags, path);
+                        break;
+                    case Opcode.DefineType:
+                        CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
+                        CheckIndex(imm16, typeDefsLen, pc, opName, "TypeDefs", diags, path);
                         break;
                     case Opcode.Is:
                         CheckSlot(a, local, pc, opName, "a (dst)", diags, path);

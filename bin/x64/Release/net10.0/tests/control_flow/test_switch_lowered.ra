@@ -1,0 +1,129 @@
+import std.prelude.*;
+// Ra Language - L7 (first cut): expression-switch lowering. An all-arrow switch
+// with pure-value expression arms reduces to an if-else-chain producing a value,
+// built from existing Eq/JmpIf/Jmp/LoadNull opcodes (no new opcode surface). The
+// scrutinee is evaluated ONCE; labels compare via Opcode.Eq (= GetComparisonEq,
+// identical to the visitor); first match wins; default is unconditional-when-
+// reached; no match + no default -> null. Colon-fallthrough / block / control-
+// escape arms fall back to the visitor (OP_NATIVE_DEFINE).
+
+print("=== control_flow/switch_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// SW1/SW2: switch-expression, string-literal arms + default
+fn dayName(d: int): string {
+    ret switch (d) {
+        case 1 -> "Mon";
+        case 2 -> "Tue";
+        case 3 -> "Wed";
+        default -> "Other";
+    };
+}
+ck("[SW1]", dayName(2) == "Tue");
+ck("[SW2]", dayName(99) == "Other");
+
+// SW3/SW4/SW5: multi-label arm (`case 1, 2, 3 ->`)
+fn kind(n: int): string {
+    ret switch (n) {
+        case 0 -> "zero";
+        case 1, 2, 3 -> "small";
+        default -> "big";
+    };
+}
+ck("[SW3]", kind(2) == "small");
+ck("[SW4]", kind(0) == "zero");
+ck("[SW5]", kind(7) == "big");
+
+// SW6/SW7: arithmetic arm body + scrutinee evaluated EXACTLY once
+var calls = 0;
+fn scrut(): int { calls = calls + 1; ret 2; }
+let r = switch (scrut()) {
+    case 1 -> 10;
+    case 2 -> 20 + 2;
+    default -> 0;
+};
+ck("[SW6]", r == 22);
+ck("[SW7]", calls == 1);
+
+// SW8: no default + no match -> null switch value
+let nn = switch (5) {
+    case 1 -> "a";
+    case 2 -> "b";
+};
+ck("[SW8]", nn == null);
+
+// SW9/SW10: non-int scrutinee (string equality via GetComparisonEq)
+fn classify(s: string): int {
+    ret switch (s) {
+        case "yes" -> 1;
+        case "no" -> 0;
+        default -> -1;
+    };
+}
+ck("[SW9]", classify("no") == 0);
+ck("[SW10]", classify("maybe") == -1);
+
+// --- colon (C-style) switches: dispatch + fallthrough + break ---
+
+// SC1/SC2: colon + break (no fallthrough), default
+fn classify_c(n: int): string {
+    var r = "";
+    switch (n) {
+        case 1: r = "one"; break;
+        case 2: r = "two"; break;
+        default: r = "other";
+    }
+    ret r;
+}
+ck("[SC1]", classify_c(2) == "two");
+ck("[SC2]", classify_c(9) == "other");
+
+// SC3/SC4/SC5: fallthrough (case 1 falls into case 2 when no break)
+fn fall(n: int): string {
+    var r = "";
+    switch (n) {
+        case 1: r = r + "a";
+        case 2: r = r + "b"; break;
+        default: r = r + "z";
+    }
+    ret r;
+}
+ck("[SC3]", fall(1) == "ab");
+ck("[SC4]", fall(2) == "b");
+ck("[SC5]", fall(9) == "z");
+
+// SC6: break exits the SWITCH, continue reaches the enclosing LOOP
+var acc = "";
+for (var i = 0; i < 4; i = i + 1) {
+    switch (i) {
+        case 0: continue;
+        case 2: acc = acc + "X"; break;
+        default: acc = acc + (i as string);
+    }
+    acc = acc + ".";
+}
+ck("[SC6]", acc == "1.X.3.");
+
+// --- arrow-block bodies (pure side effects, arm value null) ---
+fn ab(n: int): string {
+    var a = "";
+    switch (n) {
+        case 1 -> { a = a + "x"; a = a + "y"; }
+        case 2 -> { a = a + "z"; }
+        default -> { a = "d"; }
+    }
+    ret a;
+}
+ck("[SB1]", ab(1) == "xy");
+ck("[SB2]", ab(2) == "z");
+ck("[SB3]", ab(9) == "d");
+
+if failures == 0 {
+    print("=== done (all lowered switch cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

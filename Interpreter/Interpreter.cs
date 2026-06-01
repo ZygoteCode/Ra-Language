@@ -33,7 +33,22 @@ namespace RaLanguage.Interpreter
 {
     public class Interpreter : IInterpreter
     {
-        public List<(string, AstNode)> Labels { get; } = new List<(string, AstNode)>();
+        // PERF: lazy. Only `goto`/`label` (LabelNodeVisitor / GotoNodeVisitor)
+        // ever touch this list, and they are rare. An eager initializer
+        // allocated a List on EVERY `new Interpreter()` — and the call fast
+        // paths construct one per invocation. Deferring the allocation to the
+        // first label/goto keeps the common (label-free) call alloc-free here.
+        private List<(string, AstNode)>? _labels;
+        public List<(string, AstNode)> Labels => _labels ??= new List<(string, AstNode)>();
+
+        // Clears the only per-instance mutable state (`Labels`) so a pooled
+        // Interpreter can be handed to a later, unrelated call without leaking
+        // labels across call boundaries. Used by VmHostPool. The backing List
+        // (if any) is retained for reuse — only its contents are dropped.
+        public void ResetForReuse()
+        {
+            _labels?.Clear();
+        }
 
         // Closed-instance delegates pointing directly at each visitor's Visit method.
         // Replaces the previous INodeVisitor[] + interface dispatch: delegate invocation

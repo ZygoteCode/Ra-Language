@@ -1,0 +1,60 @@
+import std.prelude.*;
+// Ra Language - L6: `namespace A.B { …body… }` now IR-lowers to a NamespaceDef +
+// OP_DEFINE_TYPE. Unlike a flat descriptor, the body is EXECUTABLE — its
+// statements run in a runtime-built NamespaceScopeView, registering definitions
+// INTO the namespace. So NamespaceDef holds each body statement PRECOMPILED to a
+// RaFunction (bytecode-identical to the visitor's on-demand compile); the handler
+// reconstructs the node + runs the SAME visitor Apply with those bodies →
+// namespace opening / scope-chain / closure-freezing byte-identical. `.rac`
+// stores the body RaFunctions flat.
+
+print("=== modules/namespace_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// NS1: simple namespace with a pub fn
+namespace Geo {
+    pub fn area(w: int, h: int): int { ret w * h; }
+}
+ck("[NS1]", Geo.area(3, 4) == 12);
+
+// NS2: dotted namespace path + a pub var member read by a member fn
+namespace Sys.Cfg {
+    pub var VERSION = 7;
+    pub fn ver(): int { ret VERSION; }
+}
+let ns2 = Sys.Cfg.VERSION == 7 && Sys.Cfg.ver() == 7;
+ck("[NS2]", ns2);
+
+// NS3: nested namespace declaration
+namespace Out {
+    pub fn o(): string { ret "out"; }
+    namespace In {
+        pub fn i(): string { ret "in"; }
+    }
+}
+let ns3 = Out.o() == "out" && Out.In.i() == "in";
+ck("[NS3]", ns3);
+
+// NS4: a namespace fn calling a sibling fn in the same namespace (closure scope)
+namespace Calc {
+    pub fn dbl(x: int): int { ret x * 2; }
+    pub fn quad(x: int): int { ret dbl(dbl(x)); }
+}
+ck("[NS4]", Calc.quad(5) == 20);
+
+// NS5: `using` brings the namespace's names into scope
+namespace Kit {
+    pub fn tag(): string { ret "kit"; }
+}
+using Kit;
+ck("[NS5]", tag() == "kit");
+
+if failures == 0 {
+    print("=== done (all lowered namespace cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

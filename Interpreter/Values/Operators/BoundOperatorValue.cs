@@ -88,16 +88,26 @@ namespace RaLanguage.Interpreter.Values.Operators
             // OP_HALT, so both surface through the same FuncReturnValue ??
             // Value fallback.
             {
-                var interp = new Interpreter();
                 RuntimeResult bodyRes;
                 var compiledOp = OpNode != null ? Runtime.FunctionDefinitionHelper.GetOrCompileOperator(OpNode) : null;
                 if (compiledOp == null)
                     return res.Failure(new RuntimeError(PositionStart, PositionEnd,
                         $"operator {OperatorType} body has no IR-compiled body", Context!));
                 // M79: pool rent + return on success only.
-                var vm = new Vm.VmExecutor(interp);
+                // PERF: pooled VM host (Interpreter + VmExecutor); returned to
+                // the pool only on synchronous completion.
+                var host = Vm.VmHostPool.Rent();
                 var frame = Vm.VmFrame.Rent(compiledOp);
-                bodyRes = await vm.Execute(frame, operatorContext);
+                var execTask = host.Executor.Execute(frame, operatorContext);
+                if (execTask.IsCompletedSuccessfully)
+                {
+                    bodyRes = execTask.Result;
+                    Vm.VmHostPool.Return(host);
+                }
+                else
+                {
+                    bodyRes = await execTask;
+                }
                 if (bodyRes.Error != null) return res.Failure(bodyRes.Error);
                 Vm.VmFrame.Return(frame);
 

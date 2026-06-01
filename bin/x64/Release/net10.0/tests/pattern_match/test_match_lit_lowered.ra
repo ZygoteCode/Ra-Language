@@ -1,0 +1,79 @@
+import std.prelude.*;
+// Ra Language - L7 (Match, first cut): a `match` whose arms are all WILDCARD
+// (`_`) or LITERAL (number/string/bool) patterns + a wildcard catch-all reduces
+// to an if-else chain producing a value, via existing Eq/JmpIf/Jmp opcodes (no
+// new opcode surface). Literal arms compare the once-evaluated scrutinee with
+// Opcode.Eq (= GetComparisonEq, same as the visitor); a wildcard matches
+// unconditionally; guards run after the pattern test. Variable/variant/tuple/
+// list/struct/type patterns (binding/destructuring) still fall back to the
+// visitor.
+
+print("=== pattern_match/match_lit_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// ML1-3: int literal arms + wildcard catch-all
+fn name(n: int): string {
+    ret match n {
+        case 0 -> "zero"
+        case 1 -> "one"
+        case 2 -> "two"
+        case _ -> "many"
+    };
+}
+ck("[ML1]", name(1) == "one");
+ck("[ML2]", name(2) == "two");
+ck("[ML3]", name(9) == "many");
+
+// ML4-5: string literal arms
+fn greet(s: string): string {
+    ret match s {
+        case "hi" -> "hello"
+        case "bye" -> "goodbye"
+        case _ -> "?"
+    };
+}
+ck("[ML4]", greet("bye") == "goodbye");
+ck("[ML5]", greet("x") == "?");
+
+// ML6-7: bool literal arms + wildcard
+fn flag(b: bool): int {
+    ret match b {
+        case true -> 1
+        case _ -> 0
+    };
+}
+ck("[ML6]", flag(true) == 1);
+ck("[ML7]", flag(false) == 0);
+
+// ML8-10: guard on a wildcard arm (no binding; references the param)
+fn classify(n: int): string {
+    ret match n {
+        case 0 -> "zero"
+        case _ if n > 5 -> "big"
+        case _ -> "small"
+    };
+}
+ck("[ML8]", classify(0) == "zero");
+ck("[ML9]", classify(10) == "big");
+ck("[ML10]", classify(3) == "small");
+
+// ML11: scrutinee evaluated exactly once
+var calls = 0;
+fn scrut(): int { calls = calls + 1; ret 2; }
+let r = match scrut() {
+    case 1 -> "a"
+    case 2 -> "b"
+    case _ -> "c"
+};
+let ml11 = r == "b" && calls == 1;
+ck("[ML11]", ml11);
+
+if failures == 0 {
+    print("=== done (all lowered match cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

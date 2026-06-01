@@ -1159,6 +1159,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Alias:
                 case Opcode.MoveLet:
                 case Opcode.Borrow:
+                case Opcode.BorrowMut:
                 case Opcode.Deref:
                 case Opcode.Add: case Opcode.Sub: case Opcode.Mul:
                 case Opcode.Div: case Opcode.Mod: case Opcode.Pow:
@@ -1185,7 +1186,9 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.GetSelf: case Opcode.GetSuper:
                 case Opcode.Call: case Opcode.CallKw: case Opcode.CallMethod:
                 case Opcode.NewInstance:
+                case Opcode.With:
                 case Opcode.NativeDefine:
+                case Opcode.DefineType:
                 case Opcode.Await: case Opcode.Spawn:
                 // M87 — extend WritesToSlot to include the entire typed
                 // tagged-union family. Without these, GVN's

@@ -31,9 +31,23 @@ namespace RaLanguage.Interpreter.IR
         // --- memory model ---
         MoveLet         = 0x17,   // a, b  (sets IsMoved on src binding)
         Alias           = 0x18,   // a, b  (explicit Aliased())
-        Borrow          = 0x19,   // a, b, mut:u8 (c)
+        // L3: `&place` / `&mut place`. Lowered to [op][dst:a][nameIdx:imm16] —
+        // the borrowed binding's name lives in Names[], resolved to its
+        // SymbolEntry at dispatch via BorrowOps.TryBorrow (no AST-ref, no
+        // sub-eval, so no new serialized side-table). Two opcodes keep the
+        // whole 16-bit immediate a pure name index (shared vs mutable is the
+        // opcode). Borrows carrying an explicit lifetime, or whose name index
+        // would exceed 65535, fall back to OP_NATIVE_DEFINE.
+        Borrow          = 0x19,   // a (dst), nameIdx:imm16  (shared `&`)
+        BorrowMut       = 0x06,   // a (dst), nameIdx:imm16  (exclusive `&mut`)
         Deref           = 0x1A,   // a, b
-        DerefStore      = 0x1B,   // a (ref), b (value)
+        // L3: `*ref op= value`. [op][dst:a][refSlot:b][opTokenType:c]; the RHS
+        // value lives in the contiguous slot b+1 (same trick as OP_SET_INDEX).
+        // `c` is the assignment-operator TokenType (76 values, fits a byte);
+        // the handler reads through the reference for compound ops, writes the
+        // result back, and leaves it in `dst`. DerefStoreOps.Apply is shared
+        // with the visitor fallback.
+        DerefStore      = 0x1B,   // a (dst), b (refSlot; valSlot = b+1), opTok:c
 
         // `var/let/const/final x = src` for a single declaration. `a` is the
         // source slot holding the already-evaluated initializer; the imm16
@@ -139,6 +153,26 @@ namespace RaLanguage.Interpreter.IR
         StrConcat       = 0x40,   // a, b, c
         Interp          = 0x41,   // a, partsBase:u8 (b), partsCount:u8 (c)
         Fmt             = 0x42,   // a, b (expr), fmtConst:u8 (c)
+
+        // L4: record copy-update `recv with { f: v, ... }`. Layout:
+        //   [op][dst:a][base:b][defineRefIdx:c]
+        // The receiver record sits at slot `base`; the N update values are laid
+        // out contiguously at `base+1 .. base+N`. N (and the field names /
+        // positions / declared types) come from the WithExpressionNode parked
+        // in DefineRefs[c] (reusing the existing AST-ref pool — no new side
+        // table, already serialized in .rac). The handler shallow-clones the
+        // record and applies the validated overrides; the sub-expressions are
+        // evaluated by ordinary opcodes (no AST re-walk of recv / values).
+        With            = 0x43,   // a (dst), b (base: recv@base, values@base+1..), c (defineRefIdx)
+
+        // L5: one-shot type definition from a FLAT descriptor (no AST). `a` =
+        // scratch dst (the registered type value, mostly ignored), imm16 =
+        // index into RaFunction.TypeDefs (polymorphic TypeDef pool). The
+        // handler reconstructs + registers the runtime type from the descriptor
+        // — so `.rac` stores definitions as plain data, not serialized AST.
+        // Definitions whose data isn't fully flat-foldable fall back to
+        // OP_NATIVE_DEFINE. Enum wired first; other kinds slot in behind it.
+        DefineType      = 0x44,   // a (scratch dst), imm16 (TypeDefs index)
 
         // --- containers (M6) ---
         // 3-address encoding for the new-collection opcodes: [op][dst][base][count].

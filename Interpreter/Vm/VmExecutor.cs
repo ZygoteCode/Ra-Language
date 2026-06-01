@@ -261,6 +261,45 @@ namespace RaLanguage.Interpreter.Vm
                         break;
                     }
 
+                    // L3: `&name` (Borrow) / `&mut name` (BorrowMut). [op][dst][nameIdx:imm16].
+                    // Resolve the bound name to its SymbolEntry and run the shared
+                    // borrow-place rules (BorrowOps.TryBorrow) — same logic the
+                    // visitor fallback uses. No sub-eval ⇒ fully synchronous.
+                    case Opcode.Borrow:
+                    case Opcode.BorrowMut:
+                    {
+                        byte a = Encoding.A(instr);
+                        ushort nameIdx = Encoding.Imm16(instr);
+                        var bname = names[nameIdx];
+                        var (bs, be) = ResolveSpan(f, pc - 1, ctx);
+                        var (bval, berr) = Runtime.BorrowOps.TryBorrow(
+                            ctx, bname, op == Opcode.BorrowMut, null, bs, be);
+                        if (berr != null) throw new RaUserError(berr);
+                        locals[a] = bval;
+                        break;
+                    }
+
+                    // L3: `*ref op= value`. [op][dst][refSlot][opTok]; the RHS
+                    // value is in the contiguous slot refSlot+1. Resolve the
+                    // reference, apply the (compound) operator + write through
+                    // via the shared DerefStoreOps.Apply, leave the result in dst.
+                    case Opcode.DerefStore:
+                    {
+                        byte a = Encoding.A(instr);
+                        byte b = Encoding.B(instr);
+                        byte opByte = Encoding.C(instr);
+                        var refVal = locals[b];
+                        var newVal = locals[(byte)(b + 1)];
+                        if (newVal == null)
+                            throw new RaUserError(MakeIcError(ctx, "VM: DerefStore value slot is null"));
+                        var (ds, de) = ResolveSpan(f, pc - 1, ctx);
+                        var (dres, derr) = Runtime.DerefStoreOps.Apply(
+                            refVal, newVal, (Lexer.Tokens.TokenType)opByte, ctx, ds, de);
+                        if (derr != null) throw new RaUserError(derr);
+                        locals[a] = dres;
+                        break;
+                    }
+
                     // M92: the hottest II ops — AddII / SubII / MulII, the
                     // loop-carried accumulator / counter arithmetic (~28% of
                     // dispatches after M90 fusion moved the comparisons into
@@ -1268,6 +1307,23 @@ namespace RaLanguage.Interpreter.Vm
                         locals[dst] = new StringValue(sb.ToString()).SetContext(ctx);
                         break;
                     }
+                    case Opcode.Fmt:
+                        // L4 `${expr:spec}`. Body lives off-stack (NoInlining)
+                        // so the locals never enlarge the dispatch-loop frame —
+                        // depth-2000 recursion budget (same as FusedCmpBranchDelta).
+                        locals[Encoding.A(instr)] = ExecuteFmt(f, locals, instr, ctx, pc);
+                        break;
+                    case Opcode.With:
+                        // L4 `recv with { ... }`. Off-stack body (NoInlining),
+                        // same frame-budget discipline as OP_FMT above.
+                        locals[Encoding.A(instr)] = ExecuteWith(f, locals, instr, ctx);
+                        break;
+                    case Opcode.DefineType:
+                        // L5 one-shot definition from a flat descriptor. Off-stack
+                        // body (NoInlining) — definitions run once, never in the
+                        // recursion hot path, but keep the frame discipline.
+                        locals[Encoding.A(instr)] = ExecuteDefineType(f, instr, ctx, pc, _interpreter);
+                        break;
                     case Opcode.Throw:
                     {
                         byte src = Encoding.A(instr);
@@ -2600,6 +2656,571 @@ namespace RaLanguage.Interpreter.Vm
         // when the comparison is FALSE (JmpIfNot semantics). `[NoInlining]`
         // keeps the dispatch-loop C# frame compact (depth-2000 recursion
         // tripwire) — identical discipline to ExecuteUnboxedII.
+        // L4 OP_FMT off-stack body. `${expr:spec}` — value in slot b, the
+        // FormatSpec packed into the int constant at index c (FormatSpec.Pack).
+        // Unpack + run the same FormatEngine the visitor uses (no re-parse).
+        // NoInlining keeps the dispatch-loop frame compact (depth-2000 budget).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue ExecuteFmt(VmFrame f, LocalsView locals, uint instr, Context ctx, int pc)
+        {
+            byte exprSlot = Encoding.B(instr);
+            byte specConstIdx = Encoding.C(instr);
+            var fval = locals[exprSlot];
+            int packed = ((IntegerValue)f.Function.Consts[specConstIdx]).Value;
+            var spec = Types.Formatting.FormatSpec.Unpack(packed);
+            var (fStart, fEnd) = ResolveSpan(f, pc, ctx);
+            var (ftext, ferr) = Types.Formatting.FormatEngine.Format(fval!, spec, fStart, fEnd, ctx);
+            if (ferr != null) throw new RaUserError(ferr);
+            return new StringValue(ftext ?? string.Empty).SetContext(ctx);
+        }
+
+        // L4 OP_WITH off-stack body. `recv with { f: v, ... }` — receiver at
+        // slot base, the N pre-evaluated update values at base+1..base+N; the
+        // WithExpressionNode parked in DefineRefs[c] supplies the static field
+        // names / types. Shallow-clone + validate + field-set in the shared
+        // WithExpressionOps helper (byte-identical to the visitor). NoInlining
+        // keeps the locals off the dispatch-loop frame (depth-2000 budget).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue ExecuteWith(VmFrame f, LocalsView locals, uint instr, Context ctx)
+        {
+            byte baseSlot = Encoding.B(instr);
+            byte refIdx = Encoding.C(instr);
+            var wrefs = f.Function.DefineRefs;
+            if (refIdx >= wrefs.Length ||
+                wrefs[refIdx] is not Parser.Nodes.Operations.WithExpressionNode wnode)
+                throw new RaUserError(MakeIcError(ctx, "VM: OP_WITH ref is not a WithExpressionNode"));
+            int wcount = wnode.Updates.Count;
+            if (baseSlot + wcount >= locals.Length)
+                throw new RaUserError(MakeIcError(ctx, "VM: OP_WITH value slots exceed frame"));
+            var wvalues = new RuntimeValue[wcount];
+            for (int i = 0; i < wcount; i++) wvalues[i] = locals[baseSlot + 1 + i]!;
+            var (wresult, werr) = Runtime.WithExpressionOps.Apply(locals[baseSlot], wnode, wvalues, ctx);
+            if (werr != null) throw new RaUserError(werr);
+            return wresult!;
+        }
+
+        // L5 OP_DEFINE_TYPE off-stack body. Reconstruct + register a one-shot
+        // type from its flat descriptor (RaFunction.TypeDefs[imm16]). Dispatches
+        // on the descriptor kind; each kind shares the SAME registration helper
+        // the visitor fallback uses (byte-identical runtime type).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue ExecuteDefineType(VmFrame f, uint instr, Context ctx, int pc, IInterpreter interpreter)
+        {
+            ushort tdIdx = Encoding.Imm16(instr);
+            var defs = f.Function.TypeDefs;
+            if (defs == null || tdIdx >= defs.Length)
+                throw new RaUserError(MakeIcError(ctx, $"VM: DefineType index {tdIdx} out of range"));
+            var def = defs[tdIdx];
+            switch (def.Kind)
+            {
+                case IR.Defs.TypeDefKind.Enum:
+                    return DefineEnum((IR.Defs.EnumDef)def, ctx, f, pc);
+                case IR.Defs.TypeDefKind.Delegate:
+                    return DefineDelegate((IR.Defs.DelegateDef)def, ctx, f, pc);
+                case IR.Defs.TypeDefKind.Using:
+                    return DefineUsing((IR.Defs.UsingDef)def, ctx, f, pc);
+                case IR.Defs.TypeDefKind.Struct:
+                    return DefineStruct((IR.Defs.StructDef)def, ctx, f, pc, interpreter);
+                case IR.Defs.TypeDefKind.Record:
+                    return DefineRecord((IR.Defs.RecordDef)def, ctx, f, pc, interpreter);
+                case IR.Defs.TypeDefKind.Class:
+                    return DefineClass((IR.Defs.ClassDef)def, ctx, f, pc, interpreter);
+                case IR.Defs.TypeDefKind.Trait:
+                    return DefineTrait((IR.Defs.TraitDef)def, ctx, f, pc, interpreter);
+                case IR.Defs.TypeDefKind.Extension:
+                    return DefineExtension((IR.Defs.ExtensionDef)def, ctx, f, pc);
+                case IR.Defs.TypeDefKind.Interface:
+                    return DefineInterface((IR.Defs.InterfaceDef)def, ctx, f, pc, interpreter);
+                case IR.Defs.TypeDefKind.Annotation:
+                    return DefineAnnotation((IR.Defs.AnnotationDef)def, ctx, f, pc, interpreter);
+                case IR.Defs.TypeDefKind.Import:
+                    return DefineImport((IR.Defs.ImportDef)def, ctx, f, pc, interpreter);
+                case IR.Defs.TypeDefKind.Namespace:
+                    return DefineNamespace((IR.Defs.NamespaceDef)def, ctx, f, pc, interpreter);
+                default:
+                    throw new RaUserError(MakeIcError(ctx, $"VM: DefineType unsupported kind {def.Kind}"));
+            }
+        }
+
+        // L5e: reconstruct the (stub-bodied) StructDefinitionNode the runtime
+        // StructTypeValue API expects from the flat StructDef, wiring each
+        // method's precompiled RaFunction into CompiledBody, then run the SAME
+        // visitor Apply — so registration, validation (to_string, const fields),
+        // and dispatch are byte-identical to the AST path; only the method
+        // bodies are pre-compiled (the visitor would compile the same body
+        // lazily on first call).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineStruct(IR.Defs.StructDef def, Context ctx, VmFrame f, int pc, IInterpreter interpreter)
+        {
+            var (s, e) = ResolveSpan(f, pc, ctx);
+
+            var fields = new System.Collections.Generic.List<Parser.Nodes.Structs.StructFieldDefinitionNode>(def.Fields.Length);
+            foreach (var fd in def.Fields)
+            {
+                // Rebuild a const default as a NumberNode whose CachedValue is
+                // the folded value — NumberNodeVisitor returns CachedValue
+                // verbatim (any type), so field-init evaluates to exactly the
+                // folded const (byte-identical to the visitor's evaluation).
+                AstNode? defNode = null;
+                if (fd.DefaultConst != null)
+                {
+                    defNode = new Parser.Nodes.Primitives.NumberNode(
+                        new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
+                    { CachedValue = fd.DefaultConst };
+                }
+                fields.Add(new Parser.Nodes.Structs.StructFieldDefinitionNode(
+                    fd.IsPublic,
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, fd.Name, s, e),
+                    fd.FieldType,
+                    defNode,
+                    fd.IsStatic, fd.IsAbstract, fd.IsOverride,
+                    (Parser.Nodes.Variables.VariableDeclarationType)fd.DeclKind));
+            }
+
+            var methods = new System.Collections.Generic.List<Parser.Nodes.Structs.StructMethodDefinitionNode>(def.Methods.Length);
+            foreach (var md in def.Methods)
+                methods.Add(ReconstructStructMethod(md, s, e));
+
+            var node = new Parser.Nodes.Structs.StructDefinitionNode(
+                new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
+                def.IsPublic, fields, methods,
+                new System.Collections.Generic.List<Parser.Nodes.Classes.OperatorDefinitionNode>(),
+                new System.Collections.Generic.List<string>(def.Generics));
+
+            var result = Visitors.Structs.StructDefinitionNodeVisitor.Apply(node, ctx, interpreter);
+            if (result.Error != null) throw new RaUserError(result.Error);
+            return result.Value!;
+        }
+
+        // Shared by struct + record: rebuild a StructMethodDefinitionNode (stub
+        // PassNode body) with the precompiled RaFunction wired into CompiledBody.
+        private static Parser.Nodes.Structs.StructMethodDefinitionNode ReconstructStructMethod(
+            IR.Defs.StructMethodDef md, Lexer.Position s, Lexer.Position e)
+        {
+            var argToks = new System.Collections.Generic.List<Lexer.Tokens.Token>(md.ArgNames.Length);
+            foreach (var an in md.ArgNames)
+                argToks.Add(new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, an, s, e));
+            var argTypes = new System.Collections.Generic.List<Types.TypeDescriptor?>(md.ArgTypes);
+            var refParams = new System.Collections.Generic.List<bool>(md.IsRefParams);
+            var paramDefaults = new System.Collections.Generic.List<AstNode?>(new AstNode?[md.ArgNames.Length]);
+            Lexer.Tokens.Token? varArgTok = md.VarArgName == null ? null
+                : new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, md.VarArgName, s, e);
+
+            var mnode = new Parser.Nodes.Structs.StructMethodDefinitionNode(
+                md.IsPublic, md.IsConstructor,
+                new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, md.Name, s, e),
+                argToks, argTypes, refParams, paramDefaults,
+                md.HasVarArgs, varArgTok, md.VarArgType, md.ReturnType,
+                new Parser.Nodes.Operations.PassNode(s, e),
+                md.ShouldAutoReturn);
+            mnode.CompiledBody = md.Body;
+            mnode.IrCompileTried = true;
+            mnode.FrameId = md.FrameId;
+            mnode.IsAsync = md.IsAsync;
+            mnode.IsAsyncStream = md.IsAsyncStream;
+            return mnode;
+        }
+
+        // L5e: reconstruct the (stub-bodied) RecordDefinitionNode from a flat
+        // RecordDef + precompiled method bodies, then run the SAME visitor Apply.
+        // First sub-stage: value records, no inheritance (BaseType always null).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineRecord(IR.Defs.RecordDef def, Context ctx, VmFrame f, int pc, IInterpreter interpreter)
+        {
+            var (s, e) = ResolveSpan(f, pc, ctx);
+
+            var primaryFields = new System.Collections.Generic.List<Parser.Nodes.Records.RecordPrimaryFieldNode>(def.PrimaryFields.Length);
+            foreach (var pf in def.PrimaryFields)
+            {
+                AstNode? defNode = null;
+                if (pf.DefaultConst != null)
+                    defNode = new Parser.Nodes.Primitives.NumberNode(
+                        new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
+                    { CachedValue = pf.DefaultConst };
+                primaryFields.Add(new Parser.Nodes.Records.RecordPrimaryFieldNode(
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, pf.Name, s, e),
+                    pf.FieldType, defNode, pf.IsPublic, pf.IsMutable));
+            }
+
+            var methods = new System.Collections.Generic.List<Parser.Nodes.Structs.StructMethodDefinitionNode>(def.Methods.Length);
+            foreach (var md in def.Methods)
+                methods.Add(ReconstructStructMethod(md, s, e));
+
+            var node = new Parser.Nodes.Records.RecordDefinitionNode(
+                new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
+                def.IsPublic, def.IsRefRecord, /*isAbstract*/ false,
+                /*baseType*/ null, /*baseArgs*/ null,
+                primaryFields, methods,
+                new System.Collections.Generic.List<Parser.Nodes.Classes.OperatorDefinitionNode>(),
+                new System.Collections.Generic.List<string>(def.Generics),
+                new System.Collections.Generic.List<Parser.Nodes.Special.WhereConstraintNode>());
+            // Restore the @derive-controlled auto flags (default true).
+            node.AutoEquals = def.AutoEquals;
+            node.AutoToString = def.AutoToString;
+
+            var result = Visitors.Records.RecordDefinitionNodeVisitor.Apply(node, ctx, interpreter);
+            if (result.Error != null) throw new RaUserError(result.Error);
+            return result.Value!;
+        }
+
+        // Reconstruct a class method (FunctionDefinitionNode) with stub body +
+        // precompiled RaFunction wired into CompiledBody.
+        private static Parser.Nodes.Functions.FunctionDefinitionNode ReconstructClassMethod(
+            IR.Defs.ClassMethodDef md, Lexer.Position s, Lexer.Position e)
+        {
+            var argToks = new System.Collections.Generic.List<Lexer.Tokens.Token>(md.ArgNames.Length);
+            foreach (var an in md.ArgNames)
+                argToks.Add(new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, an, s, e));
+            var argTypes = new System.Collections.Generic.List<Types.TypeDescriptor?>(md.ArgTypes);
+            var refParams = new System.Collections.Generic.List<bool>(md.IsRefParams);
+            var paramDefaults = new System.Collections.Generic.List<AstNode?>(new AstNode?[md.ArgNames.Length]);
+            Lexer.Tokens.Token? varArgTok = md.VarArgName == null ? null
+                : new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, md.VarArgName, s, e);
+
+            var mnode = new Parser.Nodes.Functions.FunctionDefinitionNode(
+                new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, md.Name, s, e),
+                argToks, argTypes, refParams, paramDefaults,
+                md.HasVarArgs, varArgTok, md.VarArgType, md.ReturnType,
+                new Parser.Nodes.Operations.PassNode(s, e), md.ShouldAutoReturn,
+                /*generics*/ null, md.IsPublic, md.IsConstructor, md.IsOverride, /*isAbstract*/ false, md.IsStatic);
+            mnode.CompiledBody = md.Body;
+            mnode.IrCompileTried = true;
+            mnode.FrameId = md.FrameId;
+            mnode.IsAsync = md.IsAsync;
+            mnode.IsAsyncStream = md.IsAsyncStream;
+            return mnode;
+        }
+
+        // L5e: reconstruct the (stub-bodied) ClassDefinitionNode from a flat
+        // ClassDef + precompiled method bodies, then run the SAME visitor Apply.
+        // The visitor is async only to evaluate field defaults — folded const
+        // defaults make those awaits complete synchronously, so blocking on the
+        // ValueTask never actually blocks for the lowerable subset.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineClass(IR.Defs.ClassDef def, Context ctx, VmFrame f, int pc, IInterpreter interpreter)
+        {
+            var (s, e) = ResolveSpan(f, pc, ctx);
+
+            var fields = new System.Collections.Generic.List<Parser.Nodes.Structs.StructFieldDefinitionNode>(def.Fields.Length);
+            foreach (var fd in def.Fields)
+            {
+                AstNode? defNode = null;
+                if (fd.DefaultConst != null)
+                    defNode = new Parser.Nodes.Primitives.NumberNode(
+                        new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
+                    { CachedValue = fd.DefaultConst };
+                fields.Add(new Parser.Nodes.Structs.StructFieldDefinitionNode(
+                    fd.IsPublic,
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, fd.Name, s, e),
+                    fd.FieldType, defNode, fd.IsStatic, fd.IsAbstract, fd.IsOverride,
+                    (Parser.Nodes.Variables.VariableDeclarationType)fd.DeclKind));
+            }
+
+            var methods = new System.Collections.Generic.List<Parser.Nodes.Functions.FunctionDefinitionNode>(def.Methods.Length);
+            foreach (var md in def.Methods)
+                methods.Add(ReconstructClassMethod(md, s, e));
+
+            var node = new Parser.Nodes.Classes.ClassDefinitionNode(
+                new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
+                def.IsPublic, /*isAbstract*/ false, /*isStatic*/ false,
+                /*baseType*/ null,
+                new System.Collections.Generic.List<Types.TypeDescriptor>(),
+                new System.Collections.Generic.List<Types.TypeDescriptor>(),
+                fields, methods,
+                new System.Collections.Generic.List<Parser.Nodes.Classes.OperatorDefinitionNode>(),
+                new System.Collections.Generic.List<string>(def.Generics),
+                new System.Collections.Generic.List<Parser.Nodes.Special.WhereConstraintNode>());
+
+            var task = Visitors.Classes.ClassDefinitionNodeVisitor.Apply(node, ctx, interpreter);
+            var result = task.IsCompleted ? task.Result : task.AsTask().GetAwaiter().GetResult();
+            if (result.Error != null) throw new RaUserError(result.Error);
+            return result.Value!;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineTrait(IR.Defs.TraitDef def, Context ctx, VmFrame f, int pc, IInterpreter interpreter)
+        {
+            var (s, e) = ResolveSpan(f, pc, ctx);
+
+            var fields = new System.Collections.Generic.List<Parser.Nodes.Structs.StructFieldDefinitionNode>(def.Fields.Length);
+            foreach (var fd in def.Fields)
+            {
+                AstNode? defNode = null;
+                if (fd.DefaultConst != null)
+                    defNode = new Parser.Nodes.Primitives.NumberNode(
+                        new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
+                    { CachedValue = fd.DefaultConst };
+                fields.Add(new Parser.Nodes.Structs.StructFieldDefinitionNode(
+                    fd.IsPublic,
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, fd.Name, s, e),
+                    fd.FieldType, defNode, fd.IsStatic, fd.IsAbstract, fd.IsOverride,
+                    (Parser.Nodes.Variables.VariableDeclarationType)fd.DeclKind));
+            }
+
+            var methods = new System.Collections.Generic.List<Parser.Nodes.Traits.TraitMethodDefinitionNode>(def.Methods.Length);
+            foreach (var md in def.Methods)
+            {
+                var argToks = new System.Collections.Generic.List<Lexer.Tokens.Token>(md.ArgNames.Length);
+                foreach (var an in md.ArgNames)
+                    argToks.Add(new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, an, s, e));
+                var argTypes = new System.Collections.Generic.List<Types.TypeDescriptor?>(md.ArgTypes);
+                var refParams = new System.Collections.Generic.List<bool>(md.IsRefParams);
+                var paramDefaults = new System.Collections.Generic.List<AstNode?>(new AstNode?[md.ArgNames.Length]);
+                Lexer.Tokens.Token? varArgTok = md.VarArgName == null ? null
+                    : new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, md.VarArgName, s, e);
+                // Provided methods get a stub body + the precompiled RaFunction;
+                // abstract/required methods keep a null body.
+                AstNode? bodyNode = md.Body != null ? new Parser.Nodes.Operations.PassNode(s, e) : null;
+
+                var mnode = new Parser.Nodes.Traits.TraitMethodDefinitionNode(
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, md.Name, s, e),
+                    argToks, argTypes, refParams, paramDefaults,
+                    md.HasVarArgs, varArgTok, md.VarArgType, md.ReturnType,
+                    bodyNode, md.ShouldAutoReturn, md.IsAbstract);
+                if (md.Body != null)
+                {
+                    mnode.CompiledBody = md.Body;
+                    mnode.IrCompileTried = true;
+                }
+                mnode.FrameId = md.FrameId;
+                mnode.IsAsync = md.IsAsync;
+                mnode.IsAsyncStream = md.IsAsyncStream;
+                methods.Add(mnode);
+            }
+
+            var node = new Parser.Nodes.Traits.TraitDefinitionNode(
+                new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
+                def.IsPublic, methods, fields,
+                new System.Collections.Generic.List<string>(def.Generics),
+                new System.Collections.Generic.List<Parser.Nodes.Special.WhereConstraintNode>());
+
+            var result = Visitors.Traits.TraitDefinitionNodeVisitor.Apply(node, ctx, interpreter);
+            if (result.Error != null) throw new RaUserError(result.Error);
+            return result.Value!;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineExtension(IR.Defs.ExtensionDef def, Context ctx, VmFrame f, int pc)
+        {
+            var (s, e) = ResolveSpan(f, pc, ctx);
+            var methods = new System.Collections.Generic.List<Parser.Nodes.Functions.FunctionDefinitionNode>(def.Methods.Length);
+            foreach (var md in def.Methods)
+                methods.Add(ReconstructClassMethod(md, s, e));
+
+            var node = new Parser.Nodes.Classes.ExtensionDefinitionNode(
+                def.TargetType, def.IsPublic, methods,
+                /*properties*/ null, /*operators*/ null, /*events*/ null,
+                /*indexers*/ null, /*fields*/ null, def.IsSealed);
+
+            var result = Visitors.Extensions.ExtensionDefinitionNodeVisitor.Apply(node, ctx);
+            if (result.Error != null) throw new RaUserError(result.Error);
+            return result.Value!;
+        }
+
+        // L5e: reconstruct the InterfaceDefinitionNode (signature nodes + field
+        // nodes) from a flat InterfaceDef and run the SAME visitor Apply →
+        // byte-identical registration + field/method conformance metadata.
+        // Interface methods are SIGNATURES only (no bodies) — nothing to
+        // precompile; fields carry no defaults (defNode stays null).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineInterface(IR.Defs.InterfaceDef def, Context ctx, VmFrame f, int pc, IInterpreter interpreter)
+        {
+            var (s, e) = ResolveSpan(f, pc, ctx);
+
+            var fields = new System.Collections.Generic.List<Parser.Nodes.Structs.StructFieldDefinitionNode>(def.Fields.Length);
+            foreach (var fd in def.Fields)
+            {
+                fields.Add(new Parser.Nodes.Structs.StructFieldDefinitionNode(
+                    fd.IsPublic,
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, fd.Name, s, e),
+                    fd.FieldType, /*default*/ null, fd.IsStatic, fd.IsAbstract, fd.IsOverride,
+                    (Parser.Nodes.Variables.VariableDeclarationType)fd.DeclKind));
+            }
+
+            var methods = new System.Collections.Generic.List<Parser.Nodes.Interfaces.InterfaceMethodSignatureNode>(def.Methods.Length);
+            foreach (var md in def.Methods)
+            {
+                var argToks = new System.Collections.Generic.List<Lexer.Tokens.Token>(md.ArgNames.Length);
+                foreach (var an in md.ArgNames)
+                    argToks.Add(new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, an, s, e));
+                var argTypes = new System.Collections.Generic.List<Types.TypeDescriptor?>(md.ArgTypes);
+                methods.Add(new Parser.Nodes.Interfaces.InterfaceMethodSignatureNode(
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, md.Name, s, e),
+                    argToks, argTypes, md.ReturnType));
+            }
+
+            var node = new Parser.Nodes.Interfaces.InterfaceDefinitionNode(
+                new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
+                def.IsPublic, methods, fields,
+                new System.Collections.Generic.List<string>(def.Generics));
+
+            var result = Visitors.Interfaces.InterfaceDefinitionNodeVisitor.Apply(node, ctx, interpreter);
+            if (result.Error != null) throw new RaUserError(result.Error);
+            return result.Value!;
+        }
+
+        // L5e: reconstruct the AnnotationDefinitionNode (params with const-default
+        // stubs) from a flat AnnotationDef and run the SAME visitor Apply →
+        // byte-identical AnnotationTypeValue registration. First sub-stage: no
+        // meta-annotations (the reconstructed node has none, so the visitor's
+        // meta-annotation loop + AnnotationProcessor.Process are no-ops).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineAnnotation(IR.Defs.AnnotationDef def, Context ctx, VmFrame f, int pc, IInterpreter interpreter)
+        {
+            var (s, e) = ResolveSpan(f, pc, ctx);
+
+            var ps = new System.Collections.Generic.List<Parser.Nodes.Annotations.AnnotationParameterNode>(def.Parameters.Length);
+            foreach (var pd in def.Parameters)
+            {
+                AstNode? defNode = null;
+                if (pd.DefaultConst != null)
+                    defNode = new Parser.Nodes.Primitives.NumberNode(
+                        new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
+                    { CachedValue = pd.DefaultConst };
+                ps.Add(new Parser.Nodes.Annotations.AnnotationParameterNode(
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, pd.Name, s, e),
+                    pd.DeclaredType, defNode, pd.IsVarArgs));
+            }
+
+            var node = new Parser.Nodes.Annotations.AnnotationDefinitionNode(
+                new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
+                def.IsPublic, ps);
+
+            var result = Visitors.Annotations.AnnotationDefinitionNodeVisitor.Apply(node, ctx, interpreter);
+            if (result.Error != null) throw new RaUserError(result.Error);
+            return result.Value!;
+        }
+
+        // L6: reconstruct the ModuleSpecifier + the matching ImportNode from a
+        // flat ImportDef and run the SAME ImportNodeVisitor.Apply →
+        // ModuleManager.Load resolution + symbol/alias binding is byte-identical.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineImport(IR.Defs.ImportDef def, Context ctx, VmFrame f, int pc, IInterpreter interpreter)
+        {
+            var (s, e) = ResolveSpan(f, pc, ctx);
+
+            var spec = def.SpecIsDotted
+                ? RaLanguage.Interpreter.Modules.ModuleSpecifier.FromDotted(def.Segments, def.IsWildcard)
+                : RaLanguage.Interpreter.Modules.ModuleSpecifier.FromStringLiteral(def.RawPath ?? "");
+
+            Parser.Nodes.Imports.ImportNode node;
+            switch (def.ImportKind)
+            {
+                case IR.Defs.ImportDefKind.Selective:
+                {
+                    var toks = new System.Collections.Generic.List<Lexer.Tokens.Token>(def.SymbolNames.Length);
+                    foreach (var nm in def.SymbolNames)
+                        toks.Add(new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, nm, s, e));
+                    node = new Parser.Nodes.Imports.ImportSelectiveNode(spec, toks, s, e);
+                    break;
+                }
+                case IR.Defs.ImportDefKind.Alias:
+                {
+                    var aliasTok = new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Alias ?? "", s, e);
+                    node = new Parser.Nodes.Imports.ImportAliasNode(spec, aliasTok, s, e);
+                    break;
+                }
+                default:
+                    node = new Parser.Nodes.Imports.ImportAllNode(spec, s, e);
+                    break;
+            }
+
+            var result = Visitors.Imports.ImportNodeVisitor.Apply(node, ctx, interpreter);
+            if (result.Error != null) throw new RaUserError(result.Error);
+            return result.Value!;
+        }
+
+        // L6: reconstruct the NamespaceDeclarationNode (segments only; the body
+        // is a stub — the visitor's precompiled-body path ignores node.Body) and
+        // run the SAME NamespaceDeclarationNodeVisitor.Apply passing the
+        // precompiled body RaFunctions → namespace opening / scope-chain /
+        // closure-freezing is byte-identical. Apply is async but completes
+        // synchronously for the definition bodies (no real `await`), so the
+        // blocking unwrap never actually blocks (mirrors DefineClass).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineNamespace(IR.Defs.NamespaceDef def, Context ctx, VmFrame f, int pc, IInterpreter interpreter)
+        {
+            var (s, e) = ResolveSpan(f, pc, ctx);
+
+            var segToks = new System.Collections.Generic.List<Lexer.Tokens.Token>(def.Segments.Length);
+            foreach (var seg in def.Segments)
+                segToks.Add(new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, seg, s, e));
+
+            var body = new Parser.Nodes.Operations.PassNode(s, e);
+            var node = new Parser.Nodes.Namespaces.NamespaceDeclarationNode(segToks, body, def.IsFileScoped, s, e);
+
+            var task = Visitors.Namespaces.NamespaceDeclarationNodeVisitor.Apply(node, ctx, interpreter, def.Bodies);
+            var result = task.IsCompleted ? task.Result : task.AsTask().GetAwaiter().GetResult();
+            if (result.Error != null) throw new RaUserError(result.Error);
+            return result.Value!;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineUsing(IR.Defs.UsingDef def, Context ctx, VmFrame f, int pc)
+        {
+            var (s, e) = ResolveSpan(f, pc, ctx);
+            var (value, err) = Runtime.UsingNamespaceOps.Apply(def.Segments, def.Alias, ctx, s, e);
+            if (err != null) throw new RaUserError(err);
+            return value!;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineDelegate(IR.Defs.DelegateDef def, Context ctx, VmFrame f, int pc)
+        {
+            var (s, e) = ResolveSpan(f, pc, ctx);
+            var (value, err) = Runtime.DelegateDefOps.Register(
+                def.Name, def.Signature,
+                new System.Collections.Generic.List<string>(def.Generics),
+                new System.Collections.Generic.List<Parser.Nodes.Special.WhereConstraintNode>(),
+                def.IsPublic, ctx, s, e);
+            if (err != null) throw new RaUserError(err);
+            return value!;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineEnum(IR.Defs.EnumDef def, Context ctx, VmFrame f, int pc)
+        {
+            // Collision check mirrors the visitor (it runs BEFORE building the
+            // variants; the lowered variants have no side effects so order is
+            // immaterial here).
+            if (ctx.SymbolTable.Get(def.Name) != null)
+            {
+                var (cs, ce) = ResolveSpan(f, pc, ctx);
+                throw new RaUserError(new Errors.Types.RuntimeError(cs, ce, $"'{def.Name}' is already defined", ctx));
+            }
+
+            var variants = new System.Collections.Generic.List<Values.Primitives.EnumVariantInfo>(def.Variants.Length);
+            for (int i = 0; i < def.Variants.Length; i++)
+            {
+                var v = def.Variants[i];
+                System.Collections.Generic.IReadOnlyList<Types.TypeDescriptor>? payloads =
+                    v.PayloadTypes.Length == 0 ? null : v.PayloadTypes;
+                variants.Add(new Values.Primitives.EnumVariantInfo(v.Name, v.Ordinal, v.Value, payloads));
+            }
+
+            var (s, e) = ResolveSpan(f, pc, ctx);
+            return Runtime.EnumDefOps.BuildAndRegister(
+                def.Name, variants,
+                new System.Collections.Generic.List<string>(def.Generics),
+                new System.Collections.Generic.List<Parser.Nodes.Special.WhereConstraintNode>(),
+                ctx, s, e);
+        }
+
         [System.Runtime.CompilerServices.MethodImpl(
             System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private static int FusedCmpBranchDelta(VmFrame f, LocalsView locals, uint instr, Opcode op)
@@ -4072,6 +4693,7 @@ namespace RaLanguage.Interpreter.Vm
             Mark(Opcode.NullCoal);
             // Strings.
             Mark(Opcode.StrConcat); Mark(Opcode.Interp); Mark(Opcode.Fmt);
+            Mark(Opcode.With);
             // Collections.
             Mark(Opcode.NewList); Mark(Opcode.NewMap);
             Mark(Opcode.NewSet); Mark(Opcode.NewTuple);
@@ -4089,6 +4711,7 @@ namespace RaLanguage.Interpreter.Vm
             Mark(Opcode.Call); Mark(Opcode.CallKw); Mark(Opcode.CallMethod);
             Mark(Opcode.NewInstance);
             Mark(Opcode.NativeDefine);
+            Mark(Opcode.DefineType);
             // Async.
             Mark(Opcode.Await); Mark(Opcode.Spawn);
             // II family — these manage `LongValid[a]` themselves in

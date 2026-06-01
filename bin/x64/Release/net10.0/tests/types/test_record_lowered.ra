@@ -1,0 +1,53 @@
+import std.prelude.*;
+// Ra Language - L5e: a value `record` in the flat-lowerable subset (no
+// inheritance / operators / annotations / etc.) now IR-lowers to a RecordDef +
+// OP_DEFINE_TYPE, reusing the struct method machinery (precompiled RaFunction
+// bodies, reconstruct-on-load). The `.rac` stores it flat (no record AST).
+
+print("=== types/record_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// RL1: primary-constructor fields + access
+record Point(x: int, y: int)
+let p = Point(3, 4);
+ck("[RL1]", p.x == 3 && p.y == 4);
+
+// RL2: record with a body method
+record Vec(a: int, b: int) {
+    pub fn sum(): int { ret self.a + self.b }
+    pub fn scaled(k: int): Vec { ret Vec(self.a * k, self.b * k) }
+}
+let v = Vec(5, 6);
+ck("[RL2]", v.sum() == 11 && v.scaled(2).sum() == 22);
+
+// RL3: structural equality (records compare by value)
+let p2 = Point(3, 4);
+let p3 = Point(3, 5);
+ck("[RL3]", p == p2 && p != p3);
+
+// RL4: `with` copy-update on a lowered record
+let p4 = p with { x: 99 };
+ck("[RL4]", p4.x == 99 && p4.y == 4 && p.x == 3);
+
+// RL5: primary-field const default
+record Conf(n: int = 7, label: string = "d")
+let c = Conf();
+ck("[RL5]", c.n == 7 && c.label == "d");
+
+// RL6: record in a loop (lowered def, repeated construction)
+var total = 0;
+for i in 0..4 {
+    let q = Vec(i, i + 1);
+    total = total + q.sum();
+}
+ck("[RL6]", total == 1 + 3 + 5 + 7);
+
+if failures == 0 {
+    print("=== done (all lowered-record cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

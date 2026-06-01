@@ -233,6 +233,16 @@ namespace RaLanguage.Interpreter.IR.Analysis
             // that branch still wins for everything tracked by the
             // legacy code path because `DefinedSlotOf` falls back
             // to A in those cases.
+            // A secondary def (ForEachStreamPull's continueSlot) is a runtime
+            // flag, never a compile-time constant — pin it to Bottom so the
+            // loop-exit `JmpIfNot` is never folded against a stale value.
+            int? secondOpt = SsaForm.SecondaryDefinedSlot(instr);
+            if (secondOpt.HasValue
+                && Ssa.DefVersions.TryGetValue((pc, secondOpt.Value), out var sver))
+            {
+                Set(secondOpt.Value, sver, Lat.Bottom);
+            }
+
             int? defSlotOpt = SsaForm.DefinedSlotOf(instr, Cfg.Function, pc);
             if (!defSlotOpt.HasValue) return;
             int defSlot = defSlotOpt.Value;
@@ -551,6 +561,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Alias:
                 case Opcode.MoveLet:
                 case Opcode.Borrow:
+                case Opcode.BorrowMut:
                 case Opcode.Deref:
                 case Opcode.Add: case Opcode.Sub: case Opcode.Mul:
                 case Opcode.Div: case Opcode.Mod: case Opcode.Pow:
@@ -564,6 +575,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Lt: case Opcode.Le: case Opcode.Gt: case Opcode.Ge:
                 case Opcode.NullCoal:
                 case Opcode.StrConcat: case Opcode.Interp: case Opcode.Fmt:
+                case Opcode.With:
                 case Opcode.NewList: case Opcode.NewMap:
                 case Opcode.NewSet: case Opcode.NewTuple:
                 case Opcode.ListGet: case Opcode.MapGet:
@@ -578,6 +590,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Call: case Opcode.CallKw: case Opcode.CallMethod:
                 case Opcode.NewInstance:
                 case Opcode.NativeDefine:
+                case Opcode.DefineType:
                 case Opcode.Await: case Opcode.Spawn:
                 // M66 II opcodes also write A (or the long shadow).
                 case Opcode.LoadIntS64:

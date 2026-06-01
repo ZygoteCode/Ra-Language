@@ -1,0 +1,62 @@
+import std.prelude.*;
+// Ra Language - L5: enum definitions now IR-lower to a FLAT EnumDef descriptor
+// + OP_DEFINE_TYPE (was OP_NATIVE_DEFINE). Variant values are folded at compile
+// time (auto-increment or integer literal); payload tuple types + generic param
+// names are carried as plain data, so the `.rac` archive stores the enum with
+// NO serialized AST. Annotations / where-constraints / non-constant values fall
+// back to the visitor. These hard-assert the lowered behaviour matches.
+
+print("=== types/enum_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// EL1: pure auto-increment ordinals + as-string rendering
+enum Color { Red, Green, Blue }
+ck("[EL1]", (Color.Red as string) == "Color.Red" && (Color.Blue as string) == "Color.Blue");
+
+// EL2: explicit integer values + auto-increment after an explicit value
+enum Status { Active = 1, Banned = 100, Vip }
+ck("[EL2]", (Status.Active as int) == 1 && (Status.Banned as int) == 100 && (Status.Vip as int) == 101);
+
+// EL3: payload (tagged) variants build + render
+enum Tok { Id(string), Num(int), Eof }
+let a = Tok.Num(42);
+let b = Tok.Id("hi");
+ck("[EL3]", (a as string) == "Tok.Num(42)" && (b as string) == "Tok.Id(hi)" && (Tok.Eof as string) == "Tok.Eof");
+
+// EL4: match dispatch over a lowered enum (incl. payload binding)
+fn describe(t: Tok): string {
+    ret match t {
+        case Id(s) -> "id:" + s
+        case Num(n) -> "num:" + (n as string)
+        case Eof -> "eof"
+    };
+}
+ck("[EL4]", describe(Tok.Num(7)) == "num:7" && describe(Tok.Id("x")) == "id:x" && describe(Tok.Eof) == "eof");
+
+// EL5: enum defined INSIDE a function (lowered in a non-script frame)
+fn make(): string {
+    enum Local { A, B, C }
+    ret Local.B as string;
+}
+ck("[EL5]", make() == "Local.B");
+
+// EL6: multiple payload arities
+enum Tree { Leaf(int), Node(int, int) }
+let n = Tree.Node(3, 4);
+ck("[EL6]", (Tree.Leaf(9) as string) == "Tree.Leaf(9)" && (n as string) == "Tree.Node(3, 4)");
+
+// EL7: generic enum — type-parameter payload, lowered (generics are flat;
+// the `T` payload serializes as a TypeParameter TypeDescriptor)
+enum Opt<T> { Some(T), None }
+let o = Opt.Some(42);
+ck("[EL7]", (o as string) == "Opt.Some(42)" && (Opt.None as string) == "Opt.None");
+
+if failures == 0 {
+    print("=== done (all lowered-enum cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

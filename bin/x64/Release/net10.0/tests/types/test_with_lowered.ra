@@ -1,0 +1,65 @@
+import std.prelude.*;
+// Ra Language - L4: a `recv with { f: v, ... }` record copy-update is now
+// IR-lowered to OP_WITH (was OP_NATIVE_DEFINE). The receiver + each update
+// value are evaluated by ordinary opcodes into a contiguous slot band; the
+// shared WithExpressionOps helper shallow-clones, validates names/types
+// against the record's primary shape, and applies the overrides — byte
+// identical to the visitor (parity MATCH).
+
+print("=== types/with_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+record Point(x: int, y: int)
+record Named(id: int, name: string)
+
+let p = Point(1, 2);
+
+// W1: single-field update, original unchanged (immutability)
+let p1 = p with { x: 10 };
+ck("[W1]", p1.x == 10 && p1.y == 2 && p.x == 1);
+
+// W2: multi-field update
+let p2 = p with { x: 7, y: 9 };
+ck("[W2]", p2.x == 7 && p2.y == 9);
+
+// W3: chained with-expressions
+let p3 = p with { x: 100 } with { y: 200 };
+ck("[W3]", p3.x == 100 && p3.y == 200);
+
+// W4: value expression (not just a literal)
+let base = 5;
+let p4 = p with { x: base * 2 + 1 };
+ck("[W4]", p4.x == 11);
+
+// W5: string field
+let n = Named(1, "a");
+let n2 = n with { name: "bee" };
+ck("[W5]", n2.id == 1 && n2.name == "bee");
+
+// W6: inside a function (lowered fn-frame path)
+fn bump(pt: Point): Point { ret pt with { x: pt.x + 1 }; }
+let p6 = bump(Point(41, 0));
+ck("[W6]", p6.x == 42);
+
+// W7: with-expression result fed straight into a call
+fn sumxy(pt: Point): int { ret pt.x + pt.y; }
+ck("[W7]", sumxy(p with { x: 3, y: 4 }) == 7);
+
+// W8: reuse in a loop — OP_WITH per iteration, stable (no fallback, no leak)
+var total = 0;
+for i in 0..4 {
+    let sx = i + 1;
+    let pi = p with { x: sx };
+    total = total + pi.x;
+}
+ck("[W8]", total == 1 + 2 + 3 + 4);
+
+if failures == 0 {
+    print("=== done (all with-expression cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

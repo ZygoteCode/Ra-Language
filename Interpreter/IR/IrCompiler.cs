@@ -52,6 +52,8 @@ namespace RaLanguage.Interpreter.IR
             public readonly List<Parser.Nodes.Classes.SuperNode> SuperRefs = new();
             public readonly List<Parser.Nodes.Functions.FunctionDefinitionNode> FuncDefRefs = new();
             public readonly List<AstNode> DefineRefs = new();
+            // L5: flat one-shot definition descriptors (OP_DEFINE_TYPE pool).
+            public readonly List<Defs.TypeDef> TypeDefs = new();
             public readonly List<ExceptionHandler> EhTable = new();
             public readonly Stack<LoopContext> Loops = new();
             public int MaxTempUsed = 1;
@@ -289,6 +291,38 @@ namespace RaLanguage.Interpreter.IR
                 foreach (var s in DirtyTypedAccs) st.DirtyTypedAccs.Add(s);
             }
         }
+
+        // ---- L0 parity-oracle support (RA_FULL_IR_LOWERING_PLAN §4b) ----
+        //
+        // When a node kind is in this set, CompileStatementWithFallback
+        // refuses to lower it natively and emits OP_NATIVE_DEFINE instead
+        // (provided the kind has a HasNativeDefineRoute). This lets a
+        // differential harness run the SAME program twice — native vs
+        // visitor-fallback — and assert byte-identical observable behaviour,
+        // which is the gate that lets later phases delete a fallback safely.
+        //
+        // Empty in every normal compile; a single `Count != 0` check gates
+        // the hot path, so there is zero cost when unused. Process-global +
+        // set/cleared by the harness around each run; never touched by the
+        // production CLI / archive paths.
+        private static readonly HashSet<AstNodeType> s_forceFallbackKinds = new();
+
+        public static void SetForceFallback(System.Collections.Generic.IEnumerable<AstNodeType> kinds)
+        {
+            s_forceFallbackKinds.Clear();
+            foreach (var k in kinds) s_forceFallbackKinds.Add(k);
+        }
+
+        public static void ClearForceFallback() => s_forceFallbackKinds.Clear();
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static bool IsForcedFallback(AstNodeType t)
+            => s_forceFallbackKinds.Count != 0 && s_forceFallbackKinds.Contains(t);
+
+        // Exposed so the harness can reject a requested kind that has no
+        // visitor route (EmitFallback would hard-error on it).
+        public static bool IsFallbackRoutable(AstNodeType t) => HasNativeDefineRoute(t);
 
         public static RaFunction CompileScript(AstNode root, string sourceName)
         {
@@ -1509,6 +1543,7 @@ namespace RaLanguage.Interpreter.IR
             fn.SuperRefs = st.SuperRefs.ToArray();
             fn.FuncDefRefs = st.FuncDefRefs.ToArray();
             fn.DefineRefs = st.DefineRefs.ToArray();
+            fn.TypeDefs = st.TypeDefs.ToArray();
             fn.EhTable = st.EhTable.ToArray();
             fn.LocalCount = st.MaxTempUsed;
             fn.StrAccCount = st.NextStrAcc;
@@ -1851,6 +1886,7 @@ namespace RaLanguage.Interpreter.IR
                     case Opcode.CallKw:
                     case Opcode.CallMethod:
                     case Opcode.NewInstance:
+                    case Opcode.With:
                     case Opcode.GetSelf:
                     case Opcode.GetSuper:
                     case Opcode.Typeof:
@@ -2162,7 +2198,11 @@ namespace RaLanguage.Interpreter.IR
 
             try
             {
-                if (TryCompileStatement(stmt, st, ref topSlot, scratchSlot, strict: false))
+                // L0 parity oracle: when this kind is force-flagged, skip the
+                // native path so the statement rolls back to OP_NATIVE_DEFINE.
+                // Nothing was emitted yet, so the rollback below is a no-op.
+                if (!IsForcedFallback(stmt.NodeType)
+                    && TryCompileStatement(stmt, st, ref topSlot, scratchSlot, strict: false))
                 {
                     if (topSlot > st.MaxTempUsed) st.MaxTempUsed = topSlot;
                     return;
@@ -2211,6 +2251,7 @@ namespace RaLanguage.Interpreter.IR
                 case AstNodeType.UsingNamespace:
                 case AstNodeType.ClassDefinition:
                 case AstNodeType.AnnotationDefinition:
+                case AstNodeType.DelegateDefinition:
                 case AstNodeType.NamespaceDeclaration:
                 case AstNodeType.ImportAll:
                 case AstNodeType.ImportSelective:
@@ -2262,6 +2303,581 @@ namespace RaLanguage.Interpreter.IR
             }
         }
 
+        // L5: build a FLAT EnumDef from an enum declaration, or return false to
+        // fall back to the visitor. Lowerable iff: no annotations, no where-
+        // constraints, every variant name is non-empty + unique, and every
+        // explicit value is a plain integer literal (matched + folded the same
+        // way the visitor evaluates it). Auto-increment mirrors the visitor's
+        // `lastValue + 1`. Payload tuple types + generic param names are already
+        // flat. Anything else → false (the visitor handles value side effects,
+        // exotic numeric types, expression values, etc., with full diagnostics).
+        private static bool TryBuildEnumDef(Parser.Nodes.Enums.EnumDefinitionNode node, out Defs.EnumDef def)
+        {
+            def = null!;
+            if (node.HasAnnotations) return false;
+            if (node.WhereConstraints != null && node.WhereConstraints.Count > 0) return false;
+
+            string enumName = node.NameTok.Value?.ToString() ?? "";
+            if (string.IsNullOrWhiteSpace(enumName)) return false;
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var variants = new Defs.EnumVariantDef[node.Variants.Count];
+            System.Int128 lastValue = -1;
+
+            for (int i = 0; i < node.Variants.Count; i++)
+            {
+                var spec = node.Variants[i];
+                string memberName = spec.Name;
+                if (string.IsNullOrWhiteSpace(memberName)) return false;
+                if (!seen.Add(memberName)) return false;
+
+                System.Int128 value;
+                if (spec.ValueNode == null)
+                {
+                    value = lastValue + 1;
+                }
+                else if (spec.ValueNode is NumberNode nn)
+                {
+                    RuntimeValue parsed;
+                    try { parsed = Visitors.Primitives.NumberNodeVisitor.ParseLiteral(nn); }
+                    catch { return false; }
+                    if (!Runtime.EnumDefOps.TryExtractInt128(parsed, out value)) return false;
+                }
+                else
+                {
+                    return false; // non-constant value expression → fallback
+                }
+                lastValue = value;
+
+                var payloads = (spec.PayloadTypes == null || spec.PayloadTypes.Count == 0)
+                    ? System.Array.Empty<Types.TypeDescriptor>()
+                    : spec.PayloadTypes.ToArray();
+                variants[i] = new Defs.EnumVariantDef(memberName, i, value, payloads);
+            }
+
+            var generics = (node.GenericTypeParams == null || node.GenericTypeParams.Count == 0)
+                ? System.Array.Empty<string>()
+                : node.GenericTypeParams.ToArray();
+            def = new Defs.EnumDef(enumName, generics, variants);
+            return true;
+        }
+
+        // L5: build a FLAT DelegateDef, or return false to fall back. Lowerable
+        // iff the name is non-empty and there are no where-constraints (those
+        // carry AST). The structural signature + generic param names + the
+        // public flag are already flat.
+        private static bool TryBuildDelegateDef(Parser.Nodes.Functions.DelegateDefinitionNode node, out Defs.DelegateDef def)
+        {
+            def = null!;
+            string name = node.NameTok.Value?.ToString() ?? "";
+            if (string.IsNullOrEmpty(name)) return false;
+            if (node.WhereConstraints != null && node.WhereConstraints.Count > 0) return false;
+            if (node.SignatureType == null) return false;
+
+            var generics = (node.GenericTypeParams == null || node.GenericTypeParams.Count == 0)
+                ? System.Array.Empty<string>()
+                : node.GenericTypeParams.ToArray();
+            def = new Defs.DelegateDef(name, node.SignatureType, generics, node.IsPublic);
+            return true;
+        }
+
+        // L5: build a FLAT UsingDef, or return false to fall back. Lowerable iff
+        // every path segment is a non-empty identifier (matches the visitor's
+        // per-segment validation; an empty segment defers so the visitor reports
+        // it at the precise position).
+        private static bool TryBuildUsingDef(Parser.Nodes.Namespaces.UsingNamespaceNode node, out Defs.UsingDef def)
+        {
+            def = null!;
+            var segments = new string[node.Segments.Count];
+            for (int i = 0; i < node.Segments.Count; i++)
+            {
+                segments[i] = node.Segments[i].Value?.ToString() ?? "";
+                if (string.IsNullOrEmpty(segments[i])) return false;
+            }
+            if (segments.Length == 0) return false;
+            def = new Defs.UsingDef(segments, node.HasAlias ? node.Alias : null);
+            return true;
+        }
+
+        // L5e: build a FLAT StructDef (fields + precompiled method bodies), or
+        // return false to fall back to the visitor. Lowerable subset: no
+        // annotations / where-constraints / operators / properties / events,
+        // no field default values, no method param defaults. Method bodies are
+        // compiled via the SAME runtime helper the visitor uses lazily
+        // (`GetOrCompileStructMethod`) → byte-identical bytecode. The handler
+        // reconstructs the StructDefinitionNode and runs the same visitor Apply,
+        // so registration / validation / dispatch match exactly.
+        private static bool TryBuildStructDef(Parser.Nodes.Structs.StructDefinitionNode node, out Defs.StructDef def)
+        {
+            def = null!;
+            if (node.HasAnnotations) return false;
+            if (node.WhereConstraints != null && node.WhereConstraints.Count > 0) return false;
+            if (node.Operators != null && node.Operators.Count > 0) return false;
+            if (node.Properties != null && node.Properties.Count > 0) return false;
+            if (node.Events != null && node.Events.Count > 0) return false;
+
+            string name = node.NameTok.Value?.ToString() ?? "";
+            if (string.IsNullOrWhiteSpace(name)) return false;
+
+            var fields = new Defs.StructFieldDef[node.Fields.Count];
+            for (int i = 0; i < node.Fields.Count; i++)
+            {
+                var fld = node.Fields[i];
+                if (fld.HasAnnotations) return false;
+                RuntimeValue? defConst = null;
+                if (fld.DefaultValueNode != null && !TryFoldFieldDefaultConst(fld.DefaultValueNode, out defConst))
+                    return false; // non-constant field default → fallback to the visitor
+                fields[i] = new Defs.StructFieldDef(
+                    fld.NameTok.Value?.ToString() ?? "", fld.FieldType,
+                    fld.IsPublic, fld.IsStatic, fld.IsAbstract, fld.IsOverride,
+                    (int)fld.DeclarationType, defConst);
+            }
+
+            var methods = new Defs.StructMethodDef[node.Methods.Count];
+            for (int i = 0; i < node.Methods.Count; i++)
+                if (!TryBuildStructMethodDef(node.Methods[i], out methods[i])) return false;
+
+            var generics = (node.GenericTypeParams == null || node.GenericTypeParams.Count == 0)
+                ? System.Array.Empty<string>()
+                : node.GenericTypeParams.ToArray();
+            def = new Defs.StructDef(name, node.IsPublic, generics, fields, methods);
+            return true;
+        }
+
+        // Shared method-descriptor build for struct + record (both use
+        // StructMethodDefinitionNode). Compiles the body via the SAME runtime
+        // path the visitor uses lazily → identical bytecode. Methods with
+        // annotations or param-defaults (AST) → false (the type falls back).
+        private static bool TryBuildStructMethodDef(Parser.Nodes.Structs.StructMethodDefinitionNode m, out Defs.StructMethodDef md)
+        {
+            md = null!;
+            if (m.HasAnnotations) return false;
+            if (m.ParamDefaults != null)
+                foreach (var pd in m.ParamDefaults)
+                    if (pd != null) return false;
+
+            var body = Runtime.FunctionDefinitionHelper.GetOrCompileStructMethod(m);
+            if (body == null) return false;
+
+            var argNames = new string[m.ArgNameToks.Count];
+            for (int a = 0; a < m.ArgNameToks.Count; a++)
+                argNames[a] = m.ArgNameToks[a].Value?.ToString() ?? "";
+
+            md = new Defs.StructMethodDef(
+                m.NameTok.Value?.ToString() ?? "", m.IsPublic, m.IsConstructor, m.IsAsync, m.IsAsyncStream,
+                argNames, m.ArgTypes.ToArray(), m.IsRefParams.ToArray(), m.HasVarArgs,
+                m.VarArgNameTok?.Value?.ToString(), m.VarArgType, m.ReturnType, m.ShouldAutoReturn,
+                m.FrameId, body);
+            return true;
+        }
+
+        // L5e: build a FLAT RecordDef, or return false to fall back. First
+        // sub-stage: value records (no `record class` inheritance), no abstract /
+        // operators / properties / events / annotations / where-constraints /
+        // param-defaults / non-const field-defaults. Methods reuse the shared
+        // struct-method build; primary-field defaults fold like struct fields.
+        private static bool TryBuildRecordDef(Parser.Nodes.Records.RecordDefinitionNode node, out Defs.RecordDef def)
+        {
+            def = null!;
+            if (node.BaseType != null) return false;       // inheritance → fallback
+            if (node.IsAbstract) return false;
+            if (node.HasAnnotations) return false;
+            if (node.WhereConstraints != null && node.WhereConstraints.Count > 0) return false;
+            if (node.Operators != null && node.Operators.Count > 0) return false;
+            if (node.Properties != null && node.Properties.Count > 0) return false;
+            if (node.Events != null && node.Events.Count > 0) return false;
+
+            string name = node.NameTok.Value?.ToString() ?? "";
+            if (string.IsNullOrWhiteSpace(name)) return false;
+
+            var pfields = new Defs.RecordPrimaryFieldDef[node.PrimaryFields.Count];
+            for (int i = 0; i < node.PrimaryFields.Count; i++)
+            {
+                var pf = node.PrimaryFields[i];
+                RuntimeValue? defConst = null;
+                if (pf.DefaultValueNode != null && !TryFoldFieldDefaultConst(pf.DefaultValueNode, out defConst))
+                    return false;
+                pfields[i] = new Defs.RecordPrimaryFieldDef(
+                    pf.NameTok.Value?.ToString() ?? "", pf.FieldType, pf.IsPublic, pf.IsMutable, defConst);
+            }
+
+            var methods = new Defs.StructMethodDef[node.Methods.Count];
+            for (int i = 0; i < node.Methods.Count; i++)
+                if (!TryBuildStructMethodDef(node.Methods[i], out methods[i])) return false;
+
+            var generics = (node.GenericTypeParams == null || node.GenericTypeParams.Count == 0)
+                ? System.Array.Empty<string>()
+                : node.GenericTypeParams.ToArray();
+            def = new Defs.RecordDef(name, node.IsPublic, node.IsRefRecord,
+                node.AutoEquals, node.AutoToString, generics, pfields, methods);
+            return true;
+        }
+
+        // L5e: build a FLAT ClassDef, or return false to fall back. First
+        // sub-stage: plain classes — no inheritance / interfaces / traits /
+        // properties / events / operators / static / abstract / annotations /
+        // where-constraints. Fields reuse the struct field machinery; class
+        // methods are FunctionDefinitionNodes (via TryBuildClassMethodDef).
+        private static bool TryBuildClassDef(Parser.Nodes.Classes.ClassDefinitionNode node, out Defs.ClassDef def)
+        {
+            def = null!;
+            if (node.BaseType != null) return false;
+            if (node.ImplementedInterfaces != null && node.ImplementedInterfaces.Count > 0) return false;
+            if (node.WithTraits != null && node.WithTraits.Count > 0) return false;
+            if (node.IsAbstract || node.IsStatic) return false;
+            if (node.HasAnnotations) return false;
+            if (node.WhereConstraints != null && node.WhereConstraints.Count > 0) return false;
+            if (node.Operators != null && node.Operators.Count > 0) return false;
+            if (node.Properties != null && node.Properties.Count > 0) return false;
+            if (node.Events != null && node.Events.Count > 0) return false;
+
+            string name = node.NameTok.Value?.ToString() ?? "";
+            if (string.IsNullOrWhiteSpace(name)) return false;
+
+            var fields = new Defs.StructFieldDef[node.Fields.Count];
+            for (int i = 0; i < node.Fields.Count; i++)
+            {
+                var fld = node.Fields[i];
+                if (fld.HasAnnotations) return false;
+                RuntimeValue? defConst = null;
+                if (fld.DefaultValueNode != null && !TryFoldFieldDefaultConst(fld.DefaultValueNode, out defConst))
+                    return false;
+                fields[i] = new Defs.StructFieldDef(
+                    fld.NameTok.Value?.ToString() ?? "", fld.FieldType,
+                    fld.IsPublic, fld.IsStatic, fld.IsAbstract, fld.IsOverride,
+                    (int)fld.DeclarationType, defConst);
+            }
+
+            var methods = new Defs.ClassMethodDef[node.Methods.Count];
+            for (int i = 0; i < node.Methods.Count; i++)
+                if (!TryBuildClassMethodDef(node.Methods[i], out methods[i])) return false;
+
+            var generics = (node.GenericTypeParams == null || node.GenericTypeParams.Count == 0)
+                ? System.Array.Empty<string>()
+                : node.GenericTypeParams.ToArray();
+            def = new Defs.ClassDef(name, node.IsPublic, generics, fields, methods);
+            return true;
+        }
+
+        // Class method = FunctionDefinitionNode. Compiles via GetOrCompileBody
+        // (same path the visitor uses lazily). Factory ctors / abstract /
+        // generic / param-default / param-annotated / captured / where-
+        // constrained / annotated methods → false (the class falls back).
+        private static bool TryBuildClassMethodDef(Parser.Nodes.Functions.FunctionDefinitionNode m, out Defs.ClassMethodDef md)
+        {
+            md = null!;
+            if (m.IsAbstract || m.IsFactory) return false;
+            if (m.ConstructorName != null) return false; // named ctor (Name.ctor) — name not captured yet
+            if (m.HasAnnotations) return false;
+            if (m.CaptureList != null && m.CaptureList.Count > 0) return false;
+            if (m.GenericTypeParams != null && m.GenericTypeParams.Count > 0) return false;
+            if (m.WhereConstraints != null && m.WhereConstraints.Count > 0) return false;
+            if (m.ParamDefaults != null)
+                foreach (var pd in m.ParamDefaults) if (pd != null) return false;
+            if (m.ParamAnnotations != null)
+                foreach (var pa in m.ParamAnnotations) if (pa != null && pa.Count > 0) return false;
+            if (m.VarArgAnnotations != null && m.VarArgAnnotations.Count > 0) return false;
+
+            var body = Runtime.FunctionDefinitionHelper.GetOrCompileBody(m);
+            if (body == null) return false;
+
+            string mname = m.VarNameTok?.Value?.ToString() ?? "";
+            var argNames = new string[m.ArgNameToks.Count];
+            for (int a = 0; a < m.ArgNameToks.Count; a++)
+                argNames[a] = m.ArgNameToks[a].Value?.ToString() ?? "";
+
+            md = new Defs.ClassMethodDef(
+                mname, m.IsPublic, m.IsConstructor, m.IsOverride, m.IsStatic, m.IsAsync, m.IsAsyncStream,
+                argNames, m.ArgTypes.ToArray(), m.IsRefParams.ToArray(), m.HasVarArgs,
+                m.VarArgNameTok?.Value?.ToString(), m.VarArgType, m.ReturnType, m.ShouldAutoReturn,
+                m.FrameId, body);
+            return true;
+        }
+
+        // L5e: build a FLAT TraitDef, or false to fall back. First sub-stage:
+        // methods (provided + abstract/required) + fields; fallback on
+        // properties / events / where-constraints / annotations.
+        private static bool TryBuildTraitDef(Parser.Nodes.Traits.TraitDefinitionNode node, out Defs.TraitDef def)
+        {
+            def = null!;
+            if (node.HasAnnotations) return false;
+            if (node.WhereConstraints != null && node.WhereConstraints.Count > 0) return false;
+            if (node.Properties != null && node.Properties.Count > 0) return false;
+            if (node.Events != null && node.Events.Count > 0) return false;
+
+            string name = node.NameTok.Value?.ToString() ?? "";
+            if (string.IsNullOrWhiteSpace(name)) return false;
+
+            var fields = new Defs.StructFieldDef[node.Fields.Count];
+            for (int i = 0; i < node.Fields.Count; i++)
+            {
+                var fld = node.Fields[i];
+                if (fld.HasAnnotations) return false;
+                RuntimeValue? defConst = null;
+                if (fld.DefaultValueNode != null && !TryFoldFieldDefaultConst(fld.DefaultValueNode, out defConst))
+                    return false;
+                fields[i] = new Defs.StructFieldDef(
+                    fld.NameTok.Value?.ToString() ?? "", fld.FieldType,
+                    fld.IsPublic, fld.IsStatic, fld.IsAbstract, fld.IsOverride,
+                    (int)fld.DeclarationType, defConst);
+            }
+
+            var methods = new Defs.TraitMethodDef[node.Methods.Count];
+            for (int i = 0; i < node.Methods.Count; i++)
+                if (!TryBuildTraitMethodDef(node.Methods[i], out methods[i])) return false;
+
+            var generics = (node.GenericTypeParams == null || node.GenericTypeParams.Count == 0)
+                ? System.Array.Empty<string>()
+                : node.GenericTypeParams.ToArray();
+            def = new Defs.TraitDef(name, node.IsPublic, generics, fields, methods);
+            return true;
+        }
+
+        private static bool TryBuildTraitMethodDef(Parser.Nodes.Traits.TraitMethodDefinitionNode m, out Defs.TraitMethodDef md)
+        {
+            md = null!;
+            if (m.HasAnnotations) return false;
+            if (m.ParamDefaults != null)
+                foreach (var pd in m.ParamDefaults) if (pd != null) return false;
+
+            // Abstract/required methods carry no body; provided methods compile
+            // via the SAME runtime path the visitor uses lazily.
+            RaFunction? body = null;
+            if (!m.IsAbstract && m.BodyNode != null)
+            {
+                body = Runtime.FunctionDefinitionHelper.GetOrCompileTraitMethod(m);
+                if (body == null) return false;
+            }
+
+            var argNames = new string[m.ArgNameToks.Count];
+            for (int a = 0; a < m.ArgNameToks.Count; a++)
+                argNames[a] = m.ArgNameToks[a].Value?.ToString() ?? "";
+
+            md = new Defs.TraitMethodDef(
+                m.NameTok?.Value?.ToString() ?? "", m.IsAbstract, m.IsAsync, m.IsAsyncStream,
+                argNames, m.ArgTypes.ToArray(), m.IsRefParams.ToArray(), m.HasVarArgs,
+                m.VarArgNameTok?.Value?.ToString(), m.VarArgType, m.ReturnType, m.ShouldAutoReturn,
+                m.FrameId, body);
+            return true;
+        }
+
+        // L5e: build a FLAT InterfaceDef, or false to fall back. Interface methods
+        // are pure SIGNATURES (no bodies → no precompiled RaFunction); fields
+        // reuse the struct field descriptor (interface fields can't carry defaults
+        // → DefaultConst stays null). Fallback on annotations (on the interface, a
+        // method, or a field) / properties / events / where-constraints / a field
+        // that declares a default value (the visitor rejects those — fall back so
+        // it surfaces the identical error directly). Invalid-but-default-free
+        // fields (final/let/no-type) still lower: the reconstructed node re-runs
+        // the SAME visitor validation → byte-identical error.
+        private static bool TryBuildInterfaceDef(Parser.Nodes.Interfaces.InterfaceDefinitionNode node, out Defs.InterfaceDef def)
+        {
+            def = null!;
+            if (node.HasAnnotations) return false;
+            if (node.WhereConstraints != null && node.WhereConstraints.Count > 0) return false;
+            if (node.Properties != null && node.Properties.Count > 0) return false;
+            if (node.Events != null && node.Events.Count > 0) return false;
+
+            string name = node.NameTok.Value?.ToString() ?? "";
+            if (string.IsNullOrWhiteSpace(name)) return false;
+
+            var fields = new Defs.StructFieldDef[node.Fields.Count];
+            for (int i = 0; i < node.Fields.Count; i++)
+            {
+                var fld = node.Fields[i];
+                if (fld.HasAnnotations) return false;
+                if (fld.DefaultValueNode != null) return false; // interface fields can't have defaults
+                fields[i] = new Defs.StructFieldDef(
+                    fld.NameTok.Value?.ToString() ?? "", fld.FieldType,
+                    fld.IsPublic, fld.IsStatic, fld.IsAbstract, fld.IsOverride,
+                    (int)fld.DeclarationType, null);
+            }
+
+            var methods = new Defs.InterfaceMethodDef[node.Methods.Count];
+            for (int i = 0; i < node.Methods.Count; i++)
+            {
+                var m = node.Methods[i];
+                if (m.HasAnnotations) return false;
+                var argNames = new string[m.ArgNameToks.Count];
+                for (int a = 0; a < m.ArgNameToks.Count; a++)
+                    argNames[a] = m.ArgNameToks[a].Value?.ToString() ?? "";
+                methods[i] = new Defs.InterfaceMethodDef(
+                    m.NameTok.Value?.ToString() ?? "", argNames, m.ArgTypes.ToArray(), m.ReturnType);
+            }
+
+            var generics = (node.GenericTypeParams == null || node.GenericTypeParams.Count == 0)
+                ? System.Array.Empty<string>()
+                : node.GenericTypeParams.ToArray();
+            def = new Defs.InterfaceDef(name, node.IsPublic, generics, fields, methods);
+            return true;
+        }
+
+        // L5e: build a FLAT AnnotationDef, or false to fall back. First sub-stage:
+        // annotations with NO meta-annotations (any `@meta annotation Foo` carries
+        // argument expressions + registers metadata via AnnotationProcessor →
+        // fall back) and only const-foldable / absent parameter defaults.
+        private static bool TryBuildAnnotationDef(Parser.Nodes.Annotations.AnnotationDefinitionNode node, out Defs.AnnotationDef def)
+        {
+            def = null!;
+            if (node.HasAnnotations) return false; // meta-annotations → fallback
+            string name = node.Name;
+            if (string.IsNullOrWhiteSpace(name)) return false;
+
+            var ps = new Defs.AnnotationParamDef[node.Parameters.Count];
+            for (int i = 0; i < node.Parameters.Count; i++)
+            {
+                var p = node.Parameters[i];
+                RuntimeValue? defConst = null;
+                if (p.DefaultValueNode != null && !TryFoldFieldDefaultConst(p.DefaultValueNode, out defConst))
+                    return false;
+                ps[i] = new Defs.AnnotationParamDef(p.Name, p.DeclaredType, defConst, p.IsVarArgs);
+            }
+
+            def = new Defs.AnnotationDef(name, node.IsPublic, ps);
+            return true;
+        }
+
+        // L6: build a FLAT ImportDef from an ImportNode. The ModuleSpecifier is
+        // already flat (string-literal raw path OR dotted segments + wildcard);
+        // the form-specific extra is the selected names (Selective) or alias
+        // (Alias). No fallback — every import shape lowers.
+        private static Defs.ImportDef BuildImportDef(Parser.Nodes.Imports.ImportNode node)
+        {
+            var spec = node.Specifier;
+            bool isDotted = spec.Kind == Modules.ModuleSpecifierKind.Dotted;
+            string[] segments;
+            if (spec.Segments != null)
+            {
+                segments = new string[spec.Segments.Count];
+                for (int i = 0; i < spec.Segments.Count; i++) segments[i] = spec.Segments[i];
+            }
+            else segments = System.Array.Empty<string>();
+
+            switch (node)
+            {
+                case Parser.Nodes.Imports.ImportSelectiveNode sel:
+                {
+                    var names = new string[sel.SymbolNames.Count];
+                    for (int i = 0; i < sel.SymbolNames.Count; i++)
+                        names[i] = sel.SymbolNames[i].Value?.ToString() ?? "";
+                    return new Defs.ImportDef(Defs.ImportDefKind.Selective, isDotted, spec.RawPath, segments,
+                        spec.IsWildcard, names, null);
+                }
+                case Parser.Nodes.Imports.ImportAliasNode al:
+                    return new Defs.ImportDef(Defs.ImportDefKind.Alias, isDotted, spec.RawPath, segments,
+                        spec.IsWildcard, System.Array.Empty<string>(), al.Alias);
+                default: // ImportAllNode
+                    return new Defs.ImportDef(Defs.ImportDefKind.All, isDotted, spec.RawPath, segments,
+                        spec.IsWildcard, System.Array.Empty<string>(), null);
+            }
+        }
+
+        // L6: build a FLAT NamespaceDef, or false to fall back. The body
+        // statements are precompiled to RaFunctions the SAME way the visitor's
+        // on-demand IrExpressionEvaluator path compiles them, so the lowered
+        // path is bytecode-identical. A nested compile that throws (can't lower)
+        // → fall back to the visitor.
+        private static bool TryBuildNamespaceDef(Parser.Nodes.Namespaces.NamespaceDeclarationNode node, out Defs.NamespaceDef def)
+        {
+            def = null!;
+            if (s_namespaceLoweringOff) return false; // gate (flipped on once handler+serializer validated)
+
+            var stmts = ExtractNamespaceStatements(node.Body);
+            var bodies = new RaFunction[stmts.Count];
+            try
+            {
+                for (int i = 0; i < stmts.Count; i++)
+                    bodies[i] = Runtime.IrExpressionEvaluator.CompileBodyStatement(stmts[i]);
+            }
+            catch (IrCompileException)
+            {
+                return false;
+            }
+
+            var segs = new string[node.Segments.Count];
+            for (int i = 0; i < node.Segments.Count; i++)
+                segs[i] = node.Segments[i].Value?.ToString() ?? "";
+
+            def = new Defs.NamespaceDef(segs, node.IsFileScoped, bodies);
+            return true;
+        }
+
+        // Mirrors NamespaceDeclarationNodeVisitor.ExtractStatements: a brace body
+        // is a ScopeNode whose Nodes run at namespace scope (NOT in a pushed
+        // child scope); a single-statement body is wrapped.
+        private static System.Collections.Generic.IReadOnlyList<AstNode> ExtractNamespaceStatements(AstNode body)
+        {
+            if (body is Parser.Nodes.Special.ScopeNode scope) return scope.Nodes;
+            return new[] { body };
+        }
+
+        // Gate for the NamespaceDeclaration lowering (L6). Validated OFF first
+        // (visitor refactor + IrExpressionEvaluator additions proven behavior-
+        // preserving via the still-active OP_NATIVE_DEFINE path), now flipped ON
+        // (false) — body statements precompiled into a NamespaceDef.
+        private static readonly bool s_namespaceLoweringOff = false;
+
+        // L5e: build a FLAT ExtensionDef, or false to fall back. First sub-stage:
+        // methods only (extension methods are FunctionDefinitionNodes → reuse
+        // TryBuildClassMethodDef); fallback on properties/operators/events/
+        // fields/indexers.
+        private static bool TryBuildExtensionDef(Parser.Nodes.Classes.ExtensionDefinitionNode node, out Defs.ExtensionDef def)
+        {
+            def = null!;
+            if (node.HasAnnotations) return false;
+            if (node.Properties != null && node.Properties.Count > 0) return false;
+            if (node.Operators != null && node.Operators.Count > 0) return false;
+            if (node.Events != null && node.Events.Count > 0) return false;
+            if (node.Fields != null && node.Fields.Count > 0) return false;
+            if (node.Indexers != null && node.Indexers.Count > 0) return false;
+            if (node.TargetType == null) return false;
+
+            var methods = new Defs.ClassMethodDef[node.Methods.Count];
+            for (int i = 0; i < node.Methods.Count; i++)
+                if (!TryBuildClassMethodDef(node.Methods[i], out methods[i])) return false;
+
+            def = new Defs.ExtensionDef(node.TargetType, node.IsPublic, node.IsSealed, methods);
+            return true;
+        }
+
+        // L5e: fold a struct field's default-value expression to a constant
+        // RuntimeValue at compile time, or return false (→ the struct falls back
+        // to the visitor). Covers plain literals (number / bool / null / non-
+        // interpolated string) — the overwhelming majority of `var x = <lit>`
+        // field defaults. The folded const is produced by the SAME path the
+        // visitor would (NumberNodeVisitor.ParseLiteral / the literal value), so
+        // construction is byte-identical; the handler rebuilds a NumberNode whose
+        // `CachedValue` is this const (NumberNodeVisitor returns CachedValue
+        // verbatim when set, so it round-trips any value type).
+        private static bool TryFoldFieldDefaultConst(AstNode node, out RuntimeValue val)
+        {
+            val = null!;
+            switch (node)
+            {
+                case NumberNode nn:
+                    try { val = Visitors.Primitives.NumberNodeVisitor.ParseLiteral(nn); return true; }
+                    catch { return false; }
+                case Parser.Nodes.Primitives.BooleanNode bn:
+                    if (bn.Token.Value is Lexer.Tokens.Keyword kw)
+                    { val = Values.Primitives.BooleanValue.Of(kw == Lexer.Tokens.Keyword.True); return true; }
+                    return false;
+                case Parser.Nodes.Primitives.NullNode:
+                    val = Values.Primitives.NullValue.Null; return true;
+                case StringNode sn:
+                {
+                    var sb = new System.Text.StringBuilder();
+                    for (int i = 0; i < sn.Parts.Count; i++)
+                    {
+                        if (sn.Parts[i] is Parser.Nodes.Primitives.StringTextNode st) sb.Append(st.Text);
+                        else return false; // interpolated → not a compile-time constant
+                    }
+                    val = new Values.Primitives.StringValue(sb.ToString()); return true;
+                }
+                default:
+                    return false;
+            }
+        }
+
         private static bool TryCompileStatement(
             AstNode stmt, State st, ref byte topSlot, byte scratchSlot, bool strict)
         {
@@ -2299,6 +2915,19 @@ namespace RaLanguage.Interpreter.IR
                 case AstNodeType.Set:
                 case AstNodeType.Map:
                 case AstNodeType.Tuple:
+                // L3: borrow / deref-store as a bare statement lower through the
+                // same expression path (CompileExpression has dedicated cases);
+                // the produced value lands in scratch and is discarded.
+                case AstNodeType.Borrow:
+                case AstNodeType.DereferenceAssignment:
+                // L4: a bare `x |> f()` statement routes through the same
+                // expression path (CompileExpression desugars it to OP_CALL);
+                // the call result lands in scratch and is discarded.
+                case AstNodeType.Pipeline:
+                // L4: a bare `recv with { ... }` statement likewise lowers via
+                // the expression path (CompileExpression emits OP_WITH); the
+                // clone lands in scratch and is discarded.
+                case AstNodeType.WithExpression:
                 {
                     byte topAtEntry = topSlot;
                     CompileExpression(stmt, scratchSlot, st, ref topSlot);
@@ -2350,6 +2979,11 @@ namespace RaLanguage.Interpreter.IR
                     CompileForEach((ForEachNode)stmt, st, ref topSlot, scratchSlot);
                     return true;
 
+                // L1: C-style `for (init; cond; step) { body }`.
+                case AstNodeType.SuperFor:
+                    CompileSuperFor((Parser.Nodes.Statements.SuperForNode)stmt, st, ref topSlot, scratchSlot);
+                    return true;
+
                 case AstNodeType.Try:
                     CompileTry((Parser.Nodes.Special.TryNode)stmt, st, ref topSlot, scratchSlot);
                     return true;
@@ -2367,9 +3001,11 @@ namespace RaLanguage.Interpreter.IR
 
                 case AstNodeType.Continue:
                 {
-                    if (st.Loops.Count == 0)
+                    // L7: continue targets the nearest enclosing real LOOP,
+                    // passing through any switch break-barrier contexts.
+                    var loop = NearestRealLoop(st);
+                    if (loop == null)
                         throw new IrCompileException("`continue` outside loop");
-                    var loop = st.Loops.Peek();
                     EmitPopsDownTo(st, loop.BaselineScopeDepth);
                     int pc = st.Code.EmitForwardJump(Opcode.Jmp);
                     loop.ContinueFixups.Add(pc);
@@ -2378,9 +3014,9 @@ namespace RaLanguage.Interpreter.IR
 
                 case AstNodeType.Retry:
                 {
-                    if (st.Loops.Count == 0)
+                    var loop = NearestRealLoop(st);
+                    if (loop == null)
                         throw new IrCompileException("`retry` outside loop");
-                    var loop = st.Loops.Peek();
                     EmitPopsDownTo(st, loop.BaselineScopeDepth);
                     st.Code.EmitBackwardJump(Opcode.Jmp, 0, loop.RetryTargetPc);
                     return true;
@@ -2428,49 +3064,299 @@ namespace RaLanguage.Interpreter.IR
                     return true;
                 }
 
-                // Native registrations + long-tail expressions / statements.
-                // The VM dispatches to the visitor's static Apply method
-                // directly, bypassing interpreter._visitors[].
-                case AstNodeType.ExtensionDefinition:
-                case AstNodeType.TraitDefinition:
-                case AstNodeType.StructDefinition:
-                case AstNodeType.RecordDefinition:
-                case AstNodeType.InterfaceDefinition:
+                // L5: enum definitions whose variant values are all auto or
+                // constant-integer literals (and with no annotations / where-
+                // constraints) lower to a FLAT EnumDef descriptor + OP_DEFINE_TYPE
+                // — no AST in the `.rac`. Anything outside that flat subset
+                // throws → CompileStatementWithFallback emits OP_NATIVE_DEFINE so
+                // the visitor handles it (value side effects, exotic types,
+                // annotations, generics-with-constraints, …).
                 case AstNodeType.EnumDefinition:
+                {
+                    var en = (Parser.Nodes.Enums.EnumDefinitionNode)stmt;
+                    if (!TryBuildEnumDef(en, out var edef))
+                        throw new IrCompileException("enum not flat-lowerable -> fallback");
+                    if (st.TypeDefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("TypeDefs overflow (>65535)");
+                    ushort tdIdx = (ushort)st.TypeDefs.Count;
+                    st.TypeDefs.Add(edef);
+                    st.Code.Emit2(Opcode.DefineType, scratchSlot, tdIdx);
+                    return true;
+                }
+
+                // L5: `delegate Name = fn(...) -> R` — pure flat metadata (the
+                // structural signature is a TypeDescriptor). Lowers to a
+                // DelegateDef + OP_DEFINE_TYPE. Where-constraints carry AST →
+                // fall back to the visitor.
+                case AstNodeType.DelegateDefinition:
+                {
+                    var dn = (Parser.Nodes.Functions.DelegateDefinitionNode)stmt;
+                    if (!TryBuildDelegateDef(dn, out var ddef))
+                        throw new IrCompileException("delegate not flat-lowerable -> fallback");
+                    if (st.TypeDefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("TypeDefs overflow (>65535)");
+                    ushort tdIdx = (ushort)st.TypeDefs.Count;
+                    st.TypeDefs.Add(ddef);
+                    st.Code.Emit2(Opcode.DefineType, scratchSlot, tdIdx);
+                    return true;
+                }
+
+                // L5: `using a.b.c [as alias]` — a flat one-shot directive (the
+                // dotted path + optional alias). Lowers to a UsingDef +
+                // OP_DEFINE_TYPE; the handler runs the same namespace resolve +
+                // member injection. An empty path segment → fall back to the
+                // visitor (which carries a per-segment position).
                 case AstNodeType.UsingNamespace:
+                {
+                    var un = (Parser.Nodes.Namespaces.UsingNamespaceNode)stmt;
+                    if (!TryBuildUsingDef(un, out var udef))
+                        throw new IrCompileException("using not flat-lowerable -> fallback");
+                    if (st.TypeDefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("TypeDefs overflow (>65535)");
+                    ushort tdIdx = (ushort)st.TypeDefs.Count;
+                    st.TypeDefs.Add(udef);
+                    st.Code.Emit2(Opcode.DefineType, scratchSlot, tdIdx);
+                    return true;
+                }
+
+                // L5e: `struct Name { ... }` — flat-lower the common subset
+                // (fields + methods, no operators/annotations/where-constraints/
+                // param-defaults/non-const field-defaults) to a StructDef +
+                // OP_DEFINE_TYPE; the handler reconstructs the runtime
+                // StructTypeValue from the flat data + precompiled method bodies.
+                // Everything outside the subset throws → the visitor handles it.
+                case AstNodeType.StructDefinition:
+                {
+                    var sn = (Parser.Nodes.Structs.StructDefinitionNode)stmt;
+                    if (!TryBuildStructDef(sn, out var sdef))
+                        throw new IrCompileException("struct not flat-lowerable -> fallback");
+                    if (st.TypeDefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("TypeDefs overflow (>65535)");
+                    ushort tdIdx = (ushort)st.TypeDefs.Count;
+                    st.TypeDefs.Add(sdef);
+                    st.Code.Emit2(Opcode.DefineType, scratchSlot, tdIdx);
+                    return true;
+                }
+
+                // L5e: `record Name(fields) { methods }` — value records in the
+                // flat-lowerable subset (no inheritance/operators/etc.) lower to
+                // a RecordDef + OP_DEFINE_TYPE; the handler reconstructs + runs
+                // the same visitor Apply. Reuses the struct method machinery.
+                case AstNodeType.RecordDefinition:
+                {
+                    var rn = (Parser.Nodes.Records.RecordDefinitionNode)stmt;
+                    if (!TryBuildRecordDef(rn, out var rdef))
+                        throw new IrCompileException("record not flat-lowerable -> fallback");
+                    if (st.TypeDefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("TypeDefs overflow (>65535)");
+                    ushort tdIdx = (ushort)st.TypeDefs.Count;
+                    st.TypeDefs.Add(rdef);
+                    st.Code.Emit2(Opcode.DefineType, scratchSlot, tdIdx);
+                    return true;
+                }
+
+                // L5e: `class Name { ... }` — plain classes (no inheritance/
+                // interfaces/traits/properties/events/operators/static/abstract)
+                // lower to a ClassDef + OP_DEFINE_TYPE; the handler reconstructs
+                // + runs the same (async, sync-completing) visitor Apply.
                 case AstNodeType.ClassDefinition:
+                {
+                    var cn = (Parser.Nodes.Classes.ClassDefinitionNode)stmt;
+                    if (!TryBuildClassDef(cn, out var cdef))
+                        throw new IrCompileException("class not flat-lowerable -> fallback");
+                    if (st.TypeDefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("TypeDefs overflow (>65535)");
+                    ushort tdIdx = (ushort)st.TypeDefs.Count;
+                    st.TypeDefs.Add(cdef);
+                    st.Code.Emit2(Opcode.DefineType, scratchSlot, tdIdx);
+                    return true;
+                }
+
+                // L5e: `trait Name { ... }` — methods (provided + abstract) +
+                // fields lower to a TraitDef + OP_DEFINE_TYPE.
+                case AstNodeType.TraitDefinition:
+                {
+                    var tn = (Parser.Nodes.Traits.TraitDefinitionNode)stmt;
+                    if (!TryBuildTraitDef(tn, out var tdef))
+                        throw new IrCompileException("trait not flat-lowerable -> fallback");
+                    if (st.TypeDefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("TypeDefs overflow (>65535)");
+                    ushort tdIdx = (ushort)st.TypeDefs.Count;
+                    st.TypeDefs.Add(tdef);
+                    st.Code.Emit2(Opcode.DefineType, scratchSlot, tdIdx);
+                    return true;
+                }
+
+                // L5e: `extend T { ... }` — methods lower to an ExtensionDef +
+                // OP_DEFINE_TYPE.
+                case AstNodeType.ExtensionDefinition:
+                {
+                    var en = (Parser.Nodes.Classes.ExtensionDefinitionNode)stmt;
+                    if (!TryBuildExtensionDef(en, out var edef))
+                        throw new IrCompileException("extension not flat-lowerable -> fallback");
+                    if (st.TypeDefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("TypeDefs overflow (>65535)");
+                    ushort tdIdx = (ushort)st.TypeDefs.Count;
+                    st.TypeDefs.Add(edef);
+                    st.Code.Emit2(Opcode.DefineType, scratchSlot, tdIdx);
+                    return true;
+                }
+
+                // L5e: `interface Name { fn sig(); var f: T }` — method
+                // signatures (no bodies) + fields lower to an InterfaceDef +
+                // OP_DEFINE_TYPE; the handler reconstructs + runs the same
+                // visitor Apply. Pure flat metadata (no precompiled bodies).
+                case AstNodeType.InterfaceDefinition:
+                {
+                    var ifn = (Parser.Nodes.Interfaces.InterfaceDefinitionNode)stmt;
+                    if (!TryBuildInterfaceDef(ifn, out var idef))
+                        throw new IrCompileException("interface not flat-lowerable -> fallback");
+                    if (st.TypeDefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("TypeDefs overflow (>65535)");
+                    ushort tdIdx = (ushort)st.TypeDefs.Count;
+                    st.TypeDefs.Add(idef);
+                    st.Code.Emit2(Opcode.DefineType, scratchSlot, tdIdx);
+                    return true;
+                }
+
+                // L5e: `annotation Name(params)` — annotations with NO meta-
+                // annotations + const/absent parameter defaults lower to an
+                // AnnotationDef + OP_DEFINE_TYPE; the handler reconstructs + runs
+                // the same visitor Apply. Meta-annotated annotations (carrying arg
+                // expressions + metadata registration) → fallback.
                 case AstNodeType.AnnotationDefinition:
-                case AstNodeType.NamespaceDeclaration:
+                {
+                    var an = (Parser.Nodes.Annotations.AnnotationDefinitionNode)stmt;
+                    if (!TryBuildAnnotationDef(an, out var adef))
+                        throw new IrCompileException("annotation not flat-lowerable -> fallback");
+                    if (st.TypeDefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("TypeDefs overflow (>65535)");
+                    ushort tdIdx = (ushort)st.TypeDefs.Count;
+                    st.TypeDefs.Add(adef);
+                    st.Code.Emit2(Opcode.DefineType, scratchSlot, tdIdx);
+                    return true;
+                }
+
+                // L6: `import …` (all three forms) — lowers to an ImportDef +
+                // OP_DEFINE_TYPE; the handler rebuilds the ImportNode + runs the
+                // same ImportNodeVisitor.Apply (ModuleManager.Load resolution).
+                // The ModuleSpecifier is already flat data → no fallback.
                 case AstNodeType.ImportAll:
                 case AstNodeType.ImportSelective:
                 case AstNodeType.ImportAlias:
-                case AstNodeType.Match:
+                {
+                    var idef = BuildImportDef((Parser.Nodes.Imports.ImportNode)stmt);
+                    if (st.TypeDefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("TypeDefs overflow (>65535)");
+                    ushort tdIdx = (ushort)st.TypeDefs.Count;
+                    st.TypeDefs.Add(idef);
+                    st.Code.Emit2(Opcode.DefineType, scratchSlot, tdIdx);
+                    return true;
+                }
+
+                // L6: `namespace A.B { … }` — body statements precompiled into a
+                // NamespaceDef + OP_DEFINE_TYPE; the handler reconstructs the
+                // node + runs the same (async, sync-completing) visitor Apply
+                // with the precompiled bodies. Gated until the handler +
+                // serializer are validated.
+                case AstNodeType.NamespaceDeclaration:
+                {
+                    var nsn = (Parser.Nodes.Namespaces.NamespaceDeclarationNode)stmt;
+                    if (!TryBuildNamespaceDef(nsn, out var nsdef))
+                        throw new IrCompileException("namespace not flat-lowerable -> fallback");
+                    if (st.TypeDefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("TypeDefs overflow (>65535)");
+                    ushort tdIdx = (ushort)st.TypeDefs.Count;
+                    st.TypeDefs.Add(nsdef);
+                    st.Code.Emit2(Opcode.DefineType, scratchSlot, tdIdx);
+                    return true;
+                }
+
+                // Native registrations + long-tail expressions / statements.
+                // The VM dispatches to the visitor's static Apply method
+                // directly, bypassing interpreter._visitors[].
                 case AstNodeType.DestructuringDeclaration:
                 case AstNodeType.TryUnwrap:
                 case AstNodeType.Await:
                 case AstNodeType.Spawn:
                 case AstNodeType.Emit:
                 case AstNodeType.ForAwait:
-                case AstNodeType.Pipeline:
-                case AstNodeType.Borrow:
-                case AstNodeType.DereferenceAssignment:
                 case AstNodeType.Goto:
                 case AstNodeType.Label:
-                case AstNodeType.SuperFor:
                 case AstNodeType.AsmBlock:
                 case AstNodeType.RegexLiteral:
                 case AstNodeType.FormattedInterpolation:
                 case AstNodeType.Yield:
                 case AstNodeType.AnnotationApplication:
-                case AstNodeType.WithExpression:
-                case AstNodeType.Switch:
-                case AstNodeType.DelegateDefinition:
                 {
                     if (st.DefineRefs.Count > ushort.MaxValue)
                         throw new IrCompileException("DefineRefs overflow (>65535)");
                     ushort refIdx = (ushort)st.DefineRefs.Count;
                     st.DefineRefs.Add(stmt);
                     st.Code.Emit2(Opcode.NativeDefine, scratchSlot, refIdx);
+                    return true;
+                }
+
+                // L7: statement-position switch — lower into the scratch slot
+                // (value discarded). On a non-lowerable switch, fall back to
+                // OP_NATIVE_DEFINE HERE (not by throwing): in a strict body
+                // context (while/for body via CompileBodyStrictInline) a throw
+                // would propagate and sink the whole enclosing statement.
+                case AstNodeType.Switch:
+                {
+                    int savedPc = st.Code.Pc;
+                    byte savedTop = topSlot;
+                    int savedRefs = st.DefineRefs.Count;
+                    try
+                    {
+                        CompileSwitchExpr((SwitchNode)stmt, scratchSlot, st, ref topSlot);
+                        return true;
+                    }
+                    catch (IrCompileException)
+                    {
+                        st.Code.Truncate(savedPc);
+                        topSlot = savedTop;
+                        if (st.DefineRefs.Count > savedRefs)
+                            st.DefineRefs.RemoveRange(savedRefs, st.DefineRefs.Count - savedRefs);
+                    }
+                    if (st.DefineRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("DefineRefs overflow (>65535)");
+                    ushort swStmtRefIdx = (ushort)st.DefineRefs.Count;
+                    st.DefineRefs.Add(stmt);
+                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, swStmtRefIdx);
+                    return true;
+                }
+
+                // L7: statement-position match — lower the literal/wildcard
+                // subset into scratch (value discarded). On a non-lowerable
+                // match, fall back to OP_NATIVE_DEFINE HERE (not by throwing):
+                // in a strict body context (while/for body via
+                // CompileBodyStrictInline) a throw would propagate and sink the
+                // whole enclosing statement (e.g. a while-let desugars to a
+                // While wrapping a list-pattern match). Mirrors the old native
+                // group that carried Match.
+                case AstNodeType.Match:
+                {
+                    int savedPc = st.Code.Pc;
+                    byte savedTop = topSlot;
+                    int savedRefs = st.DefineRefs.Count;
+                    try
+                    {
+                        CompileMatchExpr((Parser.Nodes.Patterns.MatchNode)stmt, scratchSlot, st, ref topSlot);
+                        return true;
+                    }
+                    catch (IrCompileException)
+                    {
+                        st.Code.Truncate(savedPc);
+                        topSlot = savedTop;
+                        if (st.DefineRefs.Count > savedRefs)
+                            st.DefineRefs.RemoveRange(savedRefs, st.DefineRefs.Count - savedRefs);
+                    }
+                    if (st.DefineRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("DefineRefs overflow (>65535)");
+                    ushort mStmtRefIdx = (ushort)st.DefineRefs.Count;
+                    st.DefineRefs.Add(stmt);
+                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, mStmtRefIdx);
                     return true;
                 }
 
@@ -2700,6 +3586,435 @@ namespace RaLanguage.Interpreter.IR
         {
             foreach (var name in st.TypedAccumulators.Keys)
                 st.DirtyTypedAccs.Add(name);
+        }
+
+        // L7 (first cut): expression-switch lowering. A switch where EVERY case
+        // is arrow (`=>`) with a pure-value expression body reduces to an
+        // if-else-chain producing a value — built from EXISTING opcodes
+        // (Eq/JmpIf/Jmp/LoadNull, all already modeled in every analysis pass, so
+        // NO new opcode surface). The scrutinee is evaluated ONCE into a
+        // persistent slot; each case compares it against its labels with
+        // Opcode.Eq (runtime → GetComparisonEq, identical to the visitor's
+        // switchVal.GetComparisonEq(labelVal)), JmpIf-to-body on the first
+        // matching label (so later labels of that case AND all later cases are
+        // skipped — matching the visitor's lazy, first-match-wins evaluation).
+        // The matched arm's expression lands in destSlot; a default arm is
+        // unconditional-when-reached (later cases dead); no match + no default →
+        // null. Falls back (IrCompileException → OP_NATIVE_DEFINE) on
+        // colon-fallthrough, block/List bodies, or a body that is itself a
+        // break/continue/yield/return (the visitor special-cases those).
+        private static void CompileSwitchExpr(SwitchNode node, byte destSlot, State st, ref byte topSlot)
+        {
+            // Route by separator style. All-colon → C-style fallthrough (handles
+            // `break`); all-arrow → the pure-value expression-arm path below.
+            // A switch mixing `=>` and `:` cases has tangled fallthrough
+            // semantics → fall back to the visitor.
+            bool anyColon = false, anyArrow = false;
+            for (int i = 0; i < node.Cases.Count; i++)
+            {
+                if (node.Cases[i].Separator == SwitchCaseSeparator.Colon) anyColon = true;
+                else anyArrow = true;
+            }
+            if (anyColon && anyArrow)
+                throw new IrCompileException("switch: mixed arrow/colon cases -> fallback");
+            if (anyColon)
+            {
+                CompileSwitchColon(node, destSlot, st, ref topSlot);
+                return;
+            }
+
+            // Guard the all-arrow lowerable subset (before emitting anything).
+            for (int i = 0; i < node.Cases.Count; i++)
+            {
+                var c = node.Cases[i];
+                if (c.Body == null)
+                    throw new IrCompileException("switch: null arm body -> fallback");
+                bool isBlock = c.Body.NodeType == AstNodeType.List || c.Body.NodeType == AstNodeType.Scope;
+                if (isBlock)
+                {
+                    // Block arm → run stmts, value is null. A control escape
+                    // (yield / break / continue / return) inside the block has
+                    // inconsistent visitor semantics we don't replicate — fall
+                    // back. Only pure side-effect blocks lower.
+                    if (ArrowBlockHasControlEscape(c.Body))
+                        throw new IrCompileException("switch: arrow-block control escape -> fallback");
+                }
+                else switch (c.Body.NodeType)
+                {
+                    case AstNodeType.Return:
+                    case AstNodeType.Yield:
+                    case AstNodeType.Break:
+                    case AstNodeType.Continue:
+                        throw new IrCompileException("switch: control-escape arm body -> fallback");
+                }
+                if (!c.IsDefault && (c.Labels == null || c.Labels.Count == 0))
+                    throw new IrCompileException("switch: non-default case with no labels -> fallback");
+            }
+
+            // Evaluate the scrutinee exactly once into a persistent slot.
+            // NOTE: topSlot grows monotonically here (no reset-down between
+            // arms) — like CompileIf. The per-statement MaxTempUsed high-water
+            // captures topSlot's PEAK, so resetting it down would undersize the
+            // frame (→ IndexOutOfRange at runtime). Extra temps for a wide switch
+            // are bounded by the 255 limit (overflow → IrCompileException →
+            // fallback).
+            byte scrutSlot = AllocTemp(ref topSlot);
+            CompileExpression(node.Expression, scrutSlot, st, ref topSlot);
+            // Discard slot for block arms' expression-statements (NOT destSlot).
+            byte bodyScratch = AllocTemp(ref topSlot);
+
+            var endJumps = new List<int>();
+            bool sawDefault = false;
+
+            // Break-barrier: `break` inside a block arm exits the switch (→ end);
+            // `continue` / `retry` pass through to the enclosing real loop.
+            // Harmless for pure expression arms (no break inside → empty fixups).
+            var swCtx = new LoopContext(st.Code.Pc, st.ScopeDepth) { BreakBarrierOnly = true };
+            st.Loops.Push(swCtx);
+
+            for (int i = 0; i < node.Cases.Count; i++)
+            {
+                var c = node.Cases[i];
+
+                if (c.IsDefault)
+                {
+                    // Reached without a prior match → always taken; later cases dead.
+                    EmitArrowBody(c.Body!, destSlot, bodyScratch, st, ref topSlot);
+                    endJumps.Add(st.Code.EmitForwardJump(Opcode.Jmp));
+                    sawDefault = true;
+                    break;
+                }
+
+                // Compare the scrutinee against each label; jump to the body on
+                // the first match (lazy — later labels skipped at runtime).
+                var bodyJumps = new List<int>();
+                foreach (var labelExpr in c.Labels)
+                {
+                    byte labelSlot = AllocTemp(ref topSlot);
+                    CompileExpression(labelExpr, labelSlot, st, ref topSlot);
+                    byte condSlot = AllocTemp(ref topSlot);
+                    st.Code.Emit3(Opcode.Eq, condSlot, scrutSlot, labelSlot);
+                    bodyJumps.Add(st.Code.EmitForwardJump(Opcode.JmpIf, condSlot));
+                }
+                // No label matched → fall through to the next case.
+                int skipBody = st.Code.EmitForwardJump(Opcode.Jmp);
+                // Body entry — patch every matching-label jump to here.
+                foreach (var bj in bodyJumps) st.Code.PatchJumpToHere(bj);
+                EmitArrowBody(c.Body!, destSlot, bodyScratch, st, ref topSlot);
+                endJumps.Add(st.Code.EmitForwardJump(Opcode.Jmp));
+                st.Code.PatchJumpToHere(skipBody);
+            }
+
+            st.Loops.Pop();
+
+            // No case matched and no default → null switch value (matches the
+            // visitor's trailing `res.Success(NullValue.Null)`).
+            if (!sawDefault)
+                st.Code.Emit3(Opcode.LoadNull, destSlot, 0, 0);
+
+            foreach (var j in endJumps) st.Code.PatchJumpToHere(j);
+            // `break` inside a block arm lands at the switch end too.
+            foreach (var bf in swCtx.BreakFixups) st.Code.PatchJumpToHere(bf);
+
+            // Capture the temp high-water (in case no later statement-boundary
+            // update does) so the frame is sized for our slots.
+            if (topSlot > st.MaxTempUsed) st.MaxTempUsed = topSlot;
+
+            // Each arm may take a different path through the linear dirty-set
+            // tracking — re-publish every typed accumulator afterwards.
+            MarkAllTypedAccsDirty(st);
+        }
+
+        // L7: C-style colon switch (every case `case X:` / `default:`).
+        // Statement-style — the switch VALUE is null. The scrutinee is evaluated
+        // ONCE; a dispatch chain compares it against each case's labels (Opcode.Eq
+        // → GetComparisonEq) and jumps to that case's body. Bodies are laid in
+        // SOURCE ORDER and FALL THROUGH into each other (C semantics) until a
+        // `break` (→ switch end) or the end of the switch. A break-barrier
+        // LoopContext catches `break` while letting `continue`/`retry` pass
+        // through to the nearest enclosing real loop. Bodies compile via
+        // CompileBodyStrictInline (NO per-case scope push → fallthrough shares the
+        // switch scope, matching the visitor which runs colon stmts at `context`).
+        // Falls back (IrCompileException → OP_NATIVE_DEFINE) when a body statement
+        // cannot lower (including `yield`, which the visitor special-cases).
+        private static void CompileSwitchColon(SwitchNode node, byte destSlot, State st, ref byte topSlot)
+        {
+            // A colon switch yields null.
+            st.Code.Emit3(Opcode.LoadNull, destSlot, 0, 0);
+
+            // Evaluate the scrutinee exactly once into a persistent slot.
+            byte scrutSlot = AllocTemp(ref topSlot);
+            CompileExpression(node.Expression, scrutSlot, st, ref topSlot);
+            // Dedicated discard slot for the bodies' expression-statements (must
+            // NOT be destSlot, which holds the null switch value).
+            byte bodyScratch = AllocTemp(ref topSlot);
+
+            int n = node.Cases.Count;
+            var caseDispatchJumps = new List<int>[n];
+            int defaultIdx = -1;
+
+            // Dispatch: per non-default case, compare vs each label → JmpIf body.
+            for (int i = 0; i < n; i++)
+            {
+                var c = node.Cases[i];
+                if (c.IsDefault) { defaultIdx = i; continue; }
+                var jumps = new List<int>();
+                if (c.Labels != null)
+                {
+                    foreach (var labelExpr in c.Labels)
+                    {
+                        byte labelSlot = AllocTemp(ref topSlot);
+                        CompileExpression(labelExpr, labelSlot, st, ref topSlot);
+                        byte condSlot = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.Eq, condSlot, scrutSlot, labelSlot);
+                        jumps.Add(st.Code.EmitForwardJump(Opcode.JmpIf, condSlot));
+                    }
+                }
+                caseDispatchJumps[i] = jumps;
+            }
+            // No case matched → jump to the default body (if any) or the end.
+            int noMatchJump = st.Code.EmitForwardJump(Opcode.Jmp);
+
+            // Break-barrier: `break` inside a body → switch end; `continue` /
+            // `retry` walk past to the enclosing real loop.
+            var swCtx = new LoopContext(st.Code.Pc, st.ScopeDepth) { BreakBarrierOnly = true };
+            st.Loops.Push(swCtx);
+
+            // Bodies in source order, FALLING THROUGH (no jump between them).
+            for (int i = 0; i < n; i++)
+            {
+                var c = node.Cases[i];
+                if (caseDispatchJumps[i] != null)
+                    foreach (var j in caseDispatchJumps[i]) st.Code.PatchJumpToHere(j);
+                if (i == defaultIdx)
+                    st.Code.PatchJumpToHere(noMatchJump); // no-match falls into the default body
+                if (c.Body != null)
+                    CompileBodyStrictInline(c.Body, st, ref topSlot, bodyScratch);
+            }
+
+            st.Loops.Pop();
+
+            // Switch end: every `break` jump lands here; if there is no default,
+            // the no-match jump lands here too.
+            foreach (var bf in swCtx.BreakFixups) st.Code.PatchJumpToHere(bf);
+            if (defaultIdx < 0) st.Code.PatchJumpToHere(noMatchJump);
+
+            if (topSlot > st.MaxTempUsed) st.MaxTempUsed = topSlot;
+            MarkAllTypedAccsDirty(st);
+        }
+
+        // L7 (Match, first cut): a `match` whose every arm is a WILDCARD (`_`)
+        // or LITERAL (number / string / bool) pattern — no binding, no
+        // destructuring — reduces to an if-else chain producing a value, built
+        // from existing Eq/JmpIf/Jmp opcodes (NO new opcode surface). Literal
+        // arms compare the once-evaluated scrutinee against the literal with
+        // Opcode.Eq (= GetComparisonEq, the same the visitor's TryMatchLiteral
+        // uses for non-null operands); a wildcard arm matches unconditionally.
+        // Guards (`case P if g`) are evaluated AFTER the pattern test and skip to
+        // the next arm when false. Requires a wildcard-with-no-guard CATCH-ALL
+        // (so the match is exhaustive and no runtime no-match error path is
+        // needed — arms after it are dead). Falls back (IrCompileException →
+        // OP_NATIVE_DEFINE) on: variable / variant / tuple / list / struct / type
+        // / or-/and-/range/… patterns, `null` or non-trivial literal patterns,
+        // block or control-escape arm bodies, or a match with no catch-all.
+        // NOTE: a literal arm uses plain Eq, which (unlike the visitor) does not
+        // pre-check a null scrutinee — sound for the non-null scrutinees in the
+        // corpus; null-scrutinee literal matches are caught by the parity oracle.
+        private static void CompileMatchExpr(Parser.Nodes.Patterns.MatchNode node, byte destSlot, State st, ref byte topSlot)
+        {
+            int catchAllIdx = -1;
+            for (int i = 0; i < node.Arms.Count; i++)
+            {
+                var arm = node.Arms[i];
+                switch (arm.Pattern)
+                {
+                    case Parser.Nodes.Patterns.WildcardPatternNode _:
+                        if (arm.Guard == null && catchAllIdx < 0) catchAllIdx = i;
+                        break;
+                    case Parser.Nodes.Patterns.LiteralPatternNode lp:
+                        if (!IsLowerableMatchLiteral(lp.Expression))
+                            throw new IrCompileException("match: non-trivial literal pattern -> fallback");
+                        break;
+                    default:
+                        // Variable / variant / tuple / list / struct / type / etc.
+                        // → fallback. (Variable BINDING is deferred: the Resolver
+                        // leaves match-arm-body refs NAME-based — the visitor binds
+                        // via SetLocal(name) — so a slot-based store doesn't reach
+                        // them. Lowering it needs the Resolver to slot-resolve
+                        // pattern-body references, or a name-bind opcode.)
+                        throw new IrCompileException("match: non-literal/wildcard pattern -> fallback");
+                }
+                // Body must be a pure-value expression (like switch arrow-expr).
+                var b = arm.Body;
+                switch (b.NodeType)
+                {
+                    case AstNodeType.List:
+                    case AstNodeType.Scope:
+                    case AstNodeType.Return:
+                    case AstNodeType.Yield:
+                    case AstNodeType.Break:
+                    case AstNodeType.Continue:
+                        throw new IrCompileException("match: block/control-escape arm body -> fallback");
+                }
+                if (catchAllIdx >= 0) break; // arms after the catch-all are dead
+            }
+            if (catchAllIdx < 0)
+                throw new IrCompileException("match: no wildcard catch-all (exhaustiveness) -> fallback");
+
+            // Evaluate the scrutinee exactly once into a persistent slot.
+            byte scrutSlot = AllocTemp(ref topSlot);
+            CompileExpression(node.Scrutinee, scrutSlot, st, ref topSlot);
+
+            var endJumps = new List<int>();
+            for (int i = 0; i <= catchAllIdx; i++)
+            {
+                var arm = node.Arms[i];
+                var skips = new List<int>(); // jumps to the NEXT arm
+
+                if (arm.Pattern is Parser.Nodes.Patterns.LiteralPatternNode lp)
+                {
+                    byte litSlot = AllocTemp(ref topSlot);
+                    CompileExpression(lp.Expression, litSlot, st, ref topSlot);
+                    byte condSlot = AllocTemp(ref topSlot);
+                    st.Code.Emit3(Opcode.Eq, condSlot, scrutSlot, litSlot);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, condSlot));
+                }
+                // Wildcard: no pattern test. (Variable bindings are deferred.)
+                // Guard runs after the pattern test (it sees no bindings in this
+                // subset, but may reference outer variables).
+                if (arm.Guard != null)
+                {
+                    byte gSlot = AllocTemp(ref topSlot);
+                    CompileExpression(arm.Guard, gSlot, st, ref topSlot);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, gSlot));
+                }
+
+                CompileExpression(arm.Body, destSlot, st, ref topSlot);
+                endJumps.Add(st.Code.EmitForwardJump(Opcode.Jmp));
+
+                foreach (var s in skips) st.Code.PatchJumpToHere(s);
+            }
+            // The catch-all guarantees a match — no no-match error path needed.
+
+            foreach (var j in endJumps) st.Code.PatchJumpToHere(j);
+            if (topSlot > st.MaxTempUsed) st.MaxTempUsed = topSlot;
+            MarkAllTypedAccsDirty(st);
+        }
+
+        // A match literal pattern this first cut can lower: a plain number /
+        // bool / single-text string. `null` is excluded (the visitor matches it
+        // by identity, not Eq); unary-minus / interpolation / others fall back.
+        private static bool IsLowerableMatchLiteral(AstNode expr)
+        {
+            switch (expr.NodeType)
+            {
+                case AstNodeType.Number:
+                case AstNodeType.Boolean:
+                    return true;
+                case AstNodeType.String:
+                {
+                    var sn = (Parser.Nodes.Primitives.StringNode)expr;
+                    return sn.Parts.Count == 1
+                        && sn.Parts[0] is Parser.Nodes.Primitives.StringTextNode;
+                }
+                default:
+                    return false;
+            }
+        }
+
+        // L7: emit one arrow (`=>`) switch arm body. A block body (`{ … }`) runs
+        // its statements and the arm value is null (LoadNull dest); an expression
+        // body evaluates straight into dest. The caller emits the trailing Jmp to
+        // the switch end (arrow arms never fall through).
+        private static void EmitArrowBody(AstNode body, byte destSlot, byte bodyScratch, State st, ref byte topSlot)
+        {
+            // An arrow block is parsed as a ListNode whose ElementNodes are run
+            // as STATEMENTS (the visitor's `(ListNode)c.Body` path); the arm
+            // value is null. A Scope is handled the same way (defensive).
+            if (body.NodeType == AstNodeType.List)
+            {
+                st.Code.Emit3(Opcode.LoadNull, destSlot, 0, 0);
+                var lst = (Parser.Nodes.Primitives.ListNode)body;
+                foreach (var stmt in lst.ElementNodes)
+                    if (!TryCompileStatement(stmt, st, ref topSlot, bodyScratch, strict: true))
+                        throw new IrCompileException($"switch arrow-block stmt not compilable: {stmt.NodeType}");
+            }
+            else if (body.NodeType == AstNodeType.Scope)
+            {
+                st.Code.Emit3(Opcode.LoadNull, destSlot, 0, 0);
+                CompileBodyStrictInline(body, st, ref topSlot, bodyScratch);
+            }
+            else
+            {
+                CompileExpression(body, destSlot, st, ref topSlot);
+            }
+        }
+
+        // L7: conservative — does this arrow-block arm body contain a control
+        // ESCAPE (`yield` / `break` / `continue` / `return`) reachable in THIS
+        // arm (not inside a nested function / generator / loop)? The visitor
+        // special-cases each (yield sets the switch value; break exits with null;
+        // continue/return propagate) with inconsistent semantics we don't
+        // replicate — so any escape → fall back to the visitor. Returns true for
+        // an escape or any node type we can't prove escape-free; only PURE
+        // side-effect blocks (calls / assignments / decls) lower. Nested
+        // fn/type/loop bodies own their own break/continue/yield scope and are
+        // NOT descended.
+        private static bool ArrowBlockHasControlEscape(AstNode? node)
+        {
+            if (node == null) return false;
+            switch (node.NodeType)
+            {
+                case AstNodeType.Yield:
+                case AstNodeType.Break:
+                case AstNodeType.Continue:
+                case AstNodeType.Return:
+                    return true;
+                // Own break/continue/yield scope — escapes inside are not this arm's.
+                case AstNodeType.FunctionDefinition:
+                case AstNodeType.ClassDefinition:
+                case AstNodeType.StructDefinition:
+                case AstNodeType.RecordDefinition:
+                case AstNodeType.EnumDefinition:
+                case AstNodeType.For:
+                case AstNodeType.ForEach:
+                case AstNodeType.While:
+                case AstNodeType.DoWhile:
+                case AstNodeType.SuperFor:
+                    return false;
+                // Definitely escape-free leaves / expression statements.
+                case AstNodeType.Number:
+                case AstNodeType.String:
+                case AstNodeType.Boolean:
+                case AstNodeType.Null:
+                case AstNodeType.VariableAccess:
+                case AstNodeType.Pass:
+                case AstNodeType.Throw:
+                case AstNodeType.FunctionCall:
+                case AstNodeType.VariableAssignment:
+                case AstNodeType.MemberAssignment:
+                case AstNodeType.VariableDeclaration:
+                    return false;
+                case AstNodeType.Scope:
+                {
+                    var sn = (Parser.Nodes.Special.ScopeNode)node;
+                    foreach (var n in sn.Nodes)
+                        if (ArrowBlockHasControlEscape(n)) return true;
+                    return false;
+                }
+                case AstNodeType.List:
+                {
+                    // The arrow-block container itself (its elements are stmts).
+                    var ln = (Parser.Nodes.Primitives.ListNode)node;
+                    foreach (var e in ln.ElementNodes)
+                        if (ArrowBlockHasControlEscape(e)) return true;
+                    return false;
+                }
+                // Conservative: an unknown structure (if / try / nested switch /
+                // …) might hide an escape → fall back.
+                default:
+                    return true;
+            }
         }
 
         // Returns true / false when the node is a compile-time constant
@@ -3412,6 +4727,103 @@ namespace RaLanguage.Interpreter.IR
         //   exit_outer:
         //   PopScope (body)
         //   PopScope (iter)
+        // L1: C-style `for (init…; cond…; step…) { body }` (SuperForNode).
+        // Lowered to the same Jmp / compare / scope primitives the `to`-form
+        // For and While already use — zero new opcodes. Mirrors
+        // SuperForNodeVisitor exactly:
+        //
+        //   loopContext = ctx.Copy()           → PushScope (iter scope)
+        //   for each init: eval in loopContext
+        //   bodyContext = loopContext.Copy()   → PushScope (body scope, if any)
+        //   while (every condition is true):   → cond_i; JmpIfNot exit (AND)
+        //     <body>                           → CompileBodyStrictInline
+        //     <steps>                          → eval in loopContext
+        //
+        // Layout:
+        //   PushScope                ; iter scope (init vars persist)
+        //   <inits>
+        //   [PushScope]              ; body scope (only when body declares)
+        // loopTop:
+        //   <cond_i; JmpIfNot exit>* ; empty list ⇒ infinite loop
+        //   <body>
+        // continueTarget:           ; `continue` lands here (runs the steps)
+        //   [ClearScope]             ; drop body locals BEFORE the steps, so a
+        //                            ; body shadow of an iter var cannot capture
+        //                            ; the step's write — matching the visitor
+        //                            ; running steps in loopContext (NOT
+        //                            ; bodyContext). Without this, a `var i` in
+        //                            ; the body would make `i = i + 1` mutate
+        //                            ; the shadow and loop forever.
+        //   <steps>
+        //   Jmp loopTop
+        // exit:
+        //   [PopScope]               ; body scope
+        //   PopScope                 ; iter scope
+        private static void CompileSuperFor(Parser.Nodes.Statements.SuperForNode node, State st, ref byte topSlot, byte scratchSlot)
+        {
+            st.RecordPcSpan(node);
+
+            EmitPushScope(st); // iter scope (loopContext) — holds the init vars
+
+            foreach (var initNode in node.InitializationNodes)
+            {
+                st.RecordPcSpan(initNode);
+                if (!TryCompileStatement(initNode, st, ref topSlot, scratchSlot, strict: true))
+                    throw new IrCompileException($"super-for init not compilable: {initNode.NodeType}");
+            }
+
+            bool bodyNeedsScope = Parser.Nodes.AstScopeAnalysis.NeedsFreshScope(node.BodyNode);
+            if (bodyNeedsScope)
+                EmitPushScope(st); // body scope (bodyContext)
+            int baselineDepth = st.ScopeDepth;
+
+            int loopTopPc = st.Code.Pc;
+
+            // Conditions: logical AND — every one must hold to enter the body.
+            // An empty condition list leaves no exit test ⇒ `for(;;)` is an
+            // infinite loop (matches the visitor's `canContinue` default).
+            var condExitFixups = new List<int>();
+            foreach (var condNode in node.ConditionNodes)
+            {
+                st.RecordPcSpan(condNode);
+                byte condSlot = AllocTemp(ref topSlot);
+                CompileExpression(condNode, condSlot, st, ref topSlot);
+                condExitFixups.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, condSlot));
+            }
+
+            var loop = new LoopContext(loopTopPc, baselineDepth);
+            st.Loops.Push(loop);
+            try
+            {
+                CompileBodyStrictInline(node.BodyNode, st, ref topSlot, scratchSlot);
+
+                // continue target = clear-body-locals + steps. Patch the body's
+                // forward `continue` jumps to HERE (Code.Pc == this point).
+                foreach (var p in loop.ContinueFixups) st.Code.PatchJumpToHere(p);
+                if (bodyNeedsScope)
+                    st.Code.Emit3(Opcode.ClearScope, 0, 0, 0);
+                foreach (var stepNode in node.StepNodes)
+                {
+                    st.RecordPcSpan(stepNode);
+                    if (!TryCompileStatement(stepNode, st, ref topSlot, scratchSlot, strict: true))
+                        throw new IrCompileException($"super-for step not compilable: {stepNode.NodeType}");
+                }
+                st.Code.EmitBackwardJump(Opcode.Jmp, 0, loopTopPc);
+            }
+            finally
+            {
+                st.Loops.Pop();
+            }
+
+            foreach (var p in condExitFixups) st.Code.PatchJumpToHere(p);
+            foreach (var p in loop.BreakFixups) st.Code.PatchJumpToHere(p);
+
+            if (bodyNeedsScope)
+                EmitPopScope(st); // body scope
+            EmitPopScope(st); // iter scope
+            MarkAllTypedAccsDirty(st);
+        }
+
         private static void CompileFor(ForNode node, State st, ref byte topSlot, byte scratchSlot)
         {
             // M21.1: pre-checks dropped — see CompileWhile rationale.
@@ -4595,6 +6007,16 @@ namespace RaLanguage.Interpreter.IR
             for (int i = 0; i < n; i++) st.Code.Emit3(Opcode.PopScope, 0, 0, 0);
         }
 
+        // L7: the nearest enclosing context that `continue` / `retry` target —
+        // a real loop, skipping any `switch` break-barrier contexts (which only
+        // catch `break`). Stack enumerates top → bottom (innermost first).
+        private static LoopContext? NearestRealLoop(State st)
+        {
+            foreach (var ctx in st.Loops)
+                if (!ctx.BreakBarrierOnly) return ctx;
+            return null;
+        }
+
         private static void EmitPushScope(State st)
         {
             st.Code.Emit3(Opcode.PushScope, 0, 0, 0);
@@ -5128,20 +6550,14 @@ namespace RaLanguage.Interpreter.IR
                 // Long-tail expressions routed via OP_NATIVE_DEFINE — the
                 // VM calls the visitor's static Apply directly, never
                 // hitting interpreter._visitors[].
-                case AstNodeType.Match:
                 case AstNodeType.DestructuringDeclaration:
                 case AstNodeType.TryUnwrap:
                 case AstNodeType.Await:
                 case AstNodeType.Spawn:
                 case AstNodeType.Emit:
                 case AstNodeType.ForAwait:
-                case AstNodeType.Pipeline:
-                case AstNodeType.Borrow:
-                case AstNodeType.DereferenceAssignment:
                 case AstNodeType.SuperFor:
                 case AstNodeType.AsmBlock:
-                case AstNodeType.RegexLiteral:
-                case AstNodeType.FormattedInterpolation:
                 case AstNodeType.Yield:
                 case AstNodeType.AnnotationApplication:
                 case AstNodeType.IsType:
@@ -5151,6 +6567,126 @@ namespace RaLanguage.Interpreter.IR
                     ushort refIdx = (ushort)st.DefineRefs.Count;
                     st.DefineRefs.Add(expr);
                     st.Code.Emit2(Opcode.NativeDefine, destSlot, refIdx);
+                    return;
+                }
+
+                // L4: formatted interpolation `${expr:spec}` (only ever emitted
+                // by the parser inside an interpolated string, so this is
+                // reached via the StringNode part loop). Lower to OP_FMT:
+                // compile the inner expression into a temp, intern the parsed
+                // FormatSpec as a packed-int const, emit `Fmt dst, exprSlot,
+                // specConstIdx`. The spec is built ONCE at compile time — no
+                // textual re-parse at runtime, even inside a hot loop. A spec
+                // const index that overflows the u8 `c` operand → fallback.
+                case AstNodeType.FormattedInterpolation:
+                {
+                    var fin = (Parser.Nodes.Primitives.FormattedInterpolationNode)expr;
+                    byte exprSlot = AllocTemp(ref topSlot);
+                    CompileExpression(fin.Expression, exprSlot, st, ref topSlot);
+                    int packed = fin.FormatSpec.Pack();
+                    ushort specIdx = st.Consts.Add(IntegerValue.Of(packed));
+                    if (specIdx > byte.MaxValue)
+                        throw new IrCompileException("format-spec const index exceeds u8 -> fallback");
+                    st.Code.Emit3(Opcode.Fmt, destSlot, exprSlot, (byte)specIdx);
+                    return;
+                }
+
+                // L4: record copy-update `recv with { f: v, ... }`. Lower to
+                // OP_WITH: lay the receiver into `base` and each update value
+                // into the contiguous slots `base+1 .. base+N` (eval order =
+                // visitor's: receiver, then values in source order), park the
+                // node in DefineRefs for its static field names / positions /
+                // declared types, and emit `With dst, base, defineRefIdx`. The
+                // shallow-clone + validation + field-set runs in the shared
+                // WithExpressionOps helper (identical to the visitor). >255
+                // updates, or a DefineRefs index past the u8 `c` operand →
+                // fallback.
+                case AstNodeType.WithExpression:
+                {
+                    var wn = (Parser.Nodes.Operations.WithExpressionNode)expr;
+                    int count = wn.Updates.Count;
+                    if (count > byte.MaxValue - 1)
+                        throw new IrCompileException("with-expression has too many updates -> fallback");
+
+                    // Reserve the contiguous band: base (recv), then `count`
+                    // value slots. Sub-expression temps allocate ABOVE it.
+                    byte baseSlot = AllocTemp(ref topSlot);
+                    for (int i = 0; i < count; i++) AllocTemp(ref topSlot);
+
+                    CompileExpression(wn.Receiver, baseSlot, st, ref topSlot);
+                    for (int i = 0; i < count; i++)
+                        CompileExpression(wn.Updates[i].Item2, (byte)(baseSlot + 1 + i), st, ref topSlot);
+
+                    if (st.DefineRefs.Count > byte.MaxValue)
+                        throw new IrCompileException("DefineRefs index exceeds u8 for OP_WITH -> fallback");
+                    byte refIdx = (byte)st.DefineRefs.Count;
+                    st.DefineRefs.Add(wn);
+
+                    st.Code.Emit3(Opcode.With, destSlot, baseSlot, refIdx);
+                    return;
+                }
+
+                // L4: `re"pattern"flags`. Pattern + flags are compile-time
+                // literals, so build the RegexValue once at compile time and
+                // emit a plain LoadConst — zero runtime build cost, even inside
+                // a hot loop (beats the visitor's first-iteration compile).
+                // An invalid pattern/flags defers to the visitor (fallback) so
+                // the exact runtime regex-compile error surfaces, and a
+                // dead-code literal never errors.
+                case AstNodeType.RegexLiteral:
+                {
+                    var rxn = (Parser.Nodes.Primitives.RegexLiteralNode)expr;
+                    RuntimeValue regexConst;
+                    try
+                    {
+                        var opts = RegexValue.ParseFlags(rxn.Flags);
+                        var rx = RegexValue.Compile(rxn.Pattern, opts);
+                        regexConst = new RegexValue(rxn.Pattern, rxn.Flags, opts, rx)
+                            .SetPos(rxn.PositionStart, rxn.PositionEnd);
+                    }
+                    catch (System.ArgumentException)
+                    {
+                        throw new IrCompileException("regex literal failed to compile -> fallback");
+                    }
+                    ushort rcIdx = st.Consts.Add(regexConst);
+                    st.Code.Emit2(Opcode.LoadConst, destSlot, rcIdx);
+                    return;
+                }
+
+                // L3: `*ref op= value`. Reserve refSlot + valSlot consecutively
+                // (the DerefStore handler reads the RHS from refSlot+1), compile
+                // both operands in source order, then emit OP_DEREF_STORE with
+                // the assignment operator in `c`. Unsupported operators fall back.
+                case AstNodeType.DereferenceAssignment:
+                {
+                    var da = (Parser.Nodes.Operations.DereferenceAssignmentNode)expr;
+                    var opTok = da.AssignmentToken.Type;
+                    if (!Runtime.DerefStoreOps.IsSupported(opTok))
+                        throw new IrCompileException("deref-store: unsupported operator -> fallback");
+                    byte refSlot = AllocTemp(ref topSlot);
+                    byte valSlot = AllocTemp(ref topSlot); // == refSlot + 1 (contiguous)
+                    CompileExpression(da.RefTarget, refSlot, st, ref topSlot);
+                    CompileExpression(da.ValueNode, valSlot, st, ref topSlot);
+                    st.Code.Emit3(Opcode.DerefStore, destSlot, refSlot, (byte)opTok);
+                    return;
+                }
+
+                // L3: `&name` / `&mut name`. Bare-variable, lifetime-free borrows
+                // lower to OP_BORROW / OP_BORROW_MUT carrying the name's Names[]
+                // index; the dispatch handler resolves the SymbolEntry and runs
+                // BorrowOps.TryBorrow. Member / index targets (rejected at runtime
+                // anyway) and explicit lifetimes fall back to OP_NATIVE_DEFINE.
+                case AstNodeType.Borrow:
+                {
+                    var bn = (Parser.Nodes.Operations.BorrowNode)expr;
+                    if (bn.Lifetime != null || bn.Target.NodeType != AstNodeType.VariableAccess)
+                        throw new IrCompileException("borrow: explicit lifetime or non-variable target -> fallback");
+                    var bva = (Parser.Nodes.Variables.VariableAccessNode)bn.Target;
+                    string bname = bva.VarNameTok.Value?.ToString() ?? "";
+                    if (string.IsNullOrEmpty(bname))
+                        throw new IrCompileException("borrow: empty target name -> fallback");
+                    ushort bNameIdx = st.Names.Add(bname);
+                    st.Code.Emit2(bn.IsMutable ? Opcode.BorrowMut : Opcode.Borrow, destSlot, bNameIdx);
                     return;
                 }
 
@@ -5177,6 +6713,106 @@ namespace RaLanguage.Interpreter.IR
                         CompileExpression(fc.ArgNodes[i].Expr, (byte)(argsBase + i), st, ref topSlot);
                     }
                     st.Code.Emit3(Opcode.Call, destSlot, fnSlot, (byte)argCount);
+                    return;
+                }
+
+                // L4: pipeline `x |> f(a,b)` desugars to a direct OP_CALL
+                // `f(x, a, b)` (and `x |> f` to `f(x)`) — reusing the existing
+                // call dispatch, ZERO new opcodes / side-tables / rewriter or
+                // .rac changes. The eval order mirrors the visitor EXACTLY:
+                // the LHS is evaluated once FIRST (prepended arg0), then the
+                // callee, then the RHS call's own positional args.
+                //
+                // Named / generic / spread / ref RHS-call args are not natively
+                // compilable -> fallback (matches the plain FunctionCall path).
+                //
+                // (Earlier this was gated to non-script frames to dodge a
+                // `for x in stream` spin after many stream pipelines; that was a
+                // latent SCCP bug — ForEachStreamPull's continueSlot was an
+                // unmodelled 2nd SSA def, so a stale constant in the reused slot
+                // let SCCP fold the loop-exit branch. Fixed in SsaForm /
+                // Sccp via SecondaryDefinedSlot; the gate is no longer needed.)
+                case AstNodeType.Pipeline:
+                {
+                    var pn = (Parser.Nodes.Operations.PipelineNode)expr;
+
+                    FunctionCallNode? rhsCall = pn.RightNode as FunctionCallNode;
+                    int rhsArgCount = 0;
+                    AstNode calleeNode;
+                    if (rhsCall != null)
+                    {
+                        if (!IsCallNativelyCompilable(rhsCall))
+                            throw new IrCompileException("pipeline RHS call has named/ref/spread/generic args -> fallback");
+                        rhsArgCount = rhsCall.ArgNodes.Count;
+                        calleeNode = rhsCall.NodeToCall;
+                    }
+                    else
+                    {
+                        calleeNode = pn.RightNode;
+                    }
+
+                    int totalArgs = rhsArgCount + 1; // piped LHS prepended as arg0
+                    if (totalArgs > byte.MaxValue)
+                        throw new IrCompileException("pipeline produces too many args (>255)");
+
+                    // Reserve the contiguous OP_CALL band: fnSlot, then
+                    // totalArgs positional slots. Sub-expression temps allocate
+                    // ABOVE the band so the layout the VM relies on is intact.
+                    byte fnSlot = AllocTemp(ref topSlot);
+                    byte argsBase = (byte)(fnSlot + 1);
+                    for (int i = 0; i < totalArgs; i++) AllocTemp(ref topSlot);
+
+                    // (1) LHS once -> arg0.
+                    CompileExpression(pn.LeftNode, argsBase, st, ref topSlot);
+                    // (2) callee -> fnSlot.
+                    CompileExpression(calleeNode, fnSlot, st, ref topSlot);
+                    // (3) RHS call's own args -> arg1..argN.
+                    if (rhsCall != null)
+                    {
+                        for (int i = 0; i < rhsArgCount; i++)
+                            CompileExpression(rhsCall.ArgNodes[i].Expr, (byte)(argsBase + 1 + i), st, ref topSlot);
+                    }
+
+                    st.Code.Emit3(Opcode.Call, destSlot, fnSlot, (byte)totalArgs);
+                    return;
+                }
+
+                // L7: expression-position switch (`let y = switch x { … }`).
+                // Lowers the arrow-expr subset inline; throws → whole-statement
+                // OP_NATIVE_DEFINE fallback (as before this case existed).
+                case AstNodeType.Switch:
+                    CompileSwitchExpr((SwitchNode)expr, destSlot, st, ref topSlot);
+                    return;
+
+                // L7: expression-position match (`let y = match x { … }`).
+                // Lowers the literal/wildcard subset inline; on a non-lowerable
+                // match, fall back at the EXPRESSION level to OP_NATIVE_DEFINE
+                // (into destSlot) rather than propagating the throw — so the
+                // SURROUNDING statement (e.g. `ret match …`) still lowers. (This
+                // mirrors the long-tail expression-native group above, which
+                // used to carry Match.)
+                case AstNodeType.Match:
+                {
+                    int savedPc = st.Code.Pc;
+                    byte savedTop = topSlot;
+                    int savedRefs = st.DefineRefs.Count;
+                    try
+                    {
+                        CompileMatchExpr((Parser.Nodes.Patterns.MatchNode)expr, destSlot, st, ref topSlot);
+                        return;
+                    }
+                    catch (IrCompileException)
+                    {
+                        st.Code.Truncate(savedPc);
+                        topSlot = savedTop;
+                        if (st.DefineRefs.Count > savedRefs)
+                            st.DefineRefs.RemoveRange(savedRefs, st.DefineRefs.Count - savedRefs);
+                    }
+                    if (st.DefineRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("DefineRefs overflow (>65535)");
+                    ushort mRefIdx = (ushort)st.DefineRefs.Count;
+                    st.DefineRefs.Add(expr);
+                    st.Code.Emit2(Opcode.NativeDefine, destSlot, mRefIdx);
                     return;
                 }
 

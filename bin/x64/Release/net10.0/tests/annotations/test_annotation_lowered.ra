@@ -1,0 +1,47 @@
+import std.prelude.*;
+// Ra Language - L5e: user `annotation Name { params }` definitions now IR-lower
+// to an AnnotationDef + OP_DEFINE_TYPE (when they carry NO meta-annotations and
+// only const/absent parameter defaults). The handler reconstructs the
+// AnnotationDefinitionNode (const-default param stubs) and runs the SAME visitor
+// Apply → byte-identical AnnotationTypeValue registration + metadata. Meta-
+// annotated annotations (@target/@priority/…) still fall back to the visitor.
+
+print("=== annotations/annotation_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// AN1: single-param annotation (no meta) applied to a function
+annotation Marker { tag: string }
+@Marker(tag = "x")
+fn tagged() { ret 0; }
+ck("[AN1]",  has_annotation("fn:tagged", "Marker"));
+ck("[AN1b]", annotation_arg("fn:tagged", "Marker", "tag") == "x");
+
+// AN2: annotation applied to a class
+annotation Label { text: string }
+@Label(text = "hello")
+class Widget { }
+let an2 = has_annotation("class:Widget", "Label") && annotation_arg("class:Widget", "Label", "text") == "hello";
+ck("[AN2]", an2);
+
+// AN3: multi-param annotation (brace form)
+annotation Version { major: int, minor: int }
+@Version(major = 1, minor = 2)
+fn versioned() { ret 0; }
+let an3 = annotation_arg("fn:versioned", "Version", "major") == 1 && annotation_arg("fn:versioned", "Version", "minor") == 2;
+ck("[AN3]", an3);
+
+// AN4: const-default parameters in the def (exercises the const-fold path)
+annotation Limit { lo: int = 0, hi: int = 100 }
+@Limit(lo = 5)
+fn bounded() { ret 0; }
+ck("[AN4]", annotation_arg("fn:bounded", "Limit", "lo") == 5);
+
+if failures == 0 {
+    print("=== done (all lowered annotation cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

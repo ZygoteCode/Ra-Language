@@ -1,0 +1,28 @@
+import std.prelude.*;
+// Ra Language - L4: a `re"pattern"flags` literal is now IR-lowered — built
+// ONCE at compile time and emitted as a plain LoadConst (the visitor compiled
+// it on first execution + cached). These pin the lowered behaviour, including
+// a regex literal reused inside a hot loop (the const is loaded, never rebuilt)
+// and the case-insensitive flag.
+//
+// Cases:
+//   RX1  literal matches
+//   RX2  literal does not match
+//   RX3  `i` flag (case-insensitive)
+//   RX4  literal inside a loop — const reuse, stable result
+
+print("=== regex/regex_lowered ===");
+
+if re_match(re"\d+", "abc42") != null { print("[RX1] OK"); } else { print("[RX1] FAIL"); }
+
+if re_match(re"\d+", "abc") == null { print("[RX2] OK"); } else { print("[RX2] FAIL"); }
+
+if re_match(re"HELLO"i, "hello world") != null { print("[RX3] OK"); } else { print("[RX3] FAIL"); }
+
+var hits = 0;
+for i in 0..5 {
+    if re_match(re"x\d", "x7") != null { hits = hits + 1; }
+}
+if hits == 5 { print("[RX4] OK"); } else { print("[RX4] FAIL " + (hits as string)); }
+
+print("=== done ===");

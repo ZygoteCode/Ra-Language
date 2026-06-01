@@ -1,0 +1,68 @@
+import std.prelude.*;
+// Ra Language - L5e: interface definitions now IR-lower to an InterfaceDef +
+// OP_DEFINE_TYPE. Interface methods are pure SIGNATURES (no bodies → nothing to
+// precompile); fields reuse the struct field descriptor. The handler
+// reconstructs the InterfaceDefinitionNode and runs the SAME visitor Apply, so
+// structural conformance (a class with matching methods satisfies the contract)
+// is byte-identical. `.rac` stores the InterfaceDef flat.
+
+print("=== types/interface_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// IF1: single-method interface + structural conformance
+pub interface Shape {
+    fn area(): int;
+}
+class Square {
+    pub var s: int = 0;
+    pub Square(v: int) { self.s = v }
+    pub fn area(): int { ret self.s * self.s }
+}
+fn areaOf(sh: Shape): int { ret sh.area(); }
+ck("[IF1]", areaOf(Square(5)) == 25);
+
+// IF2: multi-method interface (signatures with params + return types)
+interface Animal {
+    fn speak(): string;
+    fn legs(): int;
+}
+class Dog {
+    pub fn speak(): string { ret "woof" }
+    pub fn legs(): int { ret 4 }
+}
+fn describe(a: Animal): string { ret a.speak() + " has " + (a.legs() as string) + " legs"; }
+ck("[IF2]", describe(Dog()) == "woof has 4 legs");
+
+// IF3: interface method with a parameter
+interface Adder {
+    fn add(x: int, y: int): int;
+}
+class Calc {
+    pub fn add(x: int, y: int): int { ret x + y }
+}
+fn sumVia(a: Adder): int { ret a.add(7, 8); }
+ck("[IF3]", sumVia(Calc()) == 15);
+
+// IF4: two interfaces, one conforming class satisfies both
+interface Readable { fn read(): int; }
+interface Writable { fn write(v: int): int; }
+class Buffer {
+    pub var val: int = 0;
+    pub fn read(): int { ret self.val }
+    pub fn write(v: int): int { self.val = v; ret v }
+}
+fn readIt(r: Readable): int { ret r.read(); }
+fn writeIt(w: Writable, v: int): int { ret w.write(v); }
+let buf = Buffer();
+let wrote = writeIt(buf, 42);
+ck("[IF4]", wrote == 42 && readIt(buf) == 42);
+
+if failures == 0 {
+    print("=== done (all lowered interface cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

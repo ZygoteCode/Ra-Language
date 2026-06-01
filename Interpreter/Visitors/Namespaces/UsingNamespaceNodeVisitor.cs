@@ -35,52 +35,13 @@ namespace RaLanguage.Interpreter.Visitors.Namespaces
                 }
             }
 
-            var target = NamespaceRegistry.Global.Resolve(segments);
-            if (target == null)
-            {
-                return res.Failure(new RuntimeError(
-                    node.PositionStart,
-                    node.PositionEnd,
-                    $"Namespace '{node.QualifiedName}' is not defined",
-                    context));
-            }
-
-            if (context.SymbolTable == null)
-            {
-                return res.Success(NullValue.Null
-                    .SetContext(context)
-                    .SetPos(node.PositionStart, node.PositionEnd));
-            }
-
-            if (node.HasAlias)
-            {
-                context.SymbolTable.Set(node.Alias!, target, isPublic: true);
-            }
-            else
-            {
-                foreach (var kvp in target.Members.EnumerateLocal())
-                {
-                    if (!kvp.Value.IsPublic) continue;
-
-                    var existing = context.SymbolTable.GetEntry(kvp.Key);
-                    if (existing != null && !ReferenceEquals(existing.Value, kvp.Value.Value))
-                    {
-                        continue;
-                    }
-
-                    context.SymbolTable.Set(
-                        kvp.Key,
-                        kvp.Value.Value,
-                        isLet: kvp.Value.IsLet,
-                        declaredType: kvp.Value.DeclaredType,
-                        isStaticallyTyped: kvp.Value.IsStaticallyTyped,
-                        isPublic: true);
-                }
-            }
-
-            return res.Success(NullValue.Null
-                .SetContext(context)
-                .SetPos(node.PositionStart, node.PositionEnd));
+            // Resolve + inject via the shared helper so the IR-lowered
+            // OP_DEFINE_TYPE handler runs byte-identical namespace logic.
+            var (value, err) = UsingNamespaceOps.Apply(
+                segments, node.HasAlias ? node.Alias : null,
+                context, node.PositionStart, node.PositionEnd);
+            if (err != null) return res.Failure(err);
+            return res.Success(value!);
         }
     }
 }

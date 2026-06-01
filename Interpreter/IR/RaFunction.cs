@@ -285,6 +285,9 @@ namespace RaLanguage.Interpreter.IR
         public Parser.Nodes.Classes.SuperNode[] SuperRefs;
         public Parser.Nodes.Functions.FunctionDefinitionNode[] FuncDefRefs;
         public AstNode[] DefineRefs;
+        // L5: flat one-shot definition descriptors (OP_DEFINE_TYPE indexes this).
+        // No AST → serializes as plain data in `.rac`.
+        public Defs.TypeDef[] TypeDefs;
 
         // Source span per PC for traceback reconstruction. Compact form:
         // parallel arrays Pc[] / Span[]; binary search at error-time.
@@ -497,6 +500,7 @@ namespace RaLanguage.Interpreter.IR
             SuperRefs = System.Array.Empty<Parser.Nodes.Classes.SuperNode>();
             FuncDefRefs = System.Array.Empty<Parser.Nodes.Functions.FunctionDefinitionNode>();
             DefineRefs = System.Array.Empty<AstNode>();
+            TypeDefs = System.Array.Empty<Defs.TypeDef>();
             SlotCount = 0;
             SlotNames = System.Array.Empty<string?>();
             DeclSlotByAstRef = System.Array.Empty<int>();

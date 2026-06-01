@@ -571,6 +571,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                         // that flag false to terminate, so hoisting the reload
                         // out of the loop spins forever. Refuse for ANY binding.
                         case Opcode.NativeDefine:
+                        case Opcode.DefineType:
                             return true;
                         // Indirect mutation via call → bridge through
                         // MutatedNames. If the function never assigns
@@ -700,6 +701,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Alias:
                 case Opcode.MoveLet:
                 case Opcode.Borrow:
+                case Opcode.BorrowMut:
                 case Opcode.Deref:
                 case Opcode.Add: case Opcode.Sub: case Opcode.Mul:
                 case Opcode.Div: case Opcode.Mod: case Opcode.Pow:
@@ -744,7 +746,9 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.GetSelf: case Opcode.GetSuper:
                 case Opcode.Call: case Opcode.CallKw: case Opcode.CallMethod:
                 case Opcode.NewInstance:
+                case Opcode.With:
                 case Opcode.NativeDefine:
+                case Opcode.DefineType:
                 case Opcode.Await: case Opcode.Spawn:
                     return Encoding.A(instr) == slot;
                 default:

@@ -1,0 +1,324 @@
+# RA_FULL_IR_LOWERING_PLAN.md — Total IR Lowering Migration
+
+**Status:** active working plan. **North star:** `0.0%` AST-node-walking at runtime, `100.0%` IR-lowered, end-to-end across **IrCompiler → IrRewriter → VmExecutor → `.rac`**. When this plan completes, `OP_NATIVE_DEFINE` is deleted, the visitor `Apply` chain survives only as a compile-time parity oracle (or is deleted too), and the `.rac` payload carries **zero serialized AST** for execution.
+
+This document is the single source of truth for the migration. Every construct has a row in the tracking table (§11). Nothing is "done" until its row reads `LOWERED + VERIFIED + RAC + PARITY`.
+
+---
+
+## 0. Why this exists
+
+Today the IR compiler is a *partial* compiler: it lowers the hot core (arithmetic, locals, calls, `if`/`while`/`for`/`foreach`/`try`, member/cast/enum access, …) to dedicated opcodes, and emits `OP_NATIVE_DEFINE` (0x90) for everything it can't yet handle. At runtime that opcode indexes `RaFunction.DefineRefs[]` to recover the original `AstNode` and calls the matching tree-walking visitor's static `Apply`. Measured cost: a C-style `for(;;)` (a `SuperForNode`, never lowered) runs **~3.8× slower** than the IR-lowered range `for`, at identical allocation, because the visitor drives the loop and round-trips every sub-expression back through `IrExpressionEvaluator`.
+
+Two consequences make "finish the compiler" worth a dedicated campaign:
+
+1. **Runtime.** Every fallback construct pays AST re-walk + per-node `ValueTask` round-trips + per-scope `Context.Copy/Clear` + the on-demand compile cache (`IrExpressionEvaluator.s_cache`). Loops multiply that by N.
+2. **Binary format.** Because `OP_NATIVE_DEFINE` needs the live AST, the `.rac` archive **serializes the AST** — `AstNodeSerializer.cs` is ~2,969 lines covering all 96 `AstNodeType` kinds, and `ModuleBytecodeIo` writes 12 AST-ref pools per function (two of them, `AstRefs`/`DefineRefs`, fully polymorphic). Reaching 0% fallback lets us **delete the AST-execution serialization entirely** and ship a pure-bytecode `.rac` (smaller, O(1)-mmap-loadable, no AST reconstruction, no polymorphic deserialization attack surface).
+
+---
+
+## 1. Current-state map (the boundary, exactly)
+
+Authoritative boundary lives in two mirrored switches that **must stay in sync**:
+- `IrCompiler.TryCompileStatement` + `IrCompiler.CompileExpression` — the **native set**.
+- `IrCompiler.HasNativeDefineRoute` ↔ `VmExecutor` `case Opcode.NativeDefine` switch (56 cases) — the **fallback set**.
+
+`CompileStatementWithFallback` tries native, and on `IrCompileException` rolls back (`Code.Truncate`, `AstRefs.RemoveRange`, restore `ScopeDepth`) and emits the fallback. So a node can be "native but soft-fallbackable" — the native path bails on an edge case and silently degrades.
+
+### 1a. Native today (lowered, but may still soft-fallback on edge cases)
+`Number String Boolean Null VariableAccess BinaryOperation UnaryOperation FunctionCall FunctionDefinition MemberAccess ListAccess EnumAccess Self Super Typeof Nameof Dereference Cast IsType Ternary NullCoalescing Range List Set Map Tuple Pass Scope If While DoWhile For ForEach Try Break Continue Retry Return Throw VariableDeclaration VariableAssignment MemberAssignment ListAssignment VariableDelete`
+
+### 1b. Fallback-only today (always `OP_NATIVE_DEFINE`) — the migration target
+Grouped by nature (drives the phase order):
+
+| group | constructs |
+|---|---|
+| **One-shot definitions** | `ClassDefinition` `StructDefinition` `RecordDefinition` `EnumDefinition` `InterfaceDefinition` `TraitDefinition` `ExtensionDefinition` `AnnotationDefinition` `DelegateDefinition` `NamespaceDeclaration` `UsingNamespace` |
+| **Imports** | `ImportAll` `ImportSelective` `ImportAlias` |
+| **Hot control flow** | `SuperFor` (C-style for) |
+| **Pattern dispatch** | `Match` `Switch` `DestructuringDeclaration` `TryUnwrap` |
+| **Memory model** | `Borrow` `DereferenceAssignment` |
+| **Linear control** | `Goto` `Label` |
+| **Expression long-tail** | `Pipeline` `WithExpression` `FormattedInterpolation` `RegexLiteral` |
+| **Annotations** | `AnnotationApplication` |
+| **Async** | `Await` `Spawn` `Emit` `ForAwait` `Yield` |
+| **FFI** | `AsmBlock` |
+
+### 1c. Structural sub-nodes (never standalone; lowered *within* their parent)
+`StringPart IfCasesWrapper SwitchCase Argument Spread StructFieldDefinition StructMethodDefinition InterfaceMethodSignature TraitMethodDefinition CallableSignature RecordPrimaryField PropertyDefinition PropertyAccessor EventDefinition EventAccessor AsmTextPart AsmInterpPart` — no opcode of their own; they are consumed by the lowering of the containing definition/expression. Tracked only as part of their parent's row.
+
+---
+
+## 2. The four pillars — what each must absorb
+
+Every construct migrated touches all four. A row is not `done` until all four are green.
+
+1. **IrCompiler (lowering).** Add a `case` in `TryCompileStatement`/`CompileExpression`, emit opcodes + populate the needed side-table/const data. Remove the construct from `HasNativeDefineRoute` once the native path is total (no soft-fallback remains).
+2. **VmExecutor (dispatch).** Add the opcode handler(s). Obey the dispatch-loop discipline: hot body inline, cold/large body in a `[NoInlining]` helper to protect the depth-2000 recursion frame budget; **no new `await` points in the main switch without the async strategy of §4d**.
+3. **IrRewriter (optimization).** New opcodes must be modelled by the analysis bundle (CFG edges, def/use for SSA, slot-write bitmap `s_writesLocalsA`, `MemSsaEligibility` barriers, fusion eligibility). An opcode the optimizer can't model becomes an optimization barrier — acceptable transitionally, fixed before the row closes.
+4. **`.rac` (binary).** `RacBytecodeVerifier` opcode whitelist + operand-bounds; `ModuleBytecodeIo` (de)serialization of any new side-table; `RacFormat.PayloadVersion` bump when the layout changes; `AstNodeSerializer` **shrinks** as AST-refs are replaced by pure data.
+
+---
+
+## 3. Core principle: replace AST-refs with pure serializable data
+
+The AST is two things glued together: (a) a compile-time tree, and (b) a runtime data carrier (member names, target types, source positions, whole sub-trees for `DefineRefs`). The migration's deep move is to **sever (b)**: every datum an opcode needs at runtime must live in a *flat, serializable* table, never an `AstNode`.
+
+| AST-ref table (today) | replace with |
+|---|---|
+| `DefineRefs[]` (whole subtree) | **eliminated** — the subtree is lowered to opcodes |
+| `AstRefs[]` (decl/assign nodes) | `Names[]` index + a typed `DeclMeta[]`/`AssignMeta[]` flat record (kind, type-const, flags) |
+| `MemberAccessRefs/MemberAssignRefs` | member-name → `Names[]`; positions → `PcSpans`; the few semantic bits (`IsInsideSameType`, private-field) → a `MemberMeta` byte |
+| `CastRefs[]` | a serializable `TypeDescriptor` const pool (already serializable) + `PcSpans` |
+| `EnumAccessRefs/TypeofRefs/NameofRefs/DerefRefs/SuperRefs` | `Names[]` + `PcSpans` + small typed metas |
+| `FuncDefRefs[]` | stays as a compiled-`RaFunction` child reference (already pure once the body is `CompiledBody`) |
+
+**Endgame invariant:** `RaFunction` holds **no `AstNode`**. `PcSpans` already gives positions; names already intern into `Names[]`; types already have a serializable `TypeDescriptor`. Once every opcode's data is flat, `AstNodeSerializer`'s execution role is gone.
+
+This is also the **memory-leak fix** (§9): `RaFunction` stops pinning AST subtrees, and `IrExpressionEvaluator.s_cache` (the per-`AstNode` on-demand compile cache, an unbounded static dictionary) becomes dead and is deleted.
+
+---
+
+## 4. Cross-cutting prerequisites (do these before / alongside the phases)
+
+### 4a. Opcode space & wide operands
+Opcodes are a single `byte`. Current map is sparse but filling. Before mass lowering: audit free ranges, reserve contiguous blocks per phase (e.g. pattern-match `0x9x`, async `0xBx` already partly used). The `Wide` (0xFF) prefix currently extends only the **C** operand (member/ref indices); §1 of the VM work confirmed the **B** high-byte path is dead. If any new opcode needs >256 slots in B position, implement wide-B *then*; until then keep emitting within 8-bit operands and assert at compile time.
+
+### 4b. Parity oracle harness (gates every phase) — **BUILT (L0)**
+The visitor `Apply` is the behavioural spec. The differential harness ships as the **`--parity <file.ra> <Kind[,Kind…] | all>`** CLI:
+- `IrCompiler.SetForceFallback(kinds)` makes `CompileStatementWithFallback` skip native lowering for those kinds → they emit `OP_NATIVE_DEFINE` (gated on `s_forceFallbackKinds.Count != 0`, so normal compiles are byte-identical).
+- `Program.CaptureRun` runs the file twice (native baseline vs forced), capturing a deterministic transcript (stdout + `[[EXIT n]]` + `[[ERROR msg]]`), resetting the symbol table + `IrExpressionEvaluator` cache between runs. Exit `0` = MATCH, `1` = MISMATCH (prints first differing line).
+
+**Validated (L0):** `If/Try/Scope/Return/FunctionCall/BinaryOperation` → 35/35 MATCH each across `control_flow`+`functions`+`semantics`; unknown / non-routable kinds rejected.
+
+**Two findings the harness surfaced — both feed the migration rules:**
+1. **The visitor is NOT always truth.** `--parity test_lambdas.ra Return` → consistent MISMATCH: the IR native path *fixed* a closure-capture-resolution bug the visitor still has (the test documents it: `[L6] OK` native vs `[L6] OK (capture regression documented)` visitor). ⇒ Maintain a **known-divergence allowlist** of `(construct, reason)` where IR is intentionally correct-against-visitor; for those, truth is the **IR output / a frozen golden**, not the visitor. Seed: `{Return/Closure-capture}`.
+2. **`all` is a coarse stress mode, not the gate.** Forcing *every* routable kind mixes native control structures with fallback **leaf** statements (e.g. a native `for` driving a fallback `VariableAssignment`), splitting slot-binding from the visitor's name-binding — a boundary that never occurs in production. ⇒ The gate is **per-construct** (force the one whole subtree being migrated); `all` only flags boundary-composition gaps to investigate, not regressions.
+
+Rule of use: the migrated construct must be a **statement-subtree** force (its whole AST subtree routes to the visitor), the corpus must be **deterministic** (no unsorted Set/Map iteration, no async-timing output), and known-allowlist divergences are asserted against golden, not visitor. Keep visitors compiled while the oracle runs; delete only in L10.
+
+### 4c. `.rac` forward/back-compat
+Bump `RacFormat.PayloadVersion` once per layout-changing phase; readers keep tolerating the prior version for one major cycle (existing V4/V5 dual-load precedent). The terminal **V6 = pure bytecode** drops the AST pools; provide a one-shot transitional reader that still accepts V5 (AST-bearing) archives by recompiling from embedded source if present, else hard-errors with a clear "re-`--compile` against runtime ≥ X" message.
+
+### 4d. The async await-budget strategy (the hard constraint)
+`Await/Spawn/Emit/ForAwait/Yield` cannot be added as ordinary `await`-ing `case`s in the main `Execute` switch: M85 was reverted because each new await point grows `Execute`'s async state-machine (`MoveNext`) frame and tips `test_deep_recursion` (depth 2000) over the C# stack budget. Strategy:
+- Keep the main dispatch loop **synchronous-shaped**. Model an Ra `await` as a **suspension request**: the opcode handler returns a sentinel `RuntimeResult` (state `Suspend`) carrying the pending `ValueTask` + resume-PC; a single, already-existing await point at the *top* of `Execute` (the one the loop already has) drives suspension/resume via an `IValueTaskSource`-backed trampoline, so **no per-async-opcode state-machine growth**.
+- `Spawn`/`Emit`/stream pulls that complete synchronously stay inline (the `ForEachStreamPull` precedent already does `IsCompletedSuccessfully ? result : block`). Only genuine suspension hits the trampoline.
+- This phase is gated behind its own parity + the depth-2000 test as a hard CI gate.
+
+### 4e. Verifier completeness
+`RacBytecodeVerifier` must reject any archive whose `Code` contains an opcode not in the (growing) whitelist or with out-of-range operands/side-table indices. Each phase extends the whitelist + bounds checks **in lock-step** with the new opcodes — a malformed/old archive must fail closed, never reach the dispatch loop.
+
+---
+
+## 5. Phased milestones (structure-by-structure)
+
+Phases ordered by **value ÷ risk**, dependencies first. Each milestone lists: opcodes, lowering, dispatch, rewriter, `.rac`, tests, perf intent. Sized so each lands independently green (`run_suite.ps1` + benches before/after).
+
+### Phase L0 — Infrastructure (no user-visible change) — **PARITY HARNESS DONE**
+- ✅ **Parity-oracle harness + force-fallback hook** (`--parity`, `IrCompiler.SetForceFallback`) — see §4b. Built, validated (35/35 on clean constructs), surfaced the visitor-divergence + boundary-artifact rules. Normal compiles byte-identical (gated on empty set). Suite green.
+- ⏭ **Deferred to their just-in-time phases (intentionally, to avoid speculative abstraction):**
+  - `RaFunction` flat-meta scaffolding (`DeclMeta/AssignMeta/MemberMeta`) → built in the first phase that actually replaces an AST-ref (L1/L5), so the record shape is driven by a real consumer, not guessed.
+  - `RacBytecodeVerifier` generic index-bounds + serializer changes → built in the first phase that adds a new opcode/side-table (L1), in lock-step with that opcode.
+- ⏳ **Remaining L0 polish (optional, do when L1 needs it):** a `--parity-selftest` that sweeps the deterministic corpus forcing each migrating construct, wired into `run_suite.ps1`; a golden-output store for the known-divergence allowlist.
+- **Gate:** suite green ✅, harness validated ✅, zero perf/behaviour delta on normal runs ✅.
+
+> **¹ Known-divergence allowlist (SuperFor):** the visitor (`SuperForNodeVisitor`) evaluates the body as an *expression* and **mishandles `break`/`continue`** — `break` in a C-style for hangs/aborts the script (documented separately in `tests/regressions/break_hangs_loops.ra` and the `test_break_continue.ra` header). The L1 native lowering **fixes** this (`break` → `b==3`, `continue` runs the step). So `--parity` MATCHes the visitor for break-free loops but intentionally DIVERGES on break/continue, where **golden = native** is truth. Hard-asserted by `tests/control_flow/test_superfor_lowered.ra` (SF1–SF8). Only 1 corpus file used C-style `for(` (`native/test_dll_import.ra`, no break) so regression surface was ~nil.
+
+### Phase L1 — `SuperFor` (C-style `for(;;)`) ★ highest ROI, lowest risk — **DONE**
+**Result:** lambdas **2.98×** (17.4s→5.8s), properties **2.57×** (10.2s→4.0s), constructors **1.36×** (ctor-body alloc dominates the rest); `patterns` control unchanged (no C-style for) ⇒ surgical. Suite 234/234 green. `CompileSuperFor` reuses `Jmp`/compare/`PushScope`/`ClearScope` (zero new opcodes); the existing `AddIntoSlot`/`AddIntoSlotImm` peepholes auto-applied to the body/step. ClearScope-before-steps makes the body-shadow case exact (no infinite loop). Removed `SuperFor` from `TryCompileStatement`'s NativeDefine group (kept in `HasNativeDefineRoute` for the oracle + graceful fallback if a body can't lower).
+
+- **Opcodes:** none new — reuse `Jmp`/`JmpIfNot`/compare + `PushScope`/`PopScope` exactly as `CompileFor`/`CompileWhile` do.
+- **Lowering:** new `CompileSuperFor` — init clause(s) → decl/assign opcodes; condition → expression + `JmpIfNot exit`; body → scoped block; step clause(s) → expression; back-edge `Jmp`. Mirror `CompileWhile`'s loop bookkeeping (`Loops.Push`, break/continue/retry fixups, `BaselineScopeDepth`). Support multi-clause init/cond/step (the `SuperForNode` holds lists). Reuse the lazy-long counter analysis (`TryCompileWhileLazyLongCounter`) where the shape matches so typed `i` stays unboxed.
+- **Rewriter:** falls out for free (only existing opcodes) → LICM/fusion/typed-accumulator already apply.
+- **`.rac`:** no new opcode; drop `SuperFor` from AST-ref serialization once lowered.
+- **Tests:** the existing C-style benches (lambdas/properties/constructors) become the perf proof; correctness via `tests/control_flow` + new `test_superfor_lowered.ra`.
+- **Perf intent:** kill the ~3.8× penalty; the heavy GB benches collapse toward range-`for` levels.
+
+### Phase L2 — `Scope` strict / `Goto` / `Label` (linear control) — **RE-SCOPED after recon**
+- `Scope`: **already total.** `CompileScopeStrict` pushes the scope and compiles every child `strict:true`; unlowerable children become `OP_NATIVE_DEFINE` inside the strict scope (no soft-fallback to harden). Nothing to do. ✅
+- `Goto`/`Label`: **the "static jump" model is WRONG.** Recon proved Ra goto is **re-entrant subroutine semantics**, not a jump:
+  - `label L:` captures the **rest of the enclosing block** as its `Statements` (parser `ParseLabelStatement` → `ParseStatements()`), runs them once when reached, and registers `(L → Statements)` in `interpreter.Labels`.
+  - `goto L` **re-executes** L's Statements (recursion via the C# stack), then **returns and continues after the goto**. Proof: a top-level `loop: x=x-1; if x>0 {goto loop}; print(x)` prints `0` **three times** (each unwinding level re-runs `print`); a backward `Jmp` would print it **once**. A `ret` inside short-circuits the unwind (that's why `loop_count()` returns 0).
+  - Forward `goto` → runtime `RA0401` (label not yet registered). Works at top level too (not function-only, despite a stale test comment).
+  - ⇒ Correct lowering needs **call/return machinery** (a per-frame return-address stack + a "run labeled region, then return" opcode pair), NOT a jump. Same runtime cost as the visitor (still re-executes), AST-free only. **Low perf value, high complexity, rare feature.** **DEFERRED** to a dedicated late pass (still required for the L10 0%-fallback endgame, but not worth doing before the common/hot constructs). The `Interpreter.Labels` retirement it would have bought is already largely captured (lazy `Labels` + `VmHostPool`).
+- **Perf intent:** `goto` becomes a single jump; deletes a runtime linear search + a per-call allocation.
+
+### Phase L3 — Memory model: `Borrow` / `DereferenceAssignment`
+- **Borrow — DONE.** `&name` → `OP_BORROW`, `&mut name` → `OP_BORROW_MUT` (new, 0x06), both `[op][dst][nameIdx:imm16]` (mirrors `LoadGlobal`). **No new serialized side-table** — the name rides the existing `Names[]` pool, positions via `PcSpans`, so the only `.rac` change was the verifier whitelist (moved Borrow from its stale slot-based case into the name-index group; `DerefStore` was already verified). The borrow-place rules were **extracted into `Runtime.BorrowOps.TryBorrow`** (shared by the IR handler AND the now-thin visitor → byte-identical). Member/index targets + explicit lifetimes + nameIdx>65535 fall back (rare). Parity MATCH on all 3 borrow corpus files; `.rac` compile→run verified (verifier accepts `OP_BORROW`). The encoding choice (no side-table) is the §3 "flat data" principle applied up-front. Suite 234/234.
+- **DereferenceAssignment — DONE.** `*ref op= v` → `OP_DEREF_STORE [dst][refSlot][opTok:c]`, RHS in the contiguous slot refSlot+1 (SetIndex trick); `c` is the assignment-operator `TokenType` (76 values < 256, so `(byte)` round-trips — no compact map). Kills 2 `IrExpressionEvaluator` round-trips per write. Shared `Runtime.DerefStoreOps.Apply` (operator + through-write) with the visitor. No serialized side-table; `DerefStore` (0x1B) was already verified as a 2-slot op. Lowered in both expression and statement position.
+- **⚠ REWRITER pillar — the lesson of L3.** A new opcode that the optimizer doesn't model is a *correctness* bug, not just a missed optimization. `OP_DEREF_STORE` first shipped broken: DCE **deleted the RHS value-load** (replaced with `Pass`) because `SsaForm.OperandReads` didn't know DerefStore reads the contiguous `B+1` slot. Four analysis sites had to be updated **in lock-step** with any new opcode: `SsaForm.OperandReads` (DerefStore reads B,B+1; Borrow/BorrowMut read *nothing* — old slot-`b` assumption was stale since the opcodes were never emitted before), `SsaForm.DefinedSlot` + `IrRewriter`/`LicmHoist`/`Sccp` "writes-A" lists (added BorrowMut; **left DerefStore out** — it is a side-effecting store like SetIndex/SetMember, and listing it as a pure def would let DCE drop the through-write when the result is unused). Going forward: **every new opcode gets its read/write operands modelled in `SsaForm` (+ the three pass lists) in the same change, and a chained-result test (`y = (*r = v)`) to catch SSA mis-tracking.**
+
+### Phase L4 — Expression long-tail: `Pipeline` / `RegexLiteral` / `FormattedInterpolation` / `WithExpression` — ALL DONE ✅
+- **Pipeline — DONE (lowered top-level AND in-function).** `x |> f(a,b)` ≡ `f(x,a,b)`, `x |> f` ≡ `f(x)` via the existing `OP_CALL` (reserve fnSlot band, LHS→arg0, RHS args→arg1..; eval order = visitor's: LHS, callee, args). ZERO new opcodes / side-tables / rewriter / `.rac` changes. Named/generic/spread/ref RHS-call args → fallback (matches the plain `FunctionCall` path). A bare `x |> f()` statement routes through the same expression path (added to the expression-statement case-group, result discarded into scratch).
+  - **The "stream deadlock" was a misdiagnosis — it was a CPU *spin* from a latent SCCP bug, now FIXED.** Symptom: after ~12 stream pipelines, a following `for x in stream_range(1,5)` spun (93% of one core, deterministic). Root cause: **`ForEachStreamPull` writes TWO slots — itemSlot (A) *and* continueSlot (C) — but the SSA backbone (`SsaForm.DefinedSlot`, single-slot `int?`) modelled only A.** So continueSlot got no fresh SSA version; the immediately-following `JmpIfNot continueSlot` resolved its use to a **stale `LoadConst` left in the reused physical slot by the preceding pipelines' lowered args**, and SCCP folded the loop-exit branch to always-fall-through ⇒ infinite loop. It only fired once the surrounding fn was big/hot enough to run SCCP **and** a prior const happened to land in continueSlot's slot — which is exactly why it needed the *specific mix* (S1–S11 supplied the stale const, S12/distinct tipped fn size). Isolated loops never optimised → never reproduced. **Fix:** `SsaForm.SecondaryDefinedSlot(instr)` returns continueSlot for `ForEachStreamPull`; registered in `PlacePhis` + `Rename` (fresh version shadows the stale const) and pinned to `Lat.Bottom` (varying) in `Sccp.VisitPc` (branch never folds). This is a **real pre-existing correctness bug** any large fn with a stream foreach could hit — Pipeline merely made fns big enough to expose it (same pattern as SuperFor→break-hang and DerefStore→DCE). Hard-asserted by `tests/streams/test_streams_lowered.ra` + the existing `tests/streams/test_streams.ra` (now exercising lowered pipelines).
+- **RegexLiteral — DONE.** Pattern + flags are compile-time literals → build the `RegexValue` **once at compile time**, intern it in the const pool, emit `LoadConst`. **Zero runtime build cost even inside a hot loop** (beats the visitor's first-iteration compile + cache). Invalid pattern/flags → fallback (so the runtime regex-compile error surfaces at the right time; dead-code literals never error). `.rac`: new `ConstTag_Regex` (0x1A) serializes pattern+flags and **rebuilds the Regex on load** — additive, backward-compatible (no version bump; old archives never carried a regex const). Round-trip verified.
+- **FormattedInterpolation — DONE.** `${expr:spec}` lowers to **OP_FMT** (0x42 — was pre-scaffolded in every optimizer pass + the `.rac` verifier, but never emitted/executed). The parsed `FormatSpec` is packed into a single non-negative int (`FormatSpec.Pack`/`Unpack`: Kind/flags in the low bits, precision in the high bits) and interned as a plain `IntegerValue` const → **zero runtime re-parse, even in a hot loop**; the VM unpacks + runs the same `FormatEngine.Format` the visitor used. Only ever emitted inside an interpolated string, so the existing `StringNode` part-loop reaches it via `CompileExpression`. **Zero new `.rac` work** (`ConstTag_Integer` already serializes the packed const). Const index past the u8 `c` operand → fallback. Hard-asserted by `tests/strings/test_formatted_interp_lowered.ra`; parity MATCH on all format-spec corpus files; `.rac` round-trip verified. (Surfaced an **unrelated pre-existing** bug — a lazy-range `for` loop var read directly inside *any* interpolation (`$"${i}"`, plain OP_INTERP too) yields `null`; the LongLocal isn't boxed for the interp/fmt part. Flagged as a separate task; tests copy the loop var via `let` to dodge it.)
+- **WithExpression — DONE.** `recv with { f: v, ... }` lowers to a new **OP_WITH** (0x43, `[dst:a][base:b][defineRefIdx:c]`): receiver at `base`, the N update values laid out contiguously at `base+1..base+N` (eval order = visitor's: receiver, then values in source order). The `WithExpressionNode` is parked in the **existing `DefineRefs`** pool (reused → no new side-table, already serialized via `AstNodeSerializer`); the handler reads only its static field names / positions / declared types — the dynamic sub-expressions are evaluated by ordinary opcodes (no AST re-walk). Shallow-clone + name/type validation + field-set run in the shared **`WithExpressionOps.Apply`** (extracted from the visitor → byte-identical rules; the visitor now also evaluates all values up front so the two paths match exactly). N>255 or a `DefineRefs` index past the u8 `c` operand → fallback. **Four-pillars:** `SsaForm.DefinedSlot` (defines A) + `OperandReads` (variable-arity: reads `base` + `base+1..base+N`, N looked up from `DefineRefs[c]`); `Sccp.SsaDefSlot`; `IrRewriter`/`LicmHoist` writes-A; `VmExecutor.s_writesLocalsA`; IrCompiler type-infer "cannot-statically-type" (kills stale numeric hints); `RacBytecodeVerifier` whitelist; handler bounds-checks `base+N` against the live frame. NOT in `IsErasableForDce` (it can throw → preserved when result unused). Hard-asserted by `tests/types/test_with_lowered.ra` (8 cases incl. chained / in-fn / in-loop); validation errors fire through the lowered path; parity MATCH on `tests/types/test_records*.ra`; `.rac` round-trip verified.
+
+### Phase L5 — One-shot definitions (class/struct/record/enum/interface/trait/extension/annotation/delegate/namespace/using)
+- **Key insight:** these execute **once** (definition time), so the goal is *not* runtime speed but **eliminating the AST-execution dependency** (so `.rac` can drop AST). 
+- **Machinery — BUILT (L5a).** A single generic **`OP_DEFINE_TYPE`** (0x44, `[scratch dst:a][TypeDefs index:imm16]`) indexes a polymorphic, serializable **`RaFunction.TypeDefs[]`** pool of `TypeDef` descriptors (`Interpreter/IR/Defs/TypeDefs.cs`; `TypeDefKind` tag per entry). `.rac` bumped to **V6**: `AstNodeSerializer.SerializeTypeDefs`/`DeserializeTypeDefs` write the pool as plain data (count + per-entry tag + payload, reusing `WriteTypeDescriptor`/`WriteStringList`); the trailing pool is **gated on `ReaderVersion >= V6`** so v5-and-older archives load unchanged with an empty pool. Four-pillars: `OP_DEFINE_TYPE` mirrors `OP_NATIVE_DEFINE` everywhere (SsaForm defines-A + reads-nothing, Sccp, IrRewriter, LicmHoist ×2, `s_writesLocalsA`, RacBytecodeVerifier checks the imm16 against `TypeDefs.Length`). Off-stack `ExecuteDefineType` handler (NoInlining, depth-budget). **Adding a kind = add a `TypeDef` subclass + a `DefineX` handler branch + a `Write/ReadXDef` serializer pair.**
+- **Enum — DONE (L5b, first kind).** `EnumDef` (name, generic param names, variants[name, ordinal, folded Int128 value, payload `TypeDescriptor[]`]). IrCompiler `TryBuildEnumDef` folds variant values at compile time (auto-increment mirrors the visitor's `lastValue+1`; explicit values must be plain integer literals matched via `NumberNodeVisitor.ParseLiteral` + the shared `EnumDefOps.TryExtractInt128`). Falls back to the visitor for annotations / where-constraints / non-constant or exotic-typed values. The shared **`EnumDefOps.BuildAndRegister`** (extracted from the visitor) builds + registers the `EnumTypeValue` for BOTH paths → byte-identical. Hard-asserted by `tests/types/test_enum_lowered.ra`; parity MATCH; `.rac` round-trip verified.
+- **Delegate — DONE (L5c).** `DelegateDef` (name, structural `Signature` TypeDescriptor, generic param names, isPublic). Pure flat metadata — no values/bodies. `IrCompiler.TryBuildDelegateDef` falls back only on where-constraints. Shared `DelegateDefOps.Register` (collision check + build + `Set` with `type` declared-kind). Generic delegates (`Mapper<T,U>`) lower fine (type-param payloads serialize via `WriteTypeDescriptor`). Parity MATCH on `tests/delegates/test_delegates.ra` + `tests/functions/test_lambdas_full.ra`; `.rac` round-trip verified.
+- **UsingNamespace — DONE (L5d).** `UsingDef` (path segments[], optional alias). Not a type — a one-shot directive; reuses the same machinery (the `Using` kind tag distinguishes it). Shared `UsingNamespaceOps.Apply` (NamespaceRegistry resolve + public-member injection / alias bind). Falls back only on an empty path segment. Parity MATCH on the namespace test corpus. (Overlaps L6; the `ImportSpec` work there can reuse `UsingDef`.)
+
+- **THE CODE-BEARING KINDS NEEDED A SEPARATE APPROACH (the runtime *value* classes hold raw AST).** The clean flat-descriptor lowering for Enum/Delegate/Using works only because `EnumTypeValue` / `DelegateTypeValue` already hold **flat** data (and UsingNamespace builds no value at all). The other kinds' runtime value classes hold **raw AST**: `StructTypeValue.Methods = List<StructMethodDefinitionNode>`, `InterfaceTypeValue.Methods/Fields` are AST nodes, `AnnotationTypeValue` stores `node.Parameters` directly, and method bodies live as `FunctionValue.BodyNode` (AST; `CompiledBody` is a lazily-attached RaFunction). De-AST-ing those value classes outright would touch every `GetMethod`/dispatch/`GetConstructor` consumer + the binder. **Instead L5e uses reconstruct-on-load** (below): keep the value classes UNCHANGED, lower a flat descriptor that carries precompiled bodies, and rebuild a stub definition node on the VM side to run the SAME visitor. **Status: ALL 7 code-bearing kinds DONE this way (struct + record + class + trait + extension + interface + annotation). Only `NamespaceDeclaration` remains → L6/scope (executable body).**
+  - **L5e — struct + record + class + trait + extension ALL DONE (reconstruct-on-load, runtime byte-identical).** Instead of de-AST-ing the runtime value classes' APIs (which would touch ~8 consumers + the binder each), the chosen approach keeps the runtime UNCHANGED: flat descriptors (`StructDef`/`RecordDef`/`ClassDef`/`TraitDef`/`ExtensionDef` + `StructFieldDef`/`StructMethodDef`/`ClassMethodDef`/`TraitMethodDef` in `Interpreter/IR/Defs/TypeDefs.cs`) capture field metadata + each method's **precompiled `RaFunction`** (compiled at IrCompile time via the SAME `GetOrCompile*Method` the visitor uses lazily → identical bytecode). The `OP_DEFINE_TYPE` handler **reconstructs** the definition node (stub `PassNode` bodies + `CompiledBody`/`IrCompileTried=true`/FrameId wired in) and runs the SAME `*DefinitionNodeVisitor.Apply` — so registration / `to_string` + const-field validation / dispatch / structural-trait + extension-dispatch are byte-identical; only the bodies are pre-compiled. `.rac`: each `*Def` serializes flat, method bodies via the now-`internal` `ModuleBytecodeIo.SerializeRaFunction`/`DeserializeRaFunction` (shared pool threaded via the `WriterPool`/`ReaderPool` thread-locals; `SerializeConst` inlines non-pooled consts so nested bodies are safe). Each kind built **gate-off first** (TryBuildXDef returned false → suite green throughout), then flipped on. **Method-node types differ:** struct/record → `StructMethodDefinitionNode` (`GetOrCompileStructMethod`); class/extension → `FunctionDefinitionNode` (`GetOrCompileBody`, factory/ConstructorName/captures); trait → `TraitMethodDefinitionNode` (`GetOrCompileTraitMethod`, nullable body for abstract/required). **Const field defaults** fold via `IrCompiler.TryFoldFieldDefaultConst` (number/bool/null/non-interp-string → `RuntimeValue` in `StructFieldDef.DefaultConst`), reconstructed as a `NumberNode` with `CachedValue` set. **Fallbacks (per kind):** operators / properties / events / indexers / ext-fields / annotations / where-constraints / param-defaults; class also: inheritance / interfaces / traits-impl / static / abstract / named+factory ctors. **Regression lessons baked in:** record `@derive` AutoEquals/AutoToString are set by the derive PRE-PASS as node FLAGS (not annotations) → captured in `RecordDef` + restored; class named-constructors → `ClassMethodDef` drops them to fallback (`ConstructorName != null` → false). Hard-asserted by `tests/types/test_{struct,record,class,enum,trait_ext}_lowered.ra`; parity MATCH; `.rac` round-trip verified; **full suite 244/244, 2742 assertions** green after each kind.
+  - **L5e — interface + annotation ALSO DONE (same reconstruct-on-load).** `InterfaceDef` (name, isPublic, generics, `StructFieldDef[]` fields, `InterfaceMethodDef[]` methods) — interface methods are pure SIGNATURES (no bodies → NO precompiled RaFunction; the simplest code-bearing kind, pure flat metadata); the handler reconstructs the `InterfaceDefinitionNode` (signature + field nodes) + runs `InterfaceDefinitionNodeVisitor.Apply` → byte-identical structural-conformance metadata. Fallback: properties / events / annotations / where-constraints. `AnnotationDef` (name, isPublic, `AnnotationParamDef[]`) — params carry const-folded defaults (`TryFoldFieldDefaultConst`, reconstructed as `NumberNode`-`CachedValue`); the handler reconstructs the `AnnotationDefinitionNode` + runs `AnnotationDefinitionNodeVisitor.Apply`. **Fallback: any meta-annotation** (`@target`/`@priority`/`@repeatable`/… on the annotation definition carry argument expressions + register metadata via `AnnotationProcessor` — too entangled for v1; `node.HasAnnotations → false`) **or a non-const param default.** ~6/15 corpus annotations lower; the rest fall back cleanly. Hard-asserted by `tests/types/test_interface_lowered.ra` + `tests/annotations/test_annotation_lowered.ra`; parity MATCH; `.rac` round-trip; full suite 246/246, 2751 assertions green. **L5e COMPLETE — all 7 code-bearing kinds de-AST'd.**
+  - **L5e — REMAINING:** only `NamespaceDeclaration` (executable body → L6/scope work). Annotation WIDENING (future): meta-annotations could lower by capturing the meta-app as flat data (name + const-folded args) + re-running `ApplyMetaAnnotation` + `AnnotationProcessor.Process` on a reconstructed `AnnotationApplicationNode`, but the metadata-registration side-effects must match exactly — deferred.
+- **`.rac`:** the descriptor pool is flat data → serializes without `AstNodeSerializer` (proven for Enum/Delegate/Using). Removing the **bulk** of `AstNodeSerializer` waits on L5e (the code-bearing types are where most serialized AST lives).
+- **Risk:** large surface (annotations, derive, generics, inheritance, extension dispatch). Sub-stage per type kind; each behind the parity oracle.
+
+### Phase L6 — Imports / namespaces resolution
+- **Imports DONE (`ImportAll`/`ImportSelective`/`ImportAlias`).** Rather than a new `OP_IMPORT` opcode, imports reuse the **`OP_DEFINE_TYPE` machinery** (like `UsingDef` — they're directives, not types) via a flat **`ImportDef`** (`TypeDefKind.Import`): the `ModuleSpecifier` is already flat data (string-literal raw path OR dotted segments + a wildcard flag), plus the form-specific extra (selected names / alias). `IrCompiler.BuildImportDef` has **NO fallback** — every import shape lowers. The handler `VmExecutor.DefineImport` rebuilds the `ModuleSpecifier` + the matching `ImportNode` + runs the SAME `ImportNodeVisitor.Apply` (synchronous) → `ModuleManager.Load` resolution + symbol/alias binding is byte-identical. `.rac`: `ImportDef` serializes flat (V6). Parity MATCH on the module/import corpus (`test_alias_import`, `test_imports_full`, `test_modules_namespaces`, `test_prelude_modules`, `test_std_physical`) across all 3 forms + string-literal + dotted-wildcard; `.rac` round-trip verified; **full suite 246/246, 2751 assertions green** (imports are in EVERY file → broad validation). Test `tests/modules/test_imports_lowered.ra`.
+- **`.rac` virtual-std-skip is UNAFFECTED:** `RacPackager` walks the **source AST** (`CollectImports(parseResult.Node, …)`) for dependency bundling — `StdLibrary.IsVirtualStdPath` is checked there, independent of bytecode compilation. Lowering the import *statement* doesn't touch the packager's file-dependency walk.
+- **`NamespaceDeclaration` DONE — the scope-work tail.** A `namespace App.Math { … }` is **async + has an executable body**: it opens a namespace scope (`NamespaceRegistry`), builds a `NamespaceScopeView` chain, then runs the body *statements* (which register definitions INTO the namespace's `Members`) in a special `bodyContext`, and freezes the namespace's function closures. **Key realisation: the body already runs through the VM** — the visitor compiles each statement on-demand via `IrExpressionEvaluator.Evaluate(stmt, bodyContext, …)` which does `vm.Execute(frame, context)`. So lowering = **precompile** each body statement to a RaFunction ahead of time (via new `IrExpressionEvaluator.CompileBodyStatement`, bytecode-identical to the on-demand compile) into a flat **`NamespaceDef`** (segments + isFileScoped + `RaFunction[]` bodies), then run them with the namespace `bodyContext` (new `IrExpressionEvaluator.RunCompiled`). The visitor's `Apply` gained an optional `RaFunction[]? precompiledBodies` param — when present (the lowered path) it runs those via `RunCompiled`; when null (AST path) it compiles on-demand as before — so namespace opening / scope-chain / closure-freezing / `return`-rejection are **byte-identical** (shared code, not duplicated). The handler `VmExecutor.DefineNamespace` reconstructs the node (segments only; body is a `PassNode` stub the precompiled path ignores) + blocks on the async Apply (sync-completes for definition bodies). Built **gate-off first** (`s_namespaceLoweringOff`: validated the visitor refactor under the still-active `OP_NATIVE_DEFINE` path, then flipped on). `.rac`: `NamespaceDef` serialises segments + body RaFunctions flat (V6). No fallback unless a body statement itself can't lower (caught + degraded). Parity MATCH on all 9 corpus namespace files (incl. nested, multi-file, negative, dotted, `using`); `.rac` round-trip verified; test `tests/modules/test_namespace_lowered.ra` (NS1 simple, NS2 dotted + var member, NS3 nested, NS4 sibling-fn closure, NS5 `using`); **full suite 247/247, 2755 assertions green.**
+- **`UsingNamespace`** — already DONE in L5d (`UsingDef`).
+- **L6 COMPLETE: imports (All/Selective/Alias) + UsingNamespace + NamespaceDeclaration all lowered.** Remaining migration: L7 (pattern dispatch), L8 (async), L9 (asm), L10 (harden + delete `OP_NATIVE_DEFINE`).
+
+### Phase L7 — Pattern dispatch: `Switch` → `Match` → `DestructuringDeclaration` / `TryUnwrap`
+The multi-week heart. Use the `MatchBegin/MatchArm/MatchEnd` + pattern-primitive opcode sketch already drafted in `Opcode.cs` (0x90–0x92 reserved region + `PatLitEq/PatVarBind/PatVarTag/PatVarPay/PatTupleLen/PatListLen/PatStructShape/PatFieldBind/PatWildcard`).
+- **Order:** `Switch` first (simpler: scrutinee + equality arms + default) to validate the arm/scope machinery; then `Match` (7 pattern shapes); then `DestructuringDeclaration`/`TryUnwrap` reuse the pattern primitives.
+- **Switch — STARTED (first cut: expression-switch, NO new opcodes).** A switch where every case is arrow (`=>`) with a **pure-value expression** arm reduces to an if-else-chain producing a value, built entirely from EXISTING opcodes — `IrCompiler.CompileSwitchExpr`: evaluate the scrutinee ONCE into a persistent slot; for each case compare it against each label with `Opcode.Eq` (runtime → `GetComparisonEq`, byte-identical to the visitor's `switchVal.GetComparisonEq(labelVal)`); `JmpIf`-to-body on the first matching label (later labels of that case AND all later cases skipped at runtime — matching the visitor's lazy first-match-wins); the matched arm's expression lands in the dest slot; a default arm is unconditional-when-reached (later cases dead); no match + no default → `LoadNull`. Hooked at both the expression-position (`CompileExpression` `case Switch`) and statement-position (dedicated `TryCompileStatement` case, value → scratch) — both throw `IrCompileException` → `OP_NATIVE_DEFINE` fallback on **colon-fallthrough**, **block/List bodies**, or an arm body that is itself **break/continue/yield/return** (the visitor special-cases those). **Because it reuses Eq/JmpIf/Jmp/LoadNull (already modeled in SsaForm/Sccp/IrRewriter/LicmHoist/verifier), there is ZERO new opcode surface** — no four-pillars work, no `.rac` change. **Bug found + fixed (IndexOutOfRange):** hand-emitted IR control flow must let `topSlot` grow MONOTONICALLY (like `CompileIf`) so the per-statement `MaxTempUsed` high-water sizes the frame; an early `topSlot = baseTop` reset-between-arms hid the peak → undersized `LocalCount` → out-of-range slot at runtime (masked in a big top-level fn, exposed in a small one). Parity MATCH on the whole switch corpus (`test_switch`, `test_yield_generator`, `test_streams_fusion`) + an isolated fallthrough test; `.rac` round-trip; test `tests/control_flow/test_switch_lowered.ra` (SW1–SW10: string/int/multi-label arms, default, no-match-null, once-evaluated scrutinee, string-equality); **full suite 249/249, 2770 assertions green.**
+- **Switch — WIDENED to colon (C-style fallthrough + `break`).** `CompileSwitchExpr` is now a style dispatcher: **all-arrow** → the expr-arm path above; **all-colon** → `CompileSwitchColon` (C-style: scrutinee evaluated once, a dispatch chain `JmpIf`s to each case body, bodies laid in SOURCE ORDER and **fall through** until `break` or the end, value is null); **mixed arrow/colon → fallback** (tangled visitor semantics). Bodies compile via `CompileBodyStrictInline` (no per-case scope push → fallthrough shares the switch scope, matching the visitor running colon stmts at `context`). **`break` / `continue` semantics:** a new `LoopContext.BreakBarrierOnly` flag marks the switch as breakable-but-not-a-loop — `break` (via `st.Loops.Peek()`) lands on the switch's `BreakFixups` (→ switch end), while `continue` / `retry` now walk past barriers via `NearestRealLoop(st)` to the nearest enclosing real loop. Verified by a break-vs-continue-in-loop test (`continue` skips the post-switch code → reaches the loop; `break` exits the switch → runs the post-switch code). Parity MATCH on the corpus + isolated fallthrough + break/continue-in-loop; `.rac` round-trip; test extended with SC1–SC6 (colon+break, fallthrough, default, break-vs-continue); **full suite 249/249, 2776 assertions green.**
+- **Switch — arrow-block bodies (`case x -> { … }`, PURE side effects).** `EmitArrowBody` handles an arrow arm whose body is a `ListNode` (block): `LoadNull dest` (block arms produce null) then run the elements as STATEMENTS via `TryCompileStatement`. Guarded by `ArrowBlockHasControlEscape` — falls back to the visitor on ANY `yield` / `break` / `continue` / `return` in the block (not descending nested fn/loop scopes, which own their own escapes) or any node type not provably escape-free; **only pure side-effect blocks lower.** **Finding:** `break` inside an arrow-block diverges — the visitor returns the switch as `null` AND the surrounding fn observed `a == null` (an inconsistent/buggy visitor path, different from colon-`break`), so arrow-block escapes are deliberately left on fallback. `yield`-as-switch-value stays deferred (L8-adjacent generator machinery; the visitor's own behaviour aborts at top level). Test SB1–SB3; parity MATCH; `.rac` round-trip; **full suite 249/249, 2779 assertions green.** **Switch is now as complete as sensible without L8** (arrow-expr + arrow-assignment + pure arrow-block + colon C-style all lower; only yield-value + escaping-block + mixed fall back).
+- **Match — STARTED (first cut: literal + wildcard patterns, NO binding).** `IrCompiler.CompileMatchExpr`: a `match` whose every arm is a WILDCARD (`_`) or LITERAL (number / string / bool) pattern, with a wildcard-no-guard CATCH-ALL (so it's exhaustive — no runtime no-match path needed; arms after the catch-all are dead), reduces to an if-else chain producing a value via existing **Eq/JmpIf/Jmp** (NO new opcode surface). Scrutinee evaluated once; literal arms compare with `Opcode.Eq` (= `GetComparisonEq`, the same the visitor's `TryMatchLiteral` uses for non-null operands); guards (`case P if g`) run after the pattern test and skip to the next arm when false. Hooked at expression-position (`CompileExpression case Match`) + statement-position. Falls back on: variable / variant / tuple / list / struct / type / or-/and-/range/relational/map patterns (binding + destructuring — the valuable next widening), `null` or non-trivial literal patterns, block / control-escape arm bodies, or a match with no catch-all. **`null`-scrutinee caveat:** a literal arm uses plain `Eq` which (unlike the visitor) does not pre-check a null scrutinee — sound for the non-null scrutinees in the corpus; null-scrutinee literal matches would be caught by the parity oracle. Parity MATCH on the WHOLE match corpus (31/31 files — literal matches lower, complex-pattern matches fall back cleanly); `.rac` round-trip; test `tests/pattern_match/test_match_lit_lowered.ra` (ML1–ML11: int/string/bool literal arms, wildcard, guard-without-binding, once-evaluated scrutinee); **full suite 250/250, 2790 assertions green.**
+- **CRITICAL LESSON (cost a `while-let` crash, found + fixed):** when you REMOVE a node kind from a native-define case-GROUP and give it a dedicated lowering case, that case must FALL BACK by **emitting `OP_NATIVE_DEFINE`** (try/catch → roll back `Code.Truncate`/`topSlot`/`DefineRefs`, then `Emit2(NativeDefine, …)`), **NOT by throwing.** In a STRICT body context (`while`/`for` body via `CompileBodyStrictInline`) a throw propagates and sinks the WHOLE enclosing statement — a `while let [h,..t]=xs { … }` desugars to a `While` wrapping a list-pattern `match` statement; the match threw, the While body failed to lower, and `EmitNativeDefine(While)` errored "no NATIVE_DEFINE route for node While". Both the Match AND Switch statement/expression cases were converted to emit-on-fallback. **NEXT:** widen Match — variable bindings (`case x`, the key destructuring capability — needs pattern-var → slot binding + transactional arm scope), then variant (`Ok(v)`) / tuple / list / struct patterns.
+- **Hard parts (from the `Opcode.cs` deferral note):** (1) 7 pattern shapes each with bind-extraction; (2) **transactional binding scope** — a pattern that partially matches then fails must not leak its bindings (push trial scope → pop on fail); (3) guards run *after* binds → guard IR compiles against the trial scope; (4) body `return/break/continue/yield` must propagate out of the match result slot.
+- **Rewriter:** pattern tests are pure compares/branches → fusible; variant/struct shape checks get a PIC like `MemberAccessIc`.
+- **`.rac`:** pattern primitives are flat; arm metadata in a `MatchMeta[]` pool.
+- **Async caveat:** match bodies can `await` → must respect §4d (no embedded await in the main switch; route through the suspension trampoline).
+
+### Phase L8 — Async: `Await` / `Spawn` / `Emit` / `ForAwait` / `Yield`
+Gated behind §4d's suspension trampoline. Each lowers to a dedicated opcode (`Await`/`Spawn`/`Emit`/`ForAwait` reserved at 0xB0–0xB3; add `Yield`). The handlers issue suspension requests; the trampoline drives `AsyncScheduler`/`AsyncStreamCore`. **Hard CI gate:** `test_deep_recursion` (depth 2000) must stay green — proves no state-machine frame growth.
+
+### Phase L9 — FFI `AsmBlock`
+`AsmInvoke` opcode already reserved (0xE0). Lower the asm block to a pre-assembled `AsmRegion` const (assembled at compile time by `X64Assembler`) + `OP_ASM_INVOKE` with arg/ret slot bands. Compile-time assembly removes per-execution codegen. Honor `AsmSecurityPolicy` at compile + load (verifier).
+
+### Phase L10 — Harden soft-fallbacks → remove `OP_NATIVE_DEFINE`
+- For every node in §1a that can still throw `IrCompileException` and degrade, find and close the gap (operand-width overflow → emit `Wide`; const-pool overflow → spill; etc.) so the native path is **total**.
+- Delete `EmitFallback` / `HasNativeDefineRoute` / `CompileStatementWithFallback`'s fallback branch / the `OP_NATIVE_DEFINE` case / `DefineRefs` / `AstRefs` (and the per-site AST-ref pools replaced in §3).
+- Delete `IrExpressionEvaluator` entirely (no more on-demand sub-expression compile; everything is lowered ahead of time).
+- **`.rac` V6:** pure bytecode. Delete the AST-execution path of `AstNodeSerializer` (keep only what's needed for source-bearing debug archives, if any).
+- Decide visitors' fate: keep behind a `#if PARITY_ORACLE` build for the differential harness, or delete and freeze the oracle corpus as golden outputs.
+
+---
+
+## 6. Acceptance gates (every phase, non-negotiable)
+
+A phase is `done` only when **all** hold:
+1. `run_suite.ps1` — `233/233` files, `0` fail, full assertion count, archive checks green.
+2. Parity oracle (§4b) — IR vs forced-fallback identical for the construct's corpus, including error diagnostics.
+3. `--bench` (relevant benches) — alloc/run **≤** baseline (deterministic `GC.GetTotalAllocatedBytes`); time ≤ baseline within the machine's noise floor (measure best-of-N; note environmental drift — untouched benches are the control).
+4. `.rac` round-trip — compile → run-archive identical to direct run; verifier rejects malformed/old payloads as designed.
+5. NativeAOT publish — zero new `IL2026`/`IL3050` from the touched files (the LSP/`.rac` JSON precedent).
+6. `test_deep_recursion` (depth 2000) green (C# stack-budget guard).
+7. `--dump-ir` / `--dump-cfg` show the new opcodes; no `NativeDefine` for the migrated construct.
+
+---
+
+## 7. Performance, branch-prediction, lookahead, allocation
+
+The migration is the *vehicle*; these are the *targets* baked into every phase:
+
+- **Allocation ↓.** Each lowered construct stops: the `IrExpressionEvaluator` round-trip (`ValueTask` + per-node compile-cache lookup), the per-scope `Context.Copy/Clear`, and (L10) the AST pinning. Measure per phase; the GB-class C-style benches are the headline.
+- **Branch prediction.** The main `switch` is a jump table over a dense opcode byte — keep it dense (reserve contiguous opcode ranges per family so the table stays compact and the indirect branch target is well-predicted). Fused superinstructions (the `JmpNot*II` precedent) collapse predictable compare+branch pairs — extend fusion to the new loop/pattern shapes (L1/L7).
+- **Lookahead / ILC.** Hoist invariant loads to loop preheaders (LICM already exists — ensure new opcodes are modelled so LICM sees through them). Keep hot handler bodies inline and cold paths `[NoInlining]` so the hot loop's I-cache footprint and the `MoveNext` frame stay small.
+- **Cache locality.** New side-tables are flat arrays indexed by small ints (like `Consts`/`Names`) — no pointer-chasing AST. The pinned 24-byte `ValueSlot` layout stays the per-slot store.
+- **Typed unboxing.** New numeric loops (L1 `SuperFor`) must reach the `II`/`FF` tagged-union fast paths — reuse `TryCompileWhileLazyLongCounter`/`CompileForLazyLong` so `i` stays `Int64`-tagged, not boxed `NumberValue`.
+- **SIMD/AVX2 (opportunistic, only where measured).** Collection-literal builds, set/map dedupe, pattern-list shape checks, and `.rac` verification scans are candidates for vectorized fast paths *with scalar fallback* — only if a bench proves the win; never decorative.
+
+---
+
+## 8. Memory-leak elimination (definitive)
+
+Tracked as first-class, not incidental:
+1. **AST pinning.** L10 removes `AstRefs`/`DefineRefs` → `RaFunction` no longer roots AST subtrees for the program's lifetime.
+2. **`IrExpressionEvaluator.s_cache`.** Static `ConcurrentDictionary<(AstNode,bool), RaFunction>` — grows per distinct sub-expression node, only cleared on hot-restart. L10 deletes it outright.
+3. **Per-PC IC growth.** `MemberAccessIc`/`CallMethodIc`/`EnumAccessIc`/`CastIc` PICs grow to 3 shapes then stop (bounded by design — verify the LRU ring truly caps; add a megamorphic "give up + null the Pic" path if any can grow unbounded).
+4. **`SetContext` on interned values.** `NumberValue.OfInt64` small-int cache instances get `SetContext(ctx)` stomped on shared singletons — a reused `Context` can be pinned by an interned number's `Context` field across calls. Audit: either stop calling `SetContext` on `IsCopy` interned singletons, or make `Context` a non-pinning weak/ambient lookup. (Pre-existing; surface it here so it's fixed during the campaign.)
+5. **Frame / host / argList pools.** Confirm `VmFrame._framePool` (cap 4), `VmHostPool` (cap 64), `t_argListPool` (cap 64) are depth-capped (they are) and that returned objects clear their references (they do) — re-audit after each phase adds new per-frame side-arrays.
+
+---
+
+## 9. Risk register
+
+| risk | mitigation |
+|---|---|
+| Behavioural drift vs visitor | parity oracle (§4b) gates every phase; visitors retained until L10 |
+| Async state-machine frame growth (M85 repeat) | §4d suspension trampoline; depth-2000 CI gate |
+| `.rac` incompatibility / corruption | version bump + dual-load window + verifier fail-closed |
+| Opcode exhaustion | reserve contiguous ranges per phase; `Wide` for operand overflow |
+| Optimizer un-modelled opcode → silent miscompile | new opcode defaults to an analysis **barrier**; only relaxed with a test proving correctness |
+| Pattern-match binding-scope leak | transactional trial-scope (push→pop-on-fail), oracle-checked with partial-match corpus |
+| Generic/inheritance/annotation edge cases in defs (L5) | sub-stage per type kind; derive/annotation paths kept on their existing helpers, invoked from the handler with flat descriptors |
+| Big-bang regression | strictly one construct (or one sub-stage) per merge; never batch unrelated lowerings |
+
+---
+
+## 10. Methodology (the discipline)
+
+1. **One construct per change.** Lower it, wire all four pillars, run the six gates.
+2. **Oracle before delete.** Never remove a fallback until its construct passes the differential oracle.
+3. **Measure, don't assume.** Alloc is the deterministic signal (`GC.GetTotalAllocatedBytes`); time is noisy on this box — use best-of-N + an untouched control bench to separate signal from drift.
+4. **Keep the mirror in sync.** `TryCompileStatement` ↔ `HasNativeDefineRoute` ↔ VmExecutor switch ↔ verifier whitelist ↔ serializer — touch all together or the build/round-trip breaks.
+5. **Fail closed.** Verifier rejects unknown opcodes/old payloads; compiler asserts on operand overflow rather than silently truncating.
+
+---
+
+## 11. Tracking table (the checklist — update every merge)
+
+Legend: `LOWERED` (native opcodes) · `DISPATCH` (VM handler) · `REWRITER` (optimizer-modelled) · `RAC` (flat-data serialized, AST-ref dropped) · `PARITY` (oracle green) · `—` (n/a).
+
+| construct | phase | LOWERED | DISPATCH | REWRITER | RAC | PARITY |
+|---|---|---|---|---|---|---|
+| SuperFor | L1 | ✅ | ✅ (reuses Jmp/cmp/scope) | ✅ (existing opcodes) | n/a (no AST-ref) | ✅ golden¹ |
+| Scope (strict total) | L2 | ✅ already total | ✅ | ✅ | n/a | ✅ |
+| Goto | L2→deferred | ☐ subroutine-sem, needs call/return | ☐ | ☐ | ☐ | ☐ |
+| Label | L2→deferred | ☐ rest-of-block capture | ☐ | ☐ | ☐ | ☐ |
+| Borrow | L3 | ✅ (Borrow/BorrowMut opcodes) | ✅ (BorrowOps.TryBorrow) | ✅ (existing) | ✅ (no new side-table; verifier whitelist) | ✅ |
+| DereferenceAssignment | L3 | ✅ (DerefStore opcode) | ✅ (DerefStoreOps.Apply) | ✅ (SsaForm reads B+1; not a pure-def) | ✅ (no side-table; already verified) | ✅ |
+| Pipeline | L4 | ✅ (desugar → OP_CALL, top-level + in-fn) | ✅ (reuses Call) | n/a (no new opcode) | n/a (no new opcode) | ✅ (fixed latent SCCP continueSlot bug) |
+| RegexLiteral | L4 | ✅ (compile-time LoadConst) | ✅ | n/a | ✅ (ConstTag_Regex 0x1A) | ✅ |
+| WithExpression | L4 | ✅ (OP_WITH 0x43, recv@base + values) | ✅ (WithExpressionOps.Apply) | ✅ (SsaForm var-arity reads base..base+N; defines A) | ✅ (reuses DefineRefs; verifier whitelisted) | ✅ |
+| FormattedInterpolation | L4 | ✅ (OP_FMT 0x42, packed-int spec const) | ✅ (FormatEngine.Format) | ✅ (pre-scaffolded: reads B, defines A) | ✅ (ConstTag_Integer; pre-scaffolded verifier) | ✅ |
+| ClassDefinition | L5e | ◑ (plain classes: fields incl. const defaults + methods; inheritance/interfaces/traits/properties/events/operators/static/abstract/named+factory ctors → fallback) | ✅ (reuses ClassDefinitionNodeVisitor.Apply; async, sync-completes for the subset) | n/a | ✅ (ClassDef + FunctionDefinitionNode method bodies, V6) | ✅ |
+| StructDefinition | L5e | ◑ (fields incl. CONST defaults + methods + ctors lower; operators/annotations/where-constraints/param-defaults/properties/events → fallback) | ✅ (reuses StructDefinitionNodeVisitor.Apply) | n/a (modeled like NativeDefine) | ✅ (StructDef + RaFunction bodies + folded field-default consts, V6) | ✅ |
+| RecordDefinition | L5e | ◑ (value records: primary fields incl. const defaults + methods; inheritance/operators/etc. → fallback) | ✅ (reuses RecordDefinitionNodeVisitor.Apply + the shared struct method machinery) | n/a | ✅ (RecordDef, V6) | ✅ |
+| EnumDefinition | L5 | ✅ (EnumDef, OP_DEFINE_TYPE) | ✅ (EnumDefOps) | n/a | ✅ (V6 TypeDefs pool) | ✅ |
+| InterfaceDefinition | L5e | ◑ (method SIGNATURES + fields + simple generics; properties/events/annotations/where-constraints → fallback) | ✅ (reuses InterfaceDefinitionNodeVisitor.Apply; pure metadata — no precompiled bodies) | n/a | ✅ (InterfaceDef + InterfaceMethodDef[], V6) | ✅ |
+| TraitDefinition | L5e | ◑ (provided + abstract/required methods; where-constraints/annotations/generics-with-defaults → fallback) | ✅ (reuses TraitDefinitionNodeVisitor.Apply; GetOrCompileTraitMethod, nullable body for abstract) | n/a | ✅ (TraitDef + nullable-body TraitMethodDef, V6) | ✅ |
+| ExtensionDefinition | L5e | ◑ (extension methods on struct/class/record targets, incl. `pub`/`@sealed`; operators/properties/events/indexers/ext-fields/where-constraints → fallback) | ✅ (reuses ExtensionDefinitionNodeVisitor.Apply; FunctionDefinitionNode bodies via the class-method machinery) | n/a | ✅ (ExtensionDef + ClassMethodDef[], V6) | ✅ |
+| AnnotationDefinition | L5e | ◑ (defs with NO meta-annotations + const/absent param defaults; any `@meta annotation` or non-const default → fallback) | ✅ (reuses AnnotationDefinitionNodeVisitor.Apply; const-default param stubs) | n/a | ✅ (AnnotationDef + AnnotationParamDef[], V6) | ✅ |
+| DelegateDefinition | L5 | ✅ (DelegateDef, OP_DEFINE_TYPE) | ✅ (DelegateDefOps) | n/a | ✅ (V6) | ✅ |
+| NamespaceDeclaration | L6 | ✅ (body statements PRECOMPILED to RaFunction[]; no fallback unless a body stmt can't lower) | ✅ (reuses NamespaceDeclarationNodeVisitor.Apply + precompiled-bodies param; async sync-completes) | n/a | ✅ (NamespaceDef + body RaFunctions, V6) | ✅ |
+| UsingNamespace | L5/L6 | ✅ (UsingDef, OP_DEFINE_TYPE) | ✅ (UsingNamespaceOps) | n/a | ✅ (V6) | ✅ |
+| ImportAll | L6 | ✅ (ImportDef[All], OP_DEFINE_TYPE — no fallback, spec is flat) | ✅ (reuses ImportNodeVisitor.Apply → ModuleManager.Load) | n/a | ✅ (ImportDef, V6) | ✅ |
+| ImportSelective | L6 | ✅ (ImportDef[Selective] + symbol names) | ✅ (reuses ImportNodeVisitor.Apply) | n/a | ✅ (ImportDef, V6) | ✅ |
+| ImportAlias | L6 | ✅ (ImportDef[Alias] + alias name) | ✅ (reuses ImportNodeVisitor.Apply) | n/a | ✅ (ImportDef, V6) | ✅ |
+| Switch | L7 | ◑ (all-arrow: expr-arms → if-else chain, pure-side-effect block-arms `-> { … }` → run+null; all-colon → C-style dispatch + fallthrough + `break`; all via existing Eq/JmpIf/Jmp/LoadNull. Fallback: mixed arrow/colon, arrow-block with control-escape, `yield`-as-value) | n/a (inline opcodes + break-barrier LoopContext) | ✅ (reuses existing opcodes — already modeled) | ✅ (no new opcode/serialization) | ✅ |
+| Match | L7 | ◑ (literal + wildcard arms + guards-without-binding, with a wildcard catch-all → if-else chain via existing Eq/JmpIf/Jmp; variable / variant / tuple / list / struct / type / or-/and-/range/relational/map patterns → fallback) | n/a (inline opcodes) | ✅ (reuses existing opcodes — already modeled) | ✅ (no new opcode/serialization) | ✅ |
+| DestructuringDeclaration | L7 | ☐ | ☐ | ☐ | ☐ | ☐ |
+| TryUnwrap | L7 | ☐ | ☐ | ☐ | ☐ | ☐ |
+| Await | L8 | ☐ | ☐ | ☐ | ☐ | ☐ |
+| Spawn | L8 | ☐ | ☐ | ☐ | ☐ | ☐ |
+| Emit | L8 | ☐ | ☐ | ☐ | ☐ | ☐ |
+| ForAwait | L8 | ☐ | ☐ | ☐ | ☐ | ☐ |
+| Yield | L8 | ☐ | ☐ | ☐ | ☐ | ☐ |
+| AsmBlock | L9 | ☐ | ☐ | ☐ | ☐ | ☐ |
+| AnnotationApplication | L5/L7 | ☐ | ☐ | ☐ | ☐ | ☐ |
+| *(soft-fallback hardening — all §1a)* | L10 | ☐ | ☐ | ☐ | ☐ | ☐ |
+| **Remove OP_NATIVE_DEFINE + AST pools + IrExpressionEvaluator** | L10 | ☐ | ☐ | ☐ | ☐ | ☐ |
+| **`.rac` V6 pure-bytecode (drop AstNodeSerializer exec path)** | L10 | ☐ | ☐ | ☐ | ☐ | ☐ |
+
+---
+
+## 12. Definition of total done
+
+- `--dump-ir` over the **entire** test + bench corpus emits **zero** `OP_NATIVE_DEFINE`.
+- `RaFunction` contains no `AstNode` field.
+- `IrExpressionEvaluator` and `EmitFallback`/`HasNativeDefineRoute` are deleted.
+- `.rac` V6 carries no serialized AST for execution; verifier whitelists the full opcode set.
+- Full suite + parity oracle + depth-2000 + AOT publish all green.
+- Heavy C-style benches (lambdas/properties/constructors) within range-`for` performance class; aggregate alloc down measurably from today's GB-scale.
