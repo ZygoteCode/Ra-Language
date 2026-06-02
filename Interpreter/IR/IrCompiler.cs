@@ -7449,11 +7449,22 @@ namespace RaLanguage.Interpreter.IR
                     return;
                 }
 
+                // L8 — `await x`. Evaluate the target, emit OP_AWAIT (the handler
+                // awaits the resolved task via AwaitNodeVisitor.AwaitValueCore).
+                // The target self-falls-back, so no own fallback needed.
+                case AstNodeType.Await:
+                {
+                    var aw = (Parser.Nodes.Async.AwaitNode)expr;
+                    byte src = AllocTemp(ref topSlot);
+                    CompileExpression(aw.Expression, src, st, ref topSlot);
+                    st.Code.Emit3(Opcode.Await, destSlot, src, 0);
+                    return;
+                }
+
                 // Long-tail expressions routed via OP_NATIVE_DEFINE — the
                 // VM calls the visitor's static Apply directly, never
                 // hitting interpreter._visitors[].
                 case AstNodeType.DestructuringDeclaration:
-                case AstNodeType.Await:
                 case AstNodeType.Spawn:
                 case AstNodeType.Emit:
                 case AstNodeType.ForAwait:

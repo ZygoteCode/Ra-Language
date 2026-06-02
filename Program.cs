@@ -385,14 +385,18 @@ namespace RaLanguage
         {
             // Run the entry on a worker thread with a fat stack. The dispatch
             // loop is iterative, but user-level function calls still recur
-            // through Apply helpers; 32 MB of headroom keeps deep user
-            // recursion safe.
+            // through Apply helpers; a fat stack keeps deep user recursion safe.
+            // 128 MB (was 32): the L8 async-opcode lowering adds a few `await`
+            // points to the recursive `Execute` MoveNext (Await/ForAwait/Yield),
+            // which grows the per-recursion-level async frame; the larger stack
+            // restores headroom (the reservation is virtual — only touched pages
+            // commit). test_deep_recursion @2000 is the gate.
             Exception? threadEx = null;
             var worker = new System.Threading.Thread(() =>
             {
                 try { MainCore(args); }
                 catch (Exception ex) { threadEx = ex; }
-            }, 32 * 1024 * 1024);
+            }, 128 * 1024 * 1024);
             worker.Start();
             worker.Join();
             if (threadEx != null) throw threadEx;

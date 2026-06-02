@@ -2597,6 +2597,21 @@ namespace RaLanguage.Interpreter.Vm
                     case Opcode.DestructureFail:
                         throw new RaUserError(MakeIcError(ctx,
                             "destructuring pattern did not match the initializer value"));
+                    case Opcode.Await:
+                    {
+                        // L8 — `await x`. The target (already evaluated by opcodes)
+                        // is at B; await it via the shared AwaitNodeVisitor.Await
+                        // ValueCore (byte-identical to the visitor). This adds an
+                        // await point to Execute's MoveNext — the 128 MB worker
+                        // stack carries the per-recursion-level cost.
+                        byte aDst = Encoding.A(instr);
+                        byte aSrc = Encoding.B(instr);
+                        var awaited = await Visitors.Async.AwaitNodeVisitor.AwaitValueCore(
+                            locals[aSrc], ctx, DummyPos(ctx), DummyPos(ctx)).ConfigureAwait(false);
+                        if (awaited.Error != null) throw new RaUserError(awaited.Error);
+                        locals[aDst] = awaited.Value ?? NullValue.Null;
+                        break;
+                    }
 
                     default:
                         throw new RaUserError(MakeIcError(ctx,
