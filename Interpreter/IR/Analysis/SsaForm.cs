@@ -510,6 +510,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.StructShape: case Opcode.StructFieldGet:
                 case Opcode.ListShape: case Opcode.ListElemBack: case Opcode.ListRestSlice:
                 case Opcode.IsType:
+                case Opcode.MapShape: case Opcode.MapHasKey: case Opcode.MapGetKey:
                 // M66.5 / M66.6: II tagged-union opcodes also write
                 // `locals[a]` (or the `LongLocals[a]` shadow). SSA
                 // tracks both arrays' writes uniformly so chain
@@ -621,6 +622,8 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.BAndII: case Opcode.BOrII: case Opcode.BXorII:
                 // M80: typed Pow.
                 case Opcode.PowII: case Opcode.PowFF:
+                // L7 map patterns: read B (map) + C (key slot), like Eq.
+                case Opcode.MapHasKey: case Opcode.MapGetKey:
                     yield return (Encoding.B(instr), true);
                     yield return (Encoding.C(instr), true);
                     break;
@@ -697,6 +700,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.StructShape: case Opcode.StructFieldGet:
                 case Opcode.ListShape: case Opcode.ListElemBack: case Opcode.ListRestSlice:
                 case Opcode.IsType:
+                case Opcode.MapShape:
                     yield return (Encoding.B(instr), true);
                     break;
                 case Opcode.Ret:

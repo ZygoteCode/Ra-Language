@@ -233,6 +233,7 @@ namespace RaLanguage.Interpreter.Archive
                     case Opcode.ListShape:
                     case Opcode.ListElemBack:
                     case Opcode.ListRestSlice:
+                    case Opcode.MapShape:
                         CheckSlot(a, local, pc, opName, "a", diags, path);
                         CheckSlot(effB, local, pc, opName, "b", diags, path);
                         break;
@@ -301,6 +302,9 @@ namespace RaLanguage.Interpreter.Archive
                     case Opcode.UshrII:
                     case Opcode.RolII:
                     case Opcode.RorII:
+                    // L7 map patterns: a (dst) + b (map) + c (key slot), like Eq.
+                    case Opcode.MapHasKey:
+                    case Opcode.MapGetKey:
                         CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
                         CheckSlot(effB, local, pc, opName, "b (lhs)", diags, path);
                         CheckSlot(effC, local, pc, opName, "c (rhs)", diags, path);

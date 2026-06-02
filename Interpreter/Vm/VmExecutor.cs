@@ -2574,6 +2574,15 @@ namespace RaLanguage.Interpreter.Vm
                     case Opcode.IsType:
                         OpIsType(locals, instr, wideHiC, f.Function.AstRefs, ctx);
                         break;
+                    case Opcode.MapShape:
+                        OpMapShape(locals, instr);
+                        break;
+                    case Opcode.MapHasKey:
+                        OpMapHasKey(locals, instr, ctx);
+                        break;
+                    case Opcode.MapGetKey:
+                        OpMapGetKey(locals, instr, ctx);
+                        break;
 
                     default:
                         throw new RaUserError(MakeIcError(ctx,
@@ -4996,6 +5005,67 @@ namespace RaLanguage.Interpreter.Vm
             var sv = locals[b];
             bool matched = sv != null && RaLanguage.Types.TypeSystem.IsRuntimeTypeMatch(ctx, isn.TestedType, sv);
             locals[a] = BooleanValue.Of(matched);
+        }
+
+        // L7 — map shape: dst = scrut is MapValue with the required entry count
+        // (c packs open-rest bit + count7; open => Count>=count, closed => ==).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpMapShape(LocalsView locals, uint instr)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            int c = Encoding.C(instr);
+            int count = c & 0x7F;
+            bool open = (c & 0x80) != 0;
+            bool matched = locals[b] is MapValue mv
+                && (open ? mv.Pairs.Count >= count : mv.Pairs.Count == count);
+            locals[a] = BooleanValue.Of(matched);
+        }
+
+        // L7 — map structural key presence: dst = the map (slot B) contains the key
+        // in slot C (linear GetComparisonEq scan, mirroring the visitor's
+        // TryMapLookup). A non-map / missing key -> false (no-match, not an error).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpMapHasKey(LocalsView locals, uint instr, Context ctx)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            byte cSlot = Encoding.C(instr);
+            bool found = false;
+            if (locals[b] is MapValue mv && locals[cSlot] is RuntimeValue key)
+            {
+                for (int i = 0; i < mv.Pairs.Count; i++)
+                {
+                    var (eqVal, eqErr) = mv.Pairs[i].Key.GetComparisonEq(key);
+                    if (eqErr != null) throw new RaUserError(eqErr);
+                    if (eqVal is BooleanValue bv && bv.Value) { found = true; break; }
+                }
+            }
+            locals[a] = BooleanValue.Of(found);
+        }
+
+        // L7 — map value-by-key (a preceding MapHasKey confirmed presence). dst =
+        // the value paired with key slot C, or null if somehow absent.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpMapGetKey(LocalsView locals, uint instr, Context ctx)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            byte cSlot = Encoding.C(instr);
+            RuntimeValue result = NullValue.Null;
+            if (locals[b] is MapValue mv && locals[cSlot] is RuntimeValue key)
+            {
+                for (int i = 0; i < mv.Pairs.Count; i++)
+                {
+                    var (eqVal, eqErr) = mv.Pairs[i].Key.GetComparisonEq(key);
+                    if (eqErr != null) throw new RaUserError(eqErr);
+                    if (eqVal is BooleanValue bv && bv.Value) { result = mv.Pairs[i].Value; break; }
+                }
+            }
+            locals[a] = result;
         }
 
         [System.Runtime.CompilerServices.MethodImpl(

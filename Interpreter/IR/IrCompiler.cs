@@ -3981,6 +3981,52 @@ namespace RaLanguage.Interpreter.IR
                         // A type pattern TESTS the type — never a catch-all.
                         break;
                     }
+                    case Parser.Nodes.Patterns.AliasPatternNode apat:
+                    {
+                        // `P as v`: match the inner pattern, then bind v to the
+                        // scrutinee. First cut: inner must be a NON-BINDING bool
+                        // test (literal / range / relational / wildcard) — a
+                        // binding inner (`case Ok(x) as w`) falls back.
+                        GuardBoolPatternTest(apat.Inner);
+                        int s = FindMatchBindingSlot(apat.BinderName, arm.Guard, arm.Body, st);
+                        if (s < 0)
+                            throw new IrCompileException("match: unconfirmable alias binder -> fallback");
+                        if (s > maxBindingSlot) maxBindingSlot = s;
+                        break;
+                    }
+                    case Parser.Nodes.Patterns.AndPatternNode andn:
+                    {
+                        // `A & B`: every conjunct must match. First cut: each
+                        // conjunct is a NON-BINDING bool test (the conjunction is a
+                        // sequential AND of skips); a binding conjunct falls back.
+                        if (andn.Conjuncts.Count == 0)
+                            throw new IrCompileException("match: empty and-pattern -> fallback");
+                        foreach (var conj in andn.Conjuncts)
+                            GuardBoolPatternTest(conj);
+                        break;
+                    }
+                    case Parser.Nodes.Patterns.NotPatternNode notn:
+                        // `not P`: P fails. P is non-binding (parser-enforced) →
+                        // a bool test inverted at emit. Never a catch-all.
+                        GuardBoolPatternTest(notn.Inner);
+                        break;
+                    case Parser.Nodes.Patterns.MapPatternNode mp:
+                    {
+                        // `case { "k": p, .. }`: scrutinee is a MapValue with the
+                        // right entry count (closed = exact, `..` open = at-least);
+                        // each entry's key is a lowerable const looked up by
+                        // structural equality, its value pattern a leaf.
+                        if (mp.Entries.Count > 0x7F)
+                            throw new IrCompileException("match: map arity out of 7-bit range -> fallback");
+                        foreach (var (keyExpr, valuePat) in mp.Entries)
+                        {
+                            if (!IsLowerablePatternConst(keyExpr))
+                                throw new IrCompileException("match: non-const map key -> fallback");
+                            GuardLeafSubpattern(valuePat, arm.Guard, arm.Body, st, ref maxBindingSlot);
+                        }
+                        // A map pattern TESTS the shape — never a catch-all.
+                        break;
+                    }
                     default:
                         throw new IrCompileException("match: non-literal/wildcard pattern -> fallback");
                 }
@@ -4040,7 +4086,11 @@ namespace RaLanguage.Interpreter.IR
                 // match exit and the no-match skip.
                 // A type pattern only needs a scope when it has an `as v` binder.
                 bool isTypeBinder = isTypePat && ((Parser.Nodes.Patterns.TypePatternNode)arm.Pattern).BinderName != null;
-                bool hasScope = isBinding || isVariant || isTuple || isStruct || isList || isTypeBinder;
+                // An alias (`P as v`) binds v; a map binds its value patterns;
+                // and/not are non-binding bool tests.
+                bool isAlias = arm.Pattern is Parser.Nodes.Patterns.AliasPatternNode;
+                bool isMap = arm.Pattern is Parser.Nodes.Patterns.MapPatternNode;
+                bool hasScope = isBinding || isVariant || isTuple || isStruct || isList || isTypeBinder || isAlias || isMap;
                 if (hasScope) EmitPushScope(st);
 
                 var skips = new List<int>(); // jumps to this arm's no-match cleanup
@@ -4220,6 +4270,50 @@ namespace RaLanguage.Interpreter.IR
                     // `as v`: bind the (type-narrowed) scrutinee to the binder.
                     if (tpn.BinderName != null)
                         EmitMatchBinding(tpn.BinderName, scrutSlot, arm.Guard, arm.Body, node, st);
+                }
+                else if (arm.Pattern is Parser.Nodes.Patterns.AliasPatternNode apat)
+                {
+                    // `P as v`: the inner bool test must pass, then bind v=scrut.
+                    byte cond = EmitBoolPatternTest(apat.Inner, scrutSlot, st, ref topSlot);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, cond));
+                    EmitMatchBinding(apat.BinderName, scrutSlot, arm.Guard, arm.Body, node, st);
+                }
+                else if (arm.Pattern is Parser.Nodes.Patterns.AndPatternNode andn)
+                {
+                    // `A & B & C`: a sequential AND — every conjunct's bool test
+                    // must pass (each skips to the next arm on failure).
+                    foreach (var conj in andn.Conjuncts)
+                    {
+                        byte cond = EmitBoolPatternTest(conj, scrutSlot, st, ref topSlot);
+                        skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, cond));
+                    }
+                }
+                else if (arm.Pattern is Parser.Nodes.Patterns.NotPatternNode notn)
+                {
+                    // `not P`: invert — if the inner matched, THIS arm fails (skip).
+                    byte cond = EmitBoolPatternTest(notn.Inner, scrutSlot, st, ref topSlot);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIf, cond));
+                }
+                else if (arm.Pattern is Parser.Nodes.Patterns.MapPatternNode mp)
+                {
+                    // Shape test: a MapValue with the right entry count.
+                    byte shapeSlot = AllocTemp(ref topSlot);
+                    int modeAndCount = (mp.HasOpenRest ? 0x80 : 0) | mp.Entries.Count;
+                    st.Code.Emit3(Opcode.MapShape, shapeSlot, scrutSlot, (byte)modeAndCount);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, shapeSlot));
+                    // Per entry: evaluate the key, require its presence, extract its
+                    // value, and match the leaf value pattern.
+                    foreach (var (keyExpr, valuePat) in mp.Entries)
+                    {
+                        byte keySlot = AllocTemp(ref topSlot);
+                        CompileExpression(keyExpr, keySlot, st, ref topSlot);
+                        byte hasSlot = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.MapHasKey, hasSlot, scrutSlot, keySlot);
+                        skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, hasSlot));
+                        byte valSlot = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.MapGetKey, valSlot, scrutSlot, keySlot);
+                        EmitLeafSubpattern(valuePat, valSlot, skips, arm.Guard, arm.Body, node, st, ref topSlot);
+                    }
                 }
                 // Wildcard arms have no pattern test. Guard runs after the pattern
                 // test + binding (it can see variable / variant-payload binds).
@@ -4437,6 +4531,20 @@ namespace RaLanguage.Interpreter.IR
                     if (RelationalCmpOpcode(rop.Op) == null || !IsLowerablePatternConst(rop.Operand))
                         throw new IrCompileException("match: unsupported relational pattern -> fallback");
                     return;
+                // Composite NON-BINDING bool tests, recursively (`not 0 & < 100`).
+                case Parser.Nodes.Patterns.NotPatternNode notn:
+                    GuardBoolPatternTest(notn.Inner);
+                    return;
+                case Parser.Nodes.Patterns.AndPatternNode andn:
+                    if (andn.Conjuncts.Count == 0)
+                        throw new IrCompileException("match: empty and-pattern -> fallback");
+                    foreach (var c in andn.Conjuncts) GuardBoolPatternTest(c);
+                    return;
+                case Parser.Nodes.Patterns.OrPatternNode orn:
+                    if (orn.Alternatives.Count == 0)
+                        throw new IrCompileException("match: empty or-pattern -> fallback");
+                    foreach (var alt in orn.Alternatives) GuardBoolPatternTest(alt);
+                    return;
                 default:
                     throw new IrCompileException("match: non-bool-testable pattern -> fallback");
             }
@@ -4496,6 +4604,34 @@ namespace RaLanguage.Interpreter.IR
                     byte cond = AllocTemp(ref topSlot);
                     st.Code.Emit3(RelationalCmpOpcode(rop.Op)!.Value, cond, scrutSlot, opSlot);
                     return cond;
+                }
+                // Composite NON-BINDING bool tests, recursively.
+                case Parser.Nodes.Patterns.NotPatternNode notn:
+                {
+                    byte inner = EmitBoolPatternTest(notn.Inner, scrutSlot, st, ref topSlot);
+                    byte cond = AllocTemp(ref topSlot);
+                    st.Code.Emit3(Opcode.NotB, cond, inner, 0);
+                    return cond;
+                }
+                case Parser.Nodes.Patterns.AndPatternNode andn:
+                {
+                    byte acc = EmitBoolPatternTest(andn.Conjuncts[0], scrutSlot, st, ref topSlot);
+                    for (int k = 1; k < andn.Conjuncts.Count; k++)
+                    {
+                        byte c = EmitBoolPatternTest(andn.Conjuncts[k], scrutSlot, st, ref topSlot);
+                        st.Code.Emit3(Opcode.AndBB, acc, acc, c);
+                    }
+                    return acc;
+                }
+                case Parser.Nodes.Patterns.OrPatternNode orn:
+                {
+                    byte acc = EmitBoolPatternTest(orn.Alternatives[0], scrutSlot, st, ref topSlot);
+                    for (int k = 1; k < orn.Alternatives.Count; k++)
+                    {
+                        byte c = EmitBoolPatternTest(orn.Alternatives[k], scrutSlot, st, ref topSlot);
+                        st.Code.Emit3(Opcode.OrBB, acc, acc, c);
+                    }
+                    return acc;
                 }
                 default:
                     // Guarded earlier; unreachable.

@@ -518,6 +518,17 @@ namespace RaLanguage.Interpreter.IR
         ListShape       = 0x9D,
         ListElemBack    = 0x9E,
         ListRestSlice   = 0x9F,
+        //   MapShape     [op][dst][scrut][c]  c = (openBit<<7)|count7. dst = scrut
+        //                  is MapValue && (open: Pairs.Count>=count / closed:
+        //                  Pairs.Count==count). A `..` open-rest sets the open bit.
+        //   MapHasKey    [op][dst][map][keySlot]  dst = the map contains keySlot
+        //                  (structural GetComparisonEq over Pairs). 3-address: reads
+        //                  B (map) + C (key SLOT), like Eq.
+        //   MapGetKey    [op][dst][map][keySlot]  dst = the value at keySlot (a
+        //                  preceding MapHasKey confirmed presence). 3-address.
+        MapShape        = 0xA7,
+        MapHasKey       = 0xAF,
+        MapGetKey       = 0xCF,
 
         // --- exceptions ---
         Throw           = 0xA0,   // a (err src)

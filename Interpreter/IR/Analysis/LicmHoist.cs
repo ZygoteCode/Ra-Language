@@ -756,6 +756,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.StructShape: case Opcode.StructFieldGet:
                 case Opcode.ListShape: case Opcode.ListElemBack: case Opcode.ListRestSlice:
                 case Opcode.IsType:
+                case Opcode.MapShape: case Opcode.MapHasKey: case Opcode.MapGetKey:
                     return Encoding.A(instr) == slot;
                 default:
                     return false;

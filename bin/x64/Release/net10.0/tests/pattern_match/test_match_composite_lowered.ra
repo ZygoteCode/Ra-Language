@@ -1,0 +1,94 @@
+import std.prelude.*;
+// Ra Language - L7 (Match widening): the LAST pattern leaves now lower —
+// alias (`P as v`), and (`A & B`), not (`not P`), and map (`{ "k": p }`).
+//
+//  - Alias: the inner bool test passes, then bind v=scrutinee (EmitBoolPattern
+//    Test + EmitMatchBinding; first cut: bool-testable inner only).
+//  - And / Not / Or compose as recursive NON-BINDING bool tests — And via an
+//    AndBB chain, Not via NotB, Or via OrBB — so `not 0 & < 100` lowers whole.
+//  - Map: MapShape (is MapValue + entry count, closed `==` / open `..` `>=`) +
+//    per-entry MapHasKey (structural presence) + MapGetKey (value) + a leaf
+//    value pattern. Three new opcodes; keys are lowerable consts.
+//
+// A KEY enabler: the Resolver's BindPatternNames now allocates the binders of
+// these extended patterns (type/alias/and/or/map) — previously their binding
+// forms silently fell back to the visitor.
+
+print("=== pattern_match/match_composite_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// AL1-AL3: alias of a range / relational, binder used in body + guard.
+fn band(n: int): string {
+    ret match n {
+        case (10..=99) as d -> "two:" + (d as string)
+        case (> 999) as big if big < 5000 -> "kilo:" + (big as string)
+        case _ -> "other"
+    };
+}
+ck("[AL1]", band(42) == "two:42");
+ck("[AL2]", band(1500) == "kilo:1500");
+ck("[AL3]", band(9) == "other");
+ck("[AL4]", band(9999) == "other");      // > 999 but guard big<5000 fails
+
+// AN1-AN3: and — including the corpus `not 0 & < 100` (and-of-not).
+fn small(n: int): bool {
+    ret match n {
+        case not 0 & < 100 -> true
+        case _ -> false
+    };
+}
+ck("[AN1]", small(7) == true);
+ck("[AN2]", small(0) == false);          // not 0 fails
+ck("[AN3]", small(500) == false);        // < 100 fails
+
+// NT1-NT3: standalone not.
+fn nonzero(n: int): bool {
+    ret match n {
+        case not 0 -> true
+        case _ -> false
+    };
+}
+ck("[NT1]", nonzero(5) == true);
+ck("[NT2]", nonzero(0) == false);
+
+// MP1-MP3: map closed pattern, values bound.
+fn host(m: map<string, int>): string {
+    ret match m {
+        case { "host": h, "port": p } -> (h as string) + ":" + (p as string)
+        case _ -> "no";
+    };
+}
+ck("[MP1]", host({ "host": 1, "port": 8080 }) == "1:8080");
+ck("[MP2]", host({ "host": 1 }) == "no");            // closed: count mismatch
+ck("[MP3]", host({ "host": 1, "port": 80, "x": 9 }) == "no"); // closed: extra key
+
+// MP4-MP6: map OPEN-REST pattern (extra keys allowed).
+fn geta(m: map<string, int>): int {
+    ret match m {
+        case { "a": x, .. } -> x
+        case _ -> -1
+    };
+}
+ck("[MP4]", geta({ "a": 5, "b": 6, "c": 7 }) == 5);
+ck("[MP5]", geta({ "a": 9 }) == 9);
+ck("[MP6]", geta({ "b": 1 }) == -1);                  // missing key "a"
+
+// MP7: map value LITERAL subpattern (`{ "k": 0 }`).
+fn zeroed(m: map<string, int>): bool {
+    ret match m {
+        case { "v": 0, .. } -> true
+        case _ -> false
+    };
+}
+ck("[MP7]", zeroed({ "v": 0, "w": 1 }) == true);
+ck("[MP8]", zeroed({ "v": 3 }) == false);
+
+if failures == 0 {
+    print("=== done (all composite cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

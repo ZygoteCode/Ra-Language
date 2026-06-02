@@ -668,6 +668,37 @@ namespace RaLanguage.Interpreter.Pipeline
                     // any identifier it references gets resolved.
                     if (lit.Expression != null) Walk(lit.Expression, s);
                     break;
+                // Extended patterns: allocate their binders so the IR lowering can
+                // confirm a slot (else the binding form silently falls back to the
+                // visitor). Mirrors the visitor's name-based binding set.
+                case TypePatternNode tpn:
+                    if (!string.IsNullOrEmpty(tpn.BinderName) && tpn.BinderName != "_")
+                        s.AllocateLocalIfAbsent(tpn.BinderName!);
+                    break;
+                case AliasPatternNode apn:
+                    BindPatternNames(apn.Inner, s);
+                    if (!string.IsNullOrEmpty(apn.BinderName) && apn.BinderName != "_")
+                        s.AllocateLocalIfAbsent(apn.BinderName);
+                    break;
+                case AndPatternNode andn:
+                    foreach (var conj in andn.Conjuncts) BindPatternNames(conj, s);
+                    break;
+                case OrPatternNode orn:
+                    foreach (var alt in orn.Alternatives) BindPatternNames(alt, s);
+                    break;
+                case NotPatternNode notn:
+                    BindPatternNames(notn.Inner, s);
+                    break;
+                case MapPatternNode mpn:
+                    foreach (var (key, val) in mpn.Entries) { Walk(key, s); BindPatternNames(val, s); }
+                    break;
+                case RangePatternNode rgn:
+                    if (rgn.Lo != null) Walk(rgn.Lo, s);
+                    if (rgn.Hi != null) Walk(rgn.Hi, s);
+                    break;
+                case RelationalPatternNode rln:
+                    if (rln.Operand != null) Walk(rln.Operand, s);
+                    break;
             }
         }
 
