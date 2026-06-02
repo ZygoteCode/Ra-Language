@@ -62,7 +62,30 @@ namespace RaLanguage.Interpreter.Visitors.Async
                 // and is explicitly true for thread-safe constructs (channel,
                 // task, async stream, immutable string). Mutable containers,
                 // class instances, struct instances default to non-Sync.
-                var crossErr = CheckSpawnSafety(fn, positionalArgs, namedArgs, node, context);
+                return SpawnCore(fn, positionalArgs, namedArgs, context, node.PositionStart, node.PositionEnd);
+            }
+
+            var inner = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.Expression, context, interpreter);
+            if (inner.Error != null) return res.Failure(inner.Error);
+            if (inner.Value is TaskValue alreadyTask)
+            {
+                return res.Success(alreadyTask.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+            }
+            return res.Success(new TaskValue(RaTaskCore.FromCompletedValue(inner.Value)).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+        }
+
+        // Shared schedule core (reused by the OP_SPAWN handler). The callee +
+        // args are already evaluated; check cross-fiber borrow safety, schedule
+        // the fiber, and return the TaskValue. Synchronous (AsyncScheduler.Schedule
+        // queues + returns immediately). Byte-identical to the visitor path.
+        public static RuntimeResult SpawnCore(BaseFunctionValue fn,
+            System.Collections.Generic.List<RuntimeValue> positionalArgs,
+            System.Collections.Generic.Dictionary<string, RuntimeValue> namedArgs,
+            Context context, Lexer.Position posStart, Lexer.Position posEnd)
+        {
+            var res = new RuntimeResult();
+            {
+                var crossErr = CheckSpawnSafety(fn, positionalArgs, namedArgs, posStart, posEnd, context);
                 if (crossErr != null) return res.Failure(crossErr);
 
                 var parentAsync = context.AsyncCtx;
@@ -84,7 +107,7 @@ namespace RaLanguage.Interpreter.Visitors.Async
                         if (produced is TaskValue innerTask)
                         {
                             innerTask.Core.Wait(childAsyncCtx.Token);
-                            if (innerTask.Core.IsCancelled) return new ValueResult(null, AsyncScheduler.MakeCancellationError(node.PositionStart, node.PositionEnd, context));
+                            if (innerTask.Core.IsCancelled) return new ValueResult(null, AsyncScheduler.MakeCancellationError(posStart, posEnd, context));
                             if (innerTask.Core.IsFaulted && innerTask.Core.Error != null) return new ValueResult(null, innerTask.Core.Error);
                             return new ValueResult(innerTask.Core.Result, null);
                         }
@@ -95,33 +118,25 @@ namespace RaLanguage.Interpreter.Visitors.Async
                         RaLanguage.Interpreter.Runtime.Async.AsyncContextOverride.Pop(prior);
                     }
                 });
-                return res.Success(new TaskValue(task).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                return res.Success(new TaskValue(task).SetContext(context).SetPos(posStart, posEnd));
             }
-
-            var inner = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.Expression, context, interpreter);
-            if (inner.Error != null) return res.Failure(inner.Error);
-            if (inner.Value is TaskValue alreadyTask)
-            {
-                return res.Success(alreadyTask.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
-            }
-            return res.Success(new TaskValue(RaTaskCore.FromCompletedValue(inner.Value)).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
         }
 
         private static Error? CheckSpawnSafety(BaseFunctionValue fn,
             System.Collections.Generic.List<RuntimeValue> positionalArgs,
             System.Collections.Generic.Dictionary<string, RuntimeValue> namedArgs,
-            SpawnNode node,
+            Lexer.Position posStart, Lexer.Position posEnd,
             Context context)
         {
             // Check positional / named borrow args.
             for (int i = 0; i < positionalArgs.Count; i++)
             {
-                var err = CheckSpawnedReference(positionalArgs[i], $"positional argument #{i + 1}", node, context);
+                var err = CheckSpawnedReference(positionalArgs[i], $"positional argument #{i + 1}", posStart, posEnd, context);
                 if (err != null) return err;
             }
             foreach (var kv in namedArgs)
             {
-                var err = CheckSpawnedReference(kv.Value, $"named argument '{kv.Key}'", node, context);
+                var err = CheckSpawnedReference(kv.Value, $"named argument '{kv.Key}'", posStart, posEnd, context);
                 if (err != null) return err;
             }
 
@@ -130,14 +145,14 @@ namespace RaLanguage.Interpreter.Visitors.Async
             {
                 foreach (var kv in fn.CapturedValues)
                 {
-                    var err = CheckSpawnedReference(kv.Value, $"captured '&{kv.Key}'", node, context);
+                    var err = CheckSpawnedReference(kv.Value, $"captured '&{kv.Key}'", posStart, posEnd, context);
                     if (err != null) return err;
                 }
             }
             return null;
         }
 
-        private static Error? CheckSpawnedReference(RuntimeValue value, string label, SpawnNode node, Context context)
+        private static Error? CheckSpawnedReference(RuntimeValue value, string label, Lexer.Position posStart, Lexer.Position posEnd, Context context)
         {
             if (value is BorrowValue bv)
             {
@@ -149,7 +164,7 @@ namespace RaLanguage.Interpreter.Visitors.Async
                 var source = bv.SourceEntry.Value;
                 if (source != null && !source.IsSync)
                 {
-                    return new RuntimeError(node.PositionStart, node.PositionEnd,
+                    return new RuntimeError(posStart, posEnd,
                         $"cannot spawn: {label} is a borrow of '{bv.SourceName}' whose value type '{source.Type}' is not Sync",
                         context,
                         code: DiagnosticCode.RuntimeBorrowViolation,
@@ -167,7 +182,7 @@ namespace RaLanguage.Interpreter.Visitors.Async
                 foreach (var kv in bfn.CapturedValues)
                 {
                     var nestedLabel = $"{label} → captured '&{kv.Key}' of closure '{bfn.Name}'";
-                    var nested = CheckSpawnedReference(kv.Value, nestedLabel, node, context);
+                    var nested = CheckSpawnedReference(kv.Value, nestedLabel, posStart, posEnd, context);
                     if (nested != null) return nested;
                 }
             }

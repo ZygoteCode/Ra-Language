@@ -7492,11 +7492,39 @@ namespace RaLanguage.Interpreter.IR
                     return;
                 }
 
+                // L8 — `spawn f(args)`. Compile the callee + positional args into
+                // the contiguous OP_CALL band (callee at fnSlot, args at fnSlot+1
+                // ..), emit OP_SPAWN (handler schedules the fiber). Only the
+                // function-call form with natively-compilable (positional) args
+                // lowers; a non-call spawn or named/ref/spread args -> NATIVE_DEFINE.
+                case AstNodeType.Spawn:
+                {
+                    var sp = (Parser.Nodes.Async.SpawnNode)expr;
+                    if (sp.Expression is FunctionCallNode spfc && IsCallNativelyCompilable(spfc)
+                        && spfc.ArgNodes.Count <= byte.MaxValue)
+                    {
+                        int spArgCount = spfc.ArgNodes.Count;
+                        byte spFnSlot = AllocTemp(ref topSlot);
+                        byte spArgsBase = (byte)(spFnSlot + 1);
+                        for (int i = 0; i < spArgCount; i++) AllocTemp(ref topSlot);
+                        CompileExpression(spfc.NodeToCall, spFnSlot, st, ref topSlot);
+                        for (int i = 0; i < spArgCount; i++)
+                            CompileExpression(spfc.ArgNodes[i].Expr, (byte)(spArgsBase + i), st, ref topSlot);
+                        st.Code.Emit3(Opcode.Spawn, destSlot, spFnSlot, (byte)spArgCount);
+                        return;
+                    }
+                    if (st.DefineRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("DefineRefs overflow (>65535)");
+                    ushort spRefIdx = (ushort)st.DefineRefs.Count;
+                    st.DefineRefs.Add(expr);
+                    st.Code.Emit2(Opcode.NativeDefine, destSlot, spRefIdx);
+                    return;
+                }
+
                 // Long-tail expressions routed via OP_NATIVE_DEFINE — the
                 // VM calls the visitor's static Apply directly, never
                 // hitting interpreter._visitors[].
                 case AstNodeType.DestructuringDeclaration:
-                case AstNodeType.Spawn:
                 case AstNodeType.Emit:
                 case AstNodeType.ForAwait:
                 case AstNodeType.SuperFor:

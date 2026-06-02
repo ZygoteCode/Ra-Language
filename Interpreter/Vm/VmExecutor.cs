@@ -2617,6 +2617,17 @@ namespace RaLanguage.Interpreter.Vm
                         // at A into the current async-stream producer.
                         OpEmit(locals[Encoding.A(instr)], ctx);
                         break;
+                    case Opcode.Spawn:
+                    {
+                        // L8 — `spawn f(args)` (sync schedule). Callee at B, args at
+                        // B+1..B+argCount (Call layout). Schedule the fiber, dst =
+                        // the TaskValue. AsyncScheduler.Schedule returns immediately.
+                        byte sDst = Encoding.A(instr);
+                        var sub = OpSpawn(locals, Encoding.B(instr), Encoding.C(instr), ctx);
+                        if (sub.Error != null) throw new RaUserError(sub.Error);
+                        locals[sDst] = sub.Value ?? NullValue.Null;
+                        break;
+                    }
 
                     default:
                         throw new RaUserError(MakeIcError(ctx,
@@ -5164,6 +5175,23 @@ namespace RaLanguage.Interpreter.Vm
             }
             if (!producer.Emit(v))
                 throw new RaUserError(MakeIcError(ctx, "Stream consumer has been cancelled or closed"));
+        }
+
+        // L8 — gather the spawn callee (fnSlot) + positional args (fnSlot+1..) and
+        // schedule via the shared SpawnNodeVisitor.SpawnCore (byte-identical to
+        // the visitor). The lowered form is positional-only (named/ref/spread
+        // spawns fall back), so namedArgs is always empty.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeResult OpSpawn(LocalsView locals, byte fnSlot, int argCount, Context ctx)
+        {
+            var res = new RuntimeResult();
+            if (locals[fnSlot] is not RaLanguage.Interpreter.Values.Functions.BaseFunctionValue fn)
+                return res.Failure(MakeIcError(ctx, "spawn requires a function call expression"));
+            var posArgs = new System.Collections.Generic.List<RuntimeValue>(argCount);
+            for (int i = 0; i < argCount; i++) posArgs.Add(locals[fnSlot + 1 + i] ?? NullValue.Null);
+            var namedArgs = new System.Collections.Generic.Dictionary<string, RuntimeValue>(System.StringComparer.Ordinal);
+            return Visitors.Async.SpawnNodeVisitor.SpawnCore(fn, posArgs, namedArgs, ctx, DummyPos(ctx), DummyPos(ctx));
         }
 
         [System.Runtime.CompilerServices.MethodImpl(
