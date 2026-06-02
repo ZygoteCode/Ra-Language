@@ -752,6 +752,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Await: case Opcode.Spawn:
                 case Opcode.EnumTagEq: case Opcode.EnumPayload: // L7 variant patterns
                 case Opcode.EnumNameEq:
+                case Opcode.TupleShape:
                     return Encoding.A(instr) == slot;
                 default:
                     return false;

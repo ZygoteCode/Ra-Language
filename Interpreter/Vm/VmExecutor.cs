@@ -2553,6 +2553,9 @@ namespace RaLanguage.Interpreter.Vm
                         // is no catch-all. Same error the visitor's no-match path
                         // raises (parity captures err.Details).
                         throw OpMatchFail(ctx);
+                    case Opcode.TupleShape:
+                        OpTupleShape(locals, instr);
+                        break;
 
                     default:
                         throw new RaUserError(MakeIcError(ctx,
@@ -4838,6 +4841,18 @@ namespace RaLanguage.Interpreter.Vm
         private static RaUserError OpMatchFail(Context ctx)
             => new RaUserError(MakeIcError(ctx, "no match arm covered the scrutinee value"));
 
+        // L7 — tuple shape: dst = scrut is TupleValue with exactly c elements.
+        // The count is the whole shape (mismatch is a no-match, not an error).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpTupleShape(LocalsView locals, uint instr)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            int len = Encoding.C(instr);
+            locals[a] = BooleanValue.Of(locals[b] is TupleValue tv && tv.Elements.Count == len);
+        }
+
         [System.Runtime.CompilerServices.MethodImpl(
             System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private static void OpEnumTagEq(LocalsView locals, uint instr, string[] names, Context ctx)
@@ -4885,9 +4900,19 @@ namespace RaLanguage.Interpreter.Vm
                 }
                 else locals[a] = NullValue.Null;
             }
+            else if (sv is TupleValue tup)
+            {
+                // Tuple-positional element (the shape check confirmed arity).
+                locals[a] = idx < tup.Elements.Count ? tup.Elements[idx] : NullValue.Null;
+            }
+            else if (sv is ListValue lst)
+            {
+                // List front element (the shape check confirmed enough length).
+                locals[a] = idx < lst.Elements.Count ? lst.Elements[idx] : NullValue.Null;
+            }
             else
             {
-                throw new RaUserError(MakeIcError(ctx, "VM: EnumPayload on non-enum/record value"));
+                throw new RaUserError(MakeIcError(ctx, "VM: EnumPayload on non-enum/record/tuple/list value"));
             }
         }
 

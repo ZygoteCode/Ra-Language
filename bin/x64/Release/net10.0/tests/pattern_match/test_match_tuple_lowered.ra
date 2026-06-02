@@ -1,0 +1,95 @@
+import std.prelude.*;
+// Ra Language - L7 (Match widening): TUPLE patterns now lower. `case (a, b)`
+// lowers to a new TupleShape opcode (scrut is TupleValue && Count == N — the
+// count IS the shape, so a mismatch is a no-match, not an error → no MatchArity)
+// followed by per-element extraction via EnumPayload (now POLYMORPHIC over
+// enum / record / tuple / list by index). Each element is a LEAF subpattern
+// handled by the shared GuardLeafSubpattern / EmitLeafSubpattern helpers:
+// wildcard / confirmed-variable binding / lowerable literal. Nested tuple/
+// list/struct/variant element subpatterns fall back to the visitor.
+// (The same refactor widened VARIANT payload subpatterns to allow literals,
+// e.g. `case Ok(0)`.)
+
+print("=== pattern_match/match_tuple_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// TU1/TU2: 2-element tuple bind, both used.
+fn add2(t: (int, int)): int {
+    ret match t {
+        case (a, b) -> a + b
+        case _ -> -1
+    };
+}
+ck("[TU1]", add2((3, 4)) == 7);
+ck("[TU2]", add2((10, 20)) == 30);
+
+// TU3: 3-element tuple.
+fn add3(t: (int, int, int)): int {
+    ret match t {
+        case (a, b, c) -> a + b + c
+        case _ -> -1
+    };
+}
+ck("[TU3]", add3((1, 2, 3)) == 6);
+
+// TU4: `_` wildcard element drops one, keeps the other.
+fn second(t: (int, int)): int {
+    ret match t {
+        case (_, b) -> b
+        case _ -> 0
+    };
+}
+ck("[TU4]", second((9, 5)) == 5);
+
+// TU5/TU6: LITERAL element — `case (1, x)` matches only when element 0 == 1.
+fn tagged(t: (int, int)): string {
+    ret match t {
+        case (1, x) -> "one:" + (x as string)
+        case (a, b) -> "other:" + ((a + b) as string)
+        case _ -> "none"
+    };
+}
+ck("[TU5]", tagged((1, 9)) == "one:9");
+ck("[TU6]", tagged((2, 3)) == "other:5");
+
+// TU7/TU8: GUARD reads tuple element binds.
+fn cmp(t: (int, int)): string {
+    ret match t {
+        case (a, b) if a > b -> "gt"
+        case (a, b) if a < b -> "lt"
+        case _ -> "eq"
+    };
+}
+ck("[TU7]", cmp((5, 2)) == "gt");
+ck("[TU8]", cmp((2, 5)) == "lt");
+ck("[TU9]", cmp((4, 4)) == "eq");
+
+// TU10: STATEMENT-position tuple match drives a side effect.
+fn diff(t: (int, int)): int {
+    var d = 0;
+    match t {
+        case (a, b) -> d = a - b
+        case _ -> d = 0
+    }
+    ret d;
+}
+ck("[TU10]", diff((10, 3)) == 7);
+
+// TU11: nested tuple element falls back to the visitor (correctness preserved).
+fn nested(t: ((int, int), int)): int {
+    ret match t {
+        case ((a, b), c) -> a + b + c
+        case _ -> -1
+    };
+}
+ck("[TU11]", nested(((1, 2), 3)) == 6);
+
+if failures == 0 {
+    print("=== done (all tuple cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

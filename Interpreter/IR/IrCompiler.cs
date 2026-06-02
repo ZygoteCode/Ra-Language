@@ -3878,25 +3878,21 @@ namespace RaLanguage.Interpreter.IR
                         if (vap.EnumName != null && st.Names.Add(vap.EnumName) > byte.MaxValue)
                             throw new IrCompileException("match: enum name index out of 8-bit range -> fallback");
                         foreach (var sub in vap.SubPatterns)
-                        {
-                            switch (sub)
-                            {
-                                case Parser.Nodes.Patterns.WildcardPatternNode _:
-                                    break;
-                                case Parser.Nodes.Patterns.VariablePatternNode svp:
-                                {
-                                    int sbslot = FindMatchBindingSlot(svp.Name, arm.Guard, arm.Body, st);
-                                    if (sbslot < 0)
-                                        throw new IrCompileException("match: unconfirmable variant binding -> fallback");
-                                    if (sbslot > maxBindingSlot) maxBindingSlot = sbslot;
-                                    break;
-                                }
-                                default:
-                                    throw new IrCompileException("match: nested/complex variant subpattern -> fallback");
-                            }
-                        }
+                            GuardLeafSubpattern(sub, arm.Guard, arm.Body, st, ref maxBindingSlot);
                         // A variant pattern TESTS the tag — it is never a catch-all;
                         // exhaustiveness still needs a trailing wildcard/variable arm.
+                        break;
+                    }
+                    case Parser.Nodes.Patterns.TuplePatternNode tup:
+                    {
+                        // `case (a, b)`: the scrutinee must be a tuple of exactly
+                        // this many elements (a count mismatch is a no-match, not an
+                        // error — TupleShape checks it). Each element is a leaf.
+                        if (tup.Elements.Count > byte.MaxValue)
+                            throw new IrCompileException("match: tuple arity out of 8-bit range -> fallback");
+                        foreach (var sub in tup.Elements)
+                            GuardLeafSubpattern(sub, arm.Guard, arm.Body, st, ref maxBindingSlot);
+                        // A tuple pattern TESTS the shape — never a catch-all.
                         break;
                     }
                     default:
@@ -3945,6 +3941,7 @@ namespace RaLanguage.Interpreter.IR
                 var arm = node.Arms[i];
                 bool isBinding = arm.Pattern is Parser.Nodes.Patterns.VariablePatternNode;
                 bool isVariant = arm.Pattern is Parser.Nodes.Patterns.VariantPatternNode;
+                bool isTuple = arm.Pattern is Parser.Nodes.Patterns.TuplePatternNode;
 
                 // Any arm that introduces pattern bindings runs in a FRESH scope so
                 // the declared name(s) are isolated to this arm (mirrors the
@@ -3952,7 +3949,7 @@ namespace RaLanguage.Interpreter.IR
                 // (re-declaration would error), and a failed-guard / failed-tag arm
                 // must not leak a binding. PushScope here; PopScope on BOTH the
                 // match exit and the no-match skip.
-                bool hasScope = isBinding || isVariant;
+                bool hasScope = isBinding || isVariant || isTuple;
                 if (hasScope) EmitPushScope(st);
 
                 var skips = new List<int>(); // jumps to this arm's no-match cleanup
@@ -3993,15 +3990,33 @@ namespace RaLanguage.Interpreter.IR
                     //    reproduces it exactly (else a wrong-arity pattern would
                     //    silently mis-bind). Reached only when the tag matched.
                     st.Code.Emit3(Opcode.MatchArity, 0, scrutSlot, (byte)subs.Count);
-                    // 3) Extract each payload/field slot, bind it (or ignore `_`).
-                    //    Reached only when the tag matched, so extraction is safe.
+                    // 3) Extract each payload/field slot, match its leaf subpattern
+                    //    (bind / literal-test / ignore `_`). Reached only when the
+                    //    tag matched, so EnumPayload extraction is safe.
                     for (int s = 0; s < subs.Count; s++)
                     {
                         if (subs[s] is Parser.Nodes.Patterns.WildcardPatternNode) continue;
-                        var svp = (Parser.Nodes.Patterns.VariablePatternNode)subs[s];
                         byte paySlot = AllocTemp(ref topSlot);
                         st.Code.Emit3(Opcode.EnumPayload, paySlot, scrutSlot, (byte)s);
-                        EmitMatchBinding(svp.Name, paySlot, arm.Guard, arm.Body, node, st);
+                        EmitLeafSubpattern(subs[s], paySlot, skips, arm.Guard, arm.Body, node, st, ref topSlot);
+                    }
+                }
+                else if (isTuple)
+                {
+                    var tup = (Parser.Nodes.Patterns.TuplePatternNode)arm.Pattern;
+                    // Shape test: scrutinee is a tuple of exactly this many elements
+                    // (the count IS the shape — a mismatch falls to the next arm).
+                    byte shapeSlot = AllocTemp(ref topSlot);
+                    st.Code.Emit3(Opcode.TupleShape, shapeSlot, scrutSlot, (byte)tup.Elements.Count);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, shapeSlot));
+                    // Extract each element positionally (EnumPayload is polymorphic
+                    // over tuples by index) and match its leaf subpattern.
+                    for (int s = 0; s < tup.Elements.Count; s++)
+                    {
+                        if (tup.Elements[s] is Parser.Nodes.Patterns.WildcardPatternNode) continue;
+                        byte elemSlot = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.EnumPayload, elemSlot, scrutSlot, (byte)s);
+                        EmitLeafSubpattern(tup.Elements[s], elemSlot, skips, arm.Guard, arm.Body, node, st, ref topSlot);
                     }
                 }
                 else if (arm.Pattern is Parser.Nodes.Patterns.LiteralPatternNode lp)
@@ -4109,6 +4124,63 @@ namespace RaLanguage.Interpreter.IR
             st.AstRefs.Add(declNode);
             st.RegisterSlot(slot, name);
             st.Code.Emit2(Opcode.DeclareLocal, valueSlot, declRefIdx);
+        }
+
+        // Guard-phase: confirm a LEAF subpattern (wildcard / confirmed-variable
+        // binding / lowerable literal) is lowerable and track its binding slot.
+        // Throws IrCompileException (→ fallback) for any nested/complex subpattern
+        // (tuple/list/struct/variant inside a tuple/list/struct/variant element).
+        // Shared by tuple elements, list elements, struct fields, and variant
+        // payload subpatterns.
+        private static void GuardLeafSubpattern(Parser.Nodes.Patterns.PatternNode sub,
+                                                AstNode? guard, AstNode? body, State st, ref int maxBindingSlot)
+        {
+            switch (sub)
+            {
+                case Parser.Nodes.Patterns.WildcardPatternNode _:
+                    break;
+                case Parser.Nodes.Patterns.VariablePatternNode vp:
+                {
+                    int s = FindMatchBindingSlot(vp.Name, guard, body, st);
+                    if (s < 0)
+                        throw new IrCompileException("match: unconfirmable subpattern binding -> fallback");
+                    if (s > maxBindingSlot) maxBindingSlot = s;
+                    break;
+                }
+                case Parser.Nodes.Patterns.LiteralPatternNode lp:
+                    if (!IsLowerableMatchLiteral(lp.Expression))
+                        throw new IrCompileException("match: non-trivial subpattern literal -> fallback");
+                    break;
+                default:
+                    throw new IrCompileException("match: nested/complex subpattern -> fallback");
+            }
+        }
+
+        // Emit-phase: match a LEAF subpattern against the value already in
+        // `valueSlot`. Variable → DECLARE-bind in the arm scope; literal → Eq +
+        // JmpIfNot onto `skips` (the arm's no-match cleanup); wildcard → nothing.
+        // The pattern shape was already confirmed lowerable by GuardLeafSubpattern.
+        private static void EmitLeafSubpattern(Parser.Nodes.Patterns.PatternNode sub, byte valueSlot,
+                                               List<int> skips, AstNode? guard, AstNode? body,
+                                               AstNode node, State st, ref byte topSlot)
+        {
+            switch (sub)
+            {
+                case Parser.Nodes.Patterns.WildcardPatternNode _:
+                    break;
+                case Parser.Nodes.Patterns.VariablePatternNode vp:
+                    EmitMatchBinding(vp.Name, valueSlot, guard, body, node, st);
+                    break;
+                case Parser.Nodes.Patterns.LiteralPatternNode lp:
+                {
+                    byte litSlot = AllocTemp(ref topSlot);
+                    CompileExpression(lp.Expression, litSlot, st, ref topSlot);
+                    byte condSlot = AllocTemp(ref topSlot);
+                    st.Code.Emit3(Opcode.Eq, condSlot, valueSlot, litSlot);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, condSlot));
+                    break;
+                }
+            }
         }
 
         // Find a VariableAccess to `name` in an expression subtree (common pure-

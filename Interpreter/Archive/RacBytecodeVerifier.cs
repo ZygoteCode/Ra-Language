@@ -227,6 +227,7 @@ namespace RaLanguage.Interpreter.Archive
                     case Opcode.EnumTagEq:
                     case Opcode.EnumPayload:
                     case Opcode.EnumNameEq:
+                    case Opcode.TupleShape:
                         CheckSlot(a, local, pc, opName, "a", diags, path);
                         CheckSlot(effB, local, pc, opName, "b", diags, path);
                         break;

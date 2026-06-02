@@ -485,11 +485,17 @@ namespace RaLanguage.Interpreter.IR
         //                  instruction of a match with NO wildcard/variable
         //                  catch-all (exhaustive enum match): reached only when no
         //                  arm matched. No operands; a Throw-kind CFG terminator.
+        //   TupleShape   [op][dst][scrut][len:c]  dst = (scrut is TupleValue &&
+        //                  Elements.Count == c). A tuple pattern's element count IS
+        //                  its shape — a mismatch is a no-match (not an error), so
+        //                  no MatchArity follows. Elements extract via EnumPayload
+        //                  (polymorphic over enum/record/tuple/list by index).
         EnumTagEq       = 0x95,
         EnumPayload     = 0x96,
         MatchArity      = 0x97,
         EnumNameEq      = 0x98,
         MatchFail       = 0x99,
+        TupleShape      = 0x9A,
 
         // --- exceptions ---
         Throw           = 0xA0,   // a (err src)
