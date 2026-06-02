@@ -418,6 +418,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                     || o == Opcode.CallMethod || o == Opcode.TailCall
                     || o == Opcode.Spawn || o == Opcode.NewInstance
                     || o == Opcode.NativeDefine || o == Opcode.Await
+                    || o == Opcode.AsmInvoke
                     || o == Opcode.Throw)
                 {
                     if (pc < firstEvent) firstEvent = pc;
@@ -504,6 +505,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.NativeDefine:
                 case Opcode.DefineType:
                 case Opcode.Await: case Opcode.Spawn:
+                case Opcode.AsmInvoke:
                 case Opcode.EnumTagEq: case Opcode.EnumPayload:
                 case Opcode.EnumNameEq:
                 case Opcode.TupleShape:
@@ -669,6 +671,9 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 // L5: OP_DEFINE_TYPE carries a TypeDefs index in imm16, not a
                 // slot — reads no locals (the type is built from the descriptor).
                 case Opcode.DefineType:
+                // L9: OP_ASM_INVOKE carries a DefineRefs index in imm16, not a
+                // slot — the asm source is constant, no operand slots are read.
+                case Opcode.AsmInvoke:
                 // L3: borrows carry a Names[] index in imm16, not a slot — they
                 // read no locals (the place is resolved by name at dispatch).
                 case Opcode.Borrow:

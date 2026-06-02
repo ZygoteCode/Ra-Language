@@ -687,7 +687,7 @@ namespace RaLanguage.Interpreter.IR
         RorII           = 0xDF,
 
         // --- inline asm ---
-        AsmInvoke       = 0xE0,   // a (retBase), b (argsBase), regionId:u8 (c)  + ext: argsCount|retCount
+        AsmInvoke       = 0xE0,   // L9: a (dst), imm16 (DefineRefs idx of the parked pure-text AsmBlockNode)
 
         // ---- streams (Streams runtime — see RA_STREAMS_DESIGN.md §10) ----
         // Forward-jump opcode that branches if `locals[a]` is a sync stream

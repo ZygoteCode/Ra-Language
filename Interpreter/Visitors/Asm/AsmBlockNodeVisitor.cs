@@ -22,10 +22,10 @@ namespace RaLanguage.Interpreter.Visitors.Asm
     /// Executes inline `asm { ... }` and `asm -> T { ... }` blocks.
     ///
     /// Interpolation modes:
-    ///   %{expr}             — integer / pointer value, decimal literal
-    ///   %{expr:i32|i64|u8…} — explicit width; floats encoded as 64-bit hex bits
-    ///   %{expr:hex}         — hex literal
-    ///   %{expr:f64}         — emit float bits as integer (no FP literal)
+    ///   %{expr}             ï¿½ integer / pointer value, decimal literal
+    ///   %{expr:i32|i64|u8ï¿½} ï¿½ explicit width; floats encoded as 64-bit hex bits
+    ///   %{expr:hex}         ï¿½ hex literal
+    ///   %{expr:f64}         ï¿½ emit float bits as integer (no FP literal)
     /// </summary>
     public sealed class AsmBlockNodeVisitor : NodeVisitor<AsmBlockNode>
     {
@@ -79,23 +79,44 @@ namespace RaLanguage.Interpreter.Visitors.Asm
 
             string source = sb.ToString();
 
-            string signature = BuildSignatureFromReturnTypes(node.ReturnTypes);
+            return AsmBlockExecCore(source, node.ReturnTypes, context, node.PositionStart, node.PositionEnd);
+        }
+
+        /// <summary>
+        /// Assemble (cached by source) + execute a fully-resolved asm source +
+        /// narrow the raw register result(s) by the declared return type(s).
+        /// Synchronous (asm execution blocks via SyncAwait.Get). Shared by the
+        /// visitor (interpolation path) AND the L9 OP_ASM_INVOKE handler (the
+        /// lowered pure-text path) â†’ byte-identical between both callers.
+        /// </summary>
+        public static RuntimeResult AsmBlockExecCore(string source, List<string> returnTypes,
+            Context context, Lexer.Position posStart, Lexer.Position posEnd)
+        {
+            var res = new RuntimeResult();
+
+            if (!AsmExecutor.IsSupported)
+            {
+                return res.Failure(new RuntimeError(posStart, posEnd,
+                    "asm blocks require an x64 process. x86 / non-x64 architectures are not supported.", context));
+            }
+
+            string signature = BuildSignatureFromReturnTypes(returnTypes);
 
             try
             {
                 IntPtr addr = AsmRegionRegistry.GetOrCompile(source);
 
-                if (node.ReturnTypes.Count <= 1)
+                if (returnTypes.Count <= 1)
                 {
                     var fn = AsmFunctionFactory.Create("<asm-inline>", addr, signature);
                     RuntimeResult execRes = default;
                     AsmSehGuard.RunVoid(() => execRes = SyncAwait.Get(fn.Execute(new List<RuntimeValue>())));
                     if (execRes.Error != null) return res.Failure(execRes.Error);
                     var value = execRes.Value ?? new LongValue(0);
-                    return res.Success(value.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                    return res.Success(value.SetContext(context).SetPos(posStart, posEnd));
                 }
 
-                if (node.ReturnTypes.Count == 2)
+                if (returnTypes.Count == 2)
                 {
                     var wrapperSrc =
                         "    sub rsp, 40\n" +
@@ -122,10 +143,10 @@ namespace RaLanguage.Interpreter.Visitors.Asm
                             hi = Marshal.ReadInt64(bufLocal + 8);
                         });
 
-                        var t0 = NarrowByType(lo, node.ReturnTypes[0]);
-                        var t1 = NarrowByType(hi, node.ReturnTypes[1]);
+                        var t0 = NarrowByType(lo, returnTypes[0]);
+                        var t1 = NarrowByType(hi, returnTypes[1]);
                         var tupleVal = new TupleValue(new List<RuntimeValue> { t0, t1 });
-                        return res.Success(tupleVal.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                        return res.Success(tupleVal.SetContext(context).SetPos(posStart, posEnd));
                     }
                     finally
                     {
@@ -133,24 +154,24 @@ namespace RaLanguage.Interpreter.Visitors.Asm
                     }
                 }
 
-                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                return res.Failure(new RuntimeError(posStart, posEnd,
                     "asm tuple return supports at most 2 values (RAX, RDX)", context));
             }
             catch (AsmAssembleException ax)
             {
-                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"asm assemble error: {ax.Message}", context));
+                return res.Failure(new RuntimeError(posStart, posEnd, $"asm assemble error: {ax.Message}", context));
             }
             catch (AsmSehGuard.GuardedFailure gf)
             {
-                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, gf.Message, context));
+                return res.Failure(new RuntimeError(posStart, posEnd, gf.Message, context));
             }
             catch (PlatformNotSupportedException pex)
             {
-                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, pex.Message, context));
+                return res.Failure(new RuntimeError(posStart, posEnd, pex.Message, context));
             }
             catch (Exception ex)
             {
-                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"asm runtime error: {ex.Message}", context));
+                return res.Failure(new RuntimeError(posStart, posEnd, $"asm runtime error: {ex.Message}", context));
             }
         }
 

@@ -460,6 +460,12 @@ namespace RaLanguage.Interpreter.Archive
                         CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
                         CheckIndex(imm16, defineLen, pc, opName, "DefineRefs", diags, path);
                         break;
+                    case Opcode.AsmInvoke:
+                        // L9 — [dst:a][defineRefIdx:imm16]. The parked AsmBlockNode
+                        // (pure text) lives in DefineRefs; same shape as NativeDefine.
+                        CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
+                        CheckIndex(imm16, defineLen, pc, opName, "DefineRefs", diags, path);
+                        break;
                     case Opcode.DefineType:
                         CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
                         CheckIndex(imm16, typeDefsLen, pc, opName, "TypeDefs", diags, path);
@@ -546,7 +552,6 @@ namespace RaLanguage.Interpreter.Archive
                     case Opcode.ForNext:
                     case Opcode.ForEachInit:
                     case Opcode.ForEachNext:
-                    case Opcode.AsmInvoke:
                     case Opcode.RunPre:
                     case Opcode.RunPost:
                     case Opcode.ForAwait:

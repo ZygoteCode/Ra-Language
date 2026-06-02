@@ -2644,6 +2644,19 @@ namespace RaLanguage.Interpreter.Vm
                         break;
                     }
 
+                    case Opcode.AsmInvoke:
+                    {
+                        // L9 — inline pure-text `asm { … }`. The AsmBlockNode is
+                        // parked in DefineRefs[imm16]; OpAsmInvoke rebuilds its
+                        // constant source, assembles-on-first-use (cached), and
+                        // executes via the shared AsmBlockExecCore. dst = the
+                        // narrowed return value (or a 2-tuple). Off-stack helper
+                        // protects the M85 deep-recursion frame budget.
+                        byte amDst = Encoding.A(instr);
+                        locals[amDst] = OpAsmInvoke(f, Encoding.Imm16(instr), ctx);
+                        break;
+                    }
+
                     default:
                         throw new RaUserError(MakeIcError(ctx,
                             $"VM: opcode {op} (0x{(byte)op:X2}) not implemented yet (PC={pc - 1})"));
@@ -5207,6 +5220,29 @@ namespace RaLanguage.Interpreter.Vm
             for (int i = 0; i < argCount; i++) posArgs.Add(locals[fnSlot + 1 + i] ?? NullValue.Null);
             var namedArgs = new System.Collections.Generic.Dictionary<string, RuntimeValue>(System.StringComparer.Ordinal);
             return Visitors.Async.SpawnNodeVisitor.SpawnCore(fn, posArgs, namedArgs, ctx, DummyPos(ctx), DummyPos(ctx));
+        }
+
+        // L9 — OP_ASM_INVOKE: execute a parked pure-text inline asm block. The
+        // AsmBlockNode lives in DefineRefs[idx]; rebuild its constant source from
+        // the text parts (the IrCompiler gates this opcode to interp-free blocks),
+        // then assemble-on-first-use (cached) + execute via the shared
+        // AsmBlockExecCore. NoInlining keeps these locals off the recursive
+        // Execute MoveNext frame (M85 deep-recursion budget).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue OpAsmInvoke(VmFrame f, ushort defineRefIdx, Context ctx)
+        {
+            var refs = f.Function.DefineRefs;
+            if (defineRefIdx >= refs.Length)
+                throw new RaUserError(MakeIcError(ctx, $"VM: AsmInvoke refIdx {defineRefIdx} out of range"));
+            var node = (Parser.Nodes.Asm.AsmBlockNode)refs[defineRefIdx];
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < node.Parts.Count; i++)
+                sb.Append(((Parser.Nodes.Asm.AsmTextPartNode)node.Parts[i]).Text);
+            var res = Visitors.Asm.AsmBlockNodeVisitor.AsmBlockExecCore(
+                sb.ToString(), node.ReturnTypes, ctx, node.PositionStart, node.PositionEnd);
+            if (res.Error != null) throw new RaUserError(res.Error);
+            return res.Value ?? NullValue.Null;
         }
 
         // L8 — one `for await` pull step. Mirrors ForAwaitNodeVisitor: honour

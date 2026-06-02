@@ -3428,14 +3428,42 @@ namespace RaLanguage.Interpreter.IR
                 // Native registrations + long-tail expressions / statements.
                 // The VM dispatches to the visitor's static Apply method
                 // directly, bypassing interpreter._visitors[].
+                // Long-tail statements routed via OP_NATIVE_DEFINE (the VM calls
+                // the visitor's Apply directly). These must NOT fall through into
+                // the Yield case below — its body casts `stmt` to YieldNode.
                 case AstNodeType.TryUnwrap:
                 case AstNodeType.Await:
                 case AstNodeType.Spawn:
                 case AstNodeType.Goto:
                 case AstNodeType.Label:
-                case AstNodeType.AsmBlock:
                 case AstNodeType.RegexLiteral:
                 case AstNodeType.FormattedInterpolation:
+                {
+                    if (st.DefineRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("DefineRefs overflow (>65535)");
+                    ushort ndRefIdx = (ushort)st.DefineRefs.Count;
+                    st.DefineRefs.Add(stmt);
+                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, ndRefIdx);
+                    return true;
+                }
+                case AstNodeType.AsmBlock:
+                {
+                    // L9: a pure-text asm block (no %{...} interpolation) has a
+                    // compile-time-constant source → OP_ASM_INVOKE (assemble-on-
+                    // first-use, cached, executed via AsmBlockExecCore). An
+                    // interpolated block's source is runtime-dependent → keep it
+                    // on the visitor fallback (which builds the source per run).
+                    var asmStmt = (Parser.Nodes.Asm.AsmBlockNode)stmt;
+                    bool asmPureText = true;
+                    foreach (var p in asmStmt.Parts)
+                        if (p.NodeType != AstNodeType.AsmTextPart) { asmPureText = false; break; }
+                    if (st.DefineRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("DefineRefs overflow (>65535)");
+                    ushort asmRefIdx = (ushort)st.DefineRefs.Count;
+                    st.DefineRefs.Add(stmt);
+                    st.Code.Emit2(asmPureText ? Opcode.AsmInvoke : Opcode.NativeDefine, scratchSlot, asmRefIdx);
+                    return true;
+                }
                 case AstNodeType.Yield:
                 {
                     // L8: a `yield X` inside a match/switch arm sets that arm's
@@ -7739,6 +7767,24 @@ namespace RaLanguage.Interpreter.IR
                     return;
                 }
 
+                // L9: expression-position asm block (`let r = asm { … }`). A
+                // pure-text block → OP_ASM_INVOKE (assemble-on-first-use, cached,
+                // via AsmBlockExecCore); an interpolated block (runtime-dependent
+                // source) → the visitor fallback below.
+                case AstNodeType.AsmBlock:
+                {
+                    var asmExpr = (Parser.Nodes.Asm.AsmBlockNode)expr;
+                    bool asmPureText = true;
+                    foreach (var p in asmExpr.Parts)
+                        if (p.NodeType != AstNodeType.AsmTextPart) { asmPureText = false; break; }
+                    if (st.DefineRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("DefineRefs overflow (>65535)");
+                    ushort asmRefIdx = (ushort)st.DefineRefs.Count;
+                    st.DefineRefs.Add(expr);
+                    st.Code.Emit2(asmPureText ? Opcode.AsmInvoke : Opcode.NativeDefine, destSlot, asmRefIdx);
+                    return;
+                }
+
                 // Long-tail expressions routed via OP_NATIVE_DEFINE — the
                 // VM calls the visitor's static Apply directly, never
                 // hitting interpreter._visitors[].
@@ -7746,7 +7792,6 @@ namespace RaLanguage.Interpreter.IR
                 case AstNodeType.Emit:
                 case AstNodeType.ForAwait:
                 case AstNodeType.SuperFor:
-                case AstNodeType.AsmBlock:
                 case AstNodeType.Yield:
                 case AstNodeType.AnnotationApplication:
                 case AstNodeType.IsType:
