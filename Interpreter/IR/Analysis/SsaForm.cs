@@ -659,6 +659,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Jmp:
                 case Opcode.Pass:
                 case Opcode.RetNull:
+                case Opcode.FinallyEnd: // L10 — no operands (frame-state only)
                 case Opcode.PushScope:
                 case Opcode.PopScope:
                 case Opcode.ClearScope:

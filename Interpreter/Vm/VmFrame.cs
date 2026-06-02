@@ -87,6 +87,13 @@ namespace RaLanguage.Interpreter.Vm
         // root frame.
         public VmFrame? Parent;
 
+        // L10 try/finally: the in-flight error stashed by the exception handler
+        // when it routes a raise into a `finally` block (a try/finally with no
+        // catch, or an exception from a catch body). OP_FINALLY_END re-raises it
+        // if the finally completes normally; the finally's own control flow
+        // (return/break/continue) or a fresh throw overrides it. Null otherwise.
+        public RaLanguage.Errors.Error? PendingError;
+
         public VmFrame(RaFunction function, RuntimeValue?[]? upvalues = null, VmFrame? parent = null)
         {
             Function = function;
@@ -203,6 +210,7 @@ namespace RaLanguage.Interpreter.Vm
             Parent = parent;
             Pc = 0;
             CtxDepth = 0;
+            PendingError = null;
         }
     }
 }

@@ -7209,13 +7209,22 @@ namespace RaLanguage.Interpreter.IR
         // jumps to CatchPc with the error-message string in CatchSlot.
         private static void CompileTry(Parser.Nodes.Special.TryNode node, State st, ref byte topSlot, byte scratchSlot)
         {
-            // Finally needs the full TryNodeVisitor state machine (which
-            // runs finally on every exit path including return/break/
-            // continue/throw). Route via OP_NATIVE_DEFINE → TryNodeVisitor.Apply
-            // so the dispatch loop calls the visitor's static helper
-            // directly (no interpreter._visitors[] indexing).
+            // L10: lower try/[catch]/finally via OP_FINALLY_END + EhTable
+            // finally-routing — UNLESS any of the try / catch / finally bodies
+            // has a control-flow escape (return/break/continue/yield). Such an
+            // escape would skip the finally (we do not intercept it the way the
+            // visitor captures + re-runs) or strand the pending error, so it
+            // falls back to the visitor. A `throw` is fine (the EhTable handles
+            // it on the exception path).
             if (node.FinallyBody != null)
             {
+                if (!ContainsControlEscape(node.TryBody)
+                    && !ContainsControlEscape(node.CatchBody)
+                    && !ContainsControlEscape(node.FinallyBody))
+                {
+                    CompileTryFinally(node, st, ref topSlot, scratchSlot);
+                    return;
+                }
                 if (st.DefineRefs.Count > ushort.MaxValue)
                     throw new IrCompileException("DefineRefs overflow");
                 ushort refIdx = (ushort)st.DefineRefs.Count;
@@ -7264,6 +7273,167 @@ namespace RaLanguage.Interpreter.IR
             // Try/catch may have taken either path at runtime; conservatively
             // re-dirty every typed accumulator.
             MarkAllTypedAccsDirty(st);
+        }
+
+        // L10: try/[catch]/finally. The finally body runs on EVERY exit the gate
+        // permits — normal try/catch completion (fall through), and any raised
+        // error (EhTable routes it into the finally with the error stashed in
+        // f.PendingError; OP_FINALLY_END re-raises after the finally completes).
+        // The caller has already proved none of the three bodies has a control-
+        // flow escape, so the finally always reaches OP_FINALLY_END.
+        //
+        //   try_start: [TRY BODY]            EhTable A: [try]  → catchPc (if catch) else finallyPc(+pending)
+        //   try_end:   Jmp finally           normal → finally (pending=none)
+        //   catch_pc:  [bind] [CATCH BODY]   EhTable B: [catch] → finallyPc(+pending)   (only if catch)
+        //   catch_end: Jmp finally           caught-normal → finally (pending=none)
+        //   finally:   [FINALLY BODY] FinallyEnd   ← re-raise pending, else continue
+        private static void CompileTryFinally(Parser.Nodes.Special.TryNode node, State st, ref byte topSlot, byte scratchSlot)
+        {
+            byte catchSlot = AllocTemp(ref topSlot);
+            int scopeDepthAtTry = st.ScopeDepth;
+            bool hasCatch = node.CatchBody != null;
+
+            // --- try body ---
+            EmitPushScope(st);
+            int tryStartPc = st.Code.Pc;
+            CompileBodyStrictInline(node.TryBody, st, ref topSlot, scratchSlot);
+            int tryEndPc = st.Code.Pc;
+            EmitPopScope(st);
+            int normalJmp1 = st.Code.EmitForwardJump(Opcode.Jmp);
+
+            // --- catch body (optional) ---
+            int catchPc = -1, catchStartPc = -1, catchEndPc = -1, normalJmp2 = -1;
+            if (hasCatch)
+            {
+                catchPc = st.Code.Pc;
+                EmitPushScope(st);
+                if (node.CatchVarTok != null)
+                {
+                    string varName = node.CatchVarTok.Value!.ToString()!;
+                    ushort nameIdx = st.Names.Add(varName);
+                    st.Code.Emit2(Opcode.SetLocalDirect, catchSlot, nameIdx);
+                }
+                catchStartPc = st.Code.Pc;
+                CompileBodyStrictInline(node.CatchBody!, st, ref topSlot, scratchSlot);
+                catchEndPc = st.Code.Pc;
+                EmitPopScope(st);
+                normalJmp2 = st.Code.EmitForwardJump(Opcode.Jmp);
+            }
+
+            // --- finally body ---
+            int finallyPc = st.Code.Pc;
+            st.Code.PatchJumpToHere(normalJmp1);
+            if (normalJmp2 >= 0) st.Code.PatchJumpToHere(normalJmp2);
+            EmitPushScope(st);
+            CompileBodyStrictInline(node.FinallyBody!, st, ref topSlot, scratchSlot);
+            EmitPopScope(st);
+            st.Code.Emit3(Opcode.FinallyEnd, 0, 0, 0);
+
+            // --- EhTable --- (skip empty regions: a zero-instruction body — e.g.
+            // `catch (e) { pass; }` — cannot fault, and the verifier rejects an
+            // inverted/empty Start>=End range. The finally still runs via the
+            // normal fall-through Jmp.)
+            if (hasCatch)
+            {
+                if (tryEndPc > tryStartPc)
+                    st.EhTable.Add(new ExceptionHandler(
+                        start: tryStartPc, end: tryEndPc,
+                        catchPc: catchPc, finallyPc: -1,
+                        catchSlot: catchSlot, scopeDepth: scopeDepthAtTry));
+                if (catchEndPc > catchStartPc)
+                    st.EhTable.Add(new ExceptionHandler(
+                        start: catchStartPc, end: catchEndPc,
+                        catchPc: -1, finallyPc: finallyPc,
+                        catchSlot: catchSlot, scopeDepth: scopeDepthAtTry));
+            }
+            else if (tryEndPc > tryStartPc)
+            {
+                st.EhTable.Add(new ExceptionHandler(
+                    start: tryStartPc, end: tryEndPc,
+                    catchPc: -1, finallyPc: finallyPc,
+                    catchSlot: catchSlot, scopeDepth: scopeDepthAtTry));
+            }
+
+            MarkAllTypedAccsDirty(st);
+        }
+
+        // L10: does `n` contain a control-flow escape (return / break / continue
+        // / yield) reachable in THIS body — descending every statement container
+        // but NOT nested function / type bodies (which own their control flow)?
+        // Used by the try/finally gate: such an escape would bypass the finally
+        // (we don't intercept it the way the visitor captures + re-runs), so a
+        // try/finally carrying one falls back to the visitor. `throw` is NOT an
+        // escape (the EhTable handles it). Conservative: break/continue inside a
+        // nested loop in the body still count (safe over-fallback).
+        private static bool ContainsControlEscape(AstNode? n)
+        {
+            if (n == null) return false;
+            switch (n.NodeType)
+            {
+                case AstNodeType.Return:
+                case AstNodeType.Break:
+                case AstNodeType.Continue:
+                case AstNodeType.Yield:
+                    return true;
+                // Nested function / type bodies own their control flow.
+                case AstNodeType.FunctionDefinition:
+                case AstNodeType.ClassDefinition:
+                case AstNodeType.StructDefinition:
+                case AstNodeType.RecordDefinition:
+                case AstNodeType.EnumDefinition:
+                case AstNodeType.InterfaceDefinition:
+                case AstNodeType.TraitDefinition:
+                case AstNodeType.AnnotationDefinition:
+                case AstNodeType.ExtensionDefinition:
+                    return false;
+                case AstNodeType.Scope:
+                    foreach (var c in ((Parser.Nodes.Special.ScopeNode)n).Nodes)
+                        if (ContainsControlEscape(c)) return true;
+                    return false;
+                case AstNodeType.List:
+                    foreach (var c in ((Parser.Nodes.Primitives.ListNode)n).ElementNodes)
+                        if (ContainsControlEscape(c)) return true;
+                    return false;
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)n;
+                    foreach (var cs in ifn.Cases)
+                        if (ContainsControlEscape(cs.Expr)) return true;
+                    if (ifn.ElseCase.HasValue && ContainsControlEscape(ifn.ElseCase.Value.Expr)) return true;
+                    return false;
+                }
+                case AstNodeType.For: return ContainsControlEscape(((Parser.Nodes.Statements.ForNode)n).BodyNode);
+                case AstNodeType.While: return ContainsControlEscape(((Parser.Nodes.Statements.WhileNode)n).BodyNode);
+                case AstNodeType.DoWhile: return ContainsControlEscape(((Parser.Nodes.Statements.DoWhileNode)n).BodyNode);
+                case AstNodeType.ForEach: return ContainsControlEscape(((Parser.Nodes.Statements.ForEachNode)n).BodyNode);
+                case AstNodeType.SuperFor: return ContainsControlEscape(((Parser.Nodes.Statements.SuperForNode)n).BodyNode);
+                case AstNodeType.Retry:
+                {
+                    var rt = (Parser.Nodes.Statements.RetryNode)n;
+                    return ContainsControlEscape(rt.BodyNode) || ContainsControlEscape(rt.ElseNode);
+                }
+                case AstNodeType.Try:
+                {
+                    var tn = (Parser.Nodes.Special.TryNode)n;
+                    return ContainsControlEscape(tn.TryBody)
+                        || ContainsControlEscape(tn.CatchBody)
+                        || ContainsControlEscape(tn.FinallyBody);
+                }
+                case AstNodeType.Switch:
+                    foreach (var c in ((Parser.Nodes.Statements.SwitchNode)n).Cases)
+                        if (ContainsControlEscape(c.Body)) return true;
+                    return false;
+                case AstNodeType.Match:
+                    foreach (var a in ((Parser.Nodes.Patterns.MatchNode)n).Arms)
+                        if (ContainsControlEscape(a.Body)) return true;
+                    return false;
+                case AstNodeType.Label:
+                    return ContainsControlEscape(((Parser.Nodes.Special.LabelNode)n).Statements);
+                default:
+                    // Expressions + simple statements (assignments, decls, calls,
+                    // throw, …) introduce no nested statement that could escape.
+                    return false;
+            }
         }
 
         // Compile a body inside a fresh PushScope/PopScope pair. The strict

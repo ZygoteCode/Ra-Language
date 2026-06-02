@@ -2680,6 +2680,24 @@ namespace RaLanguage.Interpreter.Vm
                         break;
                     }
 
+                    case Opcode.FinallyEnd:
+                    {
+                        // L10 — end of a `finally` body. If the exception handler
+                        // stashed a pending error (the finally was reached via a
+                        // raise, not normal fall-through), re-raise it now: the
+                        // finally completed normally, so the in-flight error
+                        // resumes propagating. The finally's OWN control flow
+                        // (return/break/continue) or a fresh throw would have
+                        // exited before reaching here, naturally overriding it.
+                        if (f.PendingError != null)
+                        {
+                            var pe = f.PendingError;
+                            f.PendingError = null;
+                            throw new RaUserError(pe);
+                        }
+                        break;
+                    }
+
                     default:
                         throw new RaUserError(MakeIcError(ctx,
                             $"VM: opcode {op} (0x{(byte)op:X2}) not implemented yet (PC={pc - 1})"));
@@ -2705,7 +2723,10 @@ namespace RaLanguage.Interpreter.Vm
                     for (int i = 0; i < eh.Length; i++)
                     {
                         var h = eh[i];
-                        if (faultPc >= h.StartPc && faultPc < h.EndPc && h.CatchPc >= 0)
+                        // L10: a handler covers the fault if it has a catch OR a
+                        // finally to route into (a try/finally with no catch, or
+                        // an exception escaping a catch body).
+                        if (faultPc >= h.StartPc && faultPc < h.EndPc && (h.CatchPc >= 0 || h.FinallyPc >= 0))
                         {
                             int span = h.EndPc - h.StartPc;
                             if (span < bestSpan)
@@ -2723,35 +2744,46 @@ namespace RaLanguage.Interpreter.Vm
                             ctx = ctx.Parent;
                             f.CtxDepth--;
                         }
-                        // Prefer the raw thrown value carried by a user
-                        // `throw expr` so pattern-based catch clauses can
-                        // destructure the original (typed) value.
-                        // System-raised errors leave ThrownValue null and
-                        // fall back to a StringValue rendering.
-                        RaLanguage.Interpreter.Values.RuntimeValue catchValue;
-                        if (ue.Err is RaLanguage.Errors.Types.RuntimeError rerr && rerr.ThrownValue != null)
+                        if (h.CatchPc >= 0)
                         {
-                            catchValue = rerr.ThrownValue;
+                            // Prefer the raw thrown value carried by a user
+                            // `throw expr` so pattern-based catch clauses can
+                            // destructure the original (typed) value.
+                            // System-raised errors leave ThrownValue null and
+                            // fall back to a StringValue rendering.
+                            RaLanguage.Interpreter.Values.RuntimeValue catchValue;
+                            if (ue.Err is RaLanguage.Errors.Types.RuntimeError rerr && rerr.ThrownValue != null)
+                            {
+                                catchValue = rerr.ThrownValue;
+                            }
+                            else
+                            {
+                                string msg = ue.Err.Diagnostic?.Message ?? ue.Err.ToString() ?? "<error>";
+                                catchValue = new StringValue(msg).SetContext(ctx);
+                            }
+                            // M83 — explicit catch-slot tag normalisation.
+                            // See original comment block: the catch slot may
+                            // not have been pre-cleared by the dispatch
+                            // loop's bitmap, so we explicitly normalise to
+                            // a Ref slot before the boxed write.
+                            if ((uint)h.CatchSlot < (uint)f.Slots.Length)
+                            {
+                                ref var catchSlot = ref f.Slots[h.CatchSlot];
+                                catchSlot.Tag = ValueSlotTag.Ref;
+                                catchSlot.Bits = 0;
+                                catchSlot.Ref = null;
+                            }
+                            locals[h.CatchSlot] = catchValue;
+                            pc = h.CatchPc;
                         }
                         else
                         {
-                            string msg = ue.Err.Diagnostic?.Message ?? ue.Err.ToString() ?? "<error>";
-                            catchValue = new StringValue(msg).SetContext(ctx);
+                            // L10 finally-only route (try/finally with no catch, or
+                            // an exception escaping a catch body): stash the error
+                            // and run the finally; OP_FINALLY_END re-raises it.
+                            f.PendingError = ue.Err;
+                            pc = h.FinallyPc;
                         }
-                        // M83 — explicit catch-slot tag normalisation.
-                        // See original comment block: the catch slot may
-                        // not have been pre-cleared by the dispatch
-                        // loop's bitmap, so we explicitly normalise to
-                        // a Ref slot before the boxed write.
-                        if ((uint)h.CatchSlot < (uint)f.Slots.Length)
-                        {
-                            ref var catchSlot = ref f.Slots[h.CatchSlot];
-                            catchSlot.Tag = ValueSlotTag.Ref;
-                            catchSlot.Bits = 0;
-                            catchSlot.Ref = null;
-                        }
-                        locals[h.CatchSlot] = catchValue;
-                        pc = h.CatchPc;
                     }
                     else
                     {
