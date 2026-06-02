@@ -1,0 +1,48 @@
+import std.prelude.*;
+// L10: a standalone `x is T` / `x is not T` EXPRESSION lowers to OP_IS_TYPE
+// (the same opcode the match `case is T` pattern uses; `is not` negates via
+// NotB). Previously routed through OP_NATIVE_DEFINE.
+print("=== types/istype_expr_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+var i = 5;
+var s = "hi";
+var b = true;
+
+// IT1: positive matches.
+ck("[IT1a]", i is int);
+ck("[IT1b]", s is string);
+ck("[IT1c]", b is bool);
+
+// IT2: negative matches.
+ck("[IT2a]", (i is string) == false);
+ck("[IT2b]", (s is int) == false);
+
+// IT3: `is not`.
+ck("[IT3a]", s is not int);
+ck("[IT3b]", (i is not int) == false);
+
+// IT4: as a boolean sub-expression / guard.
+let g = (i is int) && (s is string);
+ck("[IT4]", g);
+
+// IT5: in a loop (impure-free pure test still correct each iteration).
+var count = 0;
+for k = 0 to 5 {
+    if k is int { count = count + 1; }
+}
+ck("[IT5]", count == 5);
+
+// IT6: user class.
+class Box { var v: int
+  pub Box(v: int) { self.v = v }
+}
+let bx = Box(3);
+ck("[IT6a]", bx is Box);
+ck("[IT6b]", (bx is int) == false);
+
+if failures == 0 { print("=== done ==="); } else { print("=== FAIL (" + (failures as string) + ") ==="); }

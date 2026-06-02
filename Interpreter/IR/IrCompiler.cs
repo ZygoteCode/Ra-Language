@@ -8120,11 +8120,26 @@ namespace RaLanguage.Interpreter.IR
                 }
                 case AstNodeType.IsType:
                 {
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort refIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(expr);
-                    st.Code.Emit2(Opcode.NativeDefine, destSlot, refIdx);
+                    // L10: `x is T` / `x is not T` → OP_IS_TYPE (the same opcode
+                    // the match `case is T` pattern uses). Evaluate the scrutinee
+                    // into a slot; park a placeholder-Expression IsTypeNode in
+                    // AstRefs (the handler reads only TestedType + slot B, like the
+                    // match path); `is not` negates the result via NotB (OpIsType
+                    // ignores Negated, the visitor flips it — mirror that here).
+                    var isn = (Parser.Nodes.Operations.IsTypeNode)expr;
+                    byte scrutSlot = AllocTemp(ref topSlot);
+                    CompileExpression(isn.Expression, scrutSlot, st, ref topSlot);
+                    if (st.AstRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("AstRefs overflow");
+                    var placeholderTok = new Lexer.Tokens.Token(
+                        Lexer.Tokens.TokenType.IDENTIFIER, "_istype", expr.PositionStart, expr.PositionEnd);
+                    var parked = new Parser.Nodes.Operations.IsTypeNode(
+                        new Parser.Nodes.Primitives.NullNode(placeholderTok), isn.TestedType, false);
+                    int isRefIdx = st.AstRefs.Count;
+                    st.AstRefs.Add(parked);
+                    st.Code.Emit3WideC(Opcode.IsType, destSlot, scrutSlot, isRefIdx);
+                    if (isn.Negated)
+                        st.Code.Emit3(Opcode.NotB, destSlot, destSlot, 0);
                     return;
                 }
 
