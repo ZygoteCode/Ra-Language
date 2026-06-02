@@ -2545,6 +2545,9 @@ namespace RaLanguage.Interpreter.Vm
                     case Opcode.MatchArity:
                         OpMatchArity(locals, instr, ctx);
                         break;
+                    case Opcode.EnumNameEq:
+                        OpEnumNameEq(locals, instr, names);
+                        break;
 
                     default:
                         throw new RaUserError(MakeIcError(ctx,
@@ -4806,6 +4809,22 @@ namespace RaLanguage.Interpreter.Vm
         // and reintroduce the per-recursion-level stack cost. LocalsView is a
         // readonly struct over the live ValueSlot[], so writes through the
         // by-value copy land in the caller's slots.
+        // L7 — explicit-enum disambiguator. dst = scrut is an EnumValue whose
+        // ENUM TYPE name == Names[c]. A record carries no EnumName → returns false
+        // (an explicit `case Enum.Variant` never matches a record, mirroring the
+        // visitor's `vap.EnumName == null` record-branch guard).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpEnumNameEq(LocalsView locals, uint instr, string[] names)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            string name = names[Encoding.C(instr)];
+            bool matched = locals[b] is EnumValue ev
+                && string.Equals(ev.EnumName, name, System.StringComparison.Ordinal);
+            locals[a] = BooleanValue.Of(matched);
+        }
+
         [System.Runtime.CompilerServices.MethodImpl(
             System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private static void OpEnumTagEq(LocalsView locals, uint instr, string[] names, Context ctx)

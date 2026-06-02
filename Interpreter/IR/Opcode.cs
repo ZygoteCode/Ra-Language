@@ -474,9 +474,16 @@ namespace RaLanguage.Interpreter.IR
         //                  arity-mismatch error if the matched scrut's payload/
         //                  primary-field count != c; else nop. Writes nothing,
         //                  reads B; emitted right after a passing EnumTagEq.
+        //   EnumNameEq   [op][dst][scrut][enumNameIdx:c]  dst = (scrut is
+        //                  EnumValue && scrut.EnumName == Names[c]). Emitted for an
+        //                  EXPLICIT `case Enum.Variant(..)` BEFORE EnumTagEq, to
+        //                  disambiguate same-named variants across enums (records
+        //                  carry no EnumName → never match an explicit pattern,
+        //                  matching the visitor's EnumName!=null record exclusion).
         EnumTagEq       = 0x95,
         EnumPayload     = 0x96,
         MatchArity      = 0x97,
+        EnumNameEq      = 0x98,
 
         // --- exceptions ---
         Throw           = 0xA0,   // a (err src)

@@ -3856,26 +3856,27 @@ namespace RaLanguage.Interpreter.IR
                     }
                     case Parser.Nodes.Patterns.VariantPatternNode vap:
                     {
-                        // First-cut variant lowering (`case Ok(v)` / `case Some(x)`
-                        // / `case Pair(a, b)`): INFERRED enum only, payload
+                        // Variant lowering (`case Ok(v)` / `case Some(x)` / `case
+                        // Pair(a, b)` / `case Enum.Variant(..)` / record-positional
+                        // `case Point(x, y)`): inferred OR explicit enum, payload
                         // subpatterns limited to wildcards + confirmed variable
                         // bindings. Everything else falls back to the visitor.
-                        //  - explicit `case Enum.Variant(..)` -> defer (EnumName set)
                         //  - zero-arity `case None` is a VariablePatternNode, not
                         //    this node; a parenless variant here would have null
                         //    SubPatterns -> defer.
                         //  - nested/literal/tuple/struct subpatterns -> defer.
-                        if (vap.EnumName != null)
-                            throw new IrCompileException("match: explicit-enum variant pattern -> fallback");
                         if (vap.SubPatterns == null)
                             throw new IrCompileException("match: parenless variant pattern -> fallback");
                         // EnumPayload's payload index rides the 8-bit C operand.
                         if (vap.SubPatterns.Count > byte.MaxValue)
                             throw new IrCompileException("match: variant payload arity out of 8-bit range -> fallback");
-                        // The tag name must index into the 8-bit C operand of
-                        // EnumTagEq (interned, so usually tiny) — guard the bound.
+                        // The tag name (and, for an explicit `Enum.Variant`, the
+                        // enum-type name) must index into the 8-bit C operand of
+                        // EnumTagEq/EnumNameEq (interned, so usually tiny) — bound it.
                         if (st.Names.Add(vap.VariantName) > byte.MaxValue)
                             throw new IrCompileException("match: variant name index out of 8-bit range -> fallback");
+                        if (vap.EnumName != null && st.Names.Add(vap.EnumName) > byte.MaxValue)
+                            throw new IrCompileException("match: enum name index out of 8-bit range -> fallback");
                         foreach (var sub in vap.SubPatterns)
                         {
                             switch (sub)
@@ -3961,6 +3962,19 @@ namespace RaLanguage.Interpreter.IR
                 else if (isVariant)
                 {
                     var vap = (Parser.Nodes.Patterns.VariantPatternNode)arm.Pattern;
+                    // 0) Explicit `case Enum.Variant(..)`: first gate on the ENUM
+                    //    TYPE name so a same-named variant of a different enum (and
+                    //    any record) is rejected — mirrors the visitor's
+                    //    `ev.EnumName == vap.EnumName` check. Records fail EnumNameEq
+                    //    (no EnumName), so the polymorphic EnumTagEq below only sees
+                    //    enums on this path.
+                    if (vap.EnumName != null)
+                    {
+                        byte enmSlot = AllocTemp(ref topSlot);
+                        int enmIdx = st.Names.Add(vap.EnumName); // interned; <=255 (guard-checked)
+                        st.Code.Emit3(Opcode.EnumNameEq, enmSlot, scrutSlot, (byte)enmIdx);
+                        skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, enmSlot));
+                    }
                     // 1) Tag test: the scrutinee must be the named variant (enum
                     //    member) OR record (nominal type) — EnumTagEq is
                     //    polymorphic. On mismatch, skip the extraction + body.

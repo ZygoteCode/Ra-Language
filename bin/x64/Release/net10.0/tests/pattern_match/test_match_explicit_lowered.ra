@@ -1,0 +1,77 @@
+import std.prelude.*;
+// Ra Language - L7 (Match widening): EXPLICIT-enum variant patterns now lower.
+// `case Result.Ok(v)` (enum type named) gates on the ENUM TYPE name via a new
+// EnumNameEq opcode emitted BEFORE EnumTagEq:
+//   EnumNameEq(scrut, "Result") -> JmpIfNot next   // scrut.EnumName == "Result"
+//   EnumTagEq (scrut, "Ok")     -> JmpIfNot next   // scrut.MemberName == "Ok"
+//   MatchArity / EnumPayload    ...
+// This disambiguates a variant member name shared by two enums (Result.Ok vs
+// Status.Ok), mirroring the visitor's `ev.EnumName == vap.EnumName` check. A
+// record carries no EnumName, so an explicit pattern never matches one.
+// Verified lowered (top-level --dump-ir shows EnumNameEq, no NativeDefine) and
+// --parity MATCH in-function.
+
+print("=== pattern_match/match_explicit_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+enum Result1 { Ok(int), Err(int) }
+enum Status1 { Ok(int), Bad(int) }
+
+// EX1-EX3: explicit pattern binds payload; the SAME member name `Ok` on a
+// different enum must NOT match (disambiguation by enum type name). Scrutinee
+// is `any` so both enum types can flow through one match.
+fn tag(v: any): string {
+    ret match v {
+        case Result1.Ok(n) -> "result-ok:" + (n as string)
+        case Status1.Ok(n) -> "status-ok:" + (n as string)
+        case _ -> "other"
+    };
+}
+ck("[EX1]", tag(Result1.Ok(1)) == "result-ok:1");
+ck("[EX2]", tag(Status1.Ok(2)) == "status-ok:2");
+ck("[EX3]", tag(Result1.Err(9)) == "other");
+
+// EX4/EX5: explicit pattern with a guard on the payload bind.
+fn sign(r: Result1): string {
+    ret match r {
+        case Result1.Ok(n) if n > 0 -> "pos"
+        case Result1.Ok(n) -> "nonpos"
+        case _ -> "err"
+    };
+}
+ck("[EX4]", sign(Result1.Ok(5)) == "pos");
+ck("[EX5]", sign(Result1.Ok(-3)) == "nonpos");
+ck("[EX6]", sign(Result1.Err(0)) == "err");
+
+// EX7: explicit and INFERRED variant arms in ONE match (inferred `Ok` matches
+// any enum's Ok member; explicit `Result1.Err` gates on the type).
+fn mix(r: Result1): string {
+    ret match r {
+        case Result1.Err(e) -> "err:" + (e as string)
+        case Ok(n) -> "ok:" + (n as string)
+        case _ -> "none"
+    };
+}
+ck("[EX7]", mix(Result1.Ok(7)) == "ok:7");
+ck("[EX8]", mix(Result1.Err(4)) == "err:4");
+
+// EX9: explicit two-field enum variant.
+enum Pair1 { Both(int, int), Neither }
+fn add_both(p: Pair1): int {
+    ret match p {
+        case Pair1.Both(a, b) -> a + b
+        case _ -> -1
+    };
+}
+ck("[EX9]", add_both(Pair1.Both(3, 4)) == 7);
+ck("[EX10]", add_both(Pair1.Neither) == -1);
+
+if failures == 0 {
+    print("=== done (all lowered explicit-enum cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

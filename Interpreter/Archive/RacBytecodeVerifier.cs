@@ -224,6 +224,7 @@ namespace RaLanguage.Interpreter.Archive
                     // c is an immediate (Names index / payload index), not a slot.
                     case Opcode.EnumTagEq:
                     case Opcode.EnumPayload:
+                    case Opcode.EnumNameEq:
                         CheckSlot(a, local, pc, opName, "a", diags, path);
                         CheckSlot(effB, local, pc, opName, "b", diags, path);
                         break;
