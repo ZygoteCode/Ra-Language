@@ -234,6 +234,7 @@ namespace RaLanguage.Interpreter.Archive
                     case Opcode.ListElemBack:
                     case Opcode.ListRestSlice:
                     case Opcode.MapShape:
+                    case Opcode.TryUnwrap:
                         CheckSlot(a, local, pc, opName, "a", diags, path);
                         CheckSlot(effB, local, pc, opName, "b", diags, path);
                         break;

@@ -2583,6 +2583,14 @@ namespace RaLanguage.Interpreter.Vm
                     case Opcode.MapGetKey:
                         OpMapGetKey(locals, instr, ctx);
                         break;
+                    case Opcode.TryUnwrap:
+                    {
+                        // Ok: dst is set, fall through. Err: early-return the Err
+                        // value through the standard return channel (like Ret).
+                        var early = OpTryUnwrap(locals, instr, ctx);
+                        if (early != null) { f.Pc = pc; return res.SuccessReturn(early); }
+                        break;
+                    }
 
                     default:
                         throw new RaUserError(MakeIcError(ctx,
@@ -5066,6 +5074,32 @@ namespace RaLanguage.Interpreter.Vm
                 }
             }
             locals[a] = result;
+        }
+
+        // L7 — `target?`. On Result.Ok(v): writes v to dst (A) and returns null
+        // (the caller falls through). On Result.Err(e): returns the whole Result
+        // value (the caller early-returns it). Non-Result / unexpected variant:
+        // throws the visitor's EXACT error (parity captures err.Details).
+        // Byte-identical to TryUnwrapNodeVisitor.Apply.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue? OpTryUnwrap(LocalsView locals, uint instr, Context ctx)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            var value = locals[b];
+            if (value is not EnumValue ev || !string.Equals(ev.EnumName, "Result", System.StringComparison.Ordinal))
+                throw new RaUserError(MakeIcError(ctx, "'?' can only be applied to a 'Result<T, E>' value"));
+            if (string.Equals(ev.MemberName, "Ok", System.StringComparison.Ordinal))
+            {
+                if (ev.Payload.Count != 1)
+                    throw new RaUserError(MakeIcError(ctx, $"Result.Ok payload arity {ev.Payload.Count} is unexpected"));
+                locals[a] = ev.Payload[0].Aliased().SetContext(ctx);
+                return null;
+            }
+            if (string.Equals(ev.MemberName, "Err", System.StringComparison.Ordinal))
+                return value.Aliased().SetContext(ctx);
+            throw new RaUserError(MakeIcError(ctx, $"'?' encountered unexpected Result variant '{ev.MemberName}'"));
         }
 
         [System.Runtime.CompilerServices.MethodImpl(

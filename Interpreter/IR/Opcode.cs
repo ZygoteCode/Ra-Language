@@ -529,6 +529,12 @@ namespace RaLanguage.Interpreter.IR
         MapShape        = 0xA7,
         MapHasKey       = 0xAF,
         MapGetKey       = 0xCF,
+        // L7 — `target?` postfix try-unwrap. dst (A) = the Ok payload; reads the
+        // target at B. On Result.Err the handler signals an early function return
+        // of the Err value (the case `return`s SuccessReturn); a non-Result / bad
+        // variant throws the visitor's exact error. Writes A, reads B; impure
+        // (the Err early-return is a side effect — never DCE'd/hoisted).
+        TryUnwrap       = 0xED,
 
         // --- exceptions ---
         Throw           = 0xA0,   // a (err src)

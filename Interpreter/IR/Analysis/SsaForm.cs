@@ -511,6 +511,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.ListShape: case Opcode.ListElemBack: case Opcode.ListRestSlice:
                 case Opcode.IsType:
                 case Opcode.MapShape: case Opcode.MapHasKey: case Opcode.MapGetKey:
+                case Opcode.TryUnwrap:
                 // M66.5 / M66.6: II tagged-union opcodes also write
                 // `locals[a]` (or the `LongLocals[a]` shadow). SSA
                 // tracks both arrays' writes uniformly so chain
@@ -701,6 +702,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.ListShape: case Opcode.ListElemBack: case Opcode.ListRestSlice:
                 case Opcode.IsType:
                 case Opcode.MapShape:
+                case Opcode.TryUnwrap:
                     yield return (Encoding.B(instr), true);
                     break;
                 case Opcode.Ret:

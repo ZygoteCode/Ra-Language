@@ -7294,11 +7294,24 @@ namespace RaLanguage.Interpreter.IR
                     return;
                 }
 
+                // L7 — `target?` try-unwrap. Compile the target, emit OP_TRY_UNWRAP:
+                // Ok -> dst = payload; Err -> early function return; non-Result ->
+                // the visitor's exact error. The target compiles via the normal
+                // path (it self-falls-back to NATIVE_DEFINE for unlowerable parts),
+                // so this case never needs its own fallback.
+                case AstNodeType.TryUnwrap:
+                {
+                    var tu = (Parser.Nodes.Patterns.TryUnwrapNode)expr;
+                    byte tSlot = AllocTemp(ref topSlot);
+                    CompileExpression(tu.Target, tSlot, st, ref topSlot);
+                    st.Code.Emit3(Opcode.TryUnwrap, destSlot, tSlot, 0);
+                    return;
+                }
+
                 // Long-tail expressions routed via OP_NATIVE_DEFINE — the
                 // VM calls the visitor's static Apply directly, never
                 // hitting interpreter._visitors[].
                 case AstNodeType.DestructuringDeclaration:
-                case AstNodeType.TryUnwrap:
                 case AstNodeType.Await:
                 case AstNodeType.Spawn:
                 case AstNodeType.Emit:
