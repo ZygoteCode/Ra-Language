@@ -3855,6 +3855,9 @@ namespace RaLanguage.Interpreter.IR
             // yield nested in arm-local scopes pops down to here before jumping.
             st.YieldTargets.Push(new YieldTarget(destSlot, endJumps, st.ScopeDepth));
 
+            int swArmEntryDepth = st.ScopeDepth;
+            try
+            {
             for (int i = 0; i < node.Cases.Count; i++)
             {
                 var c = node.Cases[i];
@@ -3887,9 +3890,17 @@ namespace RaLanguage.Interpreter.IR
                 endJumps.Add(st.Code.EmitForwardJump(Opcode.Jmp));
                 st.Code.PatchJumpToHere(skipBody);
             }
-
-            st.YieldTargets.Pop();
-            st.Loops.Pop();
+            }
+            finally
+            {
+                // Exception-safety: if an arm threw mid-emit, unwind the
+                // YieldTarget + break-barrier + any per-arm scope the throw
+                // skipped, so a NativeDefine fallback caller continues clean.
+                // On the normal path this is the ordinary balanced pop.
+                st.YieldTargets.Pop();
+                st.Loops.Pop();
+                st.ScopeDepth = swArmEntryDepth;
+            }
 
             // No case matched and no default → null switch value (matches the
             // visitor's trailing `res.Success(NullValue.Null)`).
@@ -4214,17 +4225,24 @@ namespace RaLanguage.Interpreter.IR
                     default:
                         throw new IrCompileException("match: non-literal/wildcard pattern -> fallback");
                 }
-                // Body must be a pure-value expression (like switch arrow-expr).
+                // Body is a pure-value expression OR (L8) a block arm whose only
+                // control escape is `yield X` — a yielding block sets the arm
+                // value to X via the YieldTarget, mirroring the switch lowering.
+                // A break / continue / return escape still falls back.
                 var b = arm.Body;
-                switch (b.NodeType)
+                bool isBlockBody = b.NodeType == AstNodeType.List || b.NodeType == AstNodeType.Scope;
+                if (isBlockBody)
                 {
-                    case AstNodeType.List:
-                    case AstNodeType.Scope:
+                    if (ArrowBlockHasNonYieldControlEscape(b))
+                        throw new IrCompileException("match: block non-yield control escape -> fallback");
+                }
+                else switch (b.NodeType)
+                {
                     case AstNodeType.Return:
                     case AstNodeType.Yield:
                     case AstNodeType.Break:
                     case AstNodeType.Continue:
-                        throw new IrCompileException("match: block/control-escape arm body -> fallback");
+                        throw new IrCompileException("match: control-escape arm body -> fallback");
                 }
                 if (catchAllIdx >= 0) break; // arms after the catch-all are dead
             }
@@ -4250,8 +4268,18 @@ namespace RaLanguage.Interpreter.IR
             // Evaluate the scrutinee exactly once into a persistent slot.
             byte scrutSlot = AllocTemp(ref topSlot);
             CompileExpression(node.Scrutinee, scrutSlot, st, ref topSlot);
+            // L8: discard slot for a block arm's expression-statements (NOT
+            // destSlot, which holds the arm's null/yielded value).
+            byte bodyScratch = AllocTemp(ref topSlot);
 
             var endJumps = new List<int>();
+            // L8: a `yield X` in a block arm writes X to destSlot and escapes to
+            // the match end. Share `endJumps`; baseline = the match scope depth so
+            // a yield nested in this arm's scope pops down to here before jumping.
+            st.YieldTargets.Push(new YieldTarget(destSlot, endJumps, st.ScopeDepth));
+            int matchArmEntryDepth = st.ScopeDepth;
+            try
+            {
             for (int i = 0; i <= lastArm; i++)
             {
                 var arm = node.Arms[i];
@@ -4509,7 +4537,11 @@ namespace RaLanguage.Interpreter.IR
                 }
 
                 // Match: body -> dest, close the arm scope, jump to the end.
-                CompileExpression(arm.Body, destSlot, st, ref topSlot);
+                // L8: EmitArrowBody handles both an expression body (→ destSlot,
+                // identical to the prior CompileExpression) and a block body
+                // (run stmts; a firing `yield X` writes destSlot + jumps to end
+                // via the YieldTarget; otherwise the arm value is null).
+                EmitArrowBody(arm.Body, destSlot, bodyScratch, st, ref topSlot);
                 if (hasScope) st.Code.Emit3(Opcode.PopScope, 0, 0, 0);
                 endJumps.Add(st.Code.EmitForwardJump(Opcode.Jmp));
 
@@ -4521,6 +4553,17 @@ namespace RaLanguage.Interpreter.IR
                     if (skips.Count > 0) st.Code.Emit3(Opcode.PopScope, 0, 0, 0);
                     st.ScopeDepth--; // balance the EmitPushScope (no EmitPopScope used)
                 }
+            }
+            }
+            finally
+            {
+                // Exception-safety: if an arm threw mid-emit (e.g. an
+                // unlowerable body expression after the per-arm PushScope),
+                // unwind the YieldTarget + any leftover scope so a NativeDefine
+                // fallback caller continues with clean stacks. On the normal
+                // path this is the ordinary balanced pop (depth already restored).
+                st.YieldTargets.Pop();
+                st.ScopeDepth = matchArmEntryDepth;
             }
             // No-match path. With a catch-all the last arm always matches, so this
             // is unreachable and omitted. Without one, control falls through every
