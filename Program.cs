@@ -947,7 +947,11 @@ namespace RaLanguage
                 byte b = Encoding.B(instr);
                 byte c = Encoding.C(instr);
                 ushort imm = Encoding.Imm16(instr);
-                Console.WriteLine($"  {pc:0000}: {op,-18} a={a,-3} b={b,-3} c={c,-3} imm16={imm}");
+                // 0x90 is NativeDefine, aliased with the unused MatchBegin —
+                // Enum.ToString() resolves it to "MatchBegin", which hides
+                // residual fallbacks in dumps. Force the meaningful name.
+                string opName = (byte)op == 0x90 ? "NativeDefine" : op.ToString();
+                Console.WriteLine($"  {pc:0000}: {opName,-18} a={a,-3} b={b,-3} c={c,-3} imm16={imm}");
             }
         }
 
