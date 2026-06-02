@@ -754,6 +754,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.EnumNameEq:
                 case Opcode.TupleShape:
                 case Opcode.StructShape: case Opcode.StructFieldGet:
+                case Opcode.ListShape: case Opcode.ListElemBack: case Opcode.ListRestSlice:
                     return Encoding.A(instr) == slot;
                 default:
                     return false;

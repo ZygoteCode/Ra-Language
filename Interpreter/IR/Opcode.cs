@@ -505,6 +505,19 @@ namespace RaLanguage.Interpreter.IR
         //                  only after a passing StructShape.
         StructShape     = 0x9B,
         StructFieldGet  = 0x9C,
+        //   ListShape    [op][dst][scrut][c]  c = (modeBit<<7)|len7. dst = scrut is
+        //                  ListValue && (mode 0: Count==len7 / mode 1: Count>=len7).
+        //                  EXACT for a no-rest pattern, >= when a `..rest` is
+        //                  present. Front elements extract via EnumPayload (index).
+        //   ListElemBack [op][dst][scrut][kFromEnd:c]  dst = Elements[Count-k]
+        //                  (k 1-based from the end) — the suffix patterns after a
+        //                  `..rest`. Reached only after a passing ListShape.
+        //   ListRestSlice[op][dst][scrut][c]  c = (prefix4<<4)|suffix4. dst = a new
+        //                  ListValue of Elements[prefix .. Count-suffix] — the
+        //                  middle captured by a named `..rest`.
+        ListShape       = 0x9D,
+        ListElemBack    = 0x9E,
+        ListRestSlice   = 0x9F,
 
         // --- exceptions ---
         Throw           = 0xA0,   // a (err src)

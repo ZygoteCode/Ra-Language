@@ -3923,6 +3923,30 @@ namespace RaLanguage.Interpreter.IR
                         // A struct pattern TESTS the nominal type — never a catch-all.
                         break;
                     }
+                    case Parser.Nodes.Patterns.ListPatternNode lpat:
+                    {
+                        // `case [a, b]` (exact) / `case [h, ..t]` (prefix + rest +
+                        // suffix). Elements holds the NON-rest patterns; RestIndex
+                        // splits them into a front prefix and a back suffix.
+                        int prefixN = lpat.Rest != null ? lpat.RestIndex : lpat.Elements.Count;
+                        int suffixN = lpat.Rest != null ? lpat.Elements.Count - lpat.RestIndex : 0;
+                        if (lpat.Elements.Count > 0x7F)
+                            throw new IrCompileException("match: list arity out of 7-bit range -> fallback");
+                        if (lpat.Rest != null && (prefixN > 0x0F || suffixN > 0x0F))
+                            throw new IrCompileException("match: list prefix/suffix out of 4-bit range -> fallback");
+                        foreach (var sub in lpat.Elements)
+                            GuardLeafSubpattern(sub, arm.Guard, arm.Body, st, ref maxBindingSlot);
+                        // A named `..rest` binds the captured middle as a list.
+                        if (lpat.Rest != null && lpat.Rest.BindName != null)
+                        {
+                            int rs = FindMatchBindingSlot(lpat.Rest.BindName, arm.Guard, arm.Body, st);
+                            if (rs < 0)
+                                throw new IrCompileException("match: unconfirmable list-rest binding -> fallback");
+                            if (rs > maxBindingSlot) maxBindingSlot = rs;
+                        }
+                        // A list pattern TESTS the shape — never a catch-all.
+                        break;
+                    }
                     default:
                         throw new IrCompileException("match: non-literal/wildcard pattern -> fallback");
                 }
@@ -3971,6 +3995,7 @@ namespace RaLanguage.Interpreter.IR
                 bool isVariant = arm.Pattern is Parser.Nodes.Patterns.VariantPatternNode;
                 bool isTuple = arm.Pattern is Parser.Nodes.Patterns.TuplePatternNode;
                 bool isStruct = arm.Pattern is Parser.Nodes.Patterns.StructPatternNode;
+                bool isList = arm.Pattern is Parser.Nodes.Patterns.ListPatternNode;
 
                 // Any arm that introduces pattern bindings runs in a FRESH scope so
                 // the declared name(s) are isolated to this arm (mirrors the
@@ -3978,7 +4003,7 @@ namespace RaLanguage.Interpreter.IR
                 // (re-declaration would error), and a failed-guard / failed-tag arm
                 // must not leak a binding. PushScope here; PopScope on BOTH the
                 // match exit and the no-match skip.
-                bool hasScope = isBinding || isVariant || isTuple || isStruct;
+                bool hasScope = isBinding || isVariant || isTuple || isStruct || isList;
                 if (hasScope) EmitPushScope(st);
 
                 var skips = new List<int>(); // jumps to this arm's no-match cleanup
@@ -4070,6 +4095,43 @@ namespace RaLanguage.Interpreter.IR
                             EmitMatchBinding(fieldName, fSlot, arm.Guard, arm.Body, node, st);
                         else
                             EmitLeafSubpattern(fieldPattern, fSlot, skips, arm.Guard, arm.Body, node, st, ref topSlot);
+                    }
+                }
+                else if (isList)
+                {
+                    var lpat = (Parser.Nodes.Patterns.ListPatternNode)arm.Pattern;
+                    int prefixN = lpat.Rest != null ? lpat.RestIndex : lpat.Elements.Count;
+                    int suffixN = lpat.Rest != null ? lpat.Elements.Count - lpat.RestIndex : 0;
+                    // Shape test: a list of exactly Elements.Count (no rest) or at
+                    // least prefix+suffix (rest). c = (modeBit<<7)|len7.
+                    byte shapeSlot = AllocTemp(ref topSlot);
+                    int modeAndLen = (lpat.Rest != null ? 0x80 : 0) | lpat.Elements.Count;
+                    st.Code.Emit3(Opcode.ListShape, shapeSlot, scrutSlot, (byte)modeAndLen);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, shapeSlot));
+                    // Prefix elements from the FRONT (EnumPayload index).
+                    for (int s = 0; s < prefixN; s++)
+                    {
+                        if (lpat.Elements[s] is Parser.Nodes.Patterns.WildcardPatternNode) continue;
+                        byte elemSlot = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.EnumPayload, elemSlot, scrutSlot, (byte)s);
+                        EmitLeafSubpattern(lpat.Elements[s], elemSlot, skips, arm.Guard, arm.Body, node, st, ref topSlot);
+                    }
+                    // Suffix elements from the BACK (ListElemBack, k 1-based).
+                    for (int s = 0; s < suffixN; s++)
+                    {
+                        var pat = lpat.Elements[prefixN + s];
+                        if (pat is Parser.Nodes.Patterns.WildcardPatternNode) continue;
+                        byte elemSlot = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.ListElemBack, elemSlot, scrutSlot, (byte)(suffixN - s));
+                        EmitLeafSubpattern(pat, elemSlot, skips, arm.Guard, arm.Body, node, st, ref topSlot);
+                    }
+                    // Named `..rest` → bind the captured middle as a fresh list.
+                    if (lpat.Rest != null && lpat.Rest.BindName != null)
+                    {
+                        byte restSlot = AllocTemp(ref topSlot);
+                        int packed = (prefixN << 4) | suffixN;
+                        st.Code.Emit3(Opcode.ListRestSlice, restSlot, scrutSlot, (byte)packed);
+                        EmitMatchBinding(lpat.Rest.BindName, restSlot, arm.Guard, arm.Body, node, st);
                     }
                 }
                 else if (arm.Pattern is Parser.Nodes.Patterns.LiteralPatternNode lp)

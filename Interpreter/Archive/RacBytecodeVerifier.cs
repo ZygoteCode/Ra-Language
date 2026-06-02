@@ -230,6 +230,9 @@ namespace RaLanguage.Interpreter.Archive
                     case Opcode.TupleShape:
                     case Opcode.StructShape:
                     case Opcode.StructFieldGet:
+                    case Opcode.ListShape:
+                    case Opcode.ListElemBack:
+                    case Opcode.ListRestSlice:
                         CheckSlot(a, local, pc, opName, "a", diags, path);
                         CheckSlot(effB, local, pc, opName, "b", diags, path);
                         break;

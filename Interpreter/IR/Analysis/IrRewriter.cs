@@ -1194,6 +1194,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.EnumNameEq:
                 case Opcode.TupleShape:
                 case Opcode.StructShape: case Opcode.StructFieldGet:
+                case Opcode.ListShape: case Opcode.ListElemBack: case Opcode.ListRestSlice:
                 // M87 — extend WritesToSlot to include the entire typed
                 // tagged-union family. Without these, GVN's
                 // `IsCanonicalSlotClean` walked through a typed write

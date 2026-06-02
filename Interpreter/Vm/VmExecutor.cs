@@ -2562,6 +2562,15 @@ namespace RaLanguage.Interpreter.Vm
                     case Opcode.StructFieldGet:
                         OpStructFieldGet(locals, instr, names, ctx);
                         break;
+                    case Opcode.ListShape:
+                        OpListShape(locals, instr);
+                        break;
+                    case Opcode.ListElemBack:
+                        OpListElemBack(locals, instr);
+                        break;
+                    case Opcode.ListRestSlice:
+                        OpListRestSlice(locals, instr);
+                        break;
 
                     default:
                         throw new RaUserError(MakeIcError(ctx,
@@ -4907,6 +4916,63 @@ namespace RaLanguage.Interpreter.Vm
             {
                 throw new RaUserError(MakeIcError(ctx, "VM: StructFieldGet on non-struct/class value"));
             }
+        }
+
+        // L7 — list shape: dst = scrut is ListValue with the required length.
+        // c packs (modeBit<<7)|len7 — mode 0 = exact (Count==len, a no-rest
+        // pattern), mode 1 = at-least (Count>=len, a `..rest` pattern). A length
+        // mismatch is a no-match (not an error).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpListShape(LocalsView locals, uint instr)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            int c = Encoding.C(instr);
+            int len = c & 0x7F;
+            bool atLeast = (c & 0x80) != 0;
+            bool matched = locals[b] is ListValue lv
+                && (atLeast ? lv.Elements.Count >= len : lv.Elements.Count == len);
+            locals[a] = BooleanValue.Of(matched);
+        }
+
+        // L7 — list element from the END: dst = Elements[Count - kFromEnd]
+        // (k 1-based; 1 == last). The suffix elements after a `..rest`. Reached
+        // only after a passing ListShape that confirmed Count >= prefix+suffix.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpListElemBack(LocalsView locals, uint instr)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            int k = Encoding.C(instr);
+            if (locals[b] is ListValue lv)
+            {
+                int idx = lv.Elements.Count - k;
+                locals[a] = (idx >= 0 && idx < lv.Elements.Count) ? lv.Elements[idx] : NullValue.Null;
+            }
+            else locals[a] = NullValue.Null;
+        }
+
+        // L7 — captured middle of a `..rest`: dst = new ListValue of
+        // Elements[prefix .. Count-suffix]. c packs (prefix4<<4)|suffix4. Reached
+        // only after a passing ListShape (Count >= prefix+suffix).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpListRestSlice(LocalsView locals, uint instr)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            int c = Encoding.C(instr);
+            int prefix = (c >> 4) & 0x0F;
+            int suffix = c & 0x0F;
+            if (locals[b] is ListValue lv)
+            {
+                int restLen = lv.Elements.Count - prefix - suffix;
+                if (restLen < 0) restLen = 0;
+                locals[a] = new ListValue(lv.Elements.GetRange(prefix, restLen));
+            }
+            else locals[a] = new ListValue(new System.Collections.Generic.List<RuntimeValue>());
         }
 
         [System.Runtime.CompilerServices.MethodImpl(
