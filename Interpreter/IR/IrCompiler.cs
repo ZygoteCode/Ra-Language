@@ -59,6 +59,11 @@ namespace RaLanguage.Interpreter.IR
             // L8: stack of enclosing match/switch arm contexts a `yield` resolves
             // into (innermost first). Empty → a `yield` is function-level (→ ret).
             public readonly Stack<YieldTarget> YieldTargets = new();
+            // L10: backward-`goto` targets — label name → (re-entry Pc, scope depth
+            // at the label). A `goto` to a registered name lowers to a backward
+            // jump (popping scopes down to the label's depth); a forward/undefined
+            // goto is not registered → falls back to the visitor (RA0401).
+            public readonly Dictionary<string, (int Pc, int Depth)> LabelPcs = new();
             public int MaxTempUsed = 1;
 
             // Tracks the *static* nesting depth of OP_PUSH_SCOPE emissions.
@@ -3438,20 +3443,73 @@ namespace RaLanguage.Interpreter.IR
                 // Native registrations + long-tail expressions / statements.
                 // The VM dispatches to the visitor's static Apply method
                 // directly, bypassing interpreter._visitors[].
-                // Long-tail statements routed via OP_NATIVE_DEFINE (the VM calls
-                // the visitor's Apply directly). Only Goto/Label remain — the
-                // former bare-expression forms (Await/Spawn/TryUnwrap/Regex/Fmt)
-                // now lower through the expression-statement bridge above. These
-                // must NOT fall through into the Yield case below — its body
-                // casts `stmt` to YieldNode.
+                // L10: `goto LABEL`. A BACKWARD goto (the only supported form —
+                // a forward goto raises RA0401 at runtime) lowers to a backward
+                // Jmp to the label's re-entry Pc, popping any scopes opened since
+                // the label. An unregistered (forward / undefined) target falls
+                // back to the visitor, which raises the exact RA0401.
                 case AstNodeType.Goto:
-                case AstNodeType.Label:
                 {
+                    var gt = (Parser.Nodes.Special.GotoNode)stmt;
+                    string gtName = gt.VarName.Value!.ToString()!;
+                    if (st.LabelPcs.TryGetValue(gtName, out var gtTarget))
+                    {
+                        EmitPopsDownTo(st, gtTarget.Depth);
+                        st.Code.EmitBackwardJump(Opcode.Jmp, 0, gtTarget.Pc);
+                        return true;
+                    }
                     if (st.DefineRefs.Count > ushort.MaxValue)
                         throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort ndRefIdx = (ushort)st.DefineRefs.Count;
+                    ushort gtRefIdx = (ushort)st.DefineRefs.Count;
                     st.DefineRefs.Add(stmt);
-                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, ndRefIdx);
+                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, gtRefIdx);
+                    return true;
+                }
+                // L10: `LABEL: <rest of block>`. The parser folds the rest of the
+                // enclosing block into the label's ScopeNode body. Lower it like a
+                // loop whose back-edge is `goto`: PushScope, mark the re-entry Pc,
+                // ClearScope (so each pass runs in a fresh scope — matching the
+                // visitor's per-goto re-evaluation, which pushes a new scope each
+                // time), compile the body, PopScope. Roll back to the visitor if a
+                // body statement can't lower.
+                case AstNodeType.Label:
+                {
+                    var lbl = (Parser.Nodes.Special.LabelNode)stmt;
+                    string lblName = lbl.Token.Value!.ToString()!;
+                    int lSavedPc = st.Code.Pc;
+                    byte lSavedTop = topSlot;
+                    int lSavedRefs = st.DefineRefs.Count;
+                    int lSavedDepth = st.ScopeDepth;
+                    bool hadPrev = st.LabelPcs.TryGetValue(lblName, out var lPrev);
+                    try
+                    {
+                        EmitPushScope(st);
+                        int labelPc = st.Code.Pc;
+                        st.LabelPcs[lblName] = (labelPc, st.ScopeDepth);
+                        st.Code.Emit3(Opcode.ClearScope, 0, 0, 0);
+                        var body = (Parser.Nodes.Special.ScopeNode)lbl.Statements;
+                        foreach (var child in body.Nodes)
+                            if (!TryCompileStatement(child, st, ref topSlot, scratchSlot, strict: true))
+                                throw new IrCompileException($"label body stmt not compilable: {child.NodeType}");
+                        EmitPopScope(st);
+                        if (hadPrev) st.LabelPcs[lblName] = lPrev; else st.LabelPcs.Remove(lblName);
+                        if (topSlot > st.MaxTempUsed) st.MaxTempUsed = topSlot;
+                        return true;
+                    }
+                    catch (IrCompileException)
+                    {
+                        st.Code.Truncate(lSavedPc);
+                        topSlot = lSavedTop;
+                        st.ScopeDepth = lSavedDepth;
+                        if (hadPrev) st.LabelPcs[lblName] = lPrev; else st.LabelPcs.Remove(lblName);
+                        if (st.DefineRefs.Count > lSavedRefs)
+                            st.DefineRefs.RemoveRange(lSavedRefs, st.DefineRefs.Count - lSavedRefs);
+                    }
+                    if (st.DefineRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("DefineRefs overflow (>65535)");
+                    ushort lblRefIdx = (ushort)st.DefineRefs.Count;
+                    st.DefineRefs.Add(stmt);
+                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, lblRefIdx);
                     return true;
                 }
                 case AstNodeType.AsmBlock:
