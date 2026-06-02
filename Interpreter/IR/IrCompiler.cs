@@ -3347,13 +3347,87 @@ namespace RaLanguage.Interpreter.IR
                     return true;
                 }
 
+                // L8 — `for await x in stream { body }` (statement form). Lowered
+                // as a stream-pull loop reusing OP_FOR_EACH_STREAM_PULL (extended
+                // to async streams): eval the stream once, then per iteration pull
+                // the next item (blocking on the cross-thread channel — the
+                // producer fiber runs on the thread pool, so no cooperative yield /
+                // await point is needed), bind it, run the body. The collecting
+                // (expression) form falls back. Emit-on-fallback (loop body strict).
+                case AstNodeType.ForAwait:
+                {
+                    var fa = (Parser.Nodes.Async.ForAwaitNode)stmt;
+                    int faSavedPc = st.Code.Pc;
+                    byte faSavedTop = topSlot;
+                    int faSavedRefs = st.DefineRefs.Count;
+                    int faSavedScope = st.ScopeDepth;
+                    try
+                    {
+                        if (!fa.ShouldReturnNull)
+                            throw new IrCompileException("for-await collecting (expression) form -> fallback");
+                        byte streamSlot = AllocTemp(ref topSlot);
+                        CompileExpression(fa.StreamNode, streamSlot, st, ref topSlot);
+                        ushort varNameIdx = st.Names.Add(fa.VarNameToken.Value?.ToString() ?? "_");
+
+                        // Mirror CompileForEach's stream branch exactly. The
+                        // Resolver allocates a frame slot for the for-await var
+                        // (WalkForAwait == WalkForEach), so the body reads it
+                        // slot-based. Declare it once in the outer iter scope via
+                        // SetLocalDirect (creates the SymbolEntry + repoints the
+                        // slot) so AssignBinding's NameToSlot fast path can mutate
+                        // it each iteration. ClearScope clears only the inner body
+                        // scope, leaving the iter var live across iterations.
+                        EmitPushScope(st); // iter scope
+                        byte nullSlot = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.LoadNull, nullSlot, 0, 0);
+                        st.Code.Emit2(Opcode.SetLocalDirect, nullSlot, varNameIdx);
+
+                        EmitPushScope(st); // body scope
+                        int baselineDepth = st.ScopeDepth;
+                        int loopTop = st.Code.Pc;
+                        st.Code.Emit3(Opcode.ClearScope, 0, 0, 0);
+                        byte itemSlot = AllocTemp(ref topSlot);
+                        byte continueSlot = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.ForEachStreamPull, itemSlot, streamSlot, continueSlot);
+                        int exitJmp = st.Code.EmitForwardJump(Opcode.JmpIfNot, continueSlot);
+                        st.Code.Emit2(Opcode.AssignBinding, itemSlot, varNameIdx);
+
+                        var loop = new LoopContext(loopTop, baselineDepth);
+                        st.Loops.Push(loop);
+                        try { CompileBodyStrictInline(fa.BodyNode, st, ref topSlot, scratchSlot); }
+                        finally { st.Loops.Pop(); }
+
+                        st.Code.EmitBackwardJump(Opcode.Jmp, 0, loopTop);
+                        st.Code.PatchJumpToHere(exitJmp);
+                        foreach (var p in loop.BreakFixups) st.Code.PatchJumpToHere(p);
+                        PatchJumpsBackward(st, loop.ContinueFixups, loopTop);
+                        EmitPopScope(st); // body scope
+                        EmitPopScope(st); // iter scope
+                        if (topSlot > st.MaxTempUsed) st.MaxTempUsed = topSlot;
+                        return true;
+                    }
+                    catch (IrCompileException)
+                    {
+                        st.Code.Truncate(faSavedPc);
+                        topSlot = faSavedTop;
+                        st.ScopeDepth = faSavedScope;
+                        if (st.DefineRefs.Count > faSavedRefs)
+                            st.DefineRefs.RemoveRange(faSavedRefs, st.DefineRefs.Count - faSavedRefs);
+                    }
+                    if (st.DefineRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("DefineRefs overflow (>65535)");
+                    ushort faRefIdx = (ushort)st.DefineRefs.Count;
+                    st.DefineRefs.Add(stmt);
+                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, faRefIdx);
+                    return true;
+                }
+
                 // Native registrations + long-tail expressions / statements.
                 // The VM dispatches to the visitor's static Apply method
                 // directly, bypassing interpreter._visitors[].
                 case AstNodeType.TryUnwrap:
                 case AstNodeType.Await:
                 case AstNodeType.Spawn:
-                case AstNodeType.ForAwait:
                 case AstNodeType.Goto:
                 case AstNodeType.Label:
                 case AstNodeType.AsmBlock:

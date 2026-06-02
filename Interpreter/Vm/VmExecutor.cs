@@ -2419,19 +2419,34 @@ namespace RaLanguage.Interpreter.Vm
                         byte streamSlot = Encoding.B(instr);
                         byte continueSlot = Encoding.C(instr);
                         var sv = locals[streamSlot];
-                        if (sv is not RaLanguage.Interpreter.Values.Streams.StreamValue stream)
-                            throw new RaUserError(MakeIcError(ctx, "ForEachStreamPull: source slot is not a Stream"));
-                        var t = stream.PullNext(ctx);
-                        var r = t.IsCompletedSuccessfully ? t.Result : t.AsTask().GetAwaiter().GetResult();
-                        if (r.Error != null) throw new RaUserError(r.Error);
-                        if (r.Done)
+                        if (sv is RaLanguage.Interpreter.Values.Streams.StreamValue stream)
                         {
-                            locals[continueSlot] = BooleanValue.False;
+                            var t = stream.PullNext(ctx);
+                            var r = t.IsCompletedSuccessfully ? t.Result : t.AsTask().GetAwaiter().GetResult();
+                            if (r.Error != null) throw new RaUserError(r.Error);
+                            if (r.Done)
+                            {
+                                locals[continueSlot] = BooleanValue.False;
+                            }
+                            else
+                            {
+                                locals[itemSlot] = r.Value!;
+                                locals[continueSlot] = BooleanValue.True;
+                            }
+                        }
+                        else if (sv is RaLanguage.Interpreter.Values.Async.AsyncStreamValue astream)
+                        {
+                            // L8 — `for await x in stream`. The async-stream pull
+                            // (AsyncStreamCore.PullNext) blocks on the channel until
+                            // the producer FIBER (a thread-pool thread) sends or the
+                            // stream closes — cross-thread, so the blocking pull is
+                            // safe (no cooperative-yield needed) and adds no await
+                            // point. Byte-identical to ForAwaitNodeVisitor's loop.
+                            OpForAwaitPull(locals, itemSlot, continueSlot, astream, ctx);
                         }
                         else
                         {
-                            locals[itemSlot] = r.Value!;
-                            locals[continueSlot] = BooleanValue.True;
+                            throw new RaUserError(MakeIcError(ctx, "ForEachStreamPull: source slot is not a Stream"));
                         }
                         break;
                     }
@@ -5192,6 +5207,33 @@ namespace RaLanguage.Interpreter.Vm
             for (int i = 0; i < argCount; i++) posArgs.Add(locals[fnSlot + 1 + i] ?? NullValue.Null);
             var namedArgs = new System.Collections.Generic.Dictionary<string, RuntimeValue>(System.StringComparer.Ordinal);
             return Visitors.Async.SpawnNodeVisitor.SpawnCore(fn, posArgs, namedArgs, ctx, DummyPos(ctx), DummyPos(ctx));
+        }
+
+        // L8 — one `for await` pull step. Mirrors ForAwaitNodeVisitor: honour
+        // cancellation, pull the next item (blocking on the cross-thread channel),
+        // set itemSlot + continueSlot (false when closed / done). Synchronous.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpForAwaitPull(LocalsView locals, byte itemSlot, byte continueSlot,
+            RaLanguage.Interpreter.Values.Async.AsyncStreamValue astream, Context ctx)
+        {
+            var token = ctx.AsyncCtx?.Token ?? System.Threading.CancellationToken.None;
+            if (token.IsCancellationRequested)
+            {
+                astream.Core.Cancel();
+                throw new RaUserError(MakeIcError(ctx, "for-await cancelled"));
+            }
+            var (ok, value, closed, err) = astream.Core.PullNext(token);
+            if (err != null) throw new RaUserError(err);
+            if (closed || !ok)
+            {
+                locals[continueSlot] = BooleanValue.False;
+            }
+            else
+            {
+                locals[itemSlot] = value ?? NullValue.Null;
+                locals[continueSlot] = BooleanValue.True;
+            }
         }
 
         [System.Runtime.CompilerServices.MethodImpl(
