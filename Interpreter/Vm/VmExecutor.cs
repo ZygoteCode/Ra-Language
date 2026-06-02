@@ -2657,6 +2657,17 @@ namespace RaLanguage.Interpreter.Vm
                         break;
                     }
 
+                    case Opcode.AsmInvokeI:
+                    {
+                        // L10 — interpolated inline `asm { … %{e} … }`. The parked
+                        // AsmBlockNode is in DefineRefs[c]; the %{…} args are
+                        // pre-evaluated in the band [b .. b+N-1]. OpAsmInvokeI
+                        // formats them into the source + assembles + executes.
+                        byte aiDst = Encoding.A(instr);
+                        locals[aiDst] = OpAsmInvokeI(f, locals, Encoding.B(instr), Encoding.C(instr), ctx);
+                        break;
+                    }
+
                     default:
                         throw new RaUserError(MakeIcError(ctx,
                             $"VM: opcode {op} (0x{(byte)op:X2}) not implemented yet (PC={pc - 1})"));
@@ -5241,6 +5252,37 @@ namespace RaLanguage.Interpreter.Vm
                 sb.Append(((Parser.Nodes.Asm.AsmTextPartNode)node.Parts[i]).Text);
             var res = Visitors.Asm.AsmBlockNodeVisitor.AsmBlockExecCore(
                 sb.ToString(), node.ReturnTypes, ctx, node.PositionStart, node.PositionEnd);
+            if (res.Error != null) throw new RaUserError(res.Error);
+            return res.Value ?? NullValue.Null;
+        }
+
+        // L10 — OP_ASM_INVOKE_I: interpolated inline asm. The parked AsmBlockNode
+        // lives in DefineRefs[idx]; its %{…} args are pre-evaluated in the band
+        // [argsBase .. argsBase+N-1] (N = interp parts, in part order). Format
+        // them into the source via the shared TryBuildInterpSource (byte-identical
+        // to the visitor), then assemble-on-first-use + execute. NoInlining keeps
+        // these locals off the recursive Execute MoveNext frame (M85 budget).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue OpAsmInvokeI(VmFrame f, LocalsView locals, byte argsBase, byte defineRefIdx, Context ctx)
+        {
+            var refs = f.Function.DefineRefs;
+            if (defineRefIdx >= refs.Length)
+                throw new RaUserError(MakeIcError(ctx, $"VM: AsmInvokeI refIdx {defineRefIdx} out of range"));
+            var node = (Parser.Nodes.Asm.AsmBlockNode)refs[defineRefIdx];
+
+            int interpCount = 0;
+            for (int i = 0; i < node.Parts.Count; i++)
+                if (node.Parts[i].NodeType == AstNodeType.AsmInterpPart) interpCount++;
+            var interpArgs = new System.Collections.Generic.List<RuntimeValue>(interpCount);
+            for (int k = 0; k < interpCount; k++) interpArgs.Add(locals[argsBase + k] ?? NullValue.Null);
+
+            if (!Visitors.Asm.AsmBlockNodeVisitor.TryBuildInterpSource(node, interpArgs, out string source, out string? buildErr))
+                throw new RaUserError(new RaLanguage.Errors.Types.RuntimeError(
+                    node.PositionStart, node.PositionEnd, buildErr!, ctx));
+
+            var res = Visitors.Asm.AsmBlockNodeVisitor.AsmBlockExecCore(
+                source, node.ReturnTypes, ctx, node.PositionStart, node.PositionEnd);
             if (res.Error != null) throw new RaUserError(res.Error);
             return res.Value ?? NullValue.Null;
         }

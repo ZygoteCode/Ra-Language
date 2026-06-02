@@ -592,7 +592,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.NativeDefine:
                 case Opcode.DefineType:
                 case Opcode.Await: case Opcode.Spawn:
-                case Opcode.AsmInvoke: // L9 — writes A (impure, never folded)
+                case Opcode.AsmInvoke: case Opcode.AsmInvokeI: // L9/L10 — write A (impure, never folded)
                 case Opcode.EnumTagEq: case Opcode.EnumPayload: // L7 variant patterns
                 case Opcode.EnumNameEq:
                 case Opcode.TupleShape:

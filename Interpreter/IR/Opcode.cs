@@ -688,6 +688,7 @@ namespace RaLanguage.Interpreter.IR
 
         // --- inline asm ---
         AsmInvoke       = 0xE0,   // L9: a (dst), imm16 (DefineRefs idx of the parked pure-text AsmBlockNode)
+        AsmInvokeI      = 0xF2,   // L10: a (dst), b (argsBase), c (DefineRefs idx) — interpolated asm; reads argsBase+0..N-1 (N = interp parts), With-shaped
 
         // ---- streams (Streams runtime — see RA_STREAMS_DESIGN.md §10) ----
         // Forward-jump opcode that branches if `locals[a]` is a sync stream

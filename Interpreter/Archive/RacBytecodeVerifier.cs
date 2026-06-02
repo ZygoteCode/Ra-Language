@@ -466,6 +466,14 @@ namespace RaLanguage.Interpreter.Archive
                         CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
                         CheckIndex(imm16, defineLen, pc, opName, "DefineRefs", diags, path);
                         break;
+                    case Opcode.AsmInvokeI:
+                        // L10 — [dst:a][argsBase:b][defineRefIdx:c]. Interpolated
+                        // asm; %{…} args @ argsBase+0..N-1 (the handler bounds-
+                        // checks the band at runtime, like With). With-shaped.
+                        CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
+                        CheckSlot(effB, local, pc, opName, "b (argsBase)", diags, path);
+                        CheckIndex(cLo, defineLen, pc, opName, "DefineRefs", diags, path);
+                        break;
                     case Opcode.DefineType:
                         CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
                         CheckIndex(imm16, typeDefsLen, pc, opName, "TypeDefs", diags, path);

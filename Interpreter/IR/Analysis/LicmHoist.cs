@@ -572,7 +572,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                         // out of the loop spins forever. Refuse for ANY binding.
                         case Opcode.NativeDefine:
                         case Opcode.DefineType:
-                        case Opcode.AsmInvoke: // L9 — native exec, arbitrary side effects
+                        case Opcode.AsmInvoke: case Opcode.AsmInvokeI: // L9/L10 — native exec, arbitrary side effects
                             return true;
                         // Indirect mutation via call → bridge through
                         // MutatedNames. If the function never assigns
@@ -751,7 +751,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.NativeDefine:
                 case Opcode.DefineType:
                 case Opcode.Await: case Opcode.Spawn:
-                case Opcode.AsmInvoke:
+                case Opcode.AsmInvoke: case Opcode.AsmInvokeI:
                 case Opcode.EnumTagEq: case Opcode.EnumPayload: // L7 variant patterns
                 case Opcode.EnumNameEq:
                 case Opcode.TupleShape:

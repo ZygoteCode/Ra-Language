@@ -418,7 +418,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                     || o == Opcode.CallMethod || o == Opcode.TailCall
                     || o == Opcode.Spawn || o == Opcode.NewInstance
                     || o == Opcode.NativeDefine || o == Opcode.Await
-                    || o == Opcode.AsmInvoke
+                    || o == Opcode.AsmInvoke || o == Opcode.AsmInvokeI
                     || o == Opcode.Throw)
                 {
                     if (pc < firstEvent) firstEvent = pc;
@@ -505,7 +505,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.NativeDefine:
                 case Opcode.DefineType:
                 case Opcode.Await: case Opcode.Spawn:
-                case Opcode.AsmInvoke:
+                case Opcode.AsmInvoke: case Opcode.AsmInvokeI:
                 case Opcode.EnumTagEq: case Opcode.EnumPayload:
                 case Opcode.EnumNameEq:
                 case Opcode.TupleShape:
@@ -909,6 +909,25 @@ namespace RaLanguage.Interpreter.IR.Analysis
                         && fn.DefineRefs[wc] is Parser.Nodes.Operations.WithExpressionNode wnode)
                         wn = wnode.Updates.Count;
                     for (int i = 0; i < wn; i++) yield return (wb + 1 + i, true);
+                    break;
+                }
+                case Opcode.AsmInvokeI:
+                {
+                    // L10 — [op][dst:a][argsBase:b][defineRefIdx:c]. Reads the N
+                    // interpolation args at argsBase+0..argsBase+N-1 (no receiver,
+                    // unlike With). N = count of AsmInterpPartNode in the parked
+                    // AsmBlockNode at DefineRefs[c]; the c operand is a ref index,
+                    // NOT a slot — never read it.
+                    int ab = Encoding.B(instr);
+                    int ac = Encoding.C(instr);
+                    int an = 0;
+                    if (fn?.DefineRefs != null && ac < fn.DefineRefs.Length
+                        && fn.DefineRefs[ac] is Parser.Nodes.Asm.AsmBlockNode anode)
+                    {
+                        for (int i = 0; i < anode.Parts.Count; i++)
+                            if (anode.Parts[i].NodeType == RaLanguage.Parser.Nodes.AstNodeType.AsmInterpPart) an++;
+                    }
+                    for (int i = 0; i < an; i++) yield return (ab + i, true);
                     break;
                 }
                 // M65 safety net: any opcode not explicitly enumerated

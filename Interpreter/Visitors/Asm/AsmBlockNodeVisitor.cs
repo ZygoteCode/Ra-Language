@@ -42,44 +42,64 @@ namespace RaLanguage.Interpreter.Visitors.Asm
                     "asm blocks require an x64 process. x86 / non-x64 architectures are not supported.", context));
             }
 
-            var sb = new StringBuilder();
-
+            // Evaluate each %{expr} interpolation in part order (left-to-right).
+            var interpArgs = new List<RuntimeValue>();
             for (int i = 0; i < node.Parts.Count; i++)
             {
-                var part = node.Parts[i];
-                if (part is AsmTextPartNode text)
-                {
-                    sb.Append(text.Text);
-                    continue;
-                }
-
-                string? typeHint = null;
-                AstNode evalPart = part;
-                if (part is AsmInterpPartNode ip)
-                {
-                    typeHint = ip.TypeHint;
-                    evalPart = ip.Expr;
-                }
-
-                var val = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(evalPart, context, interpreter));
+                if (node.Parts[i] is not AsmInterpPartNode ip) continue;
+                var val = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(ip.Expr, context, interpreter));
                 if (res.ShouldReturn()) return res;
                 if (val == null)
                 {
-                    return res.Failure(new RuntimeError(part.PositionStart, part.PositionEnd,
+                    return res.Failure(new RuntimeError(ip.PositionStart, ip.PositionEnd,
                         "asm %{...} interpolation produced a null value", context));
                 }
+                interpArgs.Add(val);
+            }
 
-                if (!TryFormatInterpolated(val, typeHint, out string formatted, out string? interpErr))
+            if (!TryBuildInterpSource(node, interpArgs, out string source, out string? buildErr))
+                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, buildErr!, context));
+
+            return AsmBlockExecCore(source, node.ReturnTypes, context, node.PositionStart, node.PositionEnd);
+        }
+
+        /// <summary>
+        /// Build the final asm source from a node's parts + the PRE-EVALUATED
+        /// interpolation values (one per AsmInterpPartNode, in part order). Text
+        /// parts append verbatim; interp parts format via TryFormatInterpolated
+        /// with the part's type hint. Shared by the visitor (interpolation path)
+        /// AND the L10 OP_ASM_INVOKE_I handler so both produce byte-identical
+        /// source. Returns false + a message on a bad interpolation value.
+        /// </summary>
+        public static bool TryBuildInterpSource(AsmBlockNode node, System.Collections.Generic.IReadOnlyList<RuntimeValue> interpArgs,
+            out string source, out string? error)
+        {
+            var sb = new StringBuilder();
+            int k = 0;
+            for (int i = 0; i < node.Parts.Count; i++)
+            {
+                var part = node.Parts[i];
+                if (part is AsmTextPartNode text) { sb.Append(text.Text); continue; }
+                var ip = (AsmInterpPartNode)part;
+                var val = k < interpArgs.Count ? interpArgs[k] : null;
+                k++;
+                if (val == null)
                 {
-                    return res.Failure(new RuntimeError(part.PositionStart, part.PositionEnd,
-                        $"asm %{{...}}: {interpErr}", context));
+                    source = "";
+                    error = "asm %{...} interpolation produced a null value";
+                    return false;
+                }
+                if (!TryFormatInterpolated(val, ip.TypeHint, out string formatted, out string? interpErr))
+                {
+                    source = "";
+                    error = $"asm %{{...}}: {interpErr}";
+                    return false;
                 }
                 sb.Append(formatted);
             }
-
-            string source = sb.ToString();
-
-            return AsmBlockExecCore(source, node.ReturnTypes, context, node.PositionStart, node.PositionEnd);
+            source = sb.ToString();
+            error = null;
+            return true;
         }
 
         /// <summary>

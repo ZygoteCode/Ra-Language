@@ -3447,23 +3447,8 @@ namespace RaLanguage.Interpreter.IR
                     return true;
                 }
                 case AstNodeType.AsmBlock:
-                {
-                    // L9: a pure-text asm block (no %{...} interpolation) has a
-                    // compile-time-constant source → OP_ASM_INVOKE (assemble-on-
-                    // first-use, cached, executed via AsmBlockExecCore). An
-                    // interpolated block's source is runtime-dependent → keep it
-                    // on the visitor fallback (which builds the source per run).
-                    var asmStmt = (Parser.Nodes.Asm.AsmBlockNode)stmt;
-                    bool asmPureText = true;
-                    foreach (var p in asmStmt.Parts)
-                        if (p.NodeType != AstNodeType.AsmTextPart) { asmPureText = false; break; }
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort asmRefIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(stmt);
-                    st.Code.Emit2(asmPureText ? Opcode.AsmInvoke : Opcode.NativeDefine, scratchSlot, asmRefIdx);
+                    CompileAsmBlock((Parser.Nodes.Asm.AsmBlockNode)stmt, scratchSlot, st, ref topSlot);
                     return true;
-                }
                 case AstNodeType.Yield:
                 {
                     // L8: a `yield X` inside a match/switch arm sets that arm's
@@ -5049,6 +5034,82 @@ namespace RaLanguage.Interpreter.IR
             {
                 CompileExpression(body, destSlot, st, ref topSlot);
             }
+        }
+
+        // L9/L10: lower an inline `asm { … }` block into `dst`. A pure-text block
+        // (no %{…} interpolation) → OP_ASM_INVOKE (constant source). An
+        // interpolated block → OP_ASM_INVOKE_I (eval the args into a contiguous
+        // band, format + assemble at runtime) or, if that can't lower, the
+        // OP_NATIVE_DEFINE visitor fallback. Always emits exactly one op into dst.
+        private static void CompileAsmBlock(Parser.Nodes.Asm.AsmBlockNode node, byte dst, State st, ref byte topSlot)
+        {
+            bool pureText = true;
+            foreach (var p in node.Parts)
+                if (p.NodeType != AstNodeType.AsmTextPart) { pureText = false; break; }
+
+            if (pureText)
+            {
+                if (st.DefineRefs.Count > ushort.MaxValue)
+                    throw new IrCompileException("DefineRefs overflow (>65535)");
+                ushort idx = (ushort)st.DefineRefs.Count;
+                st.DefineRefs.Add(node);
+                st.Code.Emit2(Opcode.AsmInvoke, dst, idx);
+                return;
+            }
+
+            // Interpolated: try OP_ASM_INVOKE_I; roll back + NativeDefine on any
+            // limit hit (DefineRefs idx > u8, temp-band overflow) or an
+            // un-lowerable %{…} expression.
+            int savedPc = st.Code.Pc;
+            byte savedTop = topSlot;
+            int savedRefs = st.DefineRefs.Count;
+            try
+            {
+                if (TryEmitInterpAsm(node, dst, st, ref topSlot)) return;
+            }
+            catch (IrCompileException) { }
+            st.Code.Truncate(savedPc);
+            topSlot = savedTop;
+            if (st.DefineRefs.Count > savedRefs)
+                st.DefineRefs.RemoveRange(savedRefs, st.DefineRefs.Count - savedRefs);
+            if (st.DefineRefs.Count > ushort.MaxValue)
+                throw new IrCompileException("DefineRefs overflow (>65535)");
+            ushort ndIdx = (ushort)st.DefineRefs.Count;
+            st.DefineRefs.Add(node);
+            st.Code.Emit2(Opcode.NativeDefine, dst, ndIdx);
+        }
+
+        // Emit OP_ASM_INVOKE_I for an interpolated asm block, or return false to
+        // signal a clean fallback (the DefineRefs index must fit the 8-bit `c`
+        // operand — With-shaped). Evaluates each %{expr} into a contiguous slot
+        // band [argsBase .. argsBase+N-1] in part order; the parked node carries
+        // the text + type-hints, so the handler rebuilds the source. AllocTemp /
+        // CompileExpression throw IrCompileException on overflow / non-lowerable
+        // exprs → caught by CompileAsmBlock and rolled back to NativeDefine.
+        private static bool TryEmitInterpAsm(Parser.Nodes.Asm.AsmBlockNode node, byte dst, State st, ref byte topSlot)
+        {
+            if (st.DefineRefs.Count > byte.MaxValue) return false; // c operand is u8
+
+            int interpCount = 0;
+            foreach (var p in node.Parts)
+                if (p.NodeType == AstNodeType.AsmInterpPart) interpCount++;
+
+            byte argsBase = topSlot;
+            for (int k = 0; k < interpCount; k++) AllocTemp(ref topSlot); // throws on >255
+            int slot = argsBase;
+            foreach (var p in node.Parts)
+            {
+                if (p.NodeType != AstNodeType.AsmInterpPart) continue;
+                var ip = (Parser.Nodes.Asm.AsmInterpPartNode)p;
+                CompileExpression(ip.Expr, (byte)slot, st, ref topSlot);
+                slot++;
+            }
+
+            ushort refIdx = (ushort)st.DefineRefs.Count; // <= 255 (checked above)
+            st.DefineRefs.Add(node);
+            st.Code.Emit3(Opcode.AsmInvokeI, dst, argsBase, (byte)refIdx);
+            if (topSlot > st.MaxTempUsed) st.MaxTempUsed = topSlot;
+            return true;
         }
 
         // L7: conservative — does this arrow-block arm body contain a control
@@ -7767,23 +7828,12 @@ namespace RaLanguage.Interpreter.IR
                     return;
                 }
 
-                // L9: expression-position asm block (`let r = asm { … }`). A
-                // pure-text block → OP_ASM_INVOKE (assemble-on-first-use, cached,
-                // via AsmBlockExecCore); an interpolated block (runtime-dependent
-                // source) → the visitor fallback below.
+                // L9/L10: expression-position asm block (`let r = asm { … }`).
+                // Pure-text → OP_ASM_INVOKE; interpolated → OP_ASM_INVOKE_I (eval
+                // the %{…} args into a band, format at runtime) or NativeDefine.
                 case AstNodeType.AsmBlock:
-                {
-                    var asmExpr = (Parser.Nodes.Asm.AsmBlockNode)expr;
-                    bool asmPureText = true;
-                    foreach (var p in asmExpr.Parts)
-                        if (p.NodeType != AstNodeType.AsmTextPart) { asmPureText = false; break; }
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort asmRefIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(expr);
-                    st.Code.Emit2(asmPureText ? Opcode.AsmInvoke : Opcode.NativeDefine, destSlot, asmRefIdx);
+                    CompileAsmBlock((Parser.Nodes.Asm.AsmBlockNode)expr, destSlot, st, ref topSlot);
                     return;
-                }
 
                 // Long-tail expressions routed via OP_NATIVE_DEFINE — the
                 // VM calls the visitor's static Apply directly, never
