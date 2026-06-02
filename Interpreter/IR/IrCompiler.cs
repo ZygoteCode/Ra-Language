@@ -3966,6 +3966,21 @@ namespace RaLanguage.Interpreter.IR
                             GuardBoolPatternTest(alt);
                         break;
                     }
+                    case Parser.Nodes.Patterns.TypePatternNode tpn:
+                    {
+                        // `case is T [as v]`: a runtime type test + optional binder.
+                        // Always lowerable (the type test is the IsType opcode); a
+                        // binder must be a confirmed Local use, else fall back.
+                        if (tpn.BinderName != null)
+                        {
+                            int ts = FindMatchBindingSlot(tpn.BinderName, arm.Guard, arm.Body, st);
+                            if (ts < 0)
+                                throw new IrCompileException("match: unconfirmable is-type binder -> fallback");
+                            if (ts > maxBindingSlot) maxBindingSlot = ts;
+                        }
+                        // A type pattern TESTS the type — never a catch-all.
+                        break;
+                    }
                     default:
                         throw new IrCompileException("match: non-literal/wildcard pattern -> fallback");
                 }
@@ -4015,6 +4030,7 @@ namespace RaLanguage.Interpreter.IR
                 bool isTuple = arm.Pattern is Parser.Nodes.Patterns.TuplePatternNode;
                 bool isStruct = arm.Pattern is Parser.Nodes.Patterns.StructPatternNode;
                 bool isList = arm.Pattern is Parser.Nodes.Patterns.ListPatternNode;
+                bool isTypePat = arm.Pattern is Parser.Nodes.Patterns.TypePatternNode;
 
                 // Any arm that introduces pattern bindings runs in a FRESH scope so
                 // the declared name(s) are isolated to this arm (mirrors the
@@ -4022,7 +4038,9 @@ namespace RaLanguage.Interpreter.IR
                 // (re-declaration would error), and a failed-guard / failed-tag arm
                 // must not leak a binding. PushScope here; PopScope on BOTH the
                 // match exit and the no-match skip.
-                bool hasScope = isBinding || isVariant || isTuple || isStruct || isList;
+                // A type pattern only needs a scope when it has an `as v` binder.
+                bool isTypeBinder = isTypePat && ((Parser.Nodes.Patterns.TypePatternNode)arm.Pattern).BinderName != null;
+                bool hasScope = isBinding || isVariant || isTuple || isStruct || isList || isTypeBinder;
                 if (hasScope) EmitPushScope(st);
 
                 var skips = new List<int>(); // jumps to this arm's no-match cleanup
@@ -4180,6 +4198,28 @@ namespace RaLanguage.Interpreter.IR
                         st.Code.Emit3(Opcode.OrBB, acc, acc, c);
                     }
                     skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, acc));
+                }
+                else if (isTypePat)
+                {
+                    var tpn = (Parser.Nodes.Patterns.TypePatternNode)arm.Pattern;
+                    // Type test: park an IsTypeNode carrying the TestedType in the
+                    // (already-serialized) AstRefs pool and emit IsType (WideC index,
+                    // like Cast). The IsTypeNode's Expression is a never-evaluated
+                    // placeholder — the opcode reads only TestedType + the scrutinee.
+                    var placeholderTok = new Lexer.Tokens.Token(
+                        Lexer.Tokens.TokenType.IDENTIFIER, "_istype", node.PositionStart, node.PositionEnd);
+                    var isn = new Parser.Nodes.Operations.IsTypeNode(
+                        new Parser.Nodes.Primitives.NullNode(placeholderTok), tpn.TestedType, false);
+                    if (st.AstRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("AstRefs overflow");
+                    int refIdx = st.AstRefs.Count;
+                    st.AstRefs.Add(isn);
+                    byte cond = AllocTemp(ref topSlot);
+                    st.Code.Emit3WideC(Opcode.IsType, cond, scrutSlot, refIdx);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, cond));
+                    // `as v`: bind the (type-narrowed) scrutinee to the binder.
+                    if (tpn.BinderName != null)
+                        EmitMatchBinding(tpn.BinderName, scrutSlot, arm.Guard, arm.Body, node, st);
                 }
                 // Wildcard arms have no pattern test. Guard runs after the pattern
                 // test + binding (it can see variable / variant-payload binds).

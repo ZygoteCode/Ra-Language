@@ -1,0 +1,85 @@
+import std.prelude.*;
+// Ra Language - L7 (Match widening): is-TYPE patterns now lower. `case is T`
+// and `case is T as v` lower to a new IsType opcode (0xAE) that calls
+// TypeSystem.IsRuntimeTypeMatch — byte-identical to the visitor's
+// TryMatchTypePattern. The TestedType rides on a synthesized IsTypeNode parked
+// in the (already-serialized) AstRefs pool, indexed WideC like Cast — so no new
+// pool and no .rac version bump. The optional `as v` binder binds the
+// type-narrowed scrutinee via the shared EmitMatchBinding path.
+//
+// NOTE: Ra's `is int` matches any numeric value (a float satisfies `is int`) —
+// this lowering faithfully reproduces that (parity MATCH), it is not a bug here.
+
+print("=== pattern_match/match_istype_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// IT1-IT4: primitive type dispatch with binders, over `any`.
+fn kind(v: any): string {
+    ret match v {
+        case is string as s -> "str:" + s
+        case is bool -> "bool"
+        case is int as n -> "int:" + (n as string)
+        case _ -> "other"
+    };
+}
+ck("[IT1]", kind("hi") == "str:hi");
+ck("[IT2]", kind(true) == "bool");
+ck("[IT3]", kind(42) == "int:42");
+
+// IT4: a binder used in arithmetic (type-narrowed).
+fn doubled(v: any): int {
+    ret match v {
+        case is int as n -> n * 2
+        case _ -> -1
+    };
+}
+ck("[IT4]", doubled(21) == 42);
+ck("[IT5]", doubled("x") == -1);
+
+// IT6: GUARD reads the is-type binder.
+fn sign(v: any): string {
+    ret match v {
+        case is int as n if n > 0 -> "pos"
+        case is int as n -> "nonpos"
+        case _ -> "nan"
+    };
+}
+ck("[IT6]", sign(5) == "pos");
+ck("[IT7]", sign(-2) == "nonpos");
+ck("[IT8]", sign("q") == "nan");
+
+// IT9: named CLASS type dispatch.
+class Dog { pub var name: string; pub Dog(n: string) { self.name = n; } }
+class Cat { pub var name: string; pub Cat(n: string) { self.name = n; } }
+fn speak(a: any): string {
+    ret match a {
+        case is Dog -> "woof"
+        case is Cat -> "meow"
+        case _ -> "?"
+    };
+}
+ck("[IT9]", speak(Dog("rex")) == "woof");
+ck("[IT10]", speak(Cat("tom")) == "meow");
+ck("[IT11]", speak(7) == "?");
+
+// IT12: STATEMENT-position is-type match with a binder.
+fn store(v: any): int {
+    var s = 0;
+    match v {
+        case is int as n -> s = n
+        case _ -> s = -1
+    }
+    ret s;
+}
+ck("[IT12]", store(99) == 99);
+ck("[IT13]", store("z") == -1);
+
+if failures == 0 {
+    print("=== done (all is-type cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

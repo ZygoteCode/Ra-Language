@@ -597,6 +597,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.TupleShape:
                 case Opcode.StructShape: case Opcode.StructFieldGet:
                 case Opcode.ListShape: case Opcode.ListElemBack: case Opcode.ListRestSlice:
+                case Opcode.IsType:
                 // M66 II opcodes also write A (or the long shadow).
                 case Opcode.LoadIntS64:
                 case Opcode.UnboxI:

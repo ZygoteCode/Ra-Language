@@ -433,6 +433,11 @@ namespace RaLanguage.Interpreter.Archive
                         CheckSlot(effB, local, pc, opName, "b (src)", diags, path);
                         CheckIndex(cLo, castRefsLen, pc, opName, "CastRefs", diags, path);
                         break;
+                    case Opcode.IsType: // L7 is-type: AstRefs[c] (WideC), like Cast
+                        CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
+                        CheckSlot(effB, local, pc, opName, "b (src)", diags, path);
+                        CheckIndex(cLo, astRefsLen, pc, opName, "AstRefs", diags, path);
+                        break;
                     case Opcode.GetSuper:
                         CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
                         CheckIndex(imm16, superLen, pc, opName, "SuperRefs", diags, path);

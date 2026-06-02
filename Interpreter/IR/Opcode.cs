@@ -545,6 +545,13 @@ namespace RaLanguage.Interpreter.IR
         Rol             = 0xA5,
         Ror             = 0xA6,
 
+        // L7 (Match is-type pattern). `case is T [as v]`. dst = the scrutinee's
+        // runtime type matches the TestedType of the IsTypeNode parked in
+        // AstRefs[c] (WideC index, like Cast), via TypeSystem.IsRuntimeTypeMatch.
+        // Reuses the existing IsTypeNode serialization (no new pool / version).
+        // Writes A, reads B; the optional `as v` binder binds the scrutinee.
+        IsType          = 0xAE,
+
         // --- async ---
         Await           = 0xB0,   // a (dst), b (src)
         Spawn           = 0xB1,   // a (dst), b (fn), c (argBase)  + ext: argCount

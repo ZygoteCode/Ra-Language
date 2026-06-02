@@ -2571,6 +2571,9 @@ namespace RaLanguage.Interpreter.Vm
                     case Opcode.ListRestSlice:
                         OpListRestSlice(locals, instr);
                         break;
+                    case Opcode.IsType:
+                        OpIsType(locals, instr, wideHiC, f.Function.AstRefs, ctx);
+                        break;
 
                     default:
                         throw new RaUserError(MakeIcError(ctx,
@@ -4973,6 +4976,26 @@ namespace RaLanguage.Interpreter.Vm
                 locals[a] = new ListValue(lv.Elements.GetRange(prefix, restLen));
             }
             else locals[a] = new ListValue(new System.Collections.Generic.List<RuntimeValue>());
+        }
+
+        // L7 — `case is T`. dst = the scrutinee's runtime type matches the
+        // TestedType of the IsTypeNode parked in AstRefs[refIdx] (WideC-resolved,
+        // like Cast), via TypeSystem.IsRuntimeTypeMatch — byte-identical to the
+        // visitor's TryMatchTypePattern test. A null scrutinee never matches.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpIsType(LocalsView locals, uint instr, int wideHiC,
+                                     RaLanguage.Parser.Nodes.AstNode[] astRefs, Context ctx)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            int refIdx = wideHiC >= 0 ? ((wideHiC << 8) | Encoding.C(instr)) : Encoding.C(instr);
+            if (refIdx >= astRefs.Length
+                || astRefs[refIdx] is not RaLanguage.Parser.Nodes.Operations.IsTypeNode isn)
+                throw new RaUserError(MakeIcError(ctx, "VM: IsType ref out of range or not an IsTypeNode"));
+            var sv = locals[b];
+            bool matched = sv != null && RaLanguage.Types.TypeSystem.IsRuntimeTypeMatch(ctx, isn.TestedType, sv);
+            locals[a] = BooleanValue.Of(matched);
         }
 
         [System.Runtime.CompilerServices.MethodImpl(
