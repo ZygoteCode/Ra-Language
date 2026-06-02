@@ -496,6 +496,15 @@ namespace RaLanguage.Interpreter.IR
         EnumNameEq      = 0x98,
         MatchFail       = 0x99,
         TupleShape      = 0x9A,
+        //   StructShape  [op][dst][scrut][nameIdx:c]  dst = scrut is a struct OR
+        //                  class OR record instance whose declared type name ==
+        //                  Names[c] (nominal; a name mismatch is a no-match).
+        //   StructFieldGet [op][dst][scrut][fieldIdx:c]  dst = scrut.GetField(
+        //                  Names[c]); throws the visitor's exact "struct/class 'X'
+        //                  has no field 'f'" error if the field is absent. Reached
+        //                  only after a passing StructShape.
+        StructShape     = 0x9B,
+        StructFieldGet  = 0x9C,
 
         // --- exceptions ---
         Throw           = 0xA0,   // a (err src)

@@ -2556,6 +2556,12 @@ namespace RaLanguage.Interpreter.Vm
                     case Opcode.TupleShape:
                         OpTupleShape(locals, instr);
                         break;
+                    case Opcode.StructShape:
+                        OpStructShape(locals, instr, names);
+                        break;
+                    case Opcode.StructFieldGet:
+                        OpStructFieldGet(locals, instr, names, ctx);
+                        break;
 
                     default:
                         throw new RaUserError(MakeIcError(ctx,
@@ -4851,6 +4857,56 @@ namespace RaLanguage.Interpreter.Vm
             byte b = Encoding.B(instr);
             int len = Encoding.C(instr);
             locals[a] = BooleanValue.Of(locals[b] is TupleValue tv && tv.Elements.Count == len);
+        }
+
+        // L7 — struct/class/record nominal shape: dst = scrut is an instance whose
+        // declared type name == Names[c]. StructInstanceValue covers records (its
+        // subclass); ClassInstanceValue is checked separately (mirrors the visitor).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpStructShape(LocalsView locals, uint instr, string[] names)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            string name = names[Encoding.C(instr)];
+            var sv = locals[b];
+            bool matched =
+                (sv is RaLanguage.Interpreter.Values.Structs.StructInstanceValue siv
+                    && string.Equals(siv.Definition.StructName, name, System.StringComparison.Ordinal))
+                || (sv is RaLanguage.Interpreter.Values.Primitives.ClassInstanceValue civ
+                    && string.Equals(civ.Definition.ClassName, name, System.StringComparison.Ordinal));
+            locals[a] = BooleanValue.Of(matched);
+        }
+
+        // L7 — struct/class field-by-name extract. Reached only after a passing
+        // StructShape (so the scrutinee IS the matched struct/class). Throws the
+        // visitor's EXACT "struct/class 'X' has no field 'f'" error when absent.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpStructFieldGet(LocalsView locals, uint instr, string[] names, Context ctx)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            string field = names[Encoding.C(instr)];
+            var sv = locals[b];
+            if (sv is RaLanguage.Interpreter.Values.Structs.StructInstanceValue siv)
+            {
+                if (!siv.HasField(field))
+                    throw new RaUserError(MakeIcError(ctx,
+                        $"struct '{siv.Definition.StructName}' has no field '{field}'"));
+                locals[a] = siv.GetField(field);
+            }
+            else if (sv is RaLanguage.Interpreter.Values.Primitives.ClassInstanceValue civ)
+            {
+                if (!civ.HasField(field))
+                    throw new RaUserError(MakeIcError(ctx,
+                        $"class '{civ.Definition.ClassName}' has no field '{field}'"));
+                locals[a] = civ.GetField(field);
+            }
+            else
+            {
+                throw new RaUserError(MakeIcError(ctx, "VM: StructFieldGet on non-struct/class value"));
+            }
         }
 
         [System.Runtime.CompilerServices.MethodImpl(

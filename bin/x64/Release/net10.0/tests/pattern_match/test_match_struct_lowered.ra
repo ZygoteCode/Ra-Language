@@ -1,0 +1,95 @@
+import std.prelude.*;
+// Ra Language - L7 (Match widening): STRUCT patterns now lower. `case Point {
+// x, y }` lowers to StructShape (nominal type-name match — works for struct,
+// class, and record instances, mirroring the visitor) + per-field StructFieldGet
+// (by name; throws the visitor's exact "no field 'f'" error if absent). A
+// shorthand field `{ x }` binds the field name; `{ x: a }` / `{ x: 0 }` use the
+// shared leaf helpers (variable bind / literal test). Nominal mismatch is a
+// no-match (not an error). Subset patterns (`{ x }` on a 2-field struct) match.
+
+print("=== pattern_match/match_struct_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+struct Vec2 { pub var x: int; pub var y: int; pub Vec2(a: int, b: int) { self.x = a; self.y = b; } }
+struct Vec3 { pub var x: int; pub var y: int; pub var z: int; pub Vec3(a: int, b: int, c: int) { self.x = a; self.y = b; self.z = c; } }
+
+// ST1/ST2: shorthand field bind, both used.
+fn sum2(v: Vec2): int {
+    ret match v {
+        case Vec2 { x, y } -> x + y
+        case _ -> -1
+    };
+}
+ck("[ST1]", sum2(Vec2(3, 7)) == 10);
+ck("[ST2]", sum2(Vec2(100, 1)) == 101);
+
+// ST3: explicit field subpatterns `{ x: a, y: b }` (rename bind).
+fn diff2(v: Vec2): int {
+    ret match v {
+        case Vec2 { x: a, y: b } -> a - b
+        case _ -> 0
+    };
+}
+ck("[ST3]", diff2(Vec2(9, 4)) == 5);
+
+// ST4/ST5: LITERAL field subpattern `{ x: 0, y }` matches only when x == 0.
+fn classify(v: Vec2): string {
+    ret match v {
+        case Vec2 { x: 0, y } -> "zero-x:" + (y as string)
+        case Vec2 { x, y } -> "other:" + ((x + y) as string)
+        case _ -> "none"
+    };
+}
+ck("[ST4]", classify(Vec2(0, 9)) == "zero-x:9");
+ck("[ST5]", classify(Vec2(2, 3)) == "other:5");
+
+// ST6: SUBSET pattern — only some fields named; the rest ignored.
+fn just_x(v: Vec3): int {
+    ret match v {
+        case Vec3 { x } -> x
+        case _ -> -1
+    };
+}
+ck("[ST6]", just_x(Vec3(7, 8, 9)) == 7);
+
+// ST7: GUARD reads a struct field bind.
+fn cmp(v: Vec2): string {
+    ret match v {
+        case Vec2 { x, y } if x > y -> "gt"
+        case Vec2 { x, y } -> "le"
+        case _ -> "none"
+    };
+}
+ck("[ST7]", cmp(Vec2(5, 2)) == "gt");
+ck("[ST8]", cmp(Vec2(2, 5)) == "le");
+
+// ST9: struct pattern on a CLASS instance (nominal by ClassName).
+class User { pub var name: string; pub var age: int; pub User(n: string, a: int) { self.name = n; self.age = a; } }
+fn greet(u: User): string {
+    ret match u {
+        case User { name, age } -> name + ":" + (age as string)
+        case _ -> "?"
+    };
+}
+ck("[ST9]", greet(User("ada", 36)) == "ada:36");
+
+// ST10: STATEMENT-position struct match.
+fn store(v: Vec2): int {
+    var s = 0;
+    match v {
+        case Vec2 { x, y } -> s = x * y
+        case _ -> s = 0
+    }
+    ret s;
+}
+ck("[ST10]", store(Vec2(6, 7)) == 42);
+
+if failures == 0 {
+    print("=== done (all struct cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

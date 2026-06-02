@@ -1193,6 +1193,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.EnumTagEq: case Opcode.EnumPayload: // L7 variant patterns
                 case Opcode.EnumNameEq:
                 case Opcode.TupleShape:
+                case Opcode.StructShape: case Opcode.StructFieldGet:
                 // M87 — extend WritesToSlot to include the entire typed
                 // tagged-union family. Without these, GVN's
                 // `IsCanonicalSlotClean` walked through a typed write

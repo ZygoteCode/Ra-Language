@@ -3895,6 +3895,34 @@ namespace RaLanguage.Interpreter.IR
                         // A tuple pattern TESTS the shape — never a catch-all.
                         break;
                     }
+                    case Parser.Nodes.Patterns.StructPatternNode spat:
+                    {
+                        // `case Point { x, y }` / `case P { x: a, y: 0 }`: nominal
+                        // type-name match (StructShape) + per-named-field walk
+                        // (StructFieldGet). A shorthand `{ x }` (null subpattern)
+                        // binds the field NAME; an explicit subpattern is a leaf.
+                        if (st.Names.Add(spat.StructName) > byte.MaxValue)
+                            throw new IrCompileException("match: struct name index out of 8-bit range -> fallback");
+                        foreach (var (fieldName, fieldPattern) in spat.Fields)
+                        {
+                            if (st.Names.Add(fieldName) > byte.MaxValue)
+                                throw new IrCompileException("match: struct field name index out of 8-bit range -> fallback");
+                            if (fieldPattern == null)
+                            {
+                                // shorthand: bind the field name itself
+                                int fs = FindMatchBindingSlot(fieldName, arm.Guard, arm.Body, st);
+                                if (fs < 0)
+                                    throw new IrCompileException("match: unconfirmable struct field binding -> fallback");
+                                if (fs > maxBindingSlot) maxBindingSlot = fs;
+                            }
+                            else
+                            {
+                                GuardLeafSubpattern(fieldPattern, arm.Guard, arm.Body, st, ref maxBindingSlot);
+                            }
+                        }
+                        // A struct pattern TESTS the nominal type — never a catch-all.
+                        break;
+                    }
                     default:
                         throw new IrCompileException("match: non-literal/wildcard pattern -> fallback");
                 }
@@ -3942,6 +3970,7 @@ namespace RaLanguage.Interpreter.IR
                 bool isBinding = arm.Pattern is Parser.Nodes.Patterns.VariablePatternNode;
                 bool isVariant = arm.Pattern is Parser.Nodes.Patterns.VariantPatternNode;
                 bool isTuple = arm.Pattern is Parser.Nodes.Patterns.TuplePatternNode;
+                bool isStruct = arm.Pattern is Parser.Nodes.Patterns.StructPatternNode;
 
                 // Any arm that introduces pattern bindings runs in a FRESH scope so
                 // the declared name(s) are isolated to this arm (mirrors the
@@ -3949,7 +3978,7 @@ namespace RaLanguage.Interpreter.IR
                 // (re-declaration would error), and a failed-guard / failed-tag arm
                 // must not leak a binding. PushScope here; PopScope on BOTH the
                 // match exit and the no-match skip.
-                bool hasScope = isBinding || isVariant || isTuple;
+                bool hasScope = isBinding || isVariant || isTuple || isStruct;
                 if (hasScope) EmitPushScope(st);
 
                 var skips = new List<int>(); // jumps to this arm's no-match cleanup
@@ -4017,6 +4046,30 @@ namespace RaLanguage.Interpreter.IR
                         byte elemSlot = AllocTemp(ref topSlot);
                         st.Code.Emit3(Opcode.EnumPayload, elemSlot, scrutSlot, (byte)s);
                         EmitLeafSubpattern(tup.Elements[s], elemSlot, skips, arm.Guard, arm.Body, node, st, ref topSlot);
+                    }
+                }
+                else if (isStruct)
+                {
+                    var spat = (Parser.Nodes.Patterns.StructPatternNode)arm.Pattern;
+                    // Nominal shape test: scrutinee is a struct/class/record whose
+                    // declared type name matches. On mismatch, skip to the next arm.
+                    byte shapeSlot = AllocTemp(ref topSlot);
+                    int snameIdx = st.Names.Add(spat.StructName);
+                    st.Code.Emit3(Opcode.StructShape, shapeSlot, scrutSlot, (byte)snameIdx);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, shapeSlot));
+                    // Per named field: extract by name (StructFieldGet throws the
+                    // visitor's "no field 'f'" error if absent — reached only after
+                    // the shape matched), then bind (shorthand → field name) or
+                    // match the explicit leaf subpattern.
+                    foreach (var (fieldName, fieldPattern) in spat.Fields)
+                    {
+                        byte fSlot = AllocTemp(ref topSlot);
+                        int fIdx = st.Names.Add(fieldName);
+                        st.Code.Emit3(Opcode.StructFieldGet, fSlot, scrutSlot, (byte)fIdx);
+                        if (fieldPattern == null)
+                            EmitMatchBinding(fieldName, fSlot, arm.Guard, arm.Body, node, st);
+                        else
+                            EmitLeafSubpattern(fieldPattern, fSlot, skips, arm.Guard, arm.Body, node, st, ref topSlot);
                     }
                 }
                 else if (arm.Pattern is Parser.Nodes.Patterns.LiteralPatternNode lp)
