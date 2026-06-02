@@ -480,10 +480,16 @@ namespace RaLanguage.Interpreter.IR
         //                  disambiguate same-named variants across enums (records
         //                  carry no EnumName → never match an explicit pattern,
         //                  matching the visitor's EnumName!=null record exclusion).
+        //   MatchFail    [op]   throws the visitor's exact "no match arm covered
+        //                  the scrutinee value" error. Emitted as the final
+        //                  instruction of a match with NO wildcard/variable
+        //                  catch-all (exhaustive enum match): reached only when no
+        //                  arm matched. No operands; a Throw-kind CFG terminator.
         EnumTagEq       = 0x95,
         EnumPayload     = 0x96,
         MatchArity      = 0x97,
         EnumNameEq      = 0x98,
+        MatchFail       = 0x99,
 
         // --- exceptions ---
         Throw           = 0xA0,   // a (err src)

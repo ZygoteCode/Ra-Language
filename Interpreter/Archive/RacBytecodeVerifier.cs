@@ -131,8 +131,10 @@ namespace RaLanguage.Interpreter.Archive
                     case Opcode.PopScope:
                     case Opcode.ClearScope:
                     case Opcode.FinallyEnd:
+                    case Opcode.MatchFail: // L7: no operands, always throws
                         if (op != Opcode.RetNull && op != Opcode.PushScope && op != Opcode.PopScope
-                            && op != Opcode.ClearScope && op != Opcode.FinallyEnd && op != Opcode.Pass)
+                            && op != Opcode.ClearScope && op != Opcode.FinallyEnd && op != Opcode.Pass
+                            && op != Opcode.MatchFail)
                             CheckSlot(a, local, pc, opName, "a", diags, path);
                         break;
                     case Opcode.LoadIntS:

@@ -3916,8 +3916,12 @@ namespace RaLanguage.Interpreter.IR
                 }
                 if (catchAllIdx >= 0) break; // arms after the catch-all are dead
             }
-            if (catchAllIdx < 0)
-                throw new IrCompileException("match: no wildcard catch-all (exhaustiveness) -> fallback");
+            // No catch-all is fine: an exhaustive enum match (`Ok | Err`, no
+            // wildcard) lowers too — every arm is emitted and a trailing
+            // MatchFail throws the visitor's no-match error if none matched
+            // (reached only at runtime, never for a truly exhaustive match).
+            // With a catch-all, arms after it are dead, so stop there.
+            int lastArm = catchAllIdx >= 0 ? catchAllIdx : node.Arms.Count - 1;
 
             // Reserve the pattern-binding local slots: the Resolver allocates them
             // (e.g. `x` -> slot 1) but the IR's temp allocator (topSlot) only
@@ -3936,7 +3940,7 @@ namespace RaLanguage.Interpreter.IR
             CompileExpression(node.Scrutinee, scrutSlot, st, ref topSlot);
 
             var endJumps = new List<int>();
-            for (int i = 0; i <= catchAllIdx; i++)
+            for (int i = 0; i <= lastArm; i++)
             {
                 var arm = node.Arms[i];
                 bool isBinding = arm.Pattern is Parser.Nodes.Patterns.VariablePatternNode;
@@ -4031,7 +4035,13 @@ namespace RaLanguage.Interpreter.IR
                     st.ScopeDepth--; // balance the EmitPushScope (no EmitPopScope used)
                 }
             }
-            // The catch-all guarantees a match — no no-match error path needed.
+            // No-match path. With a catch-all the last arm always matches, so this
+            // is unreachable and omitted. Without one, control falls through every
+            // arm's skip to HERE only when nothing matched → throw the visitor's
+            // exact no-match error (MatchFail). The arm-success Jmps target `end`
+            // (patched below), jumping OVER this.
+            if (catchAllIdx < 0)
+                st.Code.Emit3(Opcode.MatchFail, 0, 0, 0);
 
             foreach (var j in endJumps) st.Code.PatchJumpToHere(j);
             if (topSlot > st.MaxTempUsed) st.MaxTempUsed = topSlot;

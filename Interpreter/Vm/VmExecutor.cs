@@ -2548,6 +2548,11 @@ namespace RaLanguage.Interpreter.Vm
                     case Opcode.EnumNameEq:
                         OpEnumNameEq(locals, instr, names);
                         break;
+                    case Opcode.MatchFail:
+                        // Non-exhaustive match at runtime: no arm matched and there
+                        // is no catch-all. Same error the visitor's no-match path
+                        // raises (parity captures err.Details).
+                        throw OpMatchFail(ctx);
 
                     default:
                         throw new RaUserError(MakeIcError(ctx,
@@ -4824,6 +4829,14 @@ namespace RaLanguage.Interpreter.Vm
                 && string.Equals(ev.EnumName, name, System.StringComparison.Ordinal);
             locals[a] = BooleanValue.Of(matched);
         }
+
+        // L7 — no-match terminator for a catch-all-less match. Returns the
+        // exception (the call site `throw`s it) so the cold construction stays out
+        // of the hot Execute frame.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RaUserError OpMatchFail(Context ctx)
+            => new RaUserError(MakeIcError(ctx, "no match arm covered the scrutinee value"));
 
         [System.Runtime.CompilerServices.MethodImpl(
             System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]

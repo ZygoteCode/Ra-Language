@@ -163,6 +163,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Ret: return TerminatorKind.Return;
                 case Opcode.RetNull: return TerminatorKind.ReturnNull;
                 case Opcode.Throw: return TerminatorKind.Throw;
+                case Opcode.MatchFail: return TerminatorKind.Throw; // L7: always throws (no-match)
                 case Opcode.Halt: return TerminatorKind.Halt;
                 case Opcode.TailCall: return TerminatorKind.TailCall;
                 default: return TerminatorKind.FallThrough;

@@ -1,0 +1,84 @@
+import std.prelude.*;
+// Ra Language - L7 (Match widening): EXHAUSTIVE matches with NO catch-all now
+// lower. Previously a `match` without a trailing `case _` fell back to the
+// visitor (the lowering required a catch-all for the no-match path). Now every
+// arm is emitted and a trailing MatchFail opcode throws the visitor's exact
+// "no match arm covered the scrutinee value" error if nothing matches — reached
+// only at runtime, never for a truly exhaustive match. This is the common
+// Result/Option shape: `match r { case Ok(v) -> .. case Err(e) -> .. }`.
+//
+// The no-match THROW path (a partial match hitting a value no arm covers) is
+// verified out-of-band: --parity MATCH in-function proves native MatchFail ==
+// the visitor's no-match error. This file asserts the SUCCESS (exhaustive)
+// cases, which now lower (top-level --dump-ir shows MatchFail, no NativeDefine).
+
+print("=== pattern_match/match_exhaustive_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+enum Result1 { Ok(int), Err(int) }
+
+// EXH1-EXH2: exhaustive 2-variant enum, NO wildcard, payload bound + used.
+fn unwrap(r: Result1): int {
+    ret match r {
+        case Ok(v) -> v
+        case Err(e) -> 0 - e
+    };
+}
+ck("[EXH1]", unwrap(Result1.Ok(7)) == 7);
+ck("[EXH2]", unwrap(Result1.Err(3)) == -3);
+
+// EXH3: exhaustive bool literal match (no wildcard).
+fn flip(b: bool): string {
+    ret match b {
+        case true -> "T"
+        case false -> "F"
+    };
+}
+ck("[EXH3]", flip(true) == "T");
+ck("[EXH4]", flip(false) == "F");
+
+// EXH5-EXH7: exhaustive 3-variant enum with mixed payload arities.
+enum Shape3 { Dot, Circle(int), Rect(int, int) }
+fn area(s: Shape3): int {
+    ret match s {
+        case Dot -> 0
+        case Circle(r) -> r * r * 3
+        case Rect(w, h) -> w * h
+    };
+}
+ck("[EXH5]", area(Shape3.Dot) == 0);
+ck("[EXH6]", area(Shape3.Circle(2)) == 12);
+ck("[EXH7]", area(Shape3.Rect(3, 4)) == 12);
+
+// EXH8: exhaustive match used as a value inside arithmetic (expression form).
+fn score(r: Result1): int {
+    ret 100 + match r {
+        case Ok(v) -> v
+        case Err(e) -> 0 - e
+    };
+}
+ck("[EXH8]", score(Result1.Ok(5)) == 105);
+ck("[EXH9]", score(Result1.Err(5)) == 95);
+
+// EXH10: exhaustive with a GUARD chain that still ends without a wildcard but
+// the variants cover the type (guard-first arm, then plain variant arm).
+fn describe(r: Result1): string {
+    ret match r {
+        case Ok(v) if v > 0 -> "ok-pos"
+        case Ok(v) -> "ok-nonpos"
+        case Err(e) -> "err"
+    };
+}
+ck("[EXH10]", describe(Result1.Ok(9)) == "ok-pos");
+ck("[EXH11]", describe(Result1.Ok(0)) == "ok-nonpos");
+ck("[EXH12]", describe(Result1.Err(1)) == "err");
+
+if failures == 0 {
+    print("=== done (all lowered exhaustive cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}
