@@ -535,6 +535,16 @@ namespace RaLanguage.Interpreter.IR
         // variant throws the visitor's exact error. Writes A, reads B; impure
         // (the Err early-return is a side effect — never DCE'd/hoisted).
         TryUnwrap       = 0xED,
+        // L7 — destructuring-declaration bind BY NAME. `a` = value slot, imm16 =
+        // Names index. Does ctx.SymbolTable.SetLocal(Names[idx], locals[a]) — the
+        // name-based binding the destructuring binders resolve to (the Resolver
+        // does not slot-allocate them). Reads A, writes no slot; impure.
+        DeclareLocalByName = 0xEE,
+        // L7 — destructuring no-match terminator. Throws the visitor's exact
+        // "destructuring pattern did not match the initializer value" error.
+        // No operands; a Throw-kind CFG terminator (defence-in-depth — the parser
+        // rejects refutable destructuring patterns, so this is rarely reached).
+        DestructureFail = 0xEF,
 
         // --- exceptions ---
         Throw           = 0xA0,   // a (err src)

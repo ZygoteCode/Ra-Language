@@ -3272,10 +3272,52 @@ namespace RaLanguage.Interpreter.IR
                     return true;
                 }
 
+                // L7 — irrefutable destructuring `let (a,b)=e` / `[h,..t]=e` /
+                // `X{f}=e`. Evaluate the initializer once, extract the pattern
+                // (reusing the match shape/extraction opcodes), and bind each leaf
+                // BY NAME into the enclosing scope. A shape mismatch (defence in
+                // depth — refutable patterns are parse-rejected) throws via
+                // DestructureFail. Emit-on-fallback for exotic patterns.
+                case AstNodeType.DestructuringDeclaration:
+                {
+                    var dd = (Parser.Nodes.Patterns.DestructuringDeclarationNode)stmt;
+                    int dSavedPc = st.Code.Pc;
+                    byte dSavedTop = topSlot;
+                    int dSavedRefs = st.DefineRefs.Count;
+                    try
+                    {
+                        byte initSlot = AllocTemp(ref topSlot);
+                        CompileExpression(dd.Initializer, initSlot, st, ref topSlot);
+                        var skips = new List<int>();
+                        EmitDestructure(dd.Pattern, initSlot, skips, st, ref topSlot);
+                        if (skips.Count > 0)
+                        {
+                            int done = st.Code.EmitForwardJump(Opcode.Jmp);
+                            foreach (var s in skips) st.Code.PatchJumpToHere(s);
+                            st.Code.Emit3(Opcode.DestructureFail, 0, 0, 0);
+                            st.Code.PatchJumpToHere(done);
+                        }
+                        if (topSlot > st.MaxTempUsed) st.MaxTempUsed = topSlot;
+                        return true;
+                    }
+                    catch (IrCompileException)
+                    {
+                        st.Code.Truncate(dSavedPc);
+                        topSlot = dSavedTop;
+                        if (st.DefineRefs.Count > dSavedRefs)
+                            st.DefineRefs.RemoveRange(dSavedRefs, st.DefineRefs.Count - dSavedRefs);
+                    }
+                    if (st.DefineRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("DefineRefs overflow (>65535)");
+                    ushort ddRefIdx = (ushort)st.DefineRefs.Count;
+                    st.DefineRefs.Add(stmt);
+                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, ddRefIdx);
+                    return true;
+                }
+
                 // Native registrations + long-tail expressions / statements.
                 // The VM dispatches to the visitor's static Apply method
                 // directly, bypassing interpreter._visitors[].
-                case AstNodeType.DestructuringDeclaration:
                 case AstNodeType.TryUnwrap:
                 case AstNodeType.Await:
                 case AstNodeType.Spawn:
@@ -4636,6 +4678,105 @@ namespace RaLanguage.Interpreter.IR
                 default:
                     // Guarded earlier; unreachable.
                     throw new IrCompileException("match: non-bool-testable pattern -> fallback");
+            }
+        }
+
+        // Recursively emit an IRREFUTABLE destructuring pattern against the value
+        // in valueSlot, binding each leaf BY NAME (DeclareLocalByName → the
+        // enclosing scope, the name-based binding the destructuring binders
+        // resolve to). Shape tests (Tuple/List/Struct) skip to `skips` (the
+        // DestructureFail path). Reuses the match extraction opcodes; recurses for
+        // nested patterns (`((a,b),c)`). Throws IrCompileException for a refutable
+        // / exotic pattern (the parser rejects those — defence-in-depth fallback).
+        private static void EmitDestructure(Parser.Nodes.Patterns.PatternNode p, byte valueSlot,
+                                            List<int> skips, State st, ref byte topSlot)
+        {
+            switch (p)
+            {
+                case Parser.Nodes.Patterns.WildcardPatternNode _:
+                    return;
+                case Parser.Nodes.Patterns.VariablePatternNode v:
+                {
+                    if (string.IsNullOrEmpty(v.Name) || v.Name == "_") return;
+                    ushort nameIdx = st.Names.Add(v.Name);
+                    st.Code.Emit2(Opcode.DeclareLocalByName, valueSlot, nameIdx);
+                    return;
+                }
+                case Parser.Nodes.Patterns.TuplePatternNode tp:
+                {
+                    if (tp.Elements.Count > byte.MaxValue)
+                        throw new IrCompileException("destructure: tuple arity -> fallback");
+                    byte shape = AllocTemp(ref topSlot);
+                    st.Code.Emit3(Opcode.TupleShape, shape, valueSlot, (byte)tp.Elements.Count);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, shape));
+                    for (int i = 0; i < tp.Elements.Count; i++)
+                    {
+                        byte e = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.EnumPayload, e, valueSlot, (byte)i);
+                        EmitDestructure(tp.Elements[i], e, skips, st, ref topSlot);
+                    }
+                    return;
+                }
+                case Parser.Nodes.Patterns.StructPatternNode sp:
+                {
+                    if (st.Names.Add(sp.StructName) > byte.MaxValue)
+                        throw new IrCompileException("destructure: struct name index -> fallback");
+                    byte shape = AllocTemp(ref topSlot);
+                    int snameIdx = st.Names.Add(sp.StructName);
+                    st.Code.Emit3(Opcode.StructShape, shape, valueSlot, (byte)snameIdx);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, shape));
+                    foreach (var (fieldName, fieldPat) in sp.Fields)
+                    {
+                        if (st.Names.Add(fieldName) > byte.MaxValue)
+                            throw new IrCompileException("destructure: field name index -> fallback");
+                        byte f = AllocTemp(ref topSlot);
+                        int fIdx = st.Names.Add(fieldName);
+                        st.Code.Emit3(Opcode.StructFieldGet, f, valueSlot, (byte)fIdx);
+                        if (fieldPat == null)
+                        {
+                            ushort nameIdx = st.Names.Add(fieldName);
+                            st.Code.Emit2(Opcode.DeclareLocalByName, f, nameIdx);
+                        }
+                        else EmitDestructure(fieldPat, f, skips, st, ref topSlot);
+                    }
+                    return;
+                }
+                case Parser.Nodes.Patterns.ListPatternNode lp:
+                {
+                    int prefixN = lp.Rest != null ? lp.RestIndex : lp.Elements.Count;
+                    int suffixN = lp.Rest != null ? lp.Elements.Count - lp.RestIndex : 0;
+                    if (lp.Elements.Count > 0x7F)
+                        throw new IrCompileException("destructure: list arity -> fallback");
+                    if (lp.Rest != null && (prefixN > 0x0F || suffixN > 0x0F))
+                        throw new IrCompileException("destructure: list prefix/suffix -> fallback");
+                    byte shape = AllocTemp(ref topSlot);
+                    int modeAndLen = (lp.Rest != null ? 0x80 : 0) | lp.Elements.Count;
+                    st.Code.Emit3(Opcode.ListShape, shape, valueSlot, (byte)modeAndLen);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, shape));
+                    for (int i = 0; i < prefixN; i++)
+                    {
+                        byte e = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.EnumPayload, e, valueSlot, (byte)i);
+                        EmitDestructure(lp.Elements[i], e, skips, st, ref topSlot);
+                    }
+                    for (int i = 0; i < suffixN; i++)
+                    {
+                        byte e = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.ListElemBack, e, valueSlot, (byte)(suffixN - i));
+                        EmitDestructure(lp.Elements[prefixN + i], e, skips, st, ref topSlot);
+                    }
+                    if (lp.Rest != null && lp.Rest.BindName != null && lp.Rest.BindName != "_")
+                    {
+                        byte r = AllocTemp(ref topSlot);
+                        int packed = (prefixN << 4) | suffixN;
+                        st.Code.Emit3(Opcode.ListRestSlice, r, valueSlot, (byte)packed);
+                        ushort nameIdx = st.Names.Add(lp.Rest.BindName);
+                        st.Code.Emit2(Opcode.DeclareLocalByName, r, nameIdx);
+                    }
+                    return;
+                }
+                default:
+                    throw new IrCompileException("destructure: refutable/exotic pattern -> fallback");
             }
         }
 

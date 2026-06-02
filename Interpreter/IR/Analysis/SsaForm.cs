@@ -713,6 +713,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.AssignBinding:
                 case Opcode.StoreUpval:
                 case Opcode.DeclareLocal:
+                case Opcode.DeclareLocalByName:
                 case Opcode.JmpIf:
                 case Opcode.JmpIfNot:
                 case Opcode.AndJz:

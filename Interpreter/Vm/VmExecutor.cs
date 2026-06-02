@@ -2591,6 +2591,12 @@ namespace RaLanguage.Interpreter.Vm
                         if (early != null) { f.Pc = pc; return res.SuccessReturn(early); }
                         break;
                     }
+                    case Opcode.DeclareLocalByName:
+                        OpDeclareLocalByName(locals, instr, names, ctx);
+                        break;
+                    case Opcode.DestructureFail:
+                        throw new RaUserError(MakeIcError(ctx,
+                            "destructuring pattern did not match the initializer value"));
 
                     default:
                         throw new RaUserError(MakeIcError(ctx,
@@ -5100,6 +5106,19 @@ namespace RaLanguage.Interpreter.Vm
             if (string.Equals(ev.MemberName, "Err", System.StringComparison.Ordinal))
                 return value.Aliased().SetContext(ctx);
             throw new RaUserError(MakeIcError(ctx, $"'?' encountered unexpected Result variant '{ev.MemberName}'"));
+        }
+
+        // L7 — destructuring bind by name: SetLocal(Names[idx], locals[a]).
+        // Mirrors the destructuring visitor's `context.SymbolTable.SetLocal(name,
+        // value)` (plain var-kind binding) for binders the Resolver leaves
+        // name-based. Reads A; no slot write.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpDeclareLocalByName(LocalsView locals, uint instr, string[] names, Context ctx)
+        {
+            byte a = Encoding.A(instr);
+            int idx = Encoding.Imm16(instr);
+            ctx.SymbolTable.SetLocal(names[idx], locals[a] ?? NullValue.Null);
         }
 
         [System.Runtime.CompilerServices.MethodImpl(

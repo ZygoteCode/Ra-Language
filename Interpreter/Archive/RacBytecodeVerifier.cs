@@ -132,9 +132,10 @@ namespace RaLanguage.Interpreter.Archive
                     case Opcode.ClearScope:
                     case Opcode.FinallyEnd:
                     case Opcode.MatchFail: // L7: no operands, always throws
+                    case Opcode.DestructureFail: // L7: no operands, always throws
                         if (op != Opcode.RetNull && op != Opcode.PushScope && op != Opcode.PopScope
                             && op != Opcode.ClearScope && op != Opcode.FinallyEnd && op != Opcode.Pass
-                            && op != Opcode.MatchFail)
+                            && op != Opcode.MatchFail && op != Opcode.DestructureFail)
                             CheckSlot(a, local, pc, opName, "a", diags, path);
                         break;
                     case Opcode.LoadIntS:
@@ -201,6 +202,10 @@ namespace RaLanguage.Interpreter.Archive
                                 diags.Add(new RacVerifyDiagnostic(path, pc, opName,
                                     $"DeclSlotByAstRef[{imm16}] = {declSlot} is outside [0, SlotCount={slot})"));
                         }
+                        break;
+                    case Opcode.DeclareLocalByName: // L7 destructuring bind: a (value) + imm16 (Names)
+                        CheckSlot(a, local, pc, opName, "a (src)", diags, path);
+                        CheckIndex(imm16, nameLen, pc, opName, "Names", diags, path);
                         break;
 
                     // ----- Memory model -----

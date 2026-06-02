@@ -1,0 +1,73 @@
+import std.prelude.*;
+// Ra Language - L7: irrefutable destructuring declarations now lower.
+//   let (a, b) = expr / let [h, ..t] = expr / let Person { name, age } = expr
+// Lowers to the match shape/extraction opcodes (TupleShape / ListShape /
+// StructShape + EnumPayload / ListElemBack / ListRestSlice / StructFieldGet),
+// binding each leaf BY NAME via a new DeclareLocalByName opcode (0xEE,
+// SetLocal — the destructuring binders are name-based, not slot-allocated).
+// Recurses for nested patterns (`((a,b),c)`). A shape mismatch (defence in
+// depth — refutable patterns are parse-rejected) throws via DestructureFail.
+// Verified: --dump-ir shows the opcodes with NO NativeDefine; --parity MATCH.
+
+print("=== pattern_match/destructuring_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+struct Pt { pub var x: int; pub var y: int; pub Pt(a: int, b: int) { self.x = a; self.y = b; } }
+
+// DS1: tuple destructuring (3-elem).
+let (a1, b1, c1) = (10, 20, 30);
+ck("[DS1]", a1 + b1 + c1 == 60);
+
+// DS2: list head/..rest.
+let [h, ..t] = [1, 2, 3, 4, 5];
+ck("[DS2]", h == 1 and len(t) == 4);
+
+// DS3: list exact.
+let [p, q] = [7, 8];
+ck("[DS3]", p == 7 and q == 8);
+
+// DS4: struct field shorthand.
+let Pt { x, y } = Pt(3, 4);
+ck("[DS4]", x + y == 7);
+
+// DS5: struct field rename (`{ x: a }`).
+let Pt { x: ax, y: ay } = Pt(9, 1);
+ck("[DS5]", ax == 9 and ay == 1);
+
+// DS6: NESTED tuple (`((a,b),c)`).
+let ((n1, n2), n3) = ((1, 2), 3);
+ck("[DS6]", n1 + n2 + n3 == 6);
+
+// DS7: nested — list of tuples destructured via head pattern.
+let [(fa, fb), ..frest] = [(1, 2), (3, 4), (5, 6)];
+ck("[DS7]", fa == 1 and fb == 2 and len(frest) == 2);
+
+// DS8: `var` destructuring (mutable), then mutate.
+var (m1, m2) = (5, 6);
+m1 = m1 + 100;
+ck("[DS8]", m1 == 105 and m2 == 6);
+
+// DS9: wildcard element ignored.
+let (_, keep) = (99, 42);
+ck("[DS9]", keep == 42);
+
+// DS10: list prefix + rest + suffix (`[first, ..mid, last]`).
+let [first, ..mid, last] = [10, 20, 30, 40];
+ck("[DS10]", first == 10 and last == 40 and len(mid) == 2);
+
+// DS11: destructuring inside a function body (enclosing-scope bind).
+fn sum_pair(t: (int, int)): int {
+    let (u, v) = t;
+    ret u + v;
+}
+ck("[DS11]", sum_pair((11, 22)) == 33);
+
+if failures == 0 {
+    print("=== done (all destructuring cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}
