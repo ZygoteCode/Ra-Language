@@ -3961,15 +3961,22 @@ namespace RaLanguage.Interpreter.IR
                 else if (isVariant)
                 {
                     var vap = (Parser.Nodes.Patterns.VariantPatternNode)arm.Pattern;
-                    // 1) Tag test: the scrutinee must be the named enum variant. On
-                    //    mismatch, skip the payload extraction + body entirely.
+                    // 1) Tag test: the scrutinee must be the named variant (enum
+                    //    member) OR record (nominal type) — EnumTagEq is
+                    //    polymorphic. On mismatch, skip the extraction + body.
                     byte tagSlot = AllocTemp(ref topSlot);
                     int nameIdx = st.Names.Add(vap.VariantName); // interned; <=255 (guard-checked)
                     st.Code.Emit3(Opcode.EnumTagEq, tagSlot, scrutSlot, (byte)nameIdx);
                     skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, tagSlot));
-                    // 2) Extract each payload slot, bind it (or ignore on `_`).
-                    //    Reached only when the tag matched, so EnumPayload is safe.
                     var subs = vap.SubPatterns!;
+                    // 2) Arity guard: once the tag matches, the scrutinee's
+                    //    payload/primary-field count MUST equal the pattern arity,
+                    //    else the visitor raises a precise error — MatchArity
+                    //    reproduces it exactly (else a wrong-arity pattern would
+                    //    silently mis-bind). Reached only when the tag matched.
+                    st.Code.Emit3(Opcode.MatchArity, 0, scrutSlot, (byte)subs.Count);
+                    // 3) Extract each payload/field slot, bind it (or ignore `_`).
+                    //    Reached only when the tag matched, so extraction is safe.
                     for (int s = 0; s < subs.Count; s++)
                     {
                         if (subs[s] is Parser.Nodes.Patterns.WildcardPatternNode) continue;

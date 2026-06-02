@@ -681,9 +681,12 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Deref:
                 case Opcode.Await:
                 // L7 variant patterns: read the scrutinee at B; C is an immediate
-                // (Names index / payload index), not a slot.
+                // (Names index / payload index / arity), not a slot. MatchArity
+                // writes nothing (falls to DefinedSlot's default) but still reads
+                // B — model the read so the scrutinee stays live to it.
                 case Opcode.EnumTagEq:
                 case Opcode.EnumPayload:
+                case Opcode.MatchArity:
                     yield return (Encoding.B(instr), true);
                     break;
                 case Opcode.Ret:

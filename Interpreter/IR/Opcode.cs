@@ -457,15 +457,26 @@ namespace RaLanguage.Interpreter.IR
         GetEvent        = 0x93,
         EmitEvent       = 0x94,
 
-        // L7 (Match variant patterns). Two single-write enum-introspection
-        // opcodes used to lower `case Ok(v)` / `case Some(x)` without the
-        // visitor. Both write locals[A], read locals[B] (the scrutinee); C is an
-        // immediate (a Names index / a payload index), not a slot.
-        //   EnumTagEq    [op][dst][scrut][nameIdx:c]  dst = (scrut is EnumValue
-        //                                             && scrut.MemberName == Names[c])
-        //   EnumPayload  [op][dst][scrut][index:c]    dst = scrut.Payload[index]
+        // L7 (Match variant patterns). Enum-variant AND record-positional
+        // introspection opcodes used to lower `case Ok(v)` / `case Some(x)` /
+        // `case Point(x, y)` without the visitor. EnumTagEq/EnumPayload write
+        // locals[A], read locals[B] (the scrutinee); C is an immediate (a Names
+        // index / a payload index), not a slot. Both are POLYMORPHIC over the
+        // scrutinee runtime type — EnumValue (by variant member name + payload
+        // index) OR RecordInstanceValue (by nominal record type name + primary
+        // field index) — mirroring the visitor's TryMatchVariant dispatch.
+        //   EnumTagEq    [op][dst][scrut][nameIdx:c]  dst = scrut matches the
+        //                  named variant/record (enum: MemberName==Names[c];
+        //                  record: Definition is the RecordType bound to Names[c])
+        //   EnumPayload  [op][dst][scrut][index:c]    dst = enum Payload[index]
+        //                  OR record primary-field[index] value
+        //   MatchArity   [op][--][scrut][subCount:c]  throws the visitor's exact
+        //                  arity-mismatch error if the matched scrut's payload/
+        //                  primary-field count != c; else nop. Writes nothing,
+        //                  reads B; emitted right after a passing EnumTagEq.
         EnumTagEq       = 0x95,
         EnumPayload     = 0x96,
+        MatchArity      = 0x97,
 
         // --- exceptions ---
         Throw           = 0xA0,   // a (err src)

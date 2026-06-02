@@ -2537,10 +2537,13 @@ namespace RaLanguage.Interpreter.Vm
                     // deep-recursion trap). The helper frame is popped before the
                     // recursive await, so it costs nothing per level.
                     case Opcode.EnumTagEq:
-                        OpEnumTagEq(locals, instr, names);
+                        OpEnumTagEq(locals, instr, names, ctx);
                         break;
                     case Opcode.EnumPayload:
                         OpEnumPayload(locals, instr, ctx);
+                        break;
+                    case Opcode.MatchArity:
+                        OpMatchArity(locals, instr, ctx);
                         break;
 
                     default:
@@ -4805,14 +4808,24 @@ namespace RaLanguage.Interpreter.Vm
         // by-value copy land in the caller's slots.
         [System.Runtime.CompilerServices.MethodImpl(
             System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-        private static void OpEnumTagEq(LocalsView locals, uint instr, string[] names)
+        private static void OpEnumTagEq(LocalsView locals, uint instr, string[] names, Context ctx)
         {
             byte a = Encoding.A(instr);
             byte b = Encoding.B(instr);
-            int nameIdx = Encoding.C(instr);
+            string name = names[Encoding.C(instr)];
             var sv = locals[b];
-            bool matched = sv is EnumValue ev
-                && string.Equals(ev.MemberName, names[nameIdx], System.StringComparison.Ordinal);
+            bool matched;
+            if (sv is EnumValue ev)
+                // Inferred enum variant: match on the member name.
+                matched = string.Equals(ev.MemberName, name, System.StringComparison.Ordinal);
+            else if (sv is RaLanguage.Interpreter.Values.Records.RecordInstanceValue rec)
+                // Record-positional: NOMINAL identity — the pattern name must
+                // resolve to the SAME RecordTypeValue as the instance's
+                // Definition (mirrors the visitor's ReferenceEquals check).
+                matched = ctx.SymbolTable.Get(name) is RaLanguage.Interpreter.Values.Records.RecordTypeValue rt
+                    && ReferenceEquals(rt, rec.Definition);
+            else
+                matched = false;
             locals[a] = BooleanValue.Of(matched);
         }
 
@@ -4822,10 +4835,55 @@ namespace RaLanguage.Interpreter.Vm
         {
             byte a = Encoding.A(instr);
             byte b = Encoding.B(instr);
-            int payIdx = Encoding.C(instr);
-            if (locals[b] is not EnumValue ev2)
-                throw new RaUserError(MakeIcError(ctx, "VM: EnumPayload on non-enum value"));
-            locals[a] = payIdx < ev2.Payload.Count ? ev2.Payload[payIdx] : NullValue.Null;
+            int idx = Encoding.C(instr);
+            var sv = locals[b];
+            if (sv is EnumValue ev)
+            {
+                locals[a] = idx < ev.Payload.Count ? ev.Payload[idx] : NullValue.Null;
+            }
+            else if (sv is RaLanguage.Interpreter.Values.Records.RecordInstanceValue rec)
+            {
+                // Record-positional: extract the i-th primary field BY NAME
+                // (the visitor reads PrimaryFields[i].NameTok then GetField).
+                var pf = rec.Definition.PrimaryFields;
+                if (idx < pf.Count)
+                {
+                    string fname = pf[idx].NameTok.Value?.ToString() ?? "";
+                    locals[a] = rec.HasField(fname) ? rec.GetField(fname) : (RuntimeValue)NullValue.Null;
+                }
+                else locals[a] = NullValue.Null;
+            }
+            else
+            {
+                throw new RaUserError(MakeIcError(ctx, "VM: EnumPayload on non-enum/record value"));
+            }
+        }
+
+        // L7 — variant/record arity guard. Reached only after a passing
+        // EnumTagEq, so the scrutinee IS the matched variant/record. Throws the
+        // visitor's EXACT arity-mismatch message (parity captures err.Details) so
+        // a wrong-arity pattern (`case Point(only_one)`) errors identically
+        // whether lowered or not; nop when the arity matches.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpMatchArity(LocalsView locals, uint instr, Context ctx)
+        {
+            byte b = Encoding.B(instr);
+            int subCount = Encoding.C(instr);
+            var sv = locals[b];
+            if (sv is EnumValue ev)
+            {
+                if (ev.Payload.Count != subCount)
+                    throw new RaUserError(MakeIcError(ctx,
+                        $"variant '{ev.EnumName}.{ev.MemberName}' carries {ev.Payload.Count} value(s), pattern destructures {subCount}"));
+            }
+            else if (sv is RaLanguage.Interpreter.Values.Records.RecordInstanceValue rec)
+            {
+                int fc = rec.Definition.PrimaryFields.Count;
+                if (fc != subCount)
+                    throw new RaUserError(MakeIcError(ctx,
+                        $"record '{rec.Definition.StructName}' has {fc} primary field(s), pattern destructures {subCount}"));
+            }
         }
     }
 }

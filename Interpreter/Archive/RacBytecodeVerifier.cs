@@ -227,6 +227,11 @@ namespace RaLanguage.Interpreter.Archive
                         CheckSlot(a, local, pc, opName, "a", diags, path);
                         CheckSlot(effB, local, pc, opName, "b", diags, path);
                         break;
+                    // L7 MatchArity writes nothing: only b (scrutinee) is a slot;
+                    // a is unused, c is the immediate arity.
+                    case Opcode.MatchArity:
+                        CheckSlot(effB, local, pc, opName, "b", diags, path);
+                        break;
 
                     // ----- Arithmetic / comparisons (all 3-address) -----
                     case Opcode.Add:
