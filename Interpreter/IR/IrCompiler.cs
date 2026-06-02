@@ -56,6 +56,9 @@ namespace RaLanguage.Interpreter.IR
             public readonly List<Defs.TypeDef> TypeDefs = new();
             public readonly List<ExceptionHandler> EhTable = new();
             public readonly Stack<LoopContext> Loops = new();
+            // L8: stack of enclosing match/switch arm contexts a `yield` resolves
+            // into (innermost first). Empty → a `yield` is function-level (→ ret).
+            public readonly Stack<YieldTarget> YieldTargets = new();
             public int MaxTempUsed = 1;
 
             // Tracks the *static* nesting depth of OP_PUSH_SCOPE emissions.
@@ -3434,6 +3437,32 @@ namespace RaLanguage.Interpreter.IR
                 case AstNodeType.RegexLiteral:
                 case AstNodeType.FormattedInterpolation:
                 case AstNodeType.Yield:
+                {
+                    // L8: a `yield X` inside a match/switch arm sets that arm's
+                    // result value to X and escapes the arm. Lower exactly like
+                    // `break`: compile X into the construct's dest slot, pop any
+                    // arm-local scopes opened since the arm started, then forward-
+                    // jump to the construct end (shared `endJumps`). The visitor's
+                    // SwitchNodeVisitor / MatchNodeVisitor intercept the Yield
+                    // signal the same way, so this is semantics-preserving.
+                    if (st.YieldTargets.Count > 0)
+                    {
+                        var yt = st.YieldTargets.Peek();
+                        var yn = (Parser.Nodes.Iterations.YieldNode)stmt;
+                        CompileExpression(yn.Expression, yt.DestSlot, st, ref topSlot);
+                        EmitPopsDownTo(st, yt.BaselineScopeDepth);
+                        yt.EndJumps.Add(st.Code.EmitForwardJump(Opcode.Jmp));
+                        return true;
+                    }
+                    // No enclosing match/switch → a function-level yield that
+                    // propagates like `ret`; keep it on the visitor fallback.
+                    if (st.DefineRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("DefineRefs overflow (>65535)");
+                    ushort yRefIdx = (ushort)st.DefineRefs.Count;
+                    st.DefineRefs.Add(stmt);
+                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, yRefIdx);
+                    return true;
+                }
                 case AstNodeType.AnnotationApplication:
                 {
                     if (st.DefineRefs.Count > ushort.MaxValue)
@@ -3779,12 +3808,13 @@ namespace RaLanguage.Interpreter.IR
                 bool isBlock = c.Body.NodeType == AstNodeType.List || c.Body.NodeType == AstNodeType.Scope;
                 if (isBlock)
                 {
-                    // Block arm → run stmts, value is null. A control escape
-                    // (yield / break / continue / return) inside the block has
+                    // Block arm → run stmts; value is null UNLESS a `yield X`
+                    // fires (L8: it writes X to the switch dest + escapes the arm
+                    // via the YieldTarget). A break / continue / return escape has
                     // inconsistent visitor semantics we don't replicate — fall
-                    // back. Only pure side-effect blocks lower.
-                    if (ArrowBlockHasControlEscape(c.Body))
-                        throw new IrCompileException("switch: arrow-block control escape -> fallback");
+                    // back. Pure side-effect blocks and yields-only blocks lower.
+                    if (ArrowBlockHasNonYieldControlEscape(c.Body))
+                        throw new IrCompileException("switch: arrow-block non-yield control escape -> fallback");
                 }
                 else switch (c.Body.NodeType)
                 {
@@ -3819,6 +3849,12 @@ namespace RaLanguage.Interpreter.IR
             var swCtx = new LoopContext(st.Code.Pc, st.ScopeDepth) { BreakBarrierOnly = true };
             st.Loops.Push(swCtx);
 
+            // L8: a `yield X` in a block arm sets the switch value to X and exits
+            // the arm. Share `endJumps` so a yield lands at the switch end exactly
+            // like a normal arm completion; baseline = switch scope depth so a
+            // yield nested in arm-local scopes pops down to here before jumping.
+            st.YieldTargets.Push(new YieldTarget(destSlot, endJumps, st.ScopeDepth));
+
             for (int i = 0; i < node.Cases.Count; i++)
             {
                 var c = node.Cases[i];
@@ -3852,6 +3888,7 @@ namespace RaLanguage.Interpreter.IR
                 st.Code.PatchJumpToHere(skipBody);
             }
 
+            st.YieldTargets.Pop();
             st.Loops.Pop();
 
             // No case matched and no default → null switch value (matches the
@@ -5005,6 +5042,70 @@ namespace RaLanguage.Interpreter.IR
                 }
                 // Conservative: an unknown structure (if / try / nested switch /
                 // …) might hide an escape → fall back.
+                default:
+                    return true;
+            }
+        }
+
+        // L8: like ArrowBlockHasControlEscape, but `yield` is NOT a disqualifying
+        // escape — the switch/match lowering handles a yielding arm via the
+        // YieldTarget (write value → destSlot, pop scopes, jump to end). Returns
+        // true only for a break / continue / return escape (whose in-arm
+        // semantics the visitor models differently and we don't replicate) or any
+        // structure we can't prove escape-free. A block that is pure side effects
+        // OR yields-only therefore lowers.
+        private static bool ArrowBlockHasNonYieldControlEscape(AstNode? node)
+        {
+            if (node == null) return false;
+            switch (node.NodeType)
+            {
+                case AstNodeType.Yield:
+                    return false; // handled via YieldTarget, not a fallback trigger
+                case AstNodeType.Break:
+                case AstNodeType.Continue:
+                case AstNodeType.Return:
+                    return true;
+                // Own break/continue/yield scope — escapes inside are not this arm's.
+                case AstNodeType.FunctionDefinition:
+                case AstNodeType.ClassDefinition:
+                case AstNodeType.StructDefinition:
+                case AstNodeType.RecordDefinition:
+                case AstNodeType.EnumDefinition:
+                case AstNodeType.For:
+                case AstNodeType.ForEach:
+                case AstNodeType.While:
+                case AstNodeType.DoWhile:
+                case AstNodeType.SuperFor:
+                    return false;
+                // Definitely escape-free leaves / expression statements.
+                case AstNodeType.Number:
+                case AstNodeType.String:
+                case AstNodeType.Boolean:
+                case AstNodeType.Null:
+                case AstNodeType.VariableAccess:
+                case AstNodeType.Pass:
+                case AstNodeType.Throw:
+                case AstNodeType.FunctionCall:
+                case AstNodeType.VariableAssignment:
+                case AstNodeType.MemberAssignment:
+                case AstNodeType.VariableDeclaration:
+                    return false;
+                case AstNodeType.Scope:
+                {
+                    var sn = (Parser.Nodes.Special.ScopeNode)node;
+                    foreach (var n in sn.Nodes)
+                        if (ArrowBlockHasNonYieldControlEscape(n)) return true;
+                    return false;
+                }
+                case AstNodeType.List:
+                {
+                    var ln = (Parser.Nodes.Primitives.ListNode)node;
+                    foreach (var e in ln.ElementNodes)
+                        if (ArrowBlockHasNonYieldControlEscape(e)) return true;
+                    return false;
+                }
+                // Conservative: an unknown structure (if / try / nested switch /
+                // …) might hide a non-yield escape → fall back.
                 default:
                     return true;
             }
