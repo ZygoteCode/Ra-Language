@@ -3467,8 +3467,33 @@ namespace RaLanguage.Interpreter.IR
                         yt.EndJumps.Add(st.Code.EmitForwardJump(Opcode.Jmp));
                         return true;
                     }
-                    // No enclosing match/switch → a function-level yield that
-                    // propagates like `ret`; keep it on the visitor fallback.
+                    // No enclosing match/switch → a function-level `yield X`
+                    // returns from the fn carrying FlowState.Yield (≡ ret, but the
+                    // boundary validates via the `.Value` path → preserves the
+                    // yield error wording). Lower to OP_RET_YIELD; roll back to the
+                    // visitor fallback if the value expr can't lower.
+                    var yNode = (Parser.Nodes.Iterations.YieldNode)stmt;
+                    if (yNode.Expression != null)
+                    {
+                        int ySavedPc = st.Code.Pc;
+                        byte ySavedTop = topSlot;
+                        int ySavedRefs = st.DefineRefs.Count;
+                        try
+                        {
+                            byte yvSlot = AllocTemp(ref topSlot);
+                            CompileExpression(yNode.Expression, yvSlot, st, ref topSlot);
+                            st.Code.Emit3(Opcode.RetYield, yvSlot, 0, 0);
+                            if (topSlot > st.MaxTempUsed) st.MaxTempUsed = topSlot;
+                            return true;
+                        }
+                        catch (IrCompileException)
+                        {
+                            st.Code.Truncate(ySavedPc);
+                            topSlot = ySavedTop;
+                            if (st.DefineRefs.Count > ySavedRefs)
+                                st.DefineRefs.RemoveRange(ySavedRefs, st.DefineRefs.Count - ySavedRefs);
+                        }
+                    }
                     if (st.DefineRefs.Count > ushort.MaxValue)
                         throw new IrCompileException("DefineRefs overflow (>65535)");
                     ushort yRefIdx = (ushort)st.DefineRefs.Count;

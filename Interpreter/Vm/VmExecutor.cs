@@ -224,6 +224,18 @@ namespace RaLanguage.Interpreter.Vm
                         return res.SuccessReturn(locals[a] ?? NullValue.Null);
                     }
 
+                    case Opcode.RetYield:
+                    {
+                        // L10 — function-level `yield X` (no enclosing match/switch).
+                        // Returns from the fn with FlowState.Yield, so the fn
+                        // boundary takes the same `.Value` validation path the
+                        // visitor's uncaught yield takes (byte-identical to OP_RET
+                        // except the flow state → preserves the yield error wording).
+                        byte a = Encoding.A(instr);
+                        f.Pc = pc;
+                        return res.SuccessYield(locals[a] ?? NullValue.Null);
+                    }
+
                     case Opcode.RetNull:
                         f.Pc = pc;
                         return res.SuccessReturn(NullValue.Null);

@@ -711,6 +711,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                     yield return (Encoding.B(instr), true);
                     break;
                 case Opcode.Ret:
+                case Opcode.RetYield:
                 case Opcode.Throw:
                 case Opcode.Halt:
                 case Opcode.StoreLocalS:

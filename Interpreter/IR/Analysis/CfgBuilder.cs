@@ -161,6 +161,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.JmpIfStream:
                     return TerminatorKind.CondJump;
                 case Opcode.Ret: return TerminatorKind.Return;
+                case Opcode.RetYield: return TerminatorKind.Return; // L10 — fn-level yield returns from the fn
                 case Opcode.RetNull: return TerminatorKind.ReturnNull;
                 case Opcode.Throw: return TerminatorKind.Throw;
                 case Opcode.MatchFail: return TerminatorKind.Throw; // L7: always throws (no-match)
