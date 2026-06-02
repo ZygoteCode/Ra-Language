@@ -3315,13 +3315,44 @@ namespace RaLanguage.Interpreter.IR
                     return true;
                 }
 
+                // L8 — `emit x` (statement, sync). Evaluate the value, emit
+                // OP_EMIT (handler pushes it into the current stream producer).
+                // Emit-on-fallback because `emit` appears in loop bodies (strict).
+                case AstNodeType.Emit:
+                {
+                    var em = (Parser.Nodes.Async.EmitNode)stmt;
+                    int eSavedPc = st.Code.Pc;
+                    byte eSavedTop = topSlot;
+                    int eSavedRefs = st.DefineRefs.Count;
+                    try
+                    {
+                        byte src = AllocTemp(ref topSlot);
+                        CompileExpression(em.Expression, src, st, ref topSlot);
+                        st.Code.Emit3(Opcode.Emit, src, 0, 0);
+                        if (topSlot > st.MaxTempUsed) st.MaxTempUsed = topSlot;
+                        return true;
+                    }
+                    catch (IrCompileException)
+                    {
+                        st.Code.Truncate(eSavedPc);
+                        topSlot = eSavedTop;
+                        if (st.DefineRefs.Count > eSavedRefs)
+                            st.DefineRefs.RemoveRange(eSavedRefs, st.DefineRefs.Count - eSavedRefs);
+                    }
+                    if (st.DefineRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("DefineRefs overflow (>65535)");
+                    ushort emRefIdx = (ushort)st.DefineRefs.Count;
+                    st.DefineRefs.Add(stmt);
+                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, emRefIdx);
+                    return true;
+                }
+
                 // Native registrations + long-tail expressions / statements.
                 // The VM dispatches to the visitor's static Apply method
                 // directly, bypassing interpreter._visitors[].
                 case AstNodeType.TryUnwrap:
                 case AstNodeType.Await:
                 case AstNodeType.Spawn:
-                case AstNodeType.Emit:
                 case AstNodeType.ForAwait:
                 case AstNodeType.Goto:
                 case AstNodeType.Label:

@@ -2612,6 +2612,11 @@ namespace RaLanguage.Interpreter.Vm
                         locals[aDst] = awaited.Value ?? NullValue.Null;
                         break;
                     }
+                    case Opcode.Emit:
+                        // L8 — `emit x` (sync): push the already-evaluated value
+                        // at A into the current async-stream producer.
+                        OpEmit(locals[Encoding.A(instr)], ctx);
+                        break;
 
                     default:
                         throw new RaUserError(MakeIcError(ctx,
@@ -5134,6 +5139,31 @@ namespace RaLanguage.Interpreter.Vm
             byte a = Encoding.A(instr);
             int idx = Encoding.Imm16(instr);
             ctx.SymbolTable.SetLocal(names[idx], locals[a] ?? NullValue.Null);
+        }
+
+        // L8 — `emit value` into the current async-stream producer. Byte-identical
+        // to EmitNodeVisitor (producer presence, element-type check / inference,
+        // accepted check). Synchronous (producer.Emit returns bool, no await).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpEmit(RuntimeValue? value, Context ctx)
+        {
+            var producer = ctx.AsyncCtx?.CurrentStreamProducer;
+            if (producer == null)
+                throw new RaUserError(MakeIcError(ctx, "'emit' is only valid inside an 'async stream fn' body"));
+            var v = value ?? (RuntimeValue)NullValue.Null;
+            var owner = producer.OwnerValue;
+            if (owner != null)
+            {
+                if (owner.ElementType != null && !owner.ElementType.IsTypeParameter
+                    && !RaLanguage.Types.TypeSystem.IsAssignable(ctx, owner.ElementType, v))
+                    throw new RaUserError(MakeIcError(ctx,
+                        $"Stream element type mismatch: expected '{owner.ElementType}', got '{v.Type}'"));
+                if (owner.ElementType == null && v.Type != RuntimeValueType.Null)
+                    owner.ElementType = RaLanguage.Types.TypeSystem.GetDescriptorFromRuntimeValue(v);
+            }
+            if (!producer.Emit(v))
+                throw new RaUserError(MakeIcError(ctx, "Stream consumer has been cancelled or closed"));
         }
 
         [System.Runtime.CompilerServices.MethodImpl(
