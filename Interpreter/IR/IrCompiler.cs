@@ -3947,6 +3947,25 @@ namespace RaLanguage.Interpreter.IR
                         // A list pattern TESTS the shape — never a catch-all.
                         break;
                     }
+                    case Parser.Nodes.Patterns.RangePatternNode _:
+                    case Parser.Nodes.Patterns.RelationalPatternNode _:
+                        // `case 1..10` / `case > 5`: a non-binding bool test built
+                        // from comparison opcodes. Never a catch-all.
+                        GuardBoolPatternTest(arm.Pattern);
+                        break;
+                    case Parser.Nodes.Patterns.OrPatternNode opn:
+                    {
+                        // `case A | B | C`: first cut requires every alternative to
+                        // be a NON-BINDING bool test (literal / range / relational /
+                        // wildcard) — a binding alternative (`case Ok(x) | Err(x)`)
+                        // falls back, since the disjunction is lowered as an eager
+                        // OrBB chain that cannot bind. Never a catch-all.
+                        if (opn.Alternatives.Count == 0)
+                            throw new IrCompileException("match: empty or-pattern -> fallback");
+                        foreach (var alt in opn.Alternatives)
+                            GuardBoolPatternTest(alt);
+                        break;
+                    }
                     default:
                         throw new IrCompileException("match: non-literal/wildcard pattern -> fallback");
                 }
@@ -4142,6 +4161,26 @@ namespace RaLanguage.Interpreter.IR
                     st.Code.Emit3(Opcode.Eq, condSlot, scrutSlot, litSlot);
                     skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, condSlot));
                 }
+                else if (arm.Pattern is Parser.Nodes.Patterns.RangePatternNode
+                      || arm.Pattern is Parser.Nodes.Patterns.RelationalPatternNode)
+                {
+                    // `case 1..10` / `case > 5`: one non-binding bool test, skip on
+                    // false (no scope — these introduce no bindings).
+                    byte cond = EmitBoolPatternTest(arm.Pattern, scrutSlot, st, ref topSlot);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, cond));
+                }
+                else if (arm.Pattern is Parser.Nodes.Patterns.OrPatternNode opn)
+                {
+                    // `case A | B | C`: acc = test(A) || test(B) || test(C) via an
+                    // eager OrBB chain (alternatives are non-binding), skip on false.
+                    byte acc = EmitBoolPatternTest(opn.Alternatives[0], scrutSlot, st, ref topSlot);
+                    for (int k = 1; k < opn.Alternatives.Count; k++)
+                    {
+                        byte c = EmitBoolPatternTest(opn.Alternatives[k], scrutSlot, st, ref topSlot);
+                        st.Code.Emit3(Opcode.OrBB, acc, acc, c);
+                    }
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, acc));
+                }
                 // Wildcard arms have no pattern test. Guard runs after the pattern
                 // test + binding (it can see variable / variant-payload binds).
                 if (arm.Guard != null)
@@ -4295,6 +4334,132 @@ namespace RaLanguage.Interpreter.IR
                     skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, condSlot));
                     break;
                 }
+            }
+        }
+
+        // A pattern-position constant the visitor's EvaluatePatternLiteral can
+        // fold and CompileExpression can lower identically: number / bool / single-
+        // text string / null / unary-minus over one of those. Used for range
+        // bounds and relational operands (which the parser guarantees are pure).
+        private static bool IsLowerablePatternConst(AstNode n)
+        {
+            switch (n)
+            {
+                case Parser.Nodes.Primitives.NumberNode _:
+                case Parser.Nodes.Primitives.BooleanNode _:
+                case Parser.Nodes.Primitives.NullNode _:
+                    return true;
+                case Parser.Nodes.Primitives.StringNode sn:
+                    return sn.Parts.Count == 1 && sn.Parts[0] is Parser.Nodes.Primitives.StringTextNode;
+                case Parser.Nodes.Operations.UnaryOperationNode un:
+                    return un.OpTok.Type == Lexer.Tokens.TokenType.MINUS && IsLowerablePatternConst(un.Node);
+                default:
+                    return false;
+            }
+        }
+
+        // The comparison opcode that mirrors the runtime's GetComparison* for a
+        // relational-pattern operator, or null if unsupported.
+        private static Opcode? RelationalCmpOpcode(Lexer.Tokens.TokenType op) => op switch
+        {
+            Lexer.Tokens.TokenType.LT => Opcode.Lt,
+            Lexer.Tokens.TokenType.LTE => Opcode.Le,
+            Lexer.Tokens.TokenType.GT => Opcode.Gt,
+            Lexer.Tokens.TokenType.GTE => Opcode.Ge,
+            Lexer.Tokens.TokenType.EE => Opcode.Eq,
+            Lexer.Tokens.TokenType.NE => Opcode.Ne,
+            _ => (Opcode?)null,
+        };
+
+        // Guard-phase: confirm a NON-BINDING bool-test pattern (wildcard / lowerable
+        // literal / range with lowerable bounds / relational with lowerable
+        // operand) is lowerable. Throws IrCompileException (→ fallback) otherwise.
+        // Used for range/relational arms and every alternative of an or-pattern.
+        private static void GuardBoolPatternTest(Parser.Nodes.Patterns.PatternNode p)
+        {
+            switch (p)
+            {
+                case Parser.Nodes.Patterns.WildcardPatternNode _:
+                    return;
+                case Parser.Nodes.Patterns.LiteralPatternNode lp:
+                    if (!IsLowerableMatchLiteral(lp.Expression))
+                        throw new IrCompileException("match: non-trivial or-literal -> fallback");
+                    return;
+                case Parser.Nodes.Patterns.RangePatternNode rp:
+                    if (rp.Lo == null && rp.Hi == null)
+                        throw new IrCompileException("match: empty range pattern -> fallback");
+                    if (rp.Lo != null && !IsLowerablePatternConst(rp.Lo))
+                        throw new IrCompileException("match: non-const range low bound -> fallback");
+                    if (rp.Hi != null && !IsLowerablePatternConst(rp.Hi))
+                        throw new IrCompileException("match: non-const range high bound -> fallback");
+                    return;
+                case Parser.Nodes.Patterns.RelationalPatternNode rop:
+                    if (RelationalCmpOpcode(rop.Op) == null || !IsLowerablePatternConst(rop.Operand))
+                        throw new IrCompileException("match: unsupported relational pattern -> fallback");
+                    return;
+                default:
+                    throw new IrCompileException("match: non-bool-testable pattern -> fallback");
+            }
+        }
+
+        // Emit-phase: compute a bool "does this NON-BINDING pattern match the value
+        // in scrutSlot?" into a fresh slot and return it. Mirrors the visitor's
+        // TryMatchRange / TryMatchRelational / literal Eq exactly (same
+        // GetComparison* via the Eq/Lt/Le/Gt/Ge/Ne opcodes). The pattern was
+        // already confirmed lowerable by GuardBoolPatternTest.
+        private static byte EmitBoolPatternTest(Parser.Nodes.Patterns.PatternNode p, byte scrutSlot,
+                                                State st, ref byte topSlot)
+        {
+            switch (p)
+            {
+                case Parser.Nodes.Patterns.WildcardPatternNode _:
+                {
+                    byte t = AllocTemp(ref topSlot);
+                    st.Code.Emit3(Opcode.LoadTrue, t, 0, 0);
+                    return t;
+                }
+                case Parser.Nodes.Patterns.LiteralPatternNode lp:
+                {
+                    byte litSlot = AllocTemp(ref topSlot);
+                    CompileExpression(lp.Expression, litSlot, st, ref topSlot);
+                    byte cond = AllocTemp(ref topSlot);
+                    st.Code.Emit3(Opcode.Eq, cond, scrutSlot, litSlot);
+                    return cond;
+                }
+                case Parser.Nodes.Patterns.RangePatternNode rp:
+                {
+                    // start true; AND the lower (>=) and/or upper (< or <=) bound.
+                    byte cond = AllocTemp(ref topSlot);
+                    st.Code.Emit3(Opcode.LoadTrue, cond, 0, 0);
+                    if (rp.Lo != null)
+                    {
+                        byte loSlot = AllocTemp(ref topSlot);
+                        CompileExpression(rp.Lo, loSlot, st, ref topSlot);
+                        byte ge = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.Ge, ge, scrutSlot, loSlot);
+                        st.Code.Emit3(Opcode.AndBB, cond, cond, ge);
+                    }
+                    if (rp.Hi != null)
+                    {
+                        byte hiSlot = AllocTemp(ref topSlot);
+                        CompileExpression(rp.Hi, hiSlot, st, ref topSlot);
+                        byte cmp = AllocTemp(ref topSlot);
+                        st.Code.Emit3(rp.IsInclusive ? Opcode.Le : Opcode.Lt, cmp, scrutSlot, hiSlot);
+                        st.Code.Emit3(Opcode.AndBB, cond, cond, cmp);
+                    }
+                    return cond;
+                }
+                case Parser.Nodes.Patterns.RelationalPatternNode rop:
+                {
+                    byte opSlot = AllocTemp(ref topSlot);
+                    CompileExpression(rop.Operand, opSlot, st, ref topSlot);
+                    byte cond = AllocTemp(ref topSlot);
+                    st.Code.Emit3(RelationalCmpOpcode(rop.Op)!.Value, cond, scrutSlot, opSlot);
+                    return cond;
+                }
+                default:
+                    // Guarded earlier; unreachable.
+                    throw new IrCompileException("match: non-bool-testable pattern -> fallback");
             }
         }
 
