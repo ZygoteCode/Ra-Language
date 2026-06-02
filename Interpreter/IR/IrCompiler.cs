@@ -64,6 +64,12 @@ namespace RaLanguage.Interpreter.IR
             // jump (popping scopes down to the label's depth); a forward/undefined
             // goto is not registered → falls back to the visitor (RA0401).
             public readonly Dictionary<string, (int Pc, int Depth)> LabelPcs = new();
+            // L10: enclosing try/finally bodies (innermost first). A `return`/
+            // `yield` inside a try (or catch) body whose finally is active stashes
+            // the action (OP_SET_PENDING_FLOW), pops scopes down to Depth, and
+            // forward-jumps into the finally (ToFinally fixups, patched once the
+            // finally Pc is known). Empty → return/yield escape the fn directly.
+            public readonly Stack<FinallyContext> FinallyContexts = new();
             public int MaxTempUsed = 1;
 
             // Tracks the *static* nesting depth of OP_PUSH_SCOPE emissions.
@@ -3042,10 +3048,27 @@ namespace RaLanguage.Interpreter.IR
 
                 case AstNodeType.Return:
                 {
+                    var rn = (ReturnNode)stmt;
+                    // L10: a return inside a try/catch body with an active finally
+                    // runs the finally first — stash the value (OP_SET_PENDING_FLOW),
+                    // pop scopes down to the finally's depth, then jump into the
+                    // finally; OP_FINALLY_END resumes the return after it completes.
+                    if (st.FinallyContexts.Count > 0)
+                    {
+                        var rfctx = st.FinallyContexts.Peek();
+                        byte rvSlot = scratchSlot;
+                        if (rn.NodeToReturn == null)
+                            st.Code.Emit3(Opcode.LoadNull, rvSlot, 0, 0);
+                        else
+                            CompileExpression(rn.NodeToReturn, rvSlot, st, ref topSlot);
+                        st.Code.Emit3(Opcode.SetPendingFlow, rvSlot, 1, 0); // 1 = return
+                        EmitPopsDownTo(st, rfctx.ScopeDepth);
+                        rfctx.ToFinally.Add(st.Code.EmitForwardJump(Opcode.Jmp));
+                        return true;
+                    }
                     // OP_RET exits the dispatch loop immediately. Any open
                     // scopes go out of C# scope along with the VmFrame, so
                     // no PopScopes need to be emitted before the RET.
-                    var rn = (ReturnNode)stmt;
                     if (rn.NodeToReturn == null)
                     {
                         st.Code.Emit3(Opcode.RetNull, 0, 0, 0);
@@ -7221,8 +7244,19 @@ namespace RaLanguage.Interpreter.IR
             // it on the exception path).
             if (node.FinallyBody != null)
             {
-                if (!ContainsControlEscape(node.TryBody)
-                    && !ContainsControlEscape(node.CatchBody)
+                // try/catch bodies: a `return` is now lowered (routed THROUGH the
+                // finally via OP_SET_PENDING_FLOW). `break`/`continue` need the
+                // enclosing loop's jump target (not threaded here); `yield` may be
+                // destined for an enclosing match/switch arm (the finally would
+                // wrongly turn it into a fn-return); and a nested try-WITH-finally
+                // would need multi-finally return routing — all three fall back
+                // (ContainsControlEscape with allowReturn = true catches the first
+                // two, ContainsTryWithFinally the third). The finally body itself
+                // must stay escape-free (ContainsControlEscape, all escapes).
+                if (!ContainsControlEscape(node.TryBody, allowReturn: true)
+                    && !ContainsControlEscape(node.CatchBody, allowReturn: true)
+                    && !ContainsTryWithFinally(node.TryBody)
+                    && !ContainsTryWithFinally(node.CatchBody)
                     && !ContainsControlEscape(node.FinallyBody))
                 {
                     CompileTryFinally(node, st, ref topSlot, scratchSlot);
@@ -7296,6 +7330,13 @@ namespace RaLanguage.Interpreter.IR
             int scopeDepthAtTry = st.ScopeDepth;
             bool hasCatch = node.CatchBody != null;
 
+            // L10: a `return`/`yield` in the try (or catch) body routes THROUGH
+            // this finally (OP_SET_PENDING_FLOW → forward-jump into the finally).
+            var fctx = new FinallyContext(scopeDepthAtTry);
+            st.FinallyContexts.Push(fctx);
+            bool fctxPopped = false;
+            try
+            {
             // --- try body ---
             EmitPushScope(st);
             int tryStartPc = st.Code.Pc;
@@ -7327,6 +7368,13 @@ namespace RaLanguage.Interpreter.IR
             int finallyPc = st.Code.Pc;
             st.Code.PatchJumpToHere(normalJmp1);
             if (normalJmp2 >= 0) st.Code.PatchJumpToHere(normalJmp2);
+            // Route every return/yield-through-finally jump (from the try/catch
+            // body) to the finally entry, then POP the context BEFORE compiling
+            // the finally body — the finally's own return/yield must escape the fn
+            // normally (overriding the stash), not loop back into itself.
+            foreach (var j in fctx.ToFinally) st.Code.PatchJumpToHere(j);
+            st.FinallyContexts.Pop();
+            fctxPopped = true;
             EmitPushScope(st);
             CompileBodyStrictInline(node.FinallyBody!, st, ref topSlot, scratchSlot);
             EmitPopScope(st);
@@ -7358,6 +7406,16 @@ namespace RaLanguage.Interpreter.IR
             }
 
             MarkAllTypedAccsDirty(st);
+            }
+            finally
+            {
+                // Exception-safety: if a body compile threw before the normal pop,
+                // unwind the context so a NativeDefine fallback caller continues
+                // with a clean FinallyContexts stack.
+                if (!fctxPopped && st.FinallyContexts.Count > 0
+                    && ReferenceEquals(st.FinallyContexts.Peek(), fctx))
+                    st.FinallyContexts.Pop();
+            }
         }
 
         // L10: does `n` contain a control-flow escape (return / break / continue
@@ -7368,12 +7426,17 @@ namespace RaLanguage.Interpreter.IR
         // try/finally carrying one falls back to the visitor. `throw` is NOT an
         // escape (the EhTable handles it). Conservative: break/continue inside a
         // nested loop in the body still count (safe over-fallback).
-        private static bool ContainsControlEscape(AstNode? n)
+        // allowReturn = true: a `return` is NOT counted as a disqualifying escape
+        // (the try/finally lowering routes it THROUGH the finally) — only break /
+        // continue / yield disqualify. allowReturn = false (default): every escape
+        // counts (used for the finally body, which must be fully escape-free).
+        private static bool ContainsControlEscape(AstNode? n, bool allowReturn = false)
         {
             if (n == null) return false;
             switch (n.NodeType)
             {
                 case AstNodeType.Return:
+                    return !allowReturn;
                 case AstNodeType.Break:
                 case AstNodeType.Continue:
                 case AstNodeType.Yield:
@@ -7391,50 +7454,118 @@ namespace RaLanguage.Interpreter.IR
                     return false;
                 case AstNodeType.Scope:
                     foreach (var c in ((Parser.Nodes.Special.ScopeNode)n).Nodes)
-                        if (ContainsControlEscape(c)) return true;
+                        if (ContainsControlEscape(c, allowReturn)) return true;
                     return false;
                 case AstNodeType.List:
                     foreach (var c in ((Parser.Nodes.Primitives.ListNode)n).ElementNodes)
-                        if (ContainsControlEscape(c)) return true;
+                        if (ContainsControlEscape(c, allowReturn)) return true;
                     return false;
                 case AstNodeType.If:
                 {
                     var ifn = (Parser.Nodes.Statements.IfNode)n;
                     foreach (var cs in ifn.Cases)
-                        if (ContainsControlEscape(cs.Expr)) return true;
-                    if (ifn.ElseCase.HasValue && ContainsControlEscape(ifn.ElseCase.Value.Expr)) return true;
+                        if (ContainsControlEscape(cs.Expr, allowReturn)) return true;
+                    if (ifn.ElseCase.HasValue && ContainsControlEscape(ifn.ElseCase.Value.Expr, allowReturn)) return true;
                     return false;
                 }
-                case AstNodeType.For: return ContainsControlEscape(((Parser.Nodes.Statements.ForNode)n).BodyNode);
-                case AstNodeType.While: return ContainsControlEscape(((Parser.Nodes.Statements.WhileNode)n).BodyNode);
-                case AstNodeType.DoWhile: return ContainsControlEscape(((Parser.Nodes.Statements.DoWhileNode)n).BodyNode);
-                case AstNodeType.ForEach: return ContainsControlEscape(((Parser.Nodes.Statements.ForEachNode)n).BodyNode);
-                case AstNodeType.SuperFor: return ContainsControlEscape(((Parser.Nodes.Statements.SuperForNode)n).BodyNode);
+                case AstNodeType.For: return ContainsControlEscape(((Parser.Nodes.Statements.ForNode)n).BodyNode, allowReturn);
+                case AstNodeType.While: return ContainsControlEscape(((Parser.Nodes.Statements.WhileNode)n).BodyNode, allowReturn);
+                case AstNodeType.DoWhile: return ContainsControlEscape(((Parser.Nodes.Statements.DoWhileNode)n).BodyNode, allowReturn);
+                case AstNodeType.ForEach: return ContainsControlEscape(((Parser.Nodes.Statements.ForEachNode)n).BodyNode, allowReturn);
+                case AstNodeType.SuperFor: return ContainsControlEscape(((Parser.Nodes.Statements.SuperForNode)n).BodyNode, allowReturn);
                 case AstNodeType.Retry:
                 {
                     var rt = (Parser.Nodes.Statements.RetryNode)n;
-                    return ContainsControlEscape(rt.BodyNode) || ContainsControlEscape(rt.ElseNode);
+                    return ContainsControlEscape(rt.BodyNode, allowReturn) || ContainsControlEscape(rt.ElseNode, allowReturn);
                 }
                 case AstNodeType.Try:
                 {
                     var tn = (Parser.Nodes.Special.TryNode)n;
-                    return ContainsControlEscape(tn.TryBody)
-                        || ContainsControlEscape(tn.CatchBody)
-                        || ContainsControlEscape(tn.FinallyBody);
+                    return ContainsControlEscape(tn.TryBody, allowReturn)
+                        || ContainsControlEscape(tn.CatchBody, allowReturn)
+                        || ContainsControlEscape(tn.FinallyBody, allowReturn);
                 }
                 case AstNodeType.Switch:
                     foreach (var c in ((Parser.Nodes.Statements.SwitchNode)n).Cases)
-                        if (ContainsControlEscape(c.Body)) return true;
+                        if (ContainsControlEscape(c.Body, allowReturn)) return true;
                     return false;
                 case AstNodeType.Match:
                     foreach (var a in ((Parser.Nodes.Patterns.MatchNode)n).Arms)
-                        if (ContainsControlEscape(a.Body)) return true;
+                        if (ContainsControlEscape(a.Body, allowReturn)) return true;
                     return false;
                 case AstNodeType.Label:
-                    return ContainsControlEscape(((Parser.Nodes.Special.LabelNode)n).Statements);
+                    return ContainsControlEscape(((Parser.Nodes.Special.LabelNode)n).Statements, allowReturn);
                 default:
                     // Expressions + simple statements (assignments, decls, calls,
                     // throw, …) introduce no nested statement that could escape.
+                    return false;
+            }
+        }
+
+        // L10: does `n` contain a `try` with a non-null finally (descending the
+        // same statement containers, not nested fn/type bodies)? A try/finally
+        // whose try/catch body contains another try-WITH-finally falls back — a
+        // `return` escaping the inner try would run only the inner finally (the
+        // inner OP_FINALLY_END returns from the fn), skipping the outer one; the
+        // visitor handles that nesting, so we leave such cases to it.
+        private static bool ContainsTryWithFinally(AstNode? n)
+        {
+            if (n == null) return false;
+            switch (n.NodeType)
+            {
+                case AstNodeType.FunctionDefinition:
+                case AstNodeType.ClassDefinition:
+                case AstNodeType.StructDefinition:
+                case AstNodeType.RecordDefinition:
+                case AstNodeType.EnumDefinition:
+                case AstNodeType.InterfaceDefinition:
+                case AstNodeType.TraitDefinition:
+                case AstNodeType.AnnotationDefinition:
+                case AstNodeType.ExtensionDefinition:
+                    return false;
+                case AstNodeType.Try:
+                {
+                    var tn = (Parser.Nodes.Special.TryNode)n;
+                    if (tn.FinallyBody != null) return true;
+                    return ContainsTryWithFinally(tn.TryBody) || ContainsTryWithFinally(tn.CatchBody);
+                }
+                case AstNodeType.Scope:
+                    foreach (var c in ((Parser.Nodes.Special.ScopeNode)n).Nodes)
+                        if (ContainsTryWithFinally(c)) return true;
+                    return false;
+                case AstNodeType.List:
+                    foreach (var c in ((Parser.Nodes.Primitives.ListNode)n).ElementNodes)
+                        if (ContainsTryWithFinally(c)) return true;
+                    return false;
+                case AstNodeType.If:
+                {
+                    var ifn = (Parser.Nodes.Statements.IfNode)n;
+                    foreach (var cs in ifn.Cases)
+                        if (ContainsTryWithFinally(cs.Expr)) return true;
+                    if (ifn.ElseCase.HasValue && ContainsTryWithFinally(ifn.ElseCase.Value.Expr)) return true;
+                    return false;
+                }
+                case AstNodeType.For: return ContainsTryWithFinally(((Parser.Nodes.Statements.ForNode)n).BodyNode);
+                case AstNodeType.While: return ContainsTryWithFinally(((Parser.Nodes.Statements.WhileNode)n).BodyNode);
+                case AstNodeType.DoWhile: return ContainsTryWithFinally(((Parser.Nodes.Statements.DoWhileNode)n).BodyNode);
+                case AstNodeType.ForEach: return ContainsTryWithFinally(((Parser.Nodes.Statements.ForEachNode)n).BodyNode);
+                case AstNodeType.SuperFor: return ContainsTryWithFinally(((Parser.Nodes.Statements.SuperForNode)n).BodyNode);
+                case AstNodeType.Retry:
+                {
+                    var rt = (Parser.Nodes.Statements.RetryNode)n;
+                    return ContainsTryWithFinally(rt.BodyNode) || ContainsTryWithFinally(rt.ElseNode);
+                }
+                case AstNodeType.Switch:
+                    foreach (var c in ((Parser.Nodes.Statements.SwitchNode)n).Cases)
+                        if (ContainsTryWithFinally(c.Body)) return true;
+                    return false;
+                case AstNodeType.Match:
+                    foreach (var a in ((Parser.Nodes.Patterns.MatchNode)n).Arms)
+                        if (ContainsTryWithFinally(a.Body)) return true;
+                    return false;
+                case AstNodeType.Label:
+                    return ContainsTryWithFinally(((Parser.Nodes.Special.LabelNode)n).Statements);
+                default:
                     return false;
             }
         }

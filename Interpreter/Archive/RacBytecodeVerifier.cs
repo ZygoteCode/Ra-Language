@@ -125,6 +125,7 @@ namespace RaLanguage.Interpreter.Archive
                     case Opcode.Throw:
                     case Opcode.Ret:
                     case Opcode.RetYield:
+                    case Opcode.SetPendingFlow:
                     case Opcode.Halt:
                     case Opcode.Emit:
                     case Opcode.RetNull:

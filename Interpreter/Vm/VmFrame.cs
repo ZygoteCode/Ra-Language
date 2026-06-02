@@ -94,6 +94,15 @@ namespace RaLanguage.Interpreter.Vm
         // (return/break/continue) or a fresh throw overrides it. Null otherwise.
         public RaLanguage.Errors.Error? PendingError;
 
+        // L10 control-flow-escape try/finally: a `return`/`yield` that occurs
+        // inside a try (or catch) body with an enclosing finally is intercepted
+        // by OP_SET_PENDING_FLOW, which stashes the action here + jumps to the
+        // finally. OP_FINALLY_END applies it after the finally completes (the
+        // finally's own control flow / a throw exits first, overriding).
+        //   PendingFlowKind: 0 = none, 1 = return, 2 = yield.
+        public byte PendingFlowKind;
+        public RuntimeValue? PendingFlowValue;
+
         public VmFrame(RaFunction function, RuntimeValue?[]? upvalues = null, VmFrame? parent = null)
         {
             Function = function;
@@ -211,6 +220,8 @@ namespace RaLanguage.Interpreter.Vm
             Pc = 0;
             CtxDepth = 0;
             PendingError = null;
+            PendingFlowKind = 0;
+            PendingFlowValue = null;
         }
     }
 }

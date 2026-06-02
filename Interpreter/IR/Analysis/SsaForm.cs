@@ -717,6 +717,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                     break;
                 case Opcode.Ret:
                 case Opcode.RetYield:
+                case Opcode.SetPendingFlow: // L10 — reads the value slot (A)
                 case Opcode.Throw:
                 case Opcode.Halt:
                 case Opcode.StoreLocalS:

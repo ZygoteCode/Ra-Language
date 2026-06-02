@@ -2682,19 +2682,39 @@ namespace RaLanguage.Interpreter.Vm
 
                     case Opcode.FinallyEnd:
                     {
-                        // L10 — end of a `finally` body. If the exception handler
-                        // stashed a pending error (the finally was reached via a
-                        // raise, not normal fall-through), re-raise it now: the
-                        // finally completed normally, so the in-flight error
-                        // resumes propagating. The finally's OWN control flow
-                        // (return/break/continue) or a fresh throw would have
-                        // exited before reaching here, naturally overriding it.
+                        // L10 — end of a `finally` body, reached by normal fall-
+                        // through. Apply whatever was stashed before the finally:
+                        //  (1) a control-flow escape (return/yield) that occurred
+                        //      in the try/catch body → resume it now;
+                        //  (2) else a pending error → re-raise it.
+                        // The finally's OWN control flow / a fresh throw would have
+                        // exited before reaching here, naturally overriding both.
+                        if (f.PendingFlowKind != 0)
+                        {
+                            byte k = f.PendingFlowKind;
+                            var v = f.PendingFlowValue ?? NullValue.Null;
+                            f.PendingFlowKind = 0;
+                            f.PendingFlowValue = null;
+                            f.Pc = pc;
+                            return k == 2 ? res.SuccessYield(v) : res.SuccessReturn(v);
+                        }
                         if (f.PendingError != null)
                         {
                             var pe = f.PendingError;
                             f.PendingError = null;
                             throw new RaUserError(pe);
                         }
+                        break;
+                    }
+
+                    case Opcode.SetPendingFlow:
+                    {
+                        // L10 — stash a `return`/`yield` escaping through an
+                        // enclosing finally (the IrCompiler emits this + a jump to
+                        // the finally instead of OP_RET/RetYield). kind: 1=return,
+                        // 2=yield; value at slot a.
+                        f.PendingFlowKind = Encoding.B(instr);
+                        f.PendingFlowValue = locals[Encoding.A(instr)] ?? NullValue.Null;
                         break;
                     }
 
