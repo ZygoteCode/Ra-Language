@@ -3569,11 +3569,14 @@ namespace RaLanguage.Interpreter.IR
                 }
                 case AstNodeType.AnnotationApplication:
                 {
+                    // L10: standalone `@Name(args)` builds an AnnotationInstanceValue
+                    // → OP_ANNOTATION_APPLY (parked node + the shared visitor core,
+                    // sync). Removes it from the OP_NATIVE_DEFINE route.
                     if (st.DefineRefs.Count > ushort.MaxValue)
                         throw new IrCompileException("DefineRefs overflow (>65535)");
                     ushort refIdx = (ushort)st.DefineRefs.Count;
                     st.DefineRefs.Add(stmt);
-                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, refIdx);
+                    st.Code.Emit2(Opcode.AnnotationApply, scratchSlot, refIdx);
                     return true;
                 }
 
@@ -8105,6 +8108,16 @@ namespace RaLanguage.Interpreter.IR
                 case AstNodeType.SuperFor:
                 case AstNodeType.Yield:
                 case AstNodeType.AnnotationApplication:
+                {
+                    // L10: `let a = @Name(args)` builds an AnnotationInstanceValue
+                    // → OP_ANNOTATION_APPLY (off the OP_NATIVE_DEFINE route).
+                    if (st.DefineRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("DefineRefs overflow (>65535)");
+                    ushort aaIdx = (ushort)st.DefineRefs.Count;
+                    st.DefineRefs.Add(expr);
+                    st.Code.Emit2(Opcode.AnnotationApply, destSlot, aaIdx);
+                    return;
+                }
                 case AstNodeType.IsType:
                 {
                     if (st.DefineRefs.Count > ushort.MaxValue)

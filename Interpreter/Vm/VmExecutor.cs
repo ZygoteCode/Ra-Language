@@ -2698,6 +2698,17 @@ namespace RaLanguage.Interpreter.Vm
                         break;
                     }
 
+                    case Opcode.AnnotationApply:
+                    {
+                        // L10 — standalone `@Name(args)` value. The parked
+                        // AnnotationApplicationNode is in DefineRefs[imm16];
+                        // OpAnnotationApply builds the AnnotationInstanceValue via
+                        // the shared (sync) visitor core.
+                        byte aDst = Encoding.A(instr);
+                        locals[aDst] = OpAnnotationApply(f, Encoding.Imm16(instr), ctx);
+                        break;
+                    }
+
                     default:
                         throw new RaUserError(MakeIcError(ctx,
                             $"VM: opcode {op} (0x{(byte)op:X2}) not implemented yet (PC={pc - 1})"));
@@ -5329,6 +5340,26 @@ namespace RaLanguage.Interpreter.Vm
                 source, node.ReturnTypes, ctx, node.PositionStart, node.PositionEnd);
             if (res.Error != null) throw new RaUserError(res.Error);
             return res.Value ?? NullValue.Null;
+        }
+
+        // L10 — OP_ANNOTATION_APPLY: build the AnnotationInstanceValue for a
+        // standalone `@Name(args)` value. The parked node lives in DefineRefs;
+        // AnnotationApplicationNodeVisitor.Apply is effectively synchronous
+        // (EvaluateArgs uses IrExpressionEvaluator.EvaluateBlocking), so
+        // SyncAwait.Get returns immediately. NoInlining keeps the (re-entrant)
+        // arg evaluation off the recursive Execute MoveNext frame (M85).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private RuntimeValue OpAnnotationApply(VmFrame f, ushort defineRefIdx, Context ctx)
+        {
+            var refs = f.Function.DefineRefs;
+            if (defineRefIdx >= refs.Length)
+                throw new RaUserError(MakeIcError(ctx, $"VM: AnnotationApply refIdx {defineRefIdx} out of range"));
+            var node = (Parser.Nodes.Annotations.AnnotationApplicationNode)refs[defineRefIdx];
+            var sub = RaLanguage.Interpreter.Runtime.Async.SyncAwait.Get(
+                Visitors.Annotations.AnnotationApplicationNodeVisitor.Apply(node, ctx, _interpreter));
+            if (sub.Error != null) throw new RaUserError(sub.Error);
+            return sub.Value ?? NullValue.Null;
         }
 
         // L8 — one `for await` pull step. Mirrors ForAwaitNodeVisitor: honour

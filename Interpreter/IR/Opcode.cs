@@ -690,6 +690,7 @@ namespace RaLanguage.Interpreter.IR
         AsmInvoke       = 0xE0,   // L9: a (dst), imm16 (DefineRefs idx of the parked pure-text AsmBlockNode)
         AsmInvokeI      = 0xF2,   // L10: a (dst), b (argsBase), c (DefineRefs idx) — interpolated asm; reads argsBase+0..N-1 (N = interp parts), With-shaped
         RetYield        = 0xF3,   // L10: a (value slot) — function-level `yield X`: return from the fn with FlowState.Yield (mirrors OP_RET but yield-flow)
+        AnnotationApply = 0xF4,   // L10: a (dst), imm16 (DefineRefs idx) — standalone `@Name(args)` value; builds the AnnotationInstanceValue (NativeDefine-shaped)
 
         // ---- streams (Streams runtime — see RA_STREAMS_DESIGN.md §10) ----
         // Forward-jump opcode that branches if `locals[a]` is a sync stream

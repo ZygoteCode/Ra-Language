@@ -467,6 +467,12 @@ namespace RaLanguage.Interpreter.Archive
                         CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
                         CheckIndex(imm16, defineLen, pc, opName, "DefineRefs", diags, path);
                         break;
+                    case Opcode.AnnotationApply:
+                        // L10 — [dst:a][defineRefIdx:imm16]. Parked
+                        // AnnotationApplicationNode; same shape as NativeDefine.
+                        CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
+                        CheckIndex(imm16, defineLen, pc, opName, "DefineRefs", diags, path);
+                        break;
                     case Opcode.AsmInvokeI:
                         // L10 — [dst:a][argsBase:b][defineRefIdx:c]. Interpolated
                         // asm; %{…} args @ argsBase+0..N-1 (the handler bounds-
