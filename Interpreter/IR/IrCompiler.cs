@@ -2931,6 +2931,16 @@ namespace RaLanguage.Interpreter.IR
                 // the expression path (CompileExpression emits OP_WITH); the
                 // clone lands in scratch and is discarded.
                 case AstNodeType.WithExpression:
+                // L10: bare expression-statement forms of constructs that already
+                // lower in expression position — route through CompileExpression
+                // (which emits OP_AWAIT / OP_SPAWN / OP_TRY_UNWRAP / LoadConst-regex
+                // / OP_FMT, self-falling-back inside CompileExpression if needed);
+                // the produced value lands in scratch and is discarded.
+                case AstNodeType.Await:
+                case AstNodeType.Spawn:
+                case AstNodeType.TryUnwrap:
+                case AstNodeType.RegexLiteral:
+                case AstNodeType.FormattedInterpolation:
                 {
                     byte topAtEntry = topSlot;
                     CompileExpression(stmt, scratchSlot, st, ref topSlot);
@@ -3429,15 +3439,13 @@ namespace RaLanguage.Interpreter.IR
                 // The VM dispatches to the visitor's static Apply method
                 // directly, bypassing interpreter._visitors[].
                 // Long-tail statements routed via OP_NATIVE_DEFINE (the VM calls
-                // the visitor's Apply directly). These must NOT fall through into
-                // the Yield case below — its body casts `stmt` to YieldNode.
-                case AstNodeType.TryUnwrap:
-                case AstNodeType.Await:
-                case AstNodeType.Spawn:
+                // the visitor's Apply directly). Only Goto/Label remain — the
+                // former bare-expression forms (Await/Spawn/TryUnwrap/Regex/Fmt)
+                // now lower through the expression-statement bridge above. These
+                // must NOT fall through into the Yield case below — its body
+                // casts `stmt` to YieldNode.
                 case AstNodeType.Goto:
                 case AstNodeType.Label:
-                case AstNodeType.RegexLiteral:
-                case AstNodeType.FormattedInterpolation:
                 {
                     if (st.DefineRefs.Count > ushort.MaxValue)
                         throw new IrCompileException("DefineRefs overflow (>65535)");
