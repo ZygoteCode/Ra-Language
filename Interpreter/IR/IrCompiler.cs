@@ -8565,24 +8565,26 @@ namespace RaLanguage.Interpreter.IR
                 case AstNodeType.FunctionCall:
                 {
                     var fc = (FunctionCallNode)expr;
-                    // L10: explicit generic-type-arg call `foo<int>(...)` /
-                    // `Box<int>(...)`. The plain OP_CALL can't carry the type
-                    // args, so park the FunctionCallNode (it round-trips with its
-                    // GenericTypeArgs) and emit OP_CALL_GENERIC — the VM reads
-                    // argCount (= ArgNodes.Count) + the type args from the parked
-                    // node and threads them to FunctionCallExecutor.Invoke (the
-                    // SAME chokepoint the visitor uses). Named/ref/spread args or a
+                    // L10: a "complex" call the plain OP_CALL can't carry — explicit
+                    // generic type args (`foo<int>(...)`) OR named args
+                    // (`f(x, name: v)`). Park the FunctionCallNode (it round-trips
+                    // with its GenericTypeArgs + per-arg NameTok) and emit
+                    // OP_CALL_GENERIC — the VM evaluates the arg band, then splits it
+                    // into positionals + a named dict by each ArgNode's NameTok and
+                    // threads {args, named, typeArgs} to FunctionCallExecutor.Invoke
+                    // (the SAME chokepoint the visitor uses). Ref / spread args or a
                     // >u8 arg-count / DefineRefs index → fall back to the visitor.
-                    if (fc.GenericTypeArgs != null && fc.GenericTypeArgs.Count > 0)
+                    bool fcHasNamed = false;
+                    foreach (var arg in fc.ArgNodes) if (arg.NameTok != null) { fcHasNamed = true; break; }
+                    if ((fc.GenericTypeArgs != null && fc.GenericTypeArgs.Count > 0) || fcHasNamed)
                     {
                         int gArgCount = fc.ArgNodes.Count;
                         if (gArgCount > byte.MaxValue)
-                            throw new IrCompileException("generic call has too many args (>255) -> fallback");
+                            throw new IrCompileException("complex call has too many args (>255) -> fallback");
                         foreach (var arg in fc.ArgNodes)
                         {
-                            if (arg.IsRef) throw new IrCompileException("generic call has ref arg -> fallback");
-                            if (arg.NameTok != null) throw new IrCompileException("generic call has named arg -> fallback");
-                            if (arg.Expr.NodeType == AstNodeType.Spread) throw new IrCompileException("generic call has spread arg -> fallback");
+                            if (arg.IsRef) throw new IrCompileException("complex call has ref arg -> fallback");
+                            if (arg.Expr.NodeType == AstNodeType.Spread) throw new IrCompileException("complex call has spread arg -> fallback");
                         }
                         byte gFnSlot = AllocTemp(ref topSlot);
                         for (int i = 0; i < gArgCount; i++) AllocTemp(ref topSlot);

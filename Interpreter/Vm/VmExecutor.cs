@@ -2948,18 +2948,28 @@ namespace RaLanguage.Interpreter.Vm
             var fn = locals[fnSlot];
             if (fn == null)
                 throw new RaUserError(MakeIcError(ctx, "VM: callee slot is null"));
+            // Split the contiguous arg band into positionals + named args by each
+            // ArgNode's compile-time NameTok (values are runtime, names static) —
+            // mirrors FunctionCallNodeVisitor → generic / named / mixed call.
             var argList = RentArgList(argCount);
+            System.Collections.Generic.Dictionary<string, RuntimeValue>? named = null;
             for (int i = 0; i < argCount; i++)
             {
                 var a = locals[fnSlot + 1 + i];
                 if (a == null)
                     throw new RaUserError(MakeIcError(ctx, $"VM: argument {i} slot is null"));
-                argList.Add(a);
+                var nameTok = gfc.ArgNodes[i].NameTok;
+                if (nameTok != null)
+                {
+                    named ??= new System.Collections.Generic.Dictionary<string, RuntimeValue>(System.StringComparer.Ordinal);
+                    named[nameTok.Value.ToString() ?? ""] = a;
+                }
+                else argList.Add(a);
             }
             var emptyNamed = Runtime.Calls.FunctionCallExecutor.EmptyNamedArgs;
             var pos = DummyPos(ctx);
             var invokeTask = Runtime.Calls.FunctionCallExecutor.Invoke(
-                fn, argList, emptyNamed, gfc.GenericTypeArgs, pos, pos, ctx);
+                fn, argList, named ?? emptyNamed, gfc.GenericTypeArgs, pos, pos, ctx);
             RuntimeResult invokeRes;
             if (invokeTask.IsCompletedSuccessfully)
             {

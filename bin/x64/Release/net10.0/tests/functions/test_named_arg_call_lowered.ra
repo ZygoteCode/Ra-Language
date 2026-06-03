@@ -1,0 +1,33 @@
+import std.prelude.*;
+// L10: named-argument calls `f(x, name: v)` now lower — OP_CALL_GENERIC (which
+// already parks the FunctionCallNode for generic calls) is extended to split the
+// evaluated arg band into positionals + a named dict by each ArgNode's compile-time
+// NameTok, then threads {positionals, named, typeArgs} to FunctionCallExecutor.Invoke
+// (the same chokepoint the visitor uses). Ref/spread args still fall back.
+print("=== functions/named_arg_call_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+fn order(a: int, b: int, c: int): int { ret a * 100 + b * 10 + c; }
+
+// A1: trailing named args.
+ck("[A1]", order(1, 2, c: 3) == 123);
+// A2: all named, source order.
+ck("[A2]", order(a: 1, b: 2, c: 3) == 123);
+// A3: all named, REORDERED — bind by name, not position.
+ck("[A3]", order(c: 3, a: 1, b: 2) == 123);
+// A4: mixed positional + reordered named.
+ck("[A4]", order(1, c: 3, b: 2) == 123);
+
+// A5: named arg whose value is itself a call (nested, eval order preserved).
+ck("[A5]", order(a: order(0, 0, 1), b: 0, c: 0) == 100);
+
+// (Named args on METHOD calls — obj.m(named:..) — are a separate PRE-EXISTING
+//  limitation: the method-group dispatch counts positional args, so all-named
+//  finds no overload. Verified parity MATCH: the visitor errors identically.
+//  Free-function named args — the common case — lower + work here.)
+
+if failures == 0 { print("=== done ==="); } else { print("=== FAIL (" + (failures as string) + ") ==="); }
