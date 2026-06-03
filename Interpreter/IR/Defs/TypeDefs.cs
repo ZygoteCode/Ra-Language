@@ -241,10 +241,11 @@ namespace RaLanguage.Interpreter.IR.Defs
     {
         public readonly int Kind;        // (int)PropertyAccessorKind
         public readonly int Visibility;  // (int)PropertyAccessorVisibility
+        public readonly RaFunction? Body; // precompiled accessor body; null = AUTO accessor
 
-        public PropertyAccessorDef(int kind, int visibility)
+        public PropertyAccessorDef(int kind, int visibility, RaFunction? body = null)
         {
-            Kind = kind; Visibility = visibility;
+            Kind = kind; Visibility = visibility; Body = body;
         }
     }
 

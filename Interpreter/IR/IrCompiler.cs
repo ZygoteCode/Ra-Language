@@ -2547,11 +2547,8 @@ namespace RaLanguage.Interpreter.IR
         {
             pd = null!;
             if (p.HasAnnotations) return false;
-            if (p.IsLazy) return false;
-            if (p.IsAbstract) return false;
-            if (p.Accessors != null)
-                foreach (var acc in p.Accessors)
-                    if (acc.BodyNode != null) return false; // custom-body accessor → fallback
+            if (p.IsLazy) return false;       // lazy: DefaultValueNode eval'd on first touch (AST)
+            if (p.IsAbstract) return false;   // abstract: hierarchy resolution, no impl
 
             RuntimeValue? defConst = null;
             if (p.DefaultValueNode != null && !TryFoldFieldDefaultConst(p.DefaultValueNode, out defConst))
@@ -2562,7 +2559,19 @@ namespace RaLanguage.Interpreter.IR
                 : new Defs.PropertyAccessorDef[p.Accessors.Count];
             if (p.Accessors != null)
                 for (int i = 0; i < p.Accessors.Count; i++)
-                    accessors[i] = new Defs.PropertyAccessorDef((int)p.Accessors[i].Kind, (int)p.Accessors[i].Visibility);
+                {
+                    var acc = p.Accessors[i];
+                    // AUTO accessor (no body) → Body null. COMPUTED/custom-body →
+                    // compile via the SAME GetOrCompileAccessor PropertyAccessOps
+                    // uses; a body that can't IR-compile makes the whole type fall back.
+                    RaFunction? accBody = null;
+                    if (acc.BodyNode != null)
+                    {
+                        accBody = Runtime.FunctionDefinitionHelper.GetOrCompileAccessor(acc);
+                        if (accBody == null) return false;
+                    }
+                    accessors[i] = new Defs.PropertyAccessorDef((int)acc.Kind, (int)acc.Visibility, accBody);
+                }
 
             pd = new Defs.PropertyDef(
                 p.NameTok.Value?.ToString() ?? "", p.PropertyType, p.IsPublic, p.IsStatic,

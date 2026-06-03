@@ -3206,7 +3206,13 @@ namespace RaLanguage.Interpreter.Archive
             if (p.DefaultConst == null) w.WriteU8(0);
             else { w.WriteU8(1); ModuleBytecodeIo.SerializeConst(w, p.DefaultConst, WriterPool); }
             w.WriteI32(p.Accessors.Length);
-            foreach (var a in p.Accessors) { w.WriteI32(a.Kind); w.WriteI32(a.Visibility); }
+            foreach (var a in p.Accessors)
+            {
+                w.WriteI32(a.Kind);
+                w.WriteI32(a.Visibility);
+                if (a.Body == null) w.WriteU8(0);
+                else { w.WriteU8(1); ModuleBytecodeIo.SerializeRaFunction(w, a.Body, WriterPool); }
+            }
         }
 
         private static RaLanguage.Interpreter.IR.Defs.PropertyDef ReadPropertyDef(RacBinaryReader r)
@@ -3223,7 +3229,9 @@ namespace RaLanguage.Interpreter.Archive
             {
                 int k = r.ReadI32();
                 int v = r.ReadI32();
-                accessors[i] = new RaLanguage.Interpreter.IR.Defs.PropertyAccessorDef(k, v);
+                RaLanguage.Interpreter.IR.RaFunction? body =
+                    r.ReadU8() != 0 ? ModuleBytecodeIo.DeserializeRaFunction(r, ReaderPool) : null;
+                accessors[i] = new RaLanguage.Interpreter.IR.Defs.PropertyAccessorDef(k, v, body);
             }
             return new RaLanguage.Interpreter.IR.Defs.PropertyDef(
                 name, ptype, (pflags & 1) != 0, (pflags & 2) != 0, (pflags & 4) != 0,

@@ -3238,9 +3238,21 @@ namespace RaLanguage.Interpreter.Vm
                     Parser.Nodes.Properties.PropertyAccessorKind.Observe => "observe",
                     _ => "get"
                 };
-                accessors.Add(new Parser.Nodes.Properties.PropertyAccessorNode(
+                // AUTO accessor (Body null) → bodyNode null (IsAuto true). COMPUTED
+                // accessor → a stub PassNode body (IsAuto false → the visitor builds
+                // it computed) + the precompiled CompiledBody wired in (RunAccessorBody
+                // returns it via GetOrCompileAccessor's IrCompileTried short-circuit;
+                // the stub is never compiled/executed).
+                AstNode? accBody = ad.Body == null ? null : new Parser.Nodes.Operations.PassNode(s, e);
+                var accNode = new Parser.Nodes.Properties.PropertyAccessorNode(
                     new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, kindStr, s, e),
-                    kind, (Parser.Nodes.Properties.PropertyAccessorVisibility)ad.Visibility, /*bodyNode*/ null));
+                    kind, (Parser.Nodes.Properties.PropertyAccessorVisibility)ad.Visibility, accBody);
+                if (ad.Body != null)
+                {
+                    accNode.CompiledBody = ad.Body;
+                    accNode.IrCompileTried = true;
+                }
+                accessors.Add(accNode);
             }
             AstNode? defNode = null;
             if (pd.DefaultConst != null)
