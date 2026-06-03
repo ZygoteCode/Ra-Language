@@ -3018,9 +3018,7 @@ namespace RaLanguage.Interpreter.IR
         {
             def = null!;
             if (node.HasAnnotations) return false;
-            // L10: extension operators + properties + events lowered (captured below).
-            if (node.Fields != null && node.Fields.Count > 0) return false;     // ext fields → fallback (new descriptor)
-            if (node.Indexers != null && node.Indexers.Count > 0) return false; // ext indexers → fallback (new descriptor)
+            // L10: extension operators + properties + events + fields + indexers lowered (captured below).
             if (node.TargetType == null) return false;
 
             if (!TryBuildOperatorDefs(node.Operators, out var operators)) return false;
@@ -3031,7 +3029,71 @@ namespace RaLanguage.Interpreter.IR
             for (int i = 0; i < node.Methods.Count; i++)
                 if (!TryBuildClassMethodDef(node.Methods[i], out methods[i])) return false;
 
-            def = new Defs.ExtensionDef(node.TargetType, node.IsPublic, node.IsSealed, methods, operators, properties, events);
+            // Extension fields: mirror the struct-field flat capture. A lazy field
+            // relies on the live AST default (evaluated on first touch with `self`
+            // bound) + re-entrancy gating, so it falls back. A non-const default
+            // (instance-state expr, list literal, …) falls back exactly like a
+            // struct field's non-const default. Const / absent defaults lower.
+            if (!TryBuildExtensionFieldDefs(node.Fields, out var fields)) return false;
+
+            // Extension indexers: the get/set bodies ARE FunctionDefinitionNodes
+            // (named op_index / op_index_set) already lowered above in the methods
+            // pool. Record each indexer as (method-index, is-setter) so dispatch is
+            // rebuilt against the SAME reconstructed method objects (the visitor
+            // filters them out of the method bucket by reference identity).
+            if (!TryBuildIndexerDefs(node.Methods, node.Indexers, out var indexers)) return false;
+
+            def = new Defs.ExtensionDef(node.TargetType, node.IsPublic, node.IsSealed, methods, operators, properties, events, fields, indexers);
+            return true;
+        }
+
+        // Build ExtensionFieldDef[] from an extension's field-declaration list
+        // (null/empty → []), or false if any field can't be lowered (lazy field /
+        // non-const default → the extension falls back to the visitor).
+        private static bool TryBuildExtensionFieldDefs(
+            System.Collections.Generic.List<Parser.Nodes.Classes.ExtensionFieldDeclaration>? fields,
+            out Defs.ExtensionFieldDef[] result)
+        {
+            if (fields == null || fields.Count == 0) { result = System.Array.Empty<Defs.ExtensionFieldDef>(); return true; }
+            result = new Defs.ExtensionFieldDef[fields.Count];
+            for (int i = 0; i < fields.Count; i++)
+            {
+                var decl = fields[i];
+                // Lazy ext-fields defer their default eval (reading `self`) until
+                // first read, with a re-entrancy guard — keep them on the AST path.
+                if (decl.IsLazy) { result = null!; return false; }
+                var fld = decl.Field;
+                if (fld.HasAnnotations) { result = null!; return false; }
+                RuntimeValue? defConst = null;
+                if (fld.DefaultValueNode != null && !TryFoldFieldDefaultConst(fld.DefaultValueNode, out defConst))
+                { result = null!; return false; } // non-const default → fallback
+                result[i] = new Defs.ExtensionFieldDef(
+                    fld.NameTok.Value?.ToString() ?? "", fld.FieldType,
+                    fld.IsPublic, decl.IsStaticField,
+                    (int)fld.DeclarationType, defConst);
+            }
+            return true;
+        }
+
+        // Build IndexerDef[] from an extension's (method, is-setter) indexer list.
+        // Each indexer method already lives in `methods` (the parser surfaces it
+        // there AND in the indexer list); we record its index so reconstruction
+        // re-points the indexer at the same reconstructed FunctionDefinitionNode.
+        private static bool TryBuildIndexerDefs(
+            System.Collections.Generic.List<Parser.Nodes.Functions.FunctionDefinitionNode> methods,
+            System.Collections.Generic.List<(Parser.Nodes.Functions.FunctionDefinitionNode Method, bool IsSetter)>? indexers,
+            out Defs.IndexerDef[] result)
+        {
+            if (indexers == null || indexers.Count == 0) { result = System.Array.Empty<Defs.IndexerDef>(); return true; }
+            result = new Defs.IndexerDef[indexers.Count];
+            for (int i = 0; i < indexers.Count; i++)
+            {
+                int idx = -1;
+                for (int m = 0; m < methods.Count; m++)
+                    if (ReferenceEquals(methods[m], indexers[i].Method)) { idx = m; break; }
+                if (idx < 0) { result = null!; return false; } // indexer method not in the method pool → fallback
+                result[i] = new Defs.IndexerDef(idx, indexers[i].IsSetter);
+            }
             return true;
         }
 

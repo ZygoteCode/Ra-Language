@@ -3467,12 +3467,41 @@ namespace RaLanguage.Interpreter.Vm
             foreach (var md in def.Methods)
                 methods.Add(ReconstructClassMethod(md, s, e));
 
+            // Extension fields: rebuild a StructFieldDefinitionNode (const default
+            // → NumberNode carrying CachedValue, byte-identical to the visitor's
+            // field-init eval) wrapped in an ExtensionFieldDeclaration. Lazy fields
+            // never lower (IrCompiler fell back), so isLazy is always false here.
+            var fields = new System.Collections.Generic.List<Parser.Nodes.Classes.ExtensionFieldDeclaration>(def.Fields.Length);
+            foreach (var fd in def.Fields)
+            {
+                AstNode? defNode = null;
+                if (fd.DefaultConst != null)
+                    defNode = new Parser.Nodes.Primitives.NumberNode(
+                        new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
+                    { CachedValue = fd.DefaultConst };
+                var fieldNode = new Parser.Nodes.Structs.StructFieldDefinitionNode(
+                    fd.IsPublic,
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, fd.Name, s, e),
+                    fd.FieldType, defNode,
+                    fd.IsStaticField, /*isAbstract*/ false, /*isOverride*/ false,
+                    (Parser.Nodes.Variables.VariableDeclarationType)fd.DeclKind);
+                fields.Add(new Parser.Nodes.Classes.ExtensionFieldDeclaration(fieldNode, fd.IsStaticField, /*isLazy*/ false));
+            }
+
+            // Extension indexers: re-derive the (method, is-setter) tuples pointing
+            // at the SAME reconstructed method objects (by index into the methods
+            // list) so the visitor's reference-identity filter excludes them from
+            // the regular method bucket, exactly as the parser-produced list does.
+            var indexers = new System.Collections.Generic.List<(Parser.Nodes.Functions.FunctionDefinitionNode, bool)>(def.Indexers.Length);
+            foreach (var ix in def.Indexers)
+                indexers.Add((methods[ix.MethodIndex], ix.IsSetter));
+
             var node = new Parser.Nodes.Classes.ExtensionDefinitionNode(
                 def.TargetType, def.IsPublic, methods,
                 ReconstructProperties(def.Properties, s, e),
                 ReconstructOperators(def.Operators, s, e),
                 ReconstructEvents(def.Events, s, e),
-                /*indexers*/ null, /*fields*/ null, def.IsSealed);
+                indexers, fields, def.IsSealed);
 
             var result = Visitors.Extensions.ExtensionDefinitionNodeVisitor.Apply(node, ctx);
             if (result.Error != null) throw new RaUserError(result.Error);

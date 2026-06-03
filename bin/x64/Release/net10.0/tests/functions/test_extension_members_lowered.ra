@@ -2,7 +2,8 @@ import std.prelude.*;
 // L10: extension-block operators / computed-properties / events now lower — the
 // ExtensionDef reuses the OperatorDef / PropertyDef (accessor-body IR) / EventDef
 // descriptors + the resolver now frames ext property accessor bodies
-// (WalkExtension). Extension fields + indexers still fall back (new descriptors).
+// (WalkExtension). Extension fields + indexers also lower now (see
+// test_extension_field_indexer_lowered.ra).
 print("=== functions/extension_members_lowered ===");
 
 var failures = 0;

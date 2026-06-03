@@ -3672,6 +3672,8 @@ namespace RaLanguage.Interpreter.Archive
             WriteOperatorDefs(w, def.Operators);
             WritePropertyDefs(w, def.Properties);
             WriteEventDefs(w, def.Events);
+            WriteExtensionFieldDefs(w, def.Fields);
+            WriteIndexerDefs(w, def.Indexers);
         }
 
         private static RaLanguage.Interpreter.IR.Defs.ExtensionDef ReadExtensionDef(RacBinaryReader r)
@@ -3685,7 +3687,83 @@ namespace RaLanguage.Interpreter.Archive
             var operators = ReadOperatorDefs(r);
             var properties = ReadPropertyDefs(r);
             var events = ReadEventDefs(r);
-            return new RaLanguage.Interpreter.IR.Defs.ExtensionDef(targetType, (flags & 1) != 0, (flags & 2) != 0, methods, operators, properties, events);
+            var fields = ReadExtensionFieldDefs(r);
+            var indexers = ReadIndexerDefs(r);
+            return new RaLanguage.Interpreter.IR.Defs.ExtensionDef(targetType, (flags & 1) != 0, (flags & 2) != 0, methods, operators, properties, events, fields, indexers);
+        }
+
+        // v9: an ExtensionFieldDef — name + type + flags (public / static-storage) +
+        // decl kind + const default. Like the struct field pool but carries the
+        // extension-only static-storage flag (no abstract/override; lazy never
+        // lowers). Trailing pool gated on v9+; v8 archives keep none.
+        private static void WriteExtensionFieldDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.ExtensionFieldDef fld)
+        {
+            w.WriteString(fld.Name);
+            WriteOptTd(w, fld.FieldType);
+            byte fflags = (byte)((fld.IsPublic ? 1 : 0) | (fld.IsStaticField ? 2 : 0));
+            w.WriteU8(fflags);
+            w.WriteI32(fld.DeclKind);
+            if (fld.DefaultConst == null) w.WriteU8(0);
+            else { w.WriteU8(1); ModuleBytecodeIo.SerializeConst(w, fld.DefaultConst, WriterPool); }
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.ExtensionFieldDef ReadExtensionFieldDef(RacBinaryReader r)
+        {
+            string fName = r.ReadString() ?? "";
+            var fType = ReadOptTd(r);
+            byte fflags = r.ReadU8();
+            int declKind = r.ReadI32();
+            RaLanguage.Interpreter.Values.RuntimeValue? defConst =
+                r.ReadU8() != 0 ? ModuleBytecodeIo.DeserializeConst(r, ReaderPool) : null;
+            return new RaLanguage.Interpreter.IR.Defs.ExtensionFieldDef(
+                fName, fType, (fflags & 1) != 0, (fflags & 2) != 0, declKind, defConst);
+        }
+
+        private static void WriteExtensionFieldDefs(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.ExtensionFieldDef[] fields)
+        {
+            if (WriterVersion < ModuleBytecodeIo.PayloadVersion_V9) return;
+            w.WriteI32(fields.Length);
+            foreach (var fld in fields) WriteExtensionFieldDef(w, fld);
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.ExtensionFieldDef[] ReadExtensionFieldDefs(RacBinaryReader r)
+        {
+            if (ReaderVersion < ModuleBytecodeIo.PayloadVersion_V9)
+                return System.Array.Empty<RaLanguage.Interpreter.IR.Defs.ExtensionFieldDef>();
+            int fn = r.ReadI32();
+            if (fn < 0 || fn > 4_000_000) throw new System.IO.InvalidDataException($"rac: extension field count {fn} out of range");
+            var fields = new RaLanguage.Interpreter.IR.Defs.ExtensionFieldDef[fn];
+            for (int i = 0; i < fn; i++) fields[i] = ReadExtensionFieldDef(r);
+            return fields;
+        }
+
+        // v9: an IndexerDef — method-index (into the extension's already-serialized
+        // method pool) + is-setter. Trailing pool gated on v9+; v8 archives keep none.
+        private static void WriteIndexerDefs(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.IndexerDef[] indexers)
+        {
+            if (WriterVersion < ModuleBytecodeIo.PayloadVersion_V9) return;
+            w.WriteI32(indexers.Length);
+            foreach (var ix in indexers)
+            {
+                w.WriteI32(ix.MethodIndex);
+                w.WriteU8(ix.IsSetter ? (byte)1 : (byte)0);
+            }
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.IndexerDef[] ReadIndexerDefs(RacBinaryReader r)
+        {
+            if (ReaderVersion < ModuleBytecodeIo.PayloadVersion_V9)
+                return System.Array.Empty<RaLanguage.Interpreter.IR.Defs.IndexerDef>();
+            int n = r.ReadI32();
+            if (n < 0 || n > 4_000_000) throw new System.IO.InvalidDataException($"rac: extension indexer count {n} out of range");
+            var indexers = new RaLanguage.Interpreter.IR.Defs.IndexerDef[n];
+            for (int i = 0; i < n; i++)
+            {
+                int idx = r.ReadI32();
+                bool isSetter = r.ReadU8() != 0;
+                indexers[i] = new RaLanguage.Interpreter.IR.Defs.IndexerDef(idx, isSetter);
+            }
+            return indexers;
         }
 
         // Interface methods are pure signatures: no body, no flags — just the

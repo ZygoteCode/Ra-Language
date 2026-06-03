@@ -559,9 +559,55 @@ namespace RaLanguage.Interpreter.IR.Defs
         }
     }
 
+    // An extension field, fully flat (no AST). Extension fields are
+    // StructFieldDefinitionNodes wrapped with the extension-only `IsStaticField`
+    // (storage on the type, not the instance) + `IsLazy` (first-touch eval)
+    // flags. Const-foldable defaults are captured as a const RuntimeValue (null =
+    // no default); a non-const default OR a lazy field makes IrCompiler fall back
+    // to the visitor (lazy fields rely on the live AST default + re-entrancy
+    // semantics). Reconstructed into an ExtensionFieldDeclaration.
+    public sealed class ExtensionFieldDef
+    {
+        public readonly string Name;
+        public readonly TypeDescriptor? FieldType;
+        public readonly bool IsPublic;
+        public readonly bool IsStaticField;
+        public readonly int DeclKind;                  // (int)VariableDeclarationType
+        public readonly Values.RuntimeValue? DefaultConst; // folded literal default, or null
+
+        public ExtensionFieldDef(string name, TypeDescriptor? fieldType, bool isPublic, bool isStaticField,
+            int declKind, Values.RuntimeValue? defaultConst)
+        {
+            Name = name; FieldType = fieldType; IsPublic = isPublic; IsStaticField = isStaticField;
+            DeclKind = declKind; DefaultConst = defaultConst;
+        }
+    }
+
+    // An extension indexer descriptor. An indexer's get/set bodies ARE
+    // FunctionDefinitionNodes named `op_index` / `op_index_set` that already live
+    // in the ExtensionDef.Methods pool (so the method body is lowered + serialized
+    // exactly once, as an ordinary method). This descriptor records which method
+    // (by index into Methods) is an indexer and whether it is the setter shape, so
+    // reconstruction can re-derive the indexer list referencing the SAME
+    // reconstructed method objects (the visitor filters them out of the method
+    // bucket by reference identity). Reconstructed into the (Method, IsSetter)
+    // tuple list.
+    public sealed class IndexerDef
+    {
+        public readonly int MethodIndex; // index into ExtensionDef.Methods
+        public readonly bool IsSetter;
+
+        public IndexerDef(int methodIndex, bool isSetter)
+        {
+            MethodIndex = methodIndex; IsSetter = isSetter;
+        }
+    }
+
     // `extend T { fn ... }` lowered FLAT. Extension methods are
-    // FunctionDefinitionNodes → reuse ClassMethodDef. First sub-stage: methods
-    // only; fallback on properties / operators / events / fields / indexers.
+    // FunctionDefinitionNodes → reuse ClassMethodDef. Methods / operators /
+    // properties / events / fields / indexers all lower; a non-const-default OR
+    // lazy ext-field, or an un-compilable indexer/method/operator body, makes
+    // IrCompiler fall back to the visitor.
     public sealed class ExtensionDef : TypeDef
     {
         public override TypeDefKind Kind => TypeDefKind.Extension;
@@ -573,15 +619,20 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly OperatorDef[] Operators;
         public readonly PropertyDef[] Properties;
         public readonly EventDef[] Events;
+        public readonly ExtensionFieldDef[] Fields;
+        public readonly IndexerDef[] Indexers;
 
         public ExtensionDef(TypeDescriptor targetType, bool isPublic, bool isSealed, ClassMethodDef[] methods,
-            OperatorDef[]? operators = null, PropertyDef[]? properties = null, EventDef[]? events = null)
+            OperatorDef[]? operators = null, PropertyDef[]? properties = null, EventDef[]? events = null,
+            ExtensionFieldDef[]? fields = null, IndexerDef[]? indexers = null)
         {
             TargetType = targetType; IsPublic = isPublic; IsSealed = isSealed;
             Methods = methods ?? Array.Empty<ClassMethodDef>();
             Operators = operators ?? Array.Empty<OperatorDef>();
             Properties = properties ?? Array.Empty<PropertyDef>();
             Events = events ?? Array.Empty<EventDef>();
+            Fields = fields ?? Array.Empty<ExtensionFieldDef>();
+            Indexers = indexers ?? Array.Empty<IndexerDef>();
         }
     }
 
