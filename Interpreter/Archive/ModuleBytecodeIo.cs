@@ -76,7 +76,7 @@ namespace RaLanguage.Interpreter.Archive
         //     v3 payloads keep loading unchanged; their callees pay
         //     the lazy compile once on first invocation, exactly as
         //     before.
-        public const ushort PayloadVersion = 7;
+        public const ushort PayloadVersion = 8;
         public const ushort PayloadVersion_V1 = 1;
         public const ushort PayloadVersion_V2 = 2;
         public const ushort PayloadVersion_V3 = 3;
@@ -95,6 +95,11 @@ namespace RaLanguage.Interpreter.Archive
         // after the methods. v6 readers never wrote it; the trailing operator pool
         // is gated on ver >= V7, so v6 archives load unchanged with no operators.
         public const ushort PayloadVersion_V7 = 7;
+        // v8 (L10 generic-method-bearing type defs): ClassMethodDef serializes a
+        // trailing method-level Generics string list (generic methods on a class
+        // now lower). Gated on ver >= V8, so v7 archives load unchanged (no
+        // generic methods — they fell back to NativeDefine).
+        public const ushort PayloadVersion_V8 = 8;
 
         public static byte[] Serialize(RaFunction root, SharedConstPoolBuilder? sharedPool = null)
         {
@@ -107,7 +112,7 @@ namespace RaLanguage.Interpreter.Archive
             // const inlines. Older wire versions (v1 / v2 / v3) are
             // still ACCEPTED by Deserialize for backward read.
             bool emitPool = sharedPool != null && sharedPool.Finalised && sharedPool.Pooled > 0;
-            ushort ver = PayloadVersion_V7;
+            ushort ver = PayloadVersion_V8;
             w.WriteU16(ver);
             w.WriteU16(0);
             // Stash the writer pool + version in thread-local state so
@@ -138,7 +143,7 @@ namespace RaLanguage.Interpreter.Archive
             if (ver != PayloadVersion_V1 && ver != PayloadVersion_V2
                 && ver != PayloadVersion_V3 && ver != PayloadVersion_V4
                 && ver != PayloadVersion_V5 && ver != PayloadVersion_V6
-                && ver != PayloadVersion_V7)
+                && ver != PayloadVersion_V7 && ver != PayloadVersion_V8)
                 throw new InvalidDataException($"rac: ModuleBytecode version {ver} not supported");
             ushort reserved = r.ReadU16();
             if (reserved != 0)

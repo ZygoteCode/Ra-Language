@@ -3153,12 +3153,15 @@ namespace RaLanguage.Interpreter.Vm
             Lexer.Tokens.Token? varArgTok = md.VarArgName == null ? null
                 : new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, md.VarArgName, s, e);
 
+            var mGenerics = md.Generics.Length == 0
+                ? null
+                : new System.Collections.Generic.List<string>(md.Generics);
             var mnode = new Parser.Nodes.Functions.FunctionDefinitionNode(
                 new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, md.Name, s, e),
                 argToks, argTypes, refParams, paramDefaults,
                 md.HasVarArgs, varArgTok, md.VarArgType, md.ReturnType,
                 new Parser.Nodes.Operations.PassNode(s, e), md.ShouldAutoReturn,
-                /*generics*/ null, md.IsPublic, md.IsConstructor, md.IsOverride, /*isAbstract*/ false, md.IsStatic);
+                mGenerics, md.IsPublic, md.IsConstructor, md.IsOverride, /*isAbstract*/ false, md.IsStatic);
             mnode.CompiledBody = md.Body;
             mnode.IrCompileTried = true;
             mnode.FrameId = md.FrameId;

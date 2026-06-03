@@ -2629,7 +2629,10 @@ namespace RaLanguage.Interpreter.IR
             if (m.ConstructorName != null) return false; // named ctor (Name.ctor) — name not captured yet
             if (m.HasAnnotations) return false;
             if (m.CaptureList != null && m.CaptureList.Count > 0) return false;
-            if (m.GenericTypeParams != null && m.GenericTypeParams.Count > 0) return false;
+            // L10: generic methods ARE lowered — the type params ride the descriptor
+            // (Generics) and the body compiles type-erased (a body that genuinely
+            // can't IR-compile falls back below via `body == null`). Where-
+            // constrained generic methods still fall back.
             if (m.WhereConstraints != null && m.WhereConstraints.Count > 0) return false;
             if (m.ParamDefaults != null)
                 foreach (var pd in m.ParamDefaults) if (pd != null) return false;
@@ -2645,11 +2648,14 @@ namespace RaLanguage.Interpreter.IR
             for (int a = 0; a < m.ArgNameToks.Count; a++)
                 argNames[a] = m.ArgNameToks[a].Value?.ToString() ?? "";
 
+            var mGenerics = (m.GenericTypeParams == null || m.GenericTypeParams.Count == 0)
+                ? System.Array.Empty<string>()
+                : m.GenericTypeParams.ToArray();
             md = new Defs.ClassMethodDef(
                 mname, m.IsPublic, m.IsConstructor, m.IsOverride, m.IsStatic, m.IsAsync, m.IsAsyncStream,
                 argNames, m.ArgTypes.ToArray(), m.IsRefParams.ToArray(), m.HasVarArgs,
                 m.VarArgNameTok?.Value?.ToString(), m.VarArgType, m.ReturnType, m.ShouldAutoReturn,
-                m.FrameId, body);
+                m.FrameId, body, mGenerics);
             return true;
         }
 

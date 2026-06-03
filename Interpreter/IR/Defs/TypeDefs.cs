@@ -164,16 +164,18 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly bool ShouldAutoReturn;
         public readonly int FrameId;
         public readonly RaFunction Body;               // precompiled (CompileMethodShape)
+        public readonly string[] Generics;             // method-level type params (generic method)
 
         public StructMethodDef(string name, bool isPublic, bool isConstructor, bool isAsync, bool isAsyncStream,
             string[] argNames, TypeDescriptor?[] argTypes, bool[] isRefParams, bool hasVarArgs,
             string? varArgName, TypeDescriptor? varArgType, TypeDescriptor? returnType, bool shouldAutoReturn,
-            int frameId, RaFunction body)
+            int frameId, RaFunction body, string[]? generics = null)
         {
             Name = name; IsPublic = isPublic; IsConstructor = isConstructor; IsAsync = isAsync;
             IsAsyncStream = isAsyncStream; ArgNames = argNames; ArgTypes = argTypes; IsRefParams = isRefParams;
             HasVarArgs = hasVarArgs; VarArgName = varArgName; VarArgType = varArgType; ReturnType = returnType;
             ShouldAutoReturn = shouldAutoReturn; FrameId = frameId; Body = body;
+            Generics = generics ?? Array.Empty<string>();
         }
     }
 
@@ -309,17 +311,18 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly bool ShouldAutoReturn;
         public readonly int FrameId;
         public readonly RaFunction Body;
+        public readonly string[] Generics;   // method-level type params (generic method)
 
         public ClassMethodDef(string name, bool isPublic, bool isConstructor, bool isOverride, bool isStatic,
             bool isAsync, bool isAsyncStream, string[] argNames, TypeDescriptor?[] argTypes, bool[] isRefParams,
             bool hasVarArgs, string? varArgName, TypeDescriptor? varArgType, TypeDescriptor? returnType,
-            bool shouldAutoReturn, int frameId, RaFunction body)
+            bool shouldAutoReturn, int frameId, RaFunction body, string[]? generics = null)
         {
             Name = name; IsPublic = isPublic; IsConstructor = isConstructor; IsOverride = isOverride;
             IsStatic = isStatic; IsAsync = isAsync; IsAsyncStream = isAsyncStream; ArgNames = argNames;
             ArgTypes = argTypes; IsRefParams = isRefParams; HasVarArgs = hasVarArgs; VarArgName = varArgName;
             VarArgType = varArgType; ReturnType = returnType; ShouldAutoReturn = shouldAutoReturn;
-            FrameId = frameId; Body = body;
+            FrameId = frameId; Body = body; Generics = generics ?? Array.Empty<string>();
         }
     }
 
