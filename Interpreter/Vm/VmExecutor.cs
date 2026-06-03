@@ -3172,6 +3172,8 @@ namespace RaLanguage.Interpreter.Vm
             mnode.FrameId = md.FrameId;
             mnode.IsAsync = md.IsAsync;
             mnode.IsAsyncStream = md.IsAsyncStream;
+            mnode.IsFactory = md.IsFactory;          // L10 factory ctor
+            mnode.ConstructorName = md.ConstructorName; // L10 named ctor
             return mnode;
         }
 

@@ -3439,9 +3439,14 @@ namespace RaLanguage.Interpreter.Archive
             WriteOptTd(w, m.ReturnType);
             w.WriteI32(m.FrameId);
             ModuleBytecodeIo.SerializeRaFunction(w, m.Body, WriterPool);
-            // v8: method-level generic type params (generic methods).
+            // v8: method-level generic type params (generic methods) + factory/named-ctor metadata.
             if (WriterVersion >= ModuleBytecodeIo.PayloadVersion_V8)
+            {
                 WriteStringList(w, new List<string>(m.Generics));
+                w.WriteU8(m.IsFactory ? (byte)1 : (byte)0);
+                if (m.ConstructorName == null) w.WriteU8(0);
+                else { w.WriteU8(1); w.WriteString(m.ConstructorName); }
+            }
         }
 
         private static RaLanguage.Interpreter.IR.Defs.ClassMethodDef ReadClassMethodDef(RacBinaryReader r)
@@ -3462,13 +3467,19 @@ namespace RaLanguage.Interpreter.Archive
             var returnType = ReadOptTd(r);
             int frameId = r.ReadI32();
             var body = ModuleBytecodeIo.DeserializeRaFunction(r, ReaderPool);
-            var generics = ReaderVersion >= ModuleBytecodeIo.PayloadVersion_V8
-                ? ReadStringList(r).ToArray()
-                : System.Array.Empty<string>();
+            var generics = System.Array.Empty<string>();
+            bool isFactory = false;
+            string? constructorName = null;
+            if (ReaderVersion >= ModuleBytecodeIo.PayloadVersion_V8)
+            {
+                generics = ReadStringList(r).ToArray();
+                isFactory = r.ReadU8() != 0;
+                constructorName = r.ReadU8() != 0 ? (r.ReadString() ?? "") : null;
+            }
             return new RaLanguage.Interpreter.IR.Defs.ClassMethodDef(
                 mName, (flags & 1) != 0, (flags & 2) != 0, (flags & 64) != 0, (flags & 128) != 0,
                 (flags & 4) != 0, (flags & 8) != 0, argNames, argTypes, refParams, (flags & 16) != 0,
-                varArgName, varArgType, returnType, (flags & 32) != 0, frameId, body, generics);
+                varArgName, varArgType, returnType, (flags & 32) != 0, frameId, body, generics, isFactory, constructorName);
         }
 
         private static void WriteClassDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.ClassDef def)

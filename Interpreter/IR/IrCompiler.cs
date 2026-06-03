@@ -2723,8 +2723,8 @@ namespace RaLanguage.Interpreter.IR
         private static bool TryBuildClassMethodDef(Parser.Nodes.Functions.FunctionDefinitionNode m, out Defs.ClassMethodDef md)
         {
             md = null!;
-            if (m.IsAbstract || m.IsFactory) return false;
-            if (m.ConstructorName != null) return false; // named ctor (Name.ctor) — name not captured yet
+            if (m.IsAbstract) return false;
+            // L10: factory + named ctors are now lowered (IsFactory/ConstructorName captured below).
             if (m.HasAnnotations) return false;
             if (m.CaptureList != null && m.CaptureList.Count > 0) return false;
             // L10: generic methods ARE lowered — the type params ride the descriptor
@@ -2753,7 +2753,7 @@ namespace RaLanguage.Interpreter.IR
                 mname, m.IsPublic, m.IsConstructor, m.IsOverride, m.IsStatic, m.IsAsync, m.IsAsyncStream,
                 argNames, m.ArgTypes.ToArray(), m.IsRefParams.ToArray(), m.HasVarArgs,
                 m.VarArgNameTok?.Value?.ToString(), m.VarArgType, m.ReturnType, m.ShouldAutoReturn,
-                m.FrameId, body, mGenerics);
+                m.FrameId, body, mGenerics, m.IsFactory, m.ConstructorName);
             return true;
         }
 

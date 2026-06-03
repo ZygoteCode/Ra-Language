@@ -1,0 +1,40 @@
+import std.prelude.*;
+// L10: named (`pub T.name()`) and factory (`pub factory T.name() { ret ... }`)
+// constructors now lower — TryBuildClassMethodDef captures IsFactory +
+// ConstructorName (was gated), VmExecutor.ReconstructClassMethod restores them, and
+// the SAME construction dispatch (ClassTypeValue.Construct / BoundConstructorValue)
+// handles T(...) / T.name(...) / factory. .rac v8 round-trips the metadata.
+print("=== functions/named_factory_ctor_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+pub class Point {
+    pub var x: int = 0
+    pub var y: int = 0
+    pub Point(x: int, y: int) { self.x = x; self.y = y; }   // unnamed generative
+    pub Point.origin() { self.x = 0; self.y = 0 }            // named generative
+    pub Point.diag(n: int) { self.x = n; self.y = n }        // named generative w/ param
+    pub factory Point.sum(a: int, b: int) { ret Point(a + b, a + b); } // factory
+}
+
+let p = Point(3, 4);
+ck("[N1]", p.x == 3 and p.y == 4);
+
+let o = Point.origin();
+ck("[N2]", o.x == 0 and o.y == 0);
+
+let d = Point.diag(7);
+ck("[N3]", d.x == 7 and d.y == 7);
+
+let s = Point.sum(10, 5);
+ck("[N4]", s.x == 15 and s.y == 15);
+
+// N5: factory returns a fresh distinct instance.
+let s2 = Point.sum(1, 1);
+s2.x = 99;
+ck("[N5]", s.x == 15 and s2.x == 99);
+
+if failures == 0 { print("=== done ==="); } else { print("=== FAIL (" + (failures as string) + ") ==="); }
