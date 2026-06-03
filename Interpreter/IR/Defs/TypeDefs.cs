@@ -217,6 +217,22 @@ namespace RaLanguage.Interpreter.IR.Defs
         }
     }
 
+    // L10 generic type-def widening: a generic `where T: Bound` constraint. No
+    // body — the type-param name + the bound TypeDescriptor. Checked at runtime
+    // by TypeSystem.ValidateWhereConstraints (method-bind time), so it must
+    // survive the lowering + .rac round-trip. Reconstructed into a
+    // WhereConstraintNode. Shared by struct/class/record lowering.
+    public sealed class WhereConstraintDef
+    {
+        public readonly string ParameterName;
+        public readonly TypeDescriptor ConstraintType;
+
+        public WhereConstraintDef(string parameterName, TypeDescriptor constraintType)
+        {
+            ParameterName = parameterName; ConstraintType = constraintType;
+        }
+    }
+
     public sealed class StructDef : TypeDef
     {
         public override TypeDefKind Kind => TypeDefKind.Struct;
@@ -227,15 +243,17 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly StructFieldDef[] Fields;
         public readonly StructMethodDef[] Methods;
         public readonly OperatorDef[] Operators;
+        public readonly WhereConstraintDef[] Wheres;
 
         public StructDef(string name, bool isPublic, string[] generics, StructFieldDef[] fields, StructMethodDef[] methods,
-            OperatorDef[]? operators = null)
+            OperatorDef[]? operators = null, WhereConstraintDef[]? wheres = null)
         {
             Name = name; IsPublic = isPublic;
             Generics = generics ?? Array.Empty<string>();
             Fields = fields ?? Array.Empty<StructFieldDef>();
             Methods = methods ?? Array.Empty<StructMethodDef>();
             Operators = operators ?? Array.Empty<OperatorDef>();
+            Wheres = wheres ?? Array.Empty<WhereConstraintDef>();
         }
     }
 
@@ -273,10 +291,11 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly RecordPrimaryFieldDef[] PrimaryFields;
         public readonly StructMethodDef[] Methods;
         public readonly OperatorDef[] Operators;
+        public readonly WhereConstraintDef[] Wheres;
 
         public RecordDef(string name, bool isPublic, bool isRefRecord, bool autoEquals, bool autoToString,
             string[] generics, RecordPrimaryFieldDef[] primaryFields, StructMethodDef[] methods,
-            OperatorDef[]? operators = null)
+            OperatorDef[]? operators = null, WhereConstraintDef[]? wheres = null)
         {
             Name = name; IsPublic = isPublic; IsRefRecord = isRefRecord;
             AutoEquals = autoEquals; AutoToString = autoToString;
@@ -284,6 +303,7 @@ namespace RaLanguage.Interpreter.IR.Defs
             PrimaryFields = primaryFields ?? Array.Empty<RecordPrimaryFieldDef>();
             Methods = methods ?? Array.Empty<StructMethodDef>();
             Operators = operators ?? Array.Empty<OperatorDef>();
+            Wheres = wheres ?? Array.Empty<WhereConstraintDef>();
         }
     }
 
@@ -341,15 +361,17 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly StructFieldDef[] Fields;       // reuses the struct field descriptor
         public readonly ClassMethodDef[] Methods;
         public readonly OperatorDef[] Operators;
+        public readonly WhereConstraintDef[] Wheres;
 
         public ClassDef(string name, bool isPublic, string[] generics, StructFieldDef[] fields, ClassMethodDef[] methods,
-            OperatorDef[]? operators = null)
+            OperatorDef[]? operators = null, WhereConstraintDef[]? wheres = null)
         {
             Name = name; IsPublic = isPublic;
             Generics = generics ?? Array.Empty<string>();
             Fields = fields ?? Array.Empty<StructFieldDef>();
             Methods = methods ?? Array.Empty<ClassMethodDef>();
             Operators = operators ?? Array.Empty<OperatorDef>();
+            Wheres = wheres ?? Array.Empty<WhereConstraintDef>();
         }
     }
 

@@ -3057,6 +3057,7 @@ namespace RaLanguage.Interpreter.Archive
             w.WriteI32(def.Methods.Length);
             foreach (var m in def.Methods) WriteMethodDef(w, m);
             WriteOperatorDefs(w, def.Operators);
+            WriteWhereDefs(w, def.Wheres);
         }
 
         // Shared by struct + record (both carry StructMethodDef). Signature
@@ -3158,6 +3159,40 @@ namespace RaLanguage.Interpreter.Archive
             return ops;
         }
 
+        // L10 v8: a WhereConstraintDef (generic `where T: Bound`). No body — the
+        // param name + bound TypeDescriptor. Shared by struct/record/class.
+        private static void WriteWhereDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.WhereConstraintDef wc)
+        {
+            w.WriteString(wc.ParameterName);
+            WriteOptTd(w, wc.ConstraintType);
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.WhereConstraintDef ReadWhereDef(RacBinaryReader r)
+        {
+            string name = r.ReadString() ?? "";
+            var ct = ReadOptTd(r) ?? new TypeDescriptor("any");
+            return new RaLanguage.Interpreter.IR.Defs.WhereConstraintDef(name, ct);
+        }
+
+        // Trailing WhereConstraintDef[] pool — v8+ only. v7 archives keep none.
+        private static void WriteWhereDefs(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.WhereConstraintDef[] wheres)
+        {
+            if (WriterVersion < ModuleBytecodeIo.PayloadVersion_V8) return;
+            w.WriteI32(wheres.Length);
+            foreach (var wc in wheres) WriteWhereDef(w, wc);
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.WhereConstraintDef[] ReadWhereDefs(RacBinaryReader r)
+        {
+            if (ReaderVersion < ModuleBytecodeIo.PayloadVersion_V8)
+                return System.Array.Empty<RaLanguage.Interpreter.IR.Defs.WhereConstraintDef>();
+            int wn = r.ReadI32();
+            if (wn < 0 || wn > 4_000_000) throw new System.IO.InvalidDataException($"rac: where-constraint count {wn} out of range");
+            var wheres = new RaLanguage.Interpreter.IR.Defs.WhereConstraintDef[wn];
+            for (int i = 0; i < wn; i++) wheres[i] = ReadWhereDef(r);
+            return wheres;
+        }
+
         private static RaLanguage.Interpreter.IR.Defs.StructDef ReadStructDef(RacBinaryReader r)
         {
             string name = r.ReadString() ?? "";
@@ -3186,7 +3221,8 @@ namespace RaLanguage.Interpreter.Archive
             for (int i = 0; i < mn; i++) methods[i] = ReadMethodDef(r);
 
             var operators = ReadOperatorDefs(r);
-            return new RaLanguage.Interpreter.IR.Defs.StructDef(name, isPublic, generics, fields, methods, operators);
+            var wheres = ReadWhereDefs(r);
+            return new RaLanguage.Interpreter.IR.Defs.StructDef(name, isPublic, generics, fields, methods, operators, wheres);
         }
 
         private static void WriteRecordDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.RecordDef def)
@@ -3207,6 +3243,7 @@ namespace RaLanguage.Interpreter.Archive
             w.WriteI32(def.Methods.Length);
             foreach (var m in def.Methods) WriteMethodDef(w, m);
             WriteOperatorDefs(w, def.Operators);
+            WriteWhereDefs(w, def.Wheres);
         }
 
         private static RaLanguage.Interpreter.IR.Defs.RecordDef ReadRecordDef(RacBinaryReader r)
@@ -3232,9 +3269,10 @@ namespace RaLanguage.Interpreter.Archive
             var methods = new RaLanguage.Interpreter.IR.Defs.StructMethodDef[mn];
             for (int i = 0; i < mn; i++) methods[i] = ReadMethodDef(r);
             var operators = ReadOperatorDefs(r);
+            var wheres = ReadWhereDefs(r);
             return new RaLanguage.Interpreter.IR.Defs.RecordDef(
                 name, (rflags & 1) != 0, (rflags & 2) != 0, (rflags & 4) != 0, (rflags & 8) != 0,
-                generics, primaryFields, methods, operators);
+                generics, primaryFields, methods, operators, wheres);
         }
 
         private static void WriteFieldDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.StructFieldDef fld)
@@ -3321,6 +3359,7 @@ namespace RaLanguage.Interpreter.Archive
             w.WriteI32(def.Methods.Length);
             foreach (var m in def.Methods) WriteClassMethodDef(w, m);
             WriteOperatorDefs(w, def.Operators);
+            WriteWhereDefs(w, def.Wheres);
         }
 
         private static RaLanguage.Interpreter.IR.Defs.ClassDef ReadClassDef(RacBinaryReader r)
@@ -3337,7 +3376,8 @@ namespace RaLanguage.Interpreter.Archive
             var methods = new RaLanguage.Interpreter.IR.Defs.ClassMethodDef[mn];
             for (int i = 0; i < mn; i++) methods[i] = ReadClassMethodDef(r);
             var operators = ReadOperatorDefs(r);
-            return new RaLanguage.Interpreter.IR.Defs.ClassDef(name, isPublic, generics, fields, methods, operators);
+            var wheres = ReadWhereDefs(r);
+            return new RaLanguage.Interpreter.IR.Defs.ClassDef(name, isPublic, generics, fields, methods, operators, wheres);
         }
 
         private static void WriteTraitMethodDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.TraitMethodDef m)

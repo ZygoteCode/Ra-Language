@@ -1,0 +1,51 @@
+import std.prelude.*;
+// L10: a generic class/struct/record with a `where T: Bound` constraint now lowers
+// FLAT (OP_DEFINE_TYPE carries a WhereConstraintDef[]) instead of falling back to
+// NativeDefine. The constraint survives the descriptor + the .rac v8 round-trip
+// and is STILL enforced at runtime (TypeSystem.ValidateWhereConstraints at
+// method-bind). Now non-dormant because generic construction itself lowers
+// (OP_CALL_GENERIC).
+print("=== functions/where_constraint_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// W1: where-constrained generic class — valid binding works.
+pub class CBox<T> where T: int {
+    pub var v: T;
+    pub CBox(v: T) { self.v = v; }
+    pub fn get(): T { ret self.v; }
+}
+let c = CBox<int>(42);
+ck("[W1]", c.get() == 42);
+
+// W2: where-constrained generic struct.
+pub struct SBox<T> where T: int {
+    pub var v: T;
+    pub SBox(v: T) { self.v = v; }
+    pub fn dbl(): T { ret self.v + self.v; }
+}
+let s = SBox<int>(21);
+ck("[W2]", s.dbl() == 42);
+
+// W3: where-constrained generic record.
+pub record RBox<T>(v: T) where T: int {
+    pub fn inc(): T { ret self.v + 1; }
+}
+let r = RBox<int>(41);
+ck("[W3]", r.inc() == 42);
+
+// W4: the bound is still ENFORCED after lowering — a violating binding throws.
+fn tryBad(): bool {
+    try {
+        let bad = CBox<string>("x");
+        ret false; // should not reach — bind violates `where T: int`
+    } catch (e) {
+        ret true;
+    }
+}
+ck("[W4]", tryBad());
+
+if failures == 0 { print("=== done ==="); } else { print("=== FAIL (" + (failures as string) + ") ==="); }

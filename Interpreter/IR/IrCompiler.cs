@@ -2425,8 +2425,7 @@ namespace RaLanguage.Interpreter.IR
         {
             def = null!;
             if (node.HasAnnotations) return false;
-            if (node.WhereConstraints != null && node.WhereConstraints.Count > 0) return false;
-            // L10: operators are now lowered (captured into OperatorDef[] below).
+            // L10: operators + where-constraints are now lowered (captured below).
             if (node.Properties != null && node.Properties.Count > 0) return false;
             if (node.Events != null && node.Events.Count > 0) return false;
 
@@ -2434,6 +2433,7 @@ namespace RaLanguage.Interpreter.IR
             if (string.IsNullOrWhiteSpace(name)) return false;
 
             if (!TryBuildOperatorDefs(node.Operators, out var operators)) return false;
+            var wheres = BuildWhereDefs(node.WhereConstraints);
 
             var fields = new Defs.StructFieldDef[node.Fields.Count];
             for (int i = 0; i < node.Fields.Count; i++)
@@ -2456,7 +2456,7 @@ namespace RaLanguage.Interpreter.IR
             var generics = (node.GenericTypeParams == null || node.GenericTypeParams.Count == 0)
                 ? System.Array.Empty<string>()
                 : node.GenericTypeParams.ToArray();
-            def = new Defs.StructDef(name, node.IsPublic, generics, fields, methods, operators);
+            def = new Defs.StructDef(name, node.IsPublic, generics, fields, methods, operators, wheres);
             return true;
         }
 
@@ -2526,6 +2526,17 @@ namespace RaLanguage.Interpreter.IR
             return true;
         }
 
+        // L10 generic type-def widening: capture generic where-constraints flat.
+        // No bodies → never fails. Shared by struct/record/class lowering.
+        private static Defs.WhereConstraintDef[] BuildWhereDefs(System.Collections.Generic.List<Parser.Nodes.Special.WhereConstraintNode>? wheres)
+        {
+            if (wheres == null || wheres.Count == 0) return System.Array.Empty<Defs.WhereConstraintDef>();
+            var result = new Defs.WhereConstraintDef[wheres.Count];
+            for (int i = 0; i < wheres.Count; i++)
+                result[i] = new Defs.WhereConstraintDef(wheres[i].ParameterName, wheres[i].ConstraintType);
+            return result;
+        }
+
         // L5e: build a FLAT RecordDef, or return false to fall back. First
         // sub-stage: value records (no `record class` inheritance), no abstract /
         // operators / properties / events / annotations / where-constraints /
@@ -2537,8 +2548,7 @@ namespace RaLanguage.Interpreter.IR
             if (node.BaseType != null) return false;       // inheritance → fallback
             if (node.IsAbstract) return false;
             if (node.HasAnnotations) return false;
-            if (node.WhereConstraints != null && node.WhereConstraints.Count > 0) return false;
-            // L10: operators are now lowered (captured into OperatorDef[] below).
+            // L10: operators + where-constraints are now lowered (captured below).
             if (node.Properties != null && node.Properties.Count > 0) return false;
             if (node.Events != null && node.Events.Count > 0) return false;
 
@@ -2546,6 +2556,7 @@ namespace RaLanguage.Interpreter.IR
             if (string.IsNullOrWhiteSpace(name)) return false;
 
             if (!TryBuildOperatorDefs(node.Operators, out var operators)) return false;
+            var wheres = BuildWhereDefs(node.WhereConstraints);
 
             var pfields = new Defs.RecordPrimaryFieldDef[node.PrimaryFields.Count];
             for (int i = 0; i < node.PrimaryFields.Count; i++)
@@ -2566,7 +2577,7 @@ namespace RaLanguage.Interpreter.IR
                 ? System.Array.Empty<string>()
                 : node.GenericTypeParams.ToArray();
             def = new Defs.RecordDef(name, node.IsPublic, node.IsRefRecord,
-                node.AutoEquals, node.AutoToString, generics, pfields, methods, operators);
+                node.AutoEquals, node.AutoToString, generics, pfields, methods, operators, wheres);
             return true;
         }
 
@@ -2583,8 +2594,7 @@ namespace RaLanguage.Interpreter.IR
             if (node.WithTraits != null && node.WithTraits.Count > 0) return false;
             if (node.IsAbstract || node.IsStatic) return false;
             if (node.HasAnnotations) return false;
-            if (node.WhereConstraints != null && node.WhereConstraints.Count > 0) return false;
-            // L10: operators are now lowered (captured into OperatorDef[] below).
+            // L10: operators + where-constraints are now lowered (captured below).
             if (node.Properties != null && node.Properties.Count > 0) return false;
             if (node.Events != null && node.Events.Count > 0) return false;
 
@@ -2592,6 +2602,7 @@ namespace RaLanguage.Interpreter.IR
             if (string.IsNullOrWhiteSpace(name)) return false;
 
             if (!TryBuildOperatorDefs(node.Operators, out var operators)) return false;
+            var wheres = BuildWhereDefs(node.WhereConstraints);
 
             var fields = new Defs.StructFieldDef[node.Fields.Count];
             for (int i = 0; i < node.Fields.Count; i++)
@@ -2614,7 +2625,7 @@ namespace RaLanguage.Interpreter.IR
             var generics = (node.GenericTypeParams == null || node.GenericTypeParams.Count == 0)
                 ? System.Array.Empty<string>()
                 : node.GenericTypeParams.ToArray();
-            def = new Defs.ClassDef(name, node.IsPublic, generics, fields, methods, operators);
+            def = new Defs.ClassDef(name, node.IsPublic, generics, fields, methods, operators, wheres);
             return true;
         }
 
