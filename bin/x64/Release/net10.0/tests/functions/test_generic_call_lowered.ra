@@ -48,4 +48,26 @@ ck("[G6]", idg<int>(100) == 100);
 let bb = Box<int>(idg<int>(5));
 ck("[G7]", bb.get() == 5);
 
+// G8: explicit generic-type-arg on a METHOD call `obj.m<int>(x)`. The parser
+// extends its speculative generic-arg lookahead to the member-access call
+// position; the call lowers via OP_CALL_GENERIC.
+pub class Holder {
+    pub var n: int;
+    pub Holder(n: int) { self.n = n; }
+    pub fn echo<T>(x: T): T { ret x; }
+}
+let hold = Holder(0);
+ck("[G8]", hold.echo<int>(42) == 42);
+
+// G9: chained — generic method result feeds another member call.
+ck("[G9]", (hold.echo<int>(7) + hold.n) == 7);
+
+// G10: GUARD — a real comparison after a member access must STILL parse as a
+// comparison (the lookahead rolls back when not a `<types>(` shape).
+let pv = Holder(5);
+ck("[G10a]", (pv.n < 10) == true);
+ck("[G10b]", (pv.n < 3) == false);
+let x = 1; let y = 2; let z = 0;
+ck("[G10c]", (x < y and y > z) == true);
+
 if failures == 0 { print("=== done ==="); } else { print("=== FAIL (" + (failures as string) + ") ==="); }
