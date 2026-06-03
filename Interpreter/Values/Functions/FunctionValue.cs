@@ -321,10 +321,25 @@ namespace RaLanguage.Interpreter.Values.Functions
                     }
                     execCtxF.SymbolTable.AttachFrameParams(ArgNames, pslots, slotLocalsF);
 
-                    var interpreterF = new Interpreter();
-                    var vmF = new Vm.VmExecutor(interpreterF);
-                    var bodyResF = await vmF.Execute(frameF, execCtxF);
-                    if (bodyResF.Error == null) Vm.VmFrame.Return(frameF);
+                    // PERF: rent a pooled (Interpreter, VmExecutor) host
+                    // instead of allocating both per call. Return it to the
+                    // pool only on synchronous completion — a suspended Execute
+                    // still references the host across the await (same
+                    // discipline as the argList pool).
+                    var hostF = Vm.VmHostPool.Rent();
+                    var execTaskF = hostF.Executor.Execute(frameF, execCtxF);
+                    RuntimeResult bodyResF;
+                    if (execTaskF.IsCompletedSuccessfully)
+                    {
+                        bodyResF = execTaskF.Result;
+                        if (bodyResF.Error == null) Vm.VmFrame.Return(frameF);
+                        Vm.VmHostPool.Return(hostF);
+                    }
+                    else
+                    {
+                        bodyResF = await execTaskF;
+                        if (bodyResF.Error == null) Vm.VmFrame.Return(frameF);
+                    }
                     if (bodyResF.Error != null) return res.Failure(bodyResF.Error);
 
                     if (bodyResF.FuncReturnValue != null)
@@ -366,7 +381,6 @@ namespace RaLanguage.Interpreter.Values.Functions
                 }
             }
 
-            var interpreter = new Interpreter();
             RuntimeResult bodyRes;
             // M19: IR is the only execution path. The function-definition
             // helper has either populated CompiledBody at creation time or
@@ -383,10 +397,22 @@ namespace RaLanguage.Interpreter.Values.Functions
                 // M79: rent from per-function pool. Only return on the
                 // success path — error escape captures `Parent` for
                 // the traceback chain and must not pool the frame.
-                var vm = new Vm.VmExecutor(interpreter);
+                // PERF: pooled VM host (Interpreter + VmExecutor); returned to
+                // the pool only on synchronous completion.
+                var host = Vm.VmHostPool.Rent();
                 var frame = Vm.VmFrame.Rent(CompiledBody);
-                bodyRes = await vm.Execute(frame, execCtx!);
-                if (bodyRes.Error == null) Vm.VmFrame.Return(frame);
+                var execTask = host.Executor.Execute(frame, execCtx!);
+                if (execTask.IsCompletedSuccessfully)
+                {
+                    bodyRes = execTask.Result;
+                    if (bodyRes.Error == null) Vm.VmFrame.Return(frame);
+                    Vm.VmHostPool.Return(host);
+                }
+                else
+                {
+                    bodyRes = await execTask;
+                    if (bodyRes.Error == null) Vm.VmFrame.Return(frame);
+                }
             }
             if (bodyRes.Error != null) return res.Failure(bodyRes.Error);
 

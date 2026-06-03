@@ -224,6 +224,18 @@ namespace RaLanguage.Interpreter.Vm
                         return res.SuccessReturn(locals[a] ?? NullValue.Null);
                     }
 
+                    case Opcode.RetYield:
+                    {
+                        // L10 — function-level `yield X` (no enclosing match/switch).
+                        // Returns from the fn with FlowState.Yield, so the fn
+                        // boundary takes the same `.Value` validation path the
+                        // visitor's uncaught yield takes (byte-identical to OP_RET
+                        // except the flow state → preserves the yield error wording).
+                        byte a = Encoding.A(instr);
+                        f.Pc = pc;
+                        return res.SuccessYield(locals[a] ?? NullValue.Null);
+                    }
+
                     case Opcode.RetNull:
                         f.Pc = pc;
                         return res.SuccessReturn(NullValue.Null);
@@ -258,6 +270,45 @@ namespace RaLanguage.Interpreter.Vm
                         byte b = Encoding.B(instr);
                         var src = locals[b];
                         locals[a] = src?.Aliased();
+                        break;
+                    }
+
+                    // L3: `&name` (Borrow) / `&mut name` (BorrowMut). [op][dst][nameIdx:imm16].
+                    // Resolve the bound name to its SymbolEntry and run the shared
+                    // borrow-place rules (BorrowOps.TryBorrow) — same logic the
+                    // visitor fallback uses. No sub-eval ⇒ fully synchronous.
+                    case Opcode.Borrow:
+                    case Opcode.BorrowMut:
+                    {
+                        byte a = Encoding.A(instr);
+                        ushort nameIdx = Encoding.Imm16(instr);
+                        var bname = names[nameIdx];
+                        var (bs, be) = ResolveSpan(f, pc - 1, ctx);
+                        var (bval, berr) = Runtime.BorrowOps.TryBorrow(
+                            ctx, bname, op == Opcode.BorrowMut, null, bs, be);
+                        if (berr != null) throw new RaUserError(berr);
+                        locals[a] = bval;
+                        break;
+                    }
+
+                    // L3: `*ref op= value`. [op][dst][refSlot][opTok]; the RHS
+                    // value is in the contiguous slot refSlot+1. Resolve the
+                    // reference, apply the (compound) operator + write through
+                    // via the shared DerefStoreOps.Apply, leave the result in dst.
+                    case Opcode.DerefStore:
+                    {
+                        byte a = Encoding.A(instr);
+                        byte b = Encoding.B(instr);
+                        byte opByte = Encoding.C(instr);
+                        var refVal = locals[b];
+                        var newVal = locals[(byte)(b + 1)];
+                        if (newVal == null)
+                            throw new RaUserError(MakeIcError(ctx, "VM: DerefStore value slot is null"));
+                        var (ds, de) = ResolveSpan(f, pc - 1, ctx);
+                        var (dres, derr) = Runtime.DerefStoreOps.Apply(
+                            refVal, newVal, (Lexer.Tokens.TokenType)opByte, ctx, ds, de);
+                        if (derr != null) throw new RaUserError(derr);
+                        locals[a] = dres;
                         break;
                     }
 
@@ -1268,6 +1319,23 @@ namespace RaLanguage.Interpreter.Vm
                         locals[dst] = new StringValue(sb.ToString()).SetContext(ctx);
                         break;
                     }
+                    case Opcode.Fmt:
+                        // L4 `${expr:spec}`. Body lives off-stack (NoInlining)
+                        // so the locals never enlarge the dispatch-loop frame —
+                        // depth-2000 recursion budget (same as FusedCmpBranchDelta).
+                        locals[Encoding.A(instr)] = ExecuteFmt(f, locals, instr, ctx, pc);
+                        break;
+                    case Opcode.With:
+                        // L4 `recv with { ... }`. Off-stack body (NoInlining),
+                        // same frame-budget discipline as OP_FMT above.
+                        locals[Encoding.A(instr)] = ExecuteWith(f, locals, instr, ctx);
+                        break;
+                    case Opcode.DefineType:
+                        // L5 one-shot definition from a flat descriptor. Off-stack
+                        // body (NoInlining) — definitions run once, never in the
+                        // recursion hot path, but keep the frame discipline.
+                        locals[Encoding.A(instr)] = ExecuteDefineType(f, instr, ctx, pc, _interpreter);
+                        break;
                     case Opcode.Throw:
                     {
                         byte src = Encoding.A(instr);
@@ -1992,6 +2060,14 @@ namespace RaLanguage.Interpreter.Vm
                         break;
                     }
 
+                    case Opcode.CallGeneric:
+                        // L10 explicit-generic-type-arg call `foo<int>(...)`. Off-
+                        // stack body (NoInlining async) — keeps the dispatch frame
+                        // small for sync-completion deep recursion (M85).
+                        locals[Encoding.A(instr)] =
+                            await ExecuteCallGeneric(f, locals, instr, ctx).ConfigureAwait(false);
+                        break;
+
                     // M28.3: fused Call + Ret. Same dispatch logic as OP_CALL
                     // (including the BoundClassMethodGroupValue overload IC)
                     // but propagates the invoked function's return value as
@@ -2363,19 +2439,34 @@ namespace RaLanguage.Interpreter.Vm
                         byte streamSlot = Encoding.B(instr);
                         byte continueSlot = Encoding.C(instr);
                         var sv = locals[streamSlot];
-                        if (sv is not RaLanguage.Interpreter.Values.Streams.StreamValue stream)
-                            throw new RaUserError(MakeIcError(ctx, "ForEachStreamPull: source slot is not a Stream"));
-                        var t = stream.PullNext(ctx);
-                        var r = t.IsCompletedSuccessfully ? t.Result : t.AsTask().GetAwaiter().GetResult();
-                        if (r.Error != null) throw new RaUserError(r.Error);
-                        if (r.Done)
+                        if (sv is RaLanguage.Interpreter.Values.Streams.StreamValue stream)
                         {
-                            locals[continueSlot] = BooleanValue.False;
+                            var t = stream.PullNext(ctx);
+                            var r = t.IsCompletedSuccessfully ? t.Result : t.AsTask().GetAwaiter().GetResult();
+                            if (r.Error != null) throw new RaUserError(r.Error);
+                            if (r.Done)
+                            {
+                                locals[continueSlot] = BooleanValue.False;
+                            }
+                            else
+                            {
+                                locals[itemSlot] = r.Value!;
+                                locals[continueSlot] = BooleanValue.True;
+                            }
+                        }
+                        else if (sv is RaLanguage.Interpreter.Values.Async.AsyncStreamValue astream)
+                        {
+                            // L8 — `for await x in stream`. The async-stream pull
+                            // (AsyncStreamCore.PullNext) blocks on the channel until
+                            // the producer FIBER (a thread-pool thread) sends or the
+                            // stream closes — cross-thread, so the blocking pull is
+                            // safe (no cooperative-yield needed) and adds no await
+                            // point. Byte-identical to ForAwaitNodeVisitor's loop.
+                            OpForAwaitPull(locals, itemSlot, continueSlot, astream, ctx);
                         }
                         else
                         {
-                            locals[itemSlot] = r.Value!;
-                            locals[continueSlot] = BooleanValue.True;
+                            throw new RaUserError(MakeIcError(ctx, "ForEachStreamPull: source slot is not a Stream"));
                         }
                         break;
                     }
@@ -2470,6 +2561,182 @@ namespace RaLanguage.Interpreter.Vm
                         break;
                     }
 
+                    // L7 (Match variant patterns). EnumTagEq: dst = scrutinee is
+                    // an EnumValue whose member name == Names[c]. EnumPayload: dst
+                    // = scrutinee.Payload[c]. Both read locals[B] (the scrutinee),
+                    // C is an immediate. The bodies live in NoInlining helpers so
+                    // their locals stay OUT of this async method's MoveNext frame:
+                    // Execute recurses via `await Execute(...)` and that frame is
+                    // held across every synchronous recursion level, so each byte
+                    // added here is paid ×depth against the worker stack (the M85
+                    // deep-recursion trap). The helper frame is popped before the
+                    // recursive await, so it costs nothing per level.
+                    case Opcode.EnumTagEq:
+                        OpEnumTagEq(locals, instr, names, ctx);
+                        break;
+                    case Opcode.EnumPayload:
+                        OpEnumPayload(locals, instr, ctx);
+                        break;
+                    case Opcode.MatchArity:
+                        OpMatchArity(locals, instr, ctx);
+                        break;
+                    case Opcode.EnumNameEq:
+                        OpEnumNameEq(locals, instr, names);
+                        break;
+                    case Opcode.MatchFail:
+                        // Non-exhaustive match at runtime: no arm matched and there
+                        // is no catch-all. Same error the visitor's no-match path
+                        // raises (parity captures err.Details).
+                        throw OpMatchFail(ctx);
+                    case Opcode.TupleShape:
+                        OpTupleShape(locals, instr);
+                        break;
+                    case Opcode.StructShape:
+                        OpStructShape(locals, instr, names);
+                        break;
+                    case Opcode.StructFieldGet:
+                        OpStructFieldGet(locals, instr, names, ctx);
+                        break;
+                    case Opcode.ListShape:
+                        OpListShape(locals, instr);
+                        break;
+                    case Opcode.ListElemBack:
+                        OpListElemBack(locals, instr);
+                        break;
+                    case Opcode.ListRestSlice:
+                        OpListRestSlice(locals, instr);
+                        break;
+                    case Opcode.IsType:
+                        OpIsType(locals, instr, wideHiC, f.Function.AstRefs, ctx);
+                        break;
+                    case Opcode.MapShape:
+                        OpMapShape(locals, instr);
+                        break;
+                    case Opcode.MapHasKey:
+                        OpMapHasKey(locals, instr, ctx);
+                        break;
+                    case Opcode.MapGetKey:
+                        OpMapGetKey(locals, instr, ctx);
+                        break;
+                    case Opcode.TryUnwrap:
+                    {
+                        // Ok: dst is set, fall through. Err: early-return the Err
+                        // value through the standard return channel (like Ret).
+                        var early = OpTryUnwrap(locals, instr, ctx);
+                        if (early != null) { f.Pc = pc; return res.SuccessReturn(early); }
+                        break;
+                    }
+                    case Opcode.DeclareLocalByName:
+                        OpDeclareLocalByName(locals, instr, names, ctx);
+                        break;
+                    case Opcode.DestructureFail:
+                        throw new RaUserError(MakeIcError(ctx,
+                            "destructuring pattern did not match the initializer value"));
+                    case Opcode.Await:
+                    {
+                        // L8 — `await x`. The target (already evaluated by opcodes)
+                        // is at B; await it via the shared AwaitNodeVisitor.Await
+                        // ValueCore (byte-identical to the visitor). This adds an
+                        // await point to Execute's MoveNext — the 128 MB worker
+                        // stack carries the per-recursion-level cost.
+                        byte aDst = Encoding.A(instr);
+                        byte aSrc = Encoding.B(instr);
+                        var awaited = await Visitors.Async.AwaitNodeVisitor.AwaitValueCore(
+                            locals[aSrc], ctx, DummyPos(ctx), DummyPos(ctx)).ConfigureAwait(false);
+                        if (awaited.Error != null) throw new RaUserError(awaited.Error);
+                        locals[aDst] = awaited.Value ?? NullValue.Null;
+                        break;
+                    }
+                    case Opcode.Emit:
+                        // L8 — `emit x` (sync): push the already-evaluated value
+                        // at A into the current async-stream producer.
+                        OpEmit(locals[Encoding.A(instr)], ctx);
+                        break;
+                    case Opcode.Spawn:
+                    {
+                        // L8 — `spawn f(args)` (sync schedule). Callee at B, args at
+                        // B+1..B+argCount (Call layout). Schedule the fiber, dst =
+                        // the TaskValue. AsyncScheduler.Schedule returns immediately.
+                        byte sDst = Encoding.A(instr);
+                        var sub = OpSpawn(locals, Encoding.B(instr), Encoding.C(instr), ctx);
+                        if (sub.Error != null) throw new RaUserError(sub.Error);
+                        locals[sDst] = sub.Value ?? NullValue.Null;
+                        break;
+                    }
+
+                    case Opcode.AsmInvoke:
+                    {
+                        // L9 — inline pure-text `asm { … }`. The AsmBlockNode is
+                        // parked in DefineRefs[imm16]; OpAsmInvoke rebuilds its
+                        // constant source, assembles-on-first-use (cached), and
+                        // executes via the shared AsmBlockExecCore. dst = the
+                        // narrowed return value (or a 2-tuple). Off-stack helper
+                        // protects the M85 deep-recursion frame budget.
+                        byte amDst = Encoding.A(instr);
+                        locals[amDst] = OpAsmInvoke(f, Encoding.Imm16(instr), ctx);
+                        break;
+                    }
+
+                    case Opcode.AsmInvokeI:
+                    {
+                        // L10 — interpolated inline `asm { … %{e} … }`. The parked
+                        // AsmBlockNode is in DefineRefs[c]; the %{…} args are
+                        // pre-evaluated in the band [b .. b+N-1]. OpAsmInvokeI
+                        // formats them into the source + assembles + executes.
+                        byte aiDst = Encoding.A(instr);
+                        locals[aiDst] = OpAsmInvokeI(f, locals, Encoding.B(instr), Encoding.C(instr), ctx);
+                        break;
+                    }
+
+                    case Opcode.FinallyEnd:
+                    {
+                        // L10 — end of a `finally` body, reached by normal fall-
+                        // through. Apply whatever was stashed before the finally:
+                        //  (1) a control-flow escape (return/yield) that occurred
+                        //      in the try/catch body → resume it now;
+                        //  (2) else a pending error → re-raise it.
+                        // The finally's OWN control flow / a fresh throw would have
+                        // exited before reaching here, naturally overriding both.
+                        if (f.PendingFlowKind != 0)
+                        {
+                            byte k = f.PendingFlowKind;
+                            var v = f.PendingFlowValue ?? NullValue.Null;
+                            f.PendingFlowKind = 0;
+                            f.PendingFlowValue = null;
+                            f.Pc = pc;
+                            return k == 2 ? res.SuccessYield(v) : res.SuccessReturn(v);
+                        }
+                        if (f.PendingError != null)
+                        {
+                            var pe = f.PendingError;
+                            f.PendingError = null;
+                            throw new RaUserError(pe);
+                        }
+                        break;
+                    }
+
+                    case Opcode.SetPendingFlow:
+                    {
+                        // L10 — stash a `return`/`yield` escaping through an
+                        // enclosing finally (the IrCompiler emits this + a jump to
+                        // the finally instead of OP_RET/RetYield). kind: 1=return,
+                        // 2=yield; value at slot a.
+                        f.PendingFlowKind = Encoding.B(instr);
+                        f.PendingFlowValue = locals[Encoding.A(instr)] ?? NullValue.Null;
+                        break;
+                    }
+
+                    case Opcode.AnnotationApply:
+                    {
+                        // L10 — standalone `@Name(args)` value. The parked
+                        // AnnotationApplicationNode is in DefineRefs[imm16];
+                        // OpAnnotationApply builds the AnnotationInstanceValue via
+                        // the shared (sync) visitor core.
+                        byte aDst = Encoding.A(instr);
+                        locals[aDst] = OpAnnotationApply(f, Encoding.Imm16(instr), ctx);
+                        break;
+                    }
+
                     default:
                         throw new RaUserError(MakeIcError(ctx,
                             $"VM: opcode {op} (0x{(byte)op:X2}) not implemented yet (PC={pc - 1})"));
@@ -2495,7 +2762,10 @@ namespace RaLanguage.Interpreter.Vm
                     for (int i = 0; i < eh.Length; i++)
                     {
                         var h = eh[i];
-                        if (faultPc >= h.StartPc && faultPc < h.EndPc && h.CatchPc >= 0)
+                        // L10: a handler covers the fault if it has a catch OR a
+                        // finally to route into (a try/finally with no catch, or
+                        // an exception escaping a catch body).
+                        if (faultPc >= h.StartPc && faultPc < h.EndPc && (h.CatchPc >= 0 || h.FinallyPc >= 0))
                         {
                             int span = h.EndPc - h.StartPc;
                             if (span < bestSpan)
@@ -2513,35 +2783,46 @@ namespace RaLanguage.Interpreter.Vm
                             ctx = ctx.Parent;
                             f.CtxDepth--;
                         }
-                        // Prefer the raw thrown value carried by a user
-                        // `throw expr` so pattern-based catch clauses can
-                        // destructure the original (typed) value.
-                        // System-raised errors leave ThrownValue null and
-                        // fall back to a StringValue rendering.
-                        RaLanguage.Interpreter.Values.RuntimeValue catchValue;
-                        if (ue.Err is RaLanguage.Errors.Types.RuntimeError rerr && rerr.ThrownValue != null)
+                        if (h.CatchPc >= 0)
                         {
-                            catchValue = rerr.ThrownValue;
+                            // Prefer the raw thrown value carried by a user
+                            // `throw expr` so pattern-based catch clauses can
+                            // destructure the original (typed) value.
+                            // System-raised errors leave ThrownValue null and
+                            // fall back to a StringValue rendering.
+                            RaLanguage.Interpreter.Values.RuntimeValue catchValue;
+                            if (ue.Err is RaLanguage.Errors.Types.RuntimeError rerr && rerr.ThrownValue != null)
+                            {
+                                catchValue = rerr.ThrownValue;
+                            }
+                            else
+                            {
+                                string msg = ue.Err.Diagnostic?.Message ?? ue.Err.ToString() ?? "<error>";
+                                catchValue = new StringValue(msg).SetContext(ctx);
+                            }
+                            // M83 — explicit catch-slot tag normalisation.
+                            // See original comment block: the catch slot may
+                            // not have been pre-cleared by the dispatch
+                            // loop's bitmap, so we explicitly normalise to
+                            // a Ref slot before the boxed write.
+                            if ((uint)h.CatchSlot < (uint)f.Slots.Length)
+                            {
+                                ref var catchSlot = ref f.Slots[h.CatchSlot];
+                                catchSlot.Tag = ValueSlotTag.Ref;
+                                catchSlot.Bits = 0;
+                                catchSlot.Ref = null;
+                            }
+                            locals[h.CatchSlot] = catchValue;
+                            pc = h.CatchPc;
                         }
                         else
                         {
-                            string msg = ue.Err.Diagnostic?.Message ?? ue.Err.ToString() ?? "<error>";
-                            catchValue = new StringValue(msg).SetContext(ctx);
+                            // L10 finally-only route (try/finally with no catch, or
+                            // an exception escaping a catch body): stash the error
+                            // and run the finally; OP_FINALLY_END re-raises it.
+                            f.PendingError = ue.Err;
+                            pc = h.FinallyPc;
                         }
-                        // M83 — explicit catch-slot tag normalisation.
-                        // See original comment block: the catch slot may
-                        // not have been pre-cleared by the dispatch
-                        // loop's bitmap, so we explicitly normalise to
-                        // a Ref slot before the boxed write.
-                        if ((uint)h.CatchSlot < (uint)f.Slots.Length)
-                        {
-                            ref var catchSlot = ref f.Slots[h.CatchSlot];
-                            catchSlot.Tag = ValueSlotTag.Ref;
-                            catchSlot.Bits = 0;
-                            catchSlot.Ref = null;
-                        }
-                        locals[h.CatchSlot] = catchValue;
-                        pc = h.CatchPc;
                     }
                     else
                     {
@@ -2600,6 +2881,829 @@ namespace RaLanguage.Interpreter.Vm
         // when the comparison is FALSE (JmpIfNot semantics). `[NoInlining]`
         // keeps the dispatch-loop C# frame compact (depth-2000 recursion
         // tripwire) — identical discipline to ExecuteUnboxedII.
+        // L4 OP_FMT off-stack body. `${expr:spec}` — value in slot b, the
+        // FormatSpec packed into the int constant at index c (FormatSpec.Pack).
+        // Unpack + run the same FormatEngine the visitor uses (no re-parse).
+        // NoInlining keeps the dispatch-loop frame compact (depth-2000 budget).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue ExecuteFmt(VmFrame f, LocalsView locals, uint instr, Context ctx, int pc)
+        {
+            byte exprSlot = Encoding.B(instr);
+            byte specConstIdx = Encoding.C(instr);
+            var fval = locals[exprSlot];
+            int packed = ((IntegerValue)f.Function.Consts[specConstIdx]).Value;
+            var spec = Types.Formatting.FormatSpec.Unpack(packed);
+            var (fStart, fEnd) = ResolveSpan(f, pc, ctx);
+            var (ftext, ferr) = Types.Formatting.FormatEngine.Format(fval!, spec, fStart, fEnd, ctx);
+            if (ferr != null) throw new RaUserError(ferr);
+            return new StringValue(ftext ?? string.Empty).SetContext(ctx);
+        }
+
+        // L4 OP_WITH off-stack body. `recv with { f: v, ... }` — receiver at
+        // slot base, the N pre-evaluated update values at base+1..base+N; the
+        // WithExpressionNode parked in DefineRefs[c] supplies the static field
+        // names / types. Shallow-clone + validate + field-set in the shared
+        // WithExpressionOps helper (byte-identical to the visitor). NoInlining
+        // keeps the locals off the dispatch-loop frame (depth-2000 budget).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue ExecuteWith(VmFrame f, LocalsView locals, uint instr, Context ctx)
+        {
+            byte baseSlot = Encoding.B(instr);
+            byte refIdx = Encoding.C(instr);
+            var wrefs = f.Function.DefineRefs;
+            if (refIdx >= wrefs.Length ||
+                wrefs[refIdx] is not Parser.Nodes.Operations.WithExpressionNode wnode)
+                throw new RaUserError(MakeIcError(ctx, "VM: OP_WITH ref is not a WithExpressionNode"));
+            int wcount = wnode.Updates.Count;
+            if (baseSlot + wcount >= locals.Length)
+                throw new RaUserError(MakeIcError(ctx, "VM: OP_WITH value slots exceed frame"));
+            var wvalues = new RuntimeValue[wcount];
+            for (int i = 0; i < wcount; i++) wvalues[i] = locals[baseSlot + 1 + i]!;
+            var (wresult, werr) = Runtime.WithExpressionOps.Apply(locals[baseSlot], wnode, wvalues, ctx);
+            if (werr != null) throw new RaUserError(werr);
+            return wresult!;
+        }
+
+        // L10 OP_CALL_GENERIC off-stack body. Mirrors the OP_CALL inline handler
+        // but reads argCount (= ArgNodes.Count) + the explicit GenericTypeArgs
+        // from the FunctionCallNode parked in DefineRefs[c] (With-shaped), and
+        // threads the type args to FunctionCallExecutor.Invoke (the SAME chokepoint
+        // the AST visitor uses → identical generic-dispatch semantics).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static async System.Threading.Tasks.ValueTask<RuntimeValue> ExecuteCallGeneric(
+            VmFrame f, LocalsView locals, uint instr, Context ctx)
+        {
+            if (ctx.AreCallsBlocked)
+                throw new RaUserError(MakeIcError(ctx, "function calls are not allowed in this context"));
+            byte fnSlot = Encoding.B(instr);
+            int refIdx = Encoding.C(instr);
+            var grefs = f.Function.DefineRefs;
+            if (grefs == null || refIdx >= grefs.Length
+                || grefs[refIdx] is not Parser.Nodes.Functions.FunctionCallNode gfc)
+                throw new RaUserError(MakeIcError(ctx, "VM: OP_CALL_GENERIC ref is not a FunctionCallNode"));
+            int argCount = gfc.ArgNodes.Count;
+            var fn = locals[fnSlot];
+            if (fn == null)
+                throw new RaUserError(MakeIcError(ctx, "VM: callee slot is null"));
+            // Split the contiguous arg band into positionals + named args by each
+            // ArgNode's compile-time NameTok (values are runtime, names static) —
+            // mirrors FunctionCallNodeVisitor → generic / named / mixed call.
+            var argList = RentArgList(argCount);
+            System.Collections.Generic.Dictionary<string, RuntimeValue>? named = null;
+            for (int i = 0; i < argCount; i++)
+            {
+                var a = locals[fnSlot + 1 + i];
+                if (a == null)
+                    throw new RaUserError(MakeIcError(ctx, $"VM: argument {i} slot is null"));
+                var nameTok = gfc.ArgNodes[i].NameTok;
+                if (nameTok != null)
+                {
+                    named ??= new System.Collections.Generic.Dictionary<string, RuntimeValue>(System.StringComparer.Ordinal);
+                    named[nameTok.Value.ToString() ?? ""] = a;
+                }
+                else argList.Add(a);
+            }
+            var emptyNamed = Runtime.Calls.FunctionCallExecutor.EmptyNamedArgs;
+            var pos = DummyPos(ctx);
+            var invokeTask = Runtime.Calls.FunctionCallExecutor.Invoke(
+                fn, argList, named ?? emptyNamed, gfc.GenericTypeArgs, pos, pos, ctx);
+            RuntimeResult invokeRes;
+            if (invokeTask.IsCompletedSuccessfully)
+            {
+                invokeRes = invokeTask.Result;
+                ReturnArgList(argList);
+            }
+            else
+                invokeRes = await invokeTask.ConfigureAwait(false);
+            if (invokeRes.Error != null) throw new RaUserError(invokeRes.Error);
+            return invokeRes.Value!;
+        }
+
+        // L5 OP_DEFINE_TYPE off-stack body. Reconstruct + register a one-shot
+        // type from its flat descriptor (RaFunction.TypeDefs[imm16]). Dispatches
+        // on the descriptor kind; each kind shares the SAME registration helper
+        // the visitor fallback uses (byte-identical runtime type).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue ExecuteDefineType(VmFrame f, uint instr, Context ctx, int pc, IInterpreter interpreter)
+        {
+            ushort tdIdx = Encoding.Imm16(instr);
+            var defs = f.Function.TypeDefs;
+            if (defs == null || tdIdx >= defs.Length)
+                throw new RaUserError(MakeIcError(ctx, $"VM: DefineType index {tdIdx} out of range"));
+            var def = defs[tdIdx];
+            switch (def.Kind)
+            {
+                case IR.Defs.TypeDefKind.Enum:
+                    return DefineEnum((IR.Defs.EnumDef)def, ctx, f, pc);
+                case IR.Defs.TypeDefKind.Delegate:
+                    return DefineDelegate((IR.Defs.DelegateDef)def, ctx, f, pc);
+                case IR.Defs.TypeDefKind.Using:
+                    return DefineUsing((IR.Defs.UsingDef)def, ctx, f, pc);
+                case IR.Defs.TypeDefKind.Struct:
+                    return DefineStruct((IR.Defs.StructDef)def, ctx, f, pc, interpreter);
+                case IR.Defs.TypeDefKind.Record:
+                    return DefineRecord((IR.Defs.RecordDef)def, ctx, f, pc, interpreter);
+                case IR.Defs.TypeDefKind.Class:
+                    return DefineClass((IR.Defs.ClassDef)def, ctx, f, pc, interpreter);
+                case IR.Defs.TypeDefKind.Trait:
+                    return DefineTrait((IR.Defs.TraitDef)def, ctx, f, pc, interpreter);
+                case IR.Defs.TypeDefKind.Extension:
+                    return DefineExtension((IR.Defs.ExtensionDef)def, ctx, f, pc);
+                case IR.Defs.TypeDefKind.Interface:
+                    return DefineInterface((IR.Defs.InterfaceDef)def, ctx, f, pc, interpreter);
+                case IR.Defs.TypeDefKind.Annotation:
+                    return DefineAnnotation((IR.Defs.AnnotationDef)def, ctx, f, pc, interpreter);
+                case IR.Defs.TypeDefKind.Import:
+                    return DefineImport((IR.Defs.ImportDef)def, ctx, f, pc, interpreter);
+                case IR.Defs.TypeDefKind.Namespace:
+                    return DefineNamespace((IR.Defs.NamespaceDef)def, ctx, f, pc, interpreter);
+                default:
+                    throw new RaUserError(MakeIcError(ctx, $"VM: DefineType unsupported kind {def.Kind}"));
+            }
+        }
+
+        // L5e: reconstruct the (stub-bodied) StructDefinitionNode the runtime
+        // StructTypeValue API expects from the flat StructDef, wiring each
+        // method's precompiled RaFunction into CompiledBody, then run the SAME
+        // visitor Apply — so registration, validation (to_string, const fields),
+        // and dispatch are byte-identical to the AST path; only the method
+        // bodies are pre-compiled (the visitor would compile the same body
+        // lazily on first call).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineStruct(IR.Defs.StructDef def, Context ctx, VmFrame f, int pc, IInterpreter interpreter)
+        {
+            var (s, e) = ResolveSpan(f, pc, ctx);
+
+            var fields = new System.Collections.Generic.List<Parser.Nodes.Structs.StructFieldDefinitionNode>(def.Fields.Length);
+            foreach (var fd in def.Fields)
+            {
+                // Rebuild a const default as a NumberNode whose CachedValue is
+                // the folded value — NumberNodeVisitor returns CachedValue
+                // verbatim (any type), so field-init evaluates to exactly the
+                // folded const (byte-identical to the visitor's evaluation).
+                AstNode? defNode = null;
+                if (fd.DefaultConst != null)
+                {
+                    defNode = new Parser.Nodes.Primitives.NumberNode(
+                        new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
+                    { CachedValue = fd.DefaultConst };
+                }
+                fields.Add(new Parser.Nodes.Structs.StructFieldDefinitionNode(
+                    fd.IsPublic,
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, fd.Name, s, e),
+                    fd.FieldType,
+                    defNode,
+                    fd.IsStatic, fd.IsAbstract, fd.IsOverride,
+                    (Parser.Nodes.Variables.VariableDeclarationType)fd.DeclKind));
+            }
+
+            var methods = new System.Collections.Generic.List<Parser.Nodes.Structs.StructMethodDefinitionNode>(def.Methods.Length);
+            foreach (var md in def.Methods)
+                methods.Add(ReconstructStructMethod(md, s, e));
+
+            var node = new Parser.Nodes.Structs.StructDefinitionNode(
+                new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
+                def.IsPublic, fields, methods,
+                ReconstructOperators(def.Operators, s, e),
+                new System.Collections.Generic.List<string>(def.Generics),
+                ReconstructWheres(def.Wheres, s, e),
+                ReconstructProperties(def.Properties, s, e),
+                ReconstructEvents(def.Events, s, e));
+
+            var result = Visitors.Structs.StructDefinitionNodeVisitor.Apply(node, ctx, interpreter);
+            if (result.Error != null) throw new RaUserError(result.Error);
+            return result.Value!;
+        }
+
+        // Shared by struct + record: rebuild a StructMethodDefinitionNode (stub
+        // PassNode body) with the precompiled RaFunction wired into CompiledBody.
+        private static Parser.Nodes.Structs.StructMethodDefinitionNode ReconstructStructMethod(
+            IR.Defs.StructMethodDef md, Lexer.Position s, Lexer.Position e)
+        {
+            var argToks = new System.Collections.Generic.List<Lexer.Tokens.Token>(md.ArgNames.Length);
+            foreach (var an in md.ArgNames)
+                argToks.Add(new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, an, s, e));
+            var argTypes = new System.Collections.Generic.List<Types.TypeDescriptor?>(md.ArgTypes);
+            var refParams = new System.Collections.Generic.List<bool>(md.IsRefParams);
+            // Rebuild const-folded param defaults as NumberNodes carrying CachedValue
+            // (NumberNodeVisitor returns CachedValue verbatim) — byte-identical to the
+            // visitor's default-arg evaluation. Null slots stay null (no default).
+            var paramDefaults = new System.Collections.Generic.List<AstNode?>(new AstNode?[md.ArgNames.Length]);
+            for (int i = 0; i < md.ArgNames.Length && i < md.ParamDefaultConsts.Length; i++)
+                if (md.ParamDefaultConsts[i] != null)
+                    paramDefaults[i] = new Parser.Nodes.Primitives.NumberNode(
+                        new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
+                    { CachedValue = md.ParamDefaultConsts[i] };
+            Lexer.Tokens.Token? varArgTok = md.VarArgName == null ? null
+                : new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, md.VarArgName, s, e);
+
+            var mnode = new Parser.Nodes.Structs.StructMethodDefinitionNode(
+                md.IsPublic, md.IsConstructor,
+                new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, md.Name, s, e),
+                argToks, argTypes, refParams, paramDefaults,
+                md.HasVarArgs, varArgTok, md.VarArgType, md.ReturnType,
+                new Parser.Nodes.Operations.PassNode(s, e),
+                md.ShouldAutoReturn);
+            mnode.CompiledBody = md.Body;
+            mnode.IrCompileTried = true;
+            mnode.FrameId = md.FrameId;
+            mnode.IsAsync = md.IsAsync;
+            mnode.IsAsyncStream = md.IsAsyncStream;
+            return mnode;
+        }
+
+        // L5e: reconstruct the (stub-bodied) RecordDefinitionNode from a flat
+        // RecordDef + precompiled method bodies, then run the SAME visitor Apply.
+        // First sub-stage: value records, no inheritance (BaseType always null).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineRecord(IR.Defs.RecordDef def, Context ctx, VmFrame f, int pc, IInterpreter interpreter)
+        {
+            var (s, e) = ResolveSpan(f, pc, ctx);
+
+            var primaryFields = new System.Collections.Generic.List<Parser.Nodes.Records.RecordPrimaryFieldNode>(def.PrimaryFields.Length);
+            foreach (var pf in def.PrimaryFields)
+            {
+                AstNode? defNode = null;
+                if (pf.DefaultConst != null)
+                    defNode = new Parser.Nodes.Primitives.NumberNode(
+                        new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
+                    { CachedValue = pf.DefaultConst };
+                primaryFields.Add(new Parser.Nodes.Records.RecordPrimaryFieldNode(
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, pf.Name, s, e),
+                    pf.FieldType, defNode, pf.IsPublic, pf.IsMutable));
+            }
+
+            var methods = new System.Collections.Generic.List<Parser.Nodes.Structs.StructMethodDefinitionNode>(def.Methods.Length);
+            foreach (var md in def.Methods)
+                methods.Add(ReconstructStructMethod(md, s, e));
+
+            var node = new Parser.Nodes.Records.RecordDefinitionNode(
+                new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
+                def.IsPublic, def.IsRefRecord, /*isAbstract*/ false,
+                /*baseType*/ null, /*baseArgs*/ null,
+                primaryFields, methods,
+                ReconstructOperators(def.Operators, s, e),
+                new System.Collections.Generic.List<string>(def.Generics),
+                ReconstructWheres(def.Wheres, s, e),
+                ReconstructProperties(def.Properties, s, e),
+                ReconstructEvents(def.Events, s, e));
+            // Restore the @derive-controlled auto flags (default true).
+            node.AutoEquals = def.AutoEquals;
+            node.AutoToString = def.AutoToString;
+
+            var result = Visitors.Records.RecordDefinitionNodeVisitor.Apply(node, ctx, interpreter);
+            if (result.Error != null) throw new RaUserError(result.Error);
+            return result.Value!;
+        }
+
+        // Reconstruct a class method (FunctionDefinitionNode) with stub body +
+        // precompiled RaFunction wired into CompiledBody.
+        private static Parser.Nodes.Functions.FunctionDefinitionNode ReconstructClassMethod(
+            IR.Defs.ClassMethodDef md, Lexer.Position s, Lexer.Position e)
+        {
+            var argToks = new System.Collections.Generic.List<Lexer.Tokens.Token>(md.ArgNames.Length);
+            foreach (var an in md.ArgNames)
+                argToks.Add(new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, an, s, e));
+            var argTypes = new System.Collections.Generic.List<Types.TypeDescriptor?>(md.ArgTypes);
+            var refParams = new System.Collections.Generic.List<bool>(md.IsRefParams);
+            // Rebuild const-folded param defaults as NumberNodes carrying CachedValue
+            // (NumberNodeVisitor returns CachedValue verbatim) — byte-identical to the
+            // visitor's default-arg evaluation. Null slots stay null (no default).
+            var paramDefaults = new System.Collections.Generic.List<AstNode?>(new AstNode?[md.ArgNames.Length]);
+            for (int i = 0; i < md.ArgNames.Length && i < md.ParamDefaultConsts.Length; i++)
+                if (md.ParamDefaultConsts[i] != null)
+                    paramDefaults[i] = new Parser.Nodes.Primitives.NumberNode(
+                        new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
+                    { CachedValue = md.ParamDefaultConsts[i] };
+            Lexer.Tokens.Token? varArgTok = md.VarArgName == null ? null
+                : new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, md.VarArgName, s, e);
+
+            var mGenerics = md.Generics.Length == 0
+                ? null
+                : new System.Collections.Generic.List<string>(md.Generics);
+            var mnode = new Parser.Nodes.Functions.FunctionDefinitionNode(
+                new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, md.Name, s, e),
+                argToks, argTypes, refParams, paramDefaults,
+                md.HasVarArgs, varArgTok, md.VarArgType, md.ReturnType,
+                new Parser.Nodes.Operations.PassNode(s, e), md.ShouldAutoReturn,
+                mGenerics, md.IsPublic, md.IsConstructor, md.IsOverride, md.IsAbstract, md.IsStatic);
+            // Abstract methods carry no body (md.Body == null) and are never invoked
+            // (ClassTypeValue filters dispatch/compile on !IsAbstract); concrete
+            // methods wire the precompiled RaFunction.
+            mnode.CompiledBody = md.Body;
+            mnode.IrCompileTried = true;
+            mnode.FrameId = md.FrameId;
+            mnode.IsAsync = md.IsAsync;
+            mnode.IsAsyncStream = md.IsAsyncStream;
+            mnode.IsFactory = md.IsFactory;          // L10 factory ctor
+            mnode.ConstructorName = md.ConstructorName; // L10 named ctor
+            return mnode;
+        }
+
+        // L10 one-shot-defn widening: reconstruct an OperatorDefinitionNode with a
+        // stub body + the precompiled RaFunction wired into CompiledBody. The
+        // operator-invocation path (BoundOperatorValue.Execute) routes through
+        // GetOrCompileOperator → returns CompiledBody when IrCompileTried is set,
+        // so the stub PassNode is never compiled/executed. Shared by struct/class/
+        // record/extension reconstruction.
+        private static Parser.Nodes.Classes.OperatorDefinitionNode ReconstructOperator(
+            IR.Defs.OperatorDef od, Lexer.Position s, Lexer.Position e)
+        {
+            var onode = new Parser.Nodes.Classes.OperatorDefinitionNode(
+                od.IsPublic, od.IsOverride, od.IsStatic,
+                new Lexer.Tokens.Token(od.OpTokenType, od.Symbol, s, e),
+                new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, od.ArgName, s, e),
+                od.ArgType, od.ReturnType,
+                new Parser.Nodes.Operations.PassNode(s, e), od.ShouldAutoReturn,
+                new System.Collections.Generic.List<string>(od.Generics), null);
+            onode.CompiledBody = od.Body;
+            onode.IrCompileTried = true;
+            onode.FrameId = od.FrameId;
+            return onode;
+        }
+
+        // Shared: reconstruct an operator list from OperatorDef[] (empty → empty).
+        private static System.Collections.Generic.List<Parser.Nodes.Classes.OperatorDefinitionNode> ReconstructOperators(
+            IR.Defs.OperatorDef[] ops, Lexer.Position s, Lexer.Position e)
+        {
+            var list = new System.Collections.Generic.List<Parser.Nodes.Classes.OperatorDefinitionNode>(ops.Length);
+            foreach (var od in ops) list.Add(ReconstructOperator(od, s, e));
+            return list;
+        }
+
+        // L10 generic type-def widening: reconstruct a where-constraint list from
+        // WhereConstraintDef[] (empty → empty). Shared by struct/class/record.
+        private static System.Collections.Generic.List<Parser.Nodes.Special.WhereConstraintNode> ReconstructWheres(
+            IR.Defs.WhereConstraintDef[] wheres, Lexer.Position s, Lexer.Position e)
+        {
+            var list = new System.Collections.Generic.List<Parser.Nodes.Special.WhereConstraintNode>(wheres.Length);
+            foreach (var wd in wheres)
+                list.Add(new Parser.Nodes.Special.WhereConstraintNode(
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, wd.ParameterName, s, e),
+                    wd.ConstraintType));
+            return list;
+        }
+
+        // L10 property widening: reconstruct an AUTO PropertyDefinitionNode from a
+        // flat PropertyDef — auto accessors (BodyNode null) + a const-folded default
+        // (rebuilt as a NumberNode carrying CachedValue, like struct fields). The
+        // visitor's PropertyBuilder.Build registers it (backing slot in the hidden
+        // class shape); access lowers as field-slot access. Shared by struct/class/
+        // record reconstruction.
+        private static Parser.Nodes.Properties.PropertyDefinitionNode ReconstructProperty(
+            IR.Defs.PropertyDef pd, Lexer.Position s, Lexer.Position e)
+        {
+            var accessors = new System.Collections.Generic.List<Parser.Nodes.Properties.PropertyAccessorNode>(pd.Accessors.Length);
+            foreach (var ad in pd.Accessors)
+            {
+                var kind = (Parser.Nodes.Properties.PropertyAccessorKind)ad.Kind;
+                string kindStr = kind switch
+                {
+                    Parser.Nodes.Properties.PropertyAccessorKind.Get => "get",
+                    Parser.Nodes.Properties.PropertyAccessorKind.Set => "set",
+                    Parser.Nodes.Properties.PropertyAccessorKind.Init => "init",
+                    Parser.Nodes.Properties.PropertyAccessorKind.Observe => "observe",
+                    _ => "get"
+                };
+                // AUTO accessor (Body null) → bodyNode null (IsAuto true). COMPUTED
+                // accessor → a stub PassNode body (IsAuto false → the visitor builds
+                // it computed) + the precompiled CompiledBody wired in (RunAccessorBody
+                // returns it via GetOrCompileAccessor's IrCompileTried short-circuit;
+                // the stub is never compiled/executed).
+                AstNode? accBody = ad.Body == null ? null : new Parser.Nodes.Operations.PassNode(s, e);
+                var accNode = new Parser.Nodes.Properties.PropertyAccessorNode(
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, kindStr, s, e),
+                    kind, (Parser.Nodes.Properties.PropertyAccessorVisibility)ad.Visibility, accBody);
+                if (ad.Body != null)
+                {
+                    accNode.CompiledBody = ad.Body;
+                    accNode.IrCompileTried = true;
+                }
+                accessors.Add(accNode);
+            }
+            AstNode? defNode = null;
+            if (pd.DefaultConst != null)
+                defNode = new Parser.Nodes.Primitives.NumberNode(
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
+                { CachedValue = pd.DefaultConst };
+            return new Parser.Nodes.Properties.PropertyDefinitionNode(
+                new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, pd.Name, s, e),
+                pd.PropertyType, defNode, accessors,
+                pd.IsPublic, pd.IsStatic, pd.IsAbstract, pd.IsOverride, pd.IsLazy);
+        }
+
+        // Shared: reconstruct a property list from PropertyDef[] (empty → empty).
+        private static System.Collections.Generic.List<Parser.Nodes.Properties.PropertyDefinitionNode> ReconstructProperties(
+            IR.Defs.PropertyDef[] props, Lexer.Position s, Lexer.Position e)
+        {
+            var list = new System.Collections.Generic.List<Parser.Nodes.Properties.PropertyDefinitionNode>(props.Length);
+            foreach (var pd in props) list.Add(ReconstructProperty(pd, s, e));
+            return list;
+        }
+
+        // L10 event widening: reconstruct an EventDefinitionNode from flat metadata
+        // (events have no accessor bodies) → the visitor's EventBuilder registers it.
+        private static Parser.Nodes.Events.EventDefinitionNode ReconstructEvent(
+            IR.Defs.EventDef ed, Lexer.Position s, Lexer.Position e)
+        {
+            var payload = new System.Collections.Generic.List<Parser.Nodes.Events.EventPayloadParam>(ed.PayloadParams.Length);
+            foreach (var pp in ed.PayloadParams)
+                payload.Add(new Parser.Nodes.Events.EventPayloadParam(
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, pp.Name, s, e), pp.Type));
+
+            var accessors = new System.Collections.Generic.List<Parser.Nodes.Events.EventAccessorNode>(ed.Accessors.Length);
+            foreach (var ad in ed.Accessors)
+            {
+                var kind = (Parser.Nodes.Events.EventAccessorKind)ad.Kind;
+                string kindStr = kind switch
+                {
+                    Parser.Nodes.Events.EventAccessorKind.Subscribe => "subscribe",
+                    Parser.Nodes.Events.EventAccessorKind.Raise => "raise",
+                    _ => "subscribe"
+                };
+                accessors.Add(new Parser.Nodes.Events.EventAccessorNode(
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, kindStr, s, e),
+                    kind, (Parser.Nodes.Events.EventAccessorVisibility)ad.Visibility));
+            }
+
+            return new Parser.Nodes.Events.EventDefinitionNode(
+                new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, ed.Name, s, e),
+                payload, accessors,
+                ed.IsPublic, ed.IsStatic, ed.IsAbstract, ed.IsOverride, ed.IsCancellable, ed.IsTolerant, ed.IsAsync);
+        }
+
+        private static System.Collections.Generic.List<Parser.Nodes.Events.EventDefinitionNode> ReconstructEvents(
+            IR.Defs.EventDef[] events, Lexer.Position s, Lexer.Position e)
+        {
+            var list = new System.Collections.Generic.List<Parser.Nodes.Events.EventDefinitionNode>(events.Length);
+            foreach (var ed in events) list.Add(ReconstructEvent(ed, s, e));
+            return list;
+        }
+
+        // L5e: reconstruct the (stub-bodied) ClassDefinitionNode from a flat
+        // ClassDef + precompiled method bodies, then run the SAME visitor Apply.
+        // The visitor is async only to evaluate field defaults — folded const
+        // defaults make those awaits complete synchronously, so blocking on the
+        // ValueTask never actually blocks for the lowerable subset.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineClass(IR.Defs.ClassDef def, Context ctx, VmFrame f, int pc, IInterpreter interpreter)
+        {
+            var (s, e) = ResolveSpan(f, pc, ctx);
+
+            var fields = new System.Collections.Generic.List<Parser.Nodes.Structs.StructFieldDefinitionNode>(def.Fields.Length);
+            foreach (var fd in def.Fields)
+            {
+                AstNode? defNode = null;
+                if (fd.DefaultConst != null)
+                    defNode = new Parser.Nodes.Primitives.NumberNode(
+                        new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
+                    { CachedValue = fd.DefaultConst };
+                fields.Add(new Parser.Nodes.Structs.StructFieldDefinitionNode(
+                    fd.IsPublic,
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, fd.Name, s, e),
+                    fd.FieldType, defNode, fd.IsStatic, fd.IsAbstract, fd.IsOverride,
+                    (Parser.Nodes.Variables.VariableDeclarationType)fd.DeclKind));
+            }
+
+            var methods = new System.Collections.Generic.List<Parser.Nodes.Functions.FunctionDefinitionNode>(def.Methods.Length);
+            foreach (var md in def.Methods)
+                methods.Add(ReconstructClassMethod(md, s, e));
+
+            var node = new Parser.Nodes.Classes.ClassDefinitionNode(
+                new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
+                def.IsPublic, def.IsAbstract, /*isStatic*/ false,
+                def.BaseType,
+                new System.Collections.Generic.List<Types.TypeDescriptor>(def.Interfaces),
+                new System.Collections.Generic.List<Types.TypeDescriptor>(def.Traits),
+                fields, methods,
+                ReconstructOperators(def.Operators, s, e),
+                new System.Collections.Generic.List<string>(def.Generics),
+                ReconstructWheres(def.Wheres, s, e),
+                ReconstructProperties(def.Properties, s, e),
+                ReconstructEvents(def.Events, s, e));
+
+            var task = Visitors.Classes.ClassDefinitionNodeVisitor.Apply(node, ctx, interpreter);
+            var result = task.IsCompleted ? task.Result : task.AsTask().GetAwaiter().GetResult();
+            if (result.Error != null) throw new RaUserError(result.Error);
+            return result.Value!;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineTrait(IR.Defs.TraitDef def, Context ctx, VmFrame f, int pc, IInterpreter interpreter)
+        {
+            var (s, e) = ResolveSpan(f, pc, ctx);
+
+            var fields = new System.Collections.Generic.List<Parser.Nodes.Structs.StructFieldDefinitionNode>(def.Fields.Length);
+            foreach (var fd in def.Fields)
+            {
+                AstNode? defNode = null;
+                if (fd.DefaultConst != null)
+                    defNode = new Parser.Nodes.Primitives.NumberNode(
+                        new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
+                    { CachedValue = fd.DefaultConst };
+                fields.Add(new Parser.Nodes.Structs.StructFieldDefinitionNode(
+                    fd.IsPublic,
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, fd.Name, s, e),
+                    fd.FieldType, defNode, fd.IsStatic, fd.IsAbstract, fd.IsOverride,
+                    (Parser.Nodes.Variables.VariableDeclarationType)fd.DeclKind));
+            }
+
+            var methods = new System.Collections.Generic.List<Parser.Nodes.Traits.TraitMethodDefinitionNode>(def.Methods.Length);
+            foreach (var md in def.Methods)
+            {
+                var argToks = new System.Collections.Generic.List<Lexer.Tokens.Token>(md.ArgNames.Length);
+                foreach (var an in md.ArgNames)
+                    argToks.Add(new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, an, s, e));
+                var argTypes = new System.Collections.Generic.List<Types.TypeDescriptor?>(md.ArgTypes);
+                var refParams = new System.Collections.Generic.List<bool>(md.IsRefParams);
+                var paramDefaults = new System.Collections.Generic.List<AstNode?>(new AstNode?[md.ArgNames.Length]);
+                Lexer.Tokens.Token? varArgTok = md.VarArgName == null ? null
+                    : new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, md.VarArgName, s, e);
+                // Provided methods get a stub body + the precompiled RaFunction;
+                // abstract/required methods keep a null body.
+                AstNode? bodyNode = md.Body != null ? new Parser.Nodes.Operations.PassNode(s, e) : null;
+
+                var mnode = new Parser.Nodes.Traits.TraitMethodDefinitionNode(
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, md.Name, s, e),
+                    argToks, argTypes, refParams, paramDefaults,
+                    md.HasVarArgs, varArgTok, md.VarArgType, md.ReturnType,
+                    bodyNode, md.ShouldAutoReturn, md.IsAbstract);
+                if (md.Body != null)
+                {
+                    mnode.CompiledBody = md.Body;
+                    mnode.IrCompileTried = true;
+                }
+                mnode.FrameId = md.FrameId;
+                mnode.IsAsync = md.IsAsync;
+                mnode.IsAsyncStream = md.IsAsyncStream;
+                methods.Add(mnode);
+            }
+
+            var node = new Parser.Nodes.Traits.TraitDefinitionNode(
+                new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
+                def.IsPublic, methods, fields,
+                new System.Collections.Generic.List<string>(def.Generics),
+                new System.Collections.Generic.List<Parser.Nodes.Special.WhereConstraintNode>());
+
+            var result = Visitors.Traits.TraitDefinitionNodeVisitor.Apply(node, ctx, interpreter);
+            if (result.Error != null) throw new RaUserError(result.Error);
+            return result.Value!;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineExtension(IR.Defs.ExtensionDef def, Context ctx, VmFrame f, int pc)
+        {
+            var (s, e) = ResolveSpan(f, pc, ctx);
+            var methods = new System.Collections.Generic.List<Parser.Nodes.Functions.FunctionDefinitionNode>(def.Methods.Length);
+            foreach (var md in def.Methods)
+                methods.Add(ReconstructClassMethod(md, s, e));
+
+            // Extension fields: rebuild a StructFieldDefinitionNode (const default
+            // → NumberNode carrying CachedValue, byte-identical to the visitor's
+            // field-init eval) wrapped in an ExtensionFieldDeclaration. Lazy fields
+            // never lower (IrCompiler fell back), so isLazy is always false here.
+            var fields = new System.Collections.Generic.List<Parser.Nodes.Classes.ExtensionFieldDeclaration>(def.Fields.Length);
+            foreach (var fd in def.Fields)
+            {
+                AstNode? defNode = null;
+                if (fd.DefaultConst != null)
+                    defNode = new Parser.Nodes.Primitives.NumberNode(
+                        new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
+                    { CachedValue = fd.DefaultConst };
+                var fieldNode = new Parser.Nodes.Structs.StructFieldDefinitionNode(
+                    fd.IsPublic,
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, fd.Name, s, e),
+                    fd.FieldType, defNode,
+                    fd.IsStaticField, /*isAbstract*/ false, /*isOverride*/ false,
+                    (Parser.Nodes.Variables.VariableDeclarationType)fd.DeclKind);
+                fields.Add(new Parser.Nodes.Classes.ExtensionFieldDeclaration(fieldNode, fd.IsStaticField, /*isLazy*/ false));
+            }
+
+            // Extension indexers: re-derive the (method, is-setter) tuples pointing
+            // at the SAME reconstructed method objects (by index into the methods
+            // list) so the visitor's reference-identity filter excludes them from
+            // the regular method bucket, exactly as the parser-produced list does.
+            var indexers = new System.Collections.Generic.List<(Parser.Nodes.Functions.FunctionDefinitionNode, bool)>(def.Indexers.Length);
+            foreach (var ix in def.Indexers)
+                indexers.Add((methods[ix.MethodIndex], ix.IsSetter));
+
+            var node = new Parser.Nodes.Classes.ExtensionDefinitionNode(
+                def.TargetType, def.IsPublic, methods,
+                ReconstructProperties(def.Properties, s, e),
+                ReconstructOperators(def.Operators, s, e),
+                ReconstructEvents(def.Events, s, e),
+                indexers, fields, def.IsSealed);
+
+            var result = Visitors.Extensions.ExtensionDefinitionNodeVisitor.Apply(node, ctx);
+            if (result.Error != null) throw new RaUserError(result.Error);
+            return result.Value!;
+        }
+
+        // L5e: reconstruct the InterfaceDefinitionNode (signature nodes + field
+        // nodes) from a flat InterfaceDef and run the SAME visitor Apply →
+        // byte-identical registration + field/method conformance metadata.
+        // Interface methods are SIGNATURES only (no bodies) — nothing to
+        // precompile; fields carry no defaults (defNode stays null).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineInterface(IR.Defs.InterfaceDef def, Context ctx, VmFrame f, int pc, IInterpreter interpreter)
+        {
+            var (s, e) = ResolveSpan(f, pc, ctx);
+
+            var fields = new System.Collections.Generic.List<Parser.Nodes.Structs.StructFieldDefinitionNode>(def.Fields.Length);
+            foreach (var fd in def.Fields)
+            {
+                fields.Add(new Parser.Nodes.Structs.StructFieldDefinitionNode(
+                    fd.IsPublic,
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, fd.Name, s, e),
+                    fd.FieldType, /*default*/ null, fd.IsStatic, fd.IsAbstract, fd.IsOverride,
+                    (Parser.Nodes.Variables.VariableDeclarationType)fd.DeclKind));
+            }
+
+            var methods = new System.Collections.Generic.List<Parser.Nodes.Interfaces.InterfaceMethodSignatureNode>(def.Methods.Length);
+            foreach (var md in def.Methods)
+            {
+                var argToks = new System.Collections.Generic.List<Lexer.Tokens.Token>(md.ArgNames.Length);
+                foreach (var an in md.ArgNames)
+                    argToks.Add(new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, an, s, e));
+                var argTypes = new System.Collections.Generic.List<Types.TypeDescriptor?>(md.ArgTypes);
+                methods.Add(new Parser.Nodes.Interfaces.InterfaceMethodSignatureNode(
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, md.Name, s, e),
+                    argToks, argTypes, md.ReturnType));
+            }
+
+            var node = new Parser.Nodes.Interfaces.InterfaceDefinitionNode(
+                new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
+                def.IsPublic, methods, fields,
+                new System.Collections.Generic.List<string>(def.Generics));
+
+            var result = Visitors.Interfaces.InterfaceDefinitionNodeVisitor.Apply(node, ctx, interpreter);
+            if (result.Error != null) throw new RaUserError(result.Error);
+            return result.Value!;
+        }
+
+        // L5e: reconstruct the AnnotationDefinitionNode (params with const-default
+        // stubs) from a flat AnnotationDef and run the SAME visitor Apply →
+        // byte-identical AnnotationTypeValue registration. First sub-stage: no
+        // meta-annotations (the reconstructed node has none, so the visitor's
+        // meta-annotation loop + AnnotationProcessor.Process are no-ops).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineAnnotation(IR.Defs.AnnotationDef def, Context ctx, VmFrame f, int pc, IInterpreter interpreter)
+        {
+            var (s, e) = ResolveSpan(f, pc, ctx);
+
+            var ps = new System.Collections.Generic.List<Parser.Nodes.Annotations.AnnotationParameterNode>(def.Parameters.Length);
+            foreach (var pd in def.Parameters)
+            {
+                AstNode? defNode = null;
+                if (pd.DefaultConst != null)
+                    defNode = new Parser.Nodes.Primitives.NumberNode(
+                        new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
+                    { CachedValue = pd.DefaultConst };
+                ps.Add(new Parser.Nodes.Annotations.AnnotationParameterNode(
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, pd.Name, s, e),
+                    pd.DeclaredType, defNode, pd.IsVarArgs));
+            }
+
+            var node = new Parser.Nodes.Annotations.AnnotationDefinitionNode(
+                new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
+                def.IsPublic, ps);
+
+            var result = Visitors.Annotations.AnnotationDefinitionNodeVisitor.Apply(node, ctx, interpreter);
+            if (result.Error != null) throw new RaUserError(result.Error);
+            return result.Value!;
+        }
+
+        // L6: reconstruct the ModuleSpecifier + the matching ImportNode from a
+        // flat ImportDef and run the SAME ImportNodeVisitor.Apply →
+        // ModuleManager.Load resolution + symbol/alias binding is byte-identical.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineImport(IR.Defs.ImportDef def, Context ctx, VmFrame f, int pc, IInterpreter interpreter)
+        {
+            var (s, e) = ResolveSpan(f, pc, ctx);
+
+            var spec = def.SpecIsDotted
+                ? RaLanguage.Interpreter.Modules.ModuleSpecifier.FromDotted(def.Segments, def.IsWildcard)
+                : RaLanguage.Interpreter.Modules.ModuleSpecifier.FromStringLiteral(def.RawPath ?? "");
+
+            Parser.Nodes.Imports.ImportNode node;
+            switch (def.ImportKind)
+            {
+                case IR.Defs.ImportDefKind.Selective:
+                {
+                    var toks = new System.Collections.Generic.List<Lexer.Tokens.Token>(def.SymbolNames.Length);
+                    foreach (var nm in def.SymbolNames)
+                        toks.Add(new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, nm, s, e));
+                    node = new Parser.Nodes.Imports.ImportSelectiveNode(spec, toks, s, e);
+                    break;
+                }
+                case IR.Defs.ImportDefKind.Alias:
+                {
+                    var aliasTok = new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Alias ?? "", s, e);
+                    node = new Parser.Nodes.Imports.ImportAliasNode(spec, aliasTok, s, e);
+                    break;
+                }
+                default:
+                    node = new Parser.Nodes.Imports.ImportAllNode(spec, s, e);
+                    break;
+            }
+
+            var result = Visitors.Imports.ImportNodeVisitor.Apply(node, ctx, interpreter);
+            if (result.Error != null) throw new RaUserError(result.Error);
+            return result.Value!;
+        }
+
+        // L6: reconstruct the NamespaceDeclarationNode (segments only; the body
+        // is a stub — the visitor's precompiled-body path ignores node.Body) and
+        // run the SAME NamespaceDeclarationNodeVisitor.Apply passing the
+        // precompiled body RaFunctions → namespace opening / scope-chain /
+        // closure-freezing is byte-identical. Apply is async but completes
+        // synchronously for the definition bodies (no real `await`), so the
+        // blocking unwrap never actually blocks (mirrors DefineClass).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineNamespace(IR.Defs.NamespaceDef def, Context ctx, VmFrame f, int pc, IInterpreter interpreter)
+        {
+            var (s, e) = ResolveSpan(f, pc, ctx);
+
+            var segToks = new System.Collections.Generic.List<Lexer.Tokens.Token>(def.Segments.Length);
+            foreach (var seg in def.Segments)
+                segToks.Add(new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, seg, s, e));
+
+            var body = new Parser.Nodes.Operations.PassNode(s, e);
+            var node = new Parser.Nodes.Namespaces.NamespaceDeclarationNode(segToks, body, def.IsFileScoped, s, e);
+
+            var task = Visitors.Namespaces.NamespaceDeclarationNodeVisitor.Apply(node, ctx, interpreter, def.Bodies);
+            var result = task.IsCompleted ? task.Result : task.AsTask().GetAwaiter().GetResult();
+            if (result.Error != null) throw new RaUserError(result.Error);
+            return result.Value!;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineUsing(IR.Defs.UsingDef def, Context ctx, VmFrame f, int pc)
+        {
+            var (s, e) = ResolveSpan(f, pc, ctx);
+            var (value, err) = Runtime.UsingNamespaceOps.Apply(def.Segments, def.Alias, ctx, s, e);
+            if (err != null) throw new RaUserError(err);
+            return value!;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineDelegate(IR.Defs.DelegateDef def, Context ctx, VmFrame f, int pc)
+        {
+            var (s, e) = ResolveSpan(f, pc, ctx);
+            var (value, err) = Runtime.DelegateDefOps.Register(
+                def.Name, def.Signature,
+                new System.Collections.Generic.List<string>(def.Generics),
+                new System.Collections.Generic.List<Parser.Nodes.Special.WhereConstraintNode>(),
+                def.IsPublic, ctx, s, e);
+            if (err != null) throw new RaUserError(err);
+            return value!;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue DefineEnum(IR.Defs.EnumDef def, Context ctx, VmFrame f, int pc)
+        {
+            // Collision check mirrors the visitor (it runs BEFORE building the
+            // variants; the lowered variants have no side effects so order is
+            // immaterial here).
+            if (ctx.SymbolTable.Get(def.Name) != null)
+            {
+                var (cs, ce) = ResolveSpan(f, pc, ctx);
+                throw new RaUserError(new Errors.Types.RuntimeError(cs, ce, $"'{def.Name}' is already defined", ctx));
+            }
+
+            var variants = new System.Collections.Generic.List<Values.Primitives.EnumVariantInfo>(def.Variants.Length);
+            for (int i = 0; i < def.Variants.Length; i++)
+            {
+                var v = def.Variants[i];
+                System.Collections.Generic.IReadOnlyList<Types.TypeDescriptor>? payloads =
+                    v.PayloadTypes.Length == 0 ? null : v.PayloadTypes;
+                variants.Add(new Values.Primitives.EnumVariantInfo(v.Name, v.Ordinal, v.Value, payloads));
+            }
+
+            var (s, e) = ResolveSpan(f, pc, ctx);
+            return Runtime.EnumDefOps.BuildAndRegister(
+                def.Name, variants,
+                new System.Collections.Generic.List<string>(def.Generics),
+                new System.Collections.Generic.List<Parser.Nodes.Special.WhereConstraintNode>(),
+                ctx, s, e);
+        }
+
         [System.Runtime.CompilerServices.MethodImpl(
             System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private static int FusedCmpBranchDelta(VmFrame f, LocalsView locals, uint instr, Opcode op)
@@ -4072,6 +5176,7 @@ namespace RaLanguage.Interpreter.Vm
             Mark(Opcode.NullCoal);
             // Strings.
             Mark(Opcode.StrConcat); Mark(Opcode.Interp); Mark(Opcode.Fmt);
+            Mark(Opcode.With);
             // Collections.
             Mark(Opcode.NewList); Mark(Opcode.NewMap);
             Mark(Opcode.NewSet); Mark(Opcode.NewTuple);
@@ -4089,6 +5194,7 @@ namespace RaLanguage.Interpreter.Vm
             Mark(Opcode.Call); Mark(Opcode.CallKw); Mark(Opcode.CallMethod);
             Mark(Opcode.NewInstance);
             Mark(Opcode.NativeDefine);
+            Mark(Opcode.DefineType);
             // Async.
             Mark(Opcode.Await); Mark(Opcode.Spawn);
             // II family — these manage `LongValid[a]` themselves in
@@ -4155,6 +5261,508 @@ namespace RaLanguage.Interpreter.Vm
         {
             var empty = DummyPos(ctx);
             return new Errors.Types.RuntimeError(empty, empty, message, ctx!);
+        }
+
+        // L7 variant-pattern opcode bodies, kept OUT of the recursive async
+        // Execute frame (see the call sites). NoInlining is load-bearing: an
+        // inlined body would re-merge these locals into Execute's MoveNext frame
+        // and reintroduce the per-recursion-level stack cost. LocalsView is a
+        // readonly struct over the live ValueSlot[], so writes through the
+        // by-value copy land in the caller's slots.
+        // L7 — explicit-enum disambiguator. dst = scrut is an EnumValue whose
+        // ENUM TYPE name == Names[c]. A record carries no EnumName → returns false
+        // (an explicit `case Enum.Variant` never matches a record, mirroring the
+        // visitor's `vap.EnumName == null` record-branch guard).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpEnumNameEq(LocalsView locals, uint instr, string[] names)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            string name = names[Encoding.C(instr)];
+            bool matched = locals[b] is EnumValue ev
+                && string.Equals(ev.EnumName, name, System.StringComparison.Ordinal);
+            locals[a] = BooleanValue.Of(matched);
+        }
+
+        // L7 — no-match terminator for a catch-all-less match. Returns the
+        // exception (the call site `throw`s it) so the cold construction stays out
+        // of the hot Execute frame.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RaUserError OpMatchFail(Context ctx)
+            => new RaUserError(MakeIcError(ctx, "no match arm covered the scrutinee value"));
+
+        // L7 — tuple shape: dst = scrut is TupleValue with exactly c elements.
+        // The count is the whole shape (mismatch is a no-match, not an error).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpTupleShape(LocalsView locals, uint instr)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            int len = Encoding.C(instr);
+            locals[a] = BooleanValue.Of(locals[b] is TupleValue tv && tv.Elements.Count == len);
+        }
+
+        // L7 — struct/class/record nominal shape: dst = scrut is an instance whose
+        // declared type name == Names[c]. StructInstanceValue covers records (its
+        // subclass); ClassInstanceValue is checked separately (mirrors the visitor).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpStructShape(LocalsView locals, uint instr, string[] names)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            string name = names[Encoding.C(instr)];
+            var sv = locals[b];
+            bool matched =
+                (sv is RaLanguage.Interpreter.Values.Structs.StructInstanceValue siv
+                    && string.Equals(siv.Definition.StructName, name, System.StringComparison.Ordinal))
+                || (sv is RaLanguage.Interpreter.Values.Primitives.ClassInstanceValue civ
+                    && string.Equals(civ.Definition.ClassName, name, System.StringComparison.Ordinal));
+            locals[a] = BooleanValue.Of(matched);
+        }
+
+        // L7 — struct/class field-by-name extract. Reached only after a passing
+        // StructShape (so the scrutinee IS the matched struct/class). Throws the
+        // visitor's EXACT "struct/class 'X' has no field 'f'" error when absent.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpStructFieldGet(LocalsView locals, uint instr, string[] names, Context ctx)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            string field = names[Encoding.C(instr)];
+            var sv = locals[b];
+            if (sv is RaLanguage.Interpreter.Values.Structs.StructInstanceValue siv)
+            {
+                if (!siv.HasField(field))
+                    throw new RaUserError(MakeIcError(ctx,
+                        $"struct '{siv.Definition.StructName}' has no field '{field}'"));
+                locals[a] = siv.GetField(field);
+            }
+            else if (sv is RaLanguage.Interpreter.Values.Primitives.ClassInstanceValue civ)
+            {
+                if (!civ.HasField(field))
+                    throw new RaUserError(MakeIcError(ctx,
+                        $"class '{civ.Definition.ClassName}' has no field '{field}'"));
+                locals[a] = civ.GetField(field);
+            }
+            else
+            {
+                throw new RaUserError(MakeIcError(ctx, "VM: StructFieldGet on non-struct/class value"));
+            }
+        }
+
+        // L7 — list shape: dst = scrut is ListValue with the required length.
+        // c packs (modeBit<<7)|len7 — mode 0 = exact (Count==len, a no-rest
+        // pattern), mode 1 = at-least (Count>=len, a `..rest` pattern). A length
+        // mismatch is a no-match (not an error).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpListShape(LocalsView locals, uint instr)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            int c = Encoding.C(instr);
+            int len = c & 0x7F;
+            bool atLeast = (c & 0x80) != 0;
+            bool matched = locals[b] is ListValue lv
+                && (atLeast ? lv.Elements.Count >= len : lv.Elements.Count == len);
+            locals[a] = BooleanValue.Of(matched);
+        }
+
+        // L7 — list element from the END: dst = Elements[Count - kFromEnd]
+        // (k 1-based; 1 == last). The suffix elements after a `..rest`. Reached
+        // only after a passing ListShape that confirmed Count >= prefix+suffix.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpListElemBack(LocalsView locals, uint instr)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            int k = Encoding.C(instr);
+            if (locals[b] is ListValue lv)
+            {
+                int idx = lv.Elements.Count - k;
+                locals[a] = (idx >= 0 && idx < lv.Elements.Count) ? lv.Elements[idx] : NullValue.Null;
+            }
+            else locals[a] = NullValue.Null;
+        }
+
+        // L7 — captured middle of a `..rest`: dst = new ListValue of
+        // Elements[prefix .. Count-suffix]. c packs (prefix4<<4)|suffix4. Reached
+        // only after a passing ListShape (Count >= prefix+suffix).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpListRestSlice(LocalsView locals, uint instr)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            int c = Encoding.C(instr);
+            int prefix = (c >> 4) & 0x0F;
+            int suffix = c & 0x0F;
+            if (locals[b] is ListValue lv)
+            {
+                int restLen = lv.Elements.Count - prefix - suffix;
+                if (restLen < 0) restLen = 0;
+                locals[a] = new ListValue(lv.Elements.GetRange(prefix, restLen));
+            }
+            else locals[a] = new ListValue(new System.Collections.Generic.List<RuntimeValue>());
+        }
+
+        // L7 — `case is T`. dst = the scrutinee's runtime type matches the
+        // TestedType of the IsTypeNode parked in AstRefs[refIdx] (WideC-resolved,
+        // like Cast), via TypeSystem.IsRuntimeTypeMatch — byte-identical to the
+        // visitor's TryMatchTypePattern test. A null scrutinee never matches.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpIsType(LocalsView locals, uint instr, int wideHiC,
+                                     RaLanguage.Parser.Nodes.AstNode[] astRefs, Context ctx)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            int refIdx = wideHiC >= 0 ? ((wideHiC << 8) | Encoding.C(instr)) : Encoding.C(instr);
+            if (refIdx >= astRefs.Length
+                || astRefs[refIdx] is not RaLanguage.Parser.Nodes.Operations.IsTypeNode isn)
+                throw new RaUserError(MakeIcError(ctx, "VM: IsType ref out of range or not an IsTypeNode"));
+            var sv = locals[b];
+            bool matched = sv != null && RaLanguage.Types.TypeSystem.IsRuntimeTypeMatch(ctx, isn.TestedType, sv);
+            locals[a] = BooleanValue.Of(matched);
+        }
+
+        // L7 — map shape: dst = scrut is MapValue with the required entry count
+        // (c packs open-rest bit + count7; open => Count>=count, closed => ==).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpMapShape(LocalsView locals, uint instr)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            int c = Encoding.C(instr);
+            int count = c & 0x7F;
+            bool open = (c & 0x80) != 0;
+            bool matched = locals[b] is MapValue mv
+                && (open ? mv.Pairs.Count >= count : mv.Pairs.Count == count);
+            locals[a] = BooleanValue.Of(matched);
+        }
+
+        // L7 — map structural key presence: dst = the map (slot B) contains the key
+        // in slot C (linear GetComparisonEq scan, mirroring the visitor's
+        // TryMapLookup). A non-map / missing key -> false (no-match, not an error).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpMapHasKey(LocalsView locals, uint instr, Context ctx)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            byte cSlot = Encoding.C(instr);
+            bool found = false;
+            if (locals[b] is MapValue mv && locals[cSlot] is RuntimeValue key)
+            {
+                for (int i = 0; i < mv.Pairs.Count; i++)
+                {
+                    var (eqVal, eqErr) = mv.Pairs[i].Key.GetComparisonEq(key);
+                    if (eqErr != null) throw new RaUserError(eqErr);
+                    if (eqVal is BooleanValue bv && bv.Value) { found = true; break; }
+                }
+            }
+            locals[a] = BooleanValue.Of(found);
+        }
+
+        // L7 — map value-by-key (a preceding MapHasKey confirmed presence). dst =
+        // the value paired with key slot C, or null if somehow absent.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpMapGetKey(LocalsView locals, uint instr, Context ctx)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            byte cSlot = Encoding.C(instr);
+            RuntimeValue result = NullValue.Null;
+            if (locals[b] is MapValue mv && locals[cSlot] is RuntimeValue key)
+            {
+                for (int i = 0; i < mv.Pairs.Count; i++)
+                {
+                    var (eqVal, eqErr) = mv.Pairs[i].Key.GetComparisonEq(key);
+                    if (eqErr != null) throw new RaUserError(eqErr);
+                    if (eqVal is BooleanValue bv && bv.Value) { result = mv.Pairs[i].Value; break; }
+                }
+            }
+            locals[a] = result;
+        }
+
+        // L7 — `target?`. On Result.Ok(v): writes v to dst (A) and returns null
+        // (the caller falls through). On Result.Err(e): returns the whole Result
+        // value (the caller early-returns it). Non-Result / unexpected variant:
+        // throws the visitor's EXACT error (parity captures err.Details).
+        // Byte-identical to TryUnwrapNodeVisitor.Apply.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue? OpTryUnwrap(LocalsView locals, uint instr, Context ctx)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            var value = locals[b];
+            if (value is not EnumValue ev || !string.Equals(ev.EnumName, "Result", System.StringComparison.Ordinal))
+                throw new RaUserError(MakeIcError(ctx, "'?' can only be applied to a 'Result<T, E>' value"));
+            if (string.Equals(ev.MemberName, "Ok", System.StringComparison.Ordinal))
+            {
+                if (ev.Payload.Count != 1)
+                    throw new RaUserError(MakeIcError(ctx, $"Result.Ok payload arity {ev.Payload.Count} is unexpected"));
+                locals[a] = ev.Payload[0].Aliased().SetContext(ctx);
+                return null;
+            }
+            if (string.Equals(ev.MemberName, "Err", System.StringComparison.Ordinal))
+                return value.Aliased().SetContext(ctx);
+            throw new RaUserError(MakeIcError(ctx, $"'?' encountered unexpected Result variant '{ev.MemberName}'"));
+        }
+
+        // L7 — destructuring bind by name: SetLocal(Names[idx], locals[a]).
+        // Mirrors the destructuring visitor's `context.SymbolTable.SetLocal(name,
+        // value)` (plain var-kind binding) for binders the Resolver leaves
+        // name-based. Reads A; no slot write.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpDeclareLocalByName(LocalsView locals, uint instr, string[] names, Context ctx)
+        {
+            byte a = Encoding.A(instr);
+            int idx = Encoding.Imm16(instr);
+            ctx.SymbolTable.SetLocal(names[idx], locals[a] ?? NullValue.Null);
+        }
+
+        // L8 — `emit value` into the current async-stream producer. Byte-identical
+        // to EmitNodeVisitor (producer presence, element-type check / inference,
+        // accepted check). Synchronous (producer.Emit returns bool, no await).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpEmit(RuntimeValue? value, Context ctx)
+        {
+            var producer = ctx.AsyncCtx?.CurrentStreamProducer;
+            if (producer == null)
+                throw new RaUserError(MakeIcError(ctx, "'emit' is only valid inside an 'async stream fn' body"));
+            var v = value ?? (RuntimeValue)NullValue.Null;
+            var owner = producer.OwnerValue;
+            if (owner != null)
+            {
+                if (owner.ElementType != null && !owner.ElementType.IsTypeParameter
+                    && !RaLanguage.Types.TypeSystem.IsAssignable(ctx, owner.ElementType, v))
+                    throw new RaUserError(MakeIcError(ctx,
+                        $"Stream element type mismatch: expected '{owner.ElementType}', got '{v.Type}'"));
+                if (owner.ElementType == null && v.Type != RuntimeValueType.Null)
+                    owner.ElementType = RaLanguage.Types.TypeSystem.GetDescriptorFromRuntimeValue(v);
+            }
+            if (!producer.Emit(v))
+                throw new RaUserError(MakeIcError(ctx, "Stream consumer has been cancelled or closed"));
+        }
+
+        // L8 — gather the spawn callee (fnSlot) + positional args (fnSlot+1..) and
+        // schedule via the shared SpawnNodeVisitor.SpawnCore (byte-identical to
+        // the visitor). The lowered form is positional-only (named/ref/spread
+        // spawns fall back), so namedArgs is always empty.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeResult OpSpawn(LocalsView locals, byte fnSlot, int argCount, Context ctx)
+        {
+            var res = new RuntimeResult();
+            if (locals[fnSlot] is not RaLanguage.Interpreter.Values.Functions.BaseFunctionValue fn)
+                return res.Failure(MakeIcError(ctx, "spawn requires a function call expression"));
+            var posArgs = new System.Collections.Generic.List<RuntimeValue>(argCount);
+            for (int i = 0; i < argCount; i++) posArgs.Add(locals[fnSlot + 1 + i] ?? NullValue.Null);
+            var namedArgs = new System.Collections.Generic.Dictionary<string, RuntimeValue>(System.StringComparer.Ordinal);
+            return Visitors.Async.SpawnNodeVisitor.SpawnCore(fn, posArgs, namedArgs, ctx, DummyPos(ctx), DummyPos(ctx));
+        }
+
+        // L9 — OP_ASM_INVOKE: execute a parked pure-text inline asm block. The
+        // AsmBlockNode lives in DefineRefs[idx]; rebuild its constant source from
+        // the text parts (the IrCompiler gates this opcode to interp-free blocks),
+        // then assemble-on-first-use (cached) + execute via the shared
+        // AsmBlockExecCore. NoInlining keeps these locals off the recursive
+        // Execute MoveNext frame (M85 deep-recursion budget).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue OpAsmInvoke(VmFrame f, ushort defineRefIdx, Context ctx)
+        {
+            var refs = f.Function.DefineRefs;
+            if (defineRefIdx >= refs.Length)
+                throw new RaUserError(MakeIcError(ctx, $"VM: AsmInvoke refIdx {defineRefIdx} out of range"));
+            var node = (Parser.Nodes.Asm.AsmBlockNode)refs[defineRefIdx];
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < node.Parts.Count; i++)
+                sb.Append(((Parser.Nodes.Asm.AsmTextPartNode)node.Parts[i]).Text);
+            var res = Visitors.Asm.AsmBlockNodeVisitor.AsmBlockExecCore(
+                sb.ToString(), node.ReturnTypes, ctx, node.PositionStart, node.PositionEnd);
+            if (res.Error != null) throw new RaUserError(res.Error);
+            return res.Value ?? NullValue.Null;
+        }
+
+        // L10 — OP_ASM_INVOKE_I: interpolated inline asm. The parked AsmBlockNode
+        // lives in DefineRefs[idx]; its %{…} args are pre-evaluated in the band
+        // [argsBase .. argsBase+N-1] (N = interp parts, in part order). Format
+        // them into the source via the shared TryBuildInterpSource (byte-identical
+        // to the visitor), then assemble-on-first-use + execute. NoInlining keeps
+        // these locals off the recursive Execute MoveNext frame (M85 budget).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static RuntimeValue OpAsmInvokeI(VmFrame f, LocalsView locals, byte argsBase, byte defineRefIdx, Context ctx)
+        {
+            var refs = f.Function.DefineRefs;
+            if (defineRefIdx >= refs.Length)
+                throw new RaUserError(MakeIcError(ctx, $"VM: AsmInvokeI refIdx {defineRefIdx} out of range"));
+            var node = (Parser.Nodes.Asm.AsmBlockNode)refs[defineRefIdx];
+
+            int interpCount = 0;
+            for (int i = 0; i < node.Parts.Count; i++)
+                if (node.Parts[i].NodeType == AstNodeType.AsmInterpPart) interpCount++;
+            var interpArgs = new System.Collections.Generic.List<RuntimeValue>(interpCount);
+            for (int k = 0; k < interpCount; k++) interpArgs.Add(locals[argsBase + k] ?? NullValue.Null);
+
+            if (!Visitors.Asm.AsmBlockNodeVisitor.TryBuildInterpSource(node, interpArgs, out string source, out string? buildErr))
+                throw new RaUserError(new RaLanguage.Errors.Types.RuntimeError(
+                    node.PositionStart, node.PositionEnd, buildErr!, ctx));
+
+            var res = Visitors.Asm.AsmBlockNodeVisitor.AsmBlockExecCore(
+                source, node.ReturnTypes, ctx, node.PositionStart, node.PositionEnd);
+            if (res.Error != null) throw new RaUserError(res.Error);
+            return res.Value ?? NullValue.Null;
+        }
+
+        // L10 — OP_ANNOTATION_APPLY: build the AnnotationInstanceValue for a
+        // standalone `@Name(args)` value. The parked node lives in DefineRefs;
+        // AnnotationApplicationNodeVisitor.Apply is effectively synchronous
+        // (EvaluateArgs uses IrExpressionEvaluator.EvaluateBlocking), so
+        // SyncAwait.Get returns immediately. NoInlining keeps the (re-entrant)
+        // arg evaluation off the recursive Execute MoveNext frame (M85).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private RuntimeValue OpAnnotationApply(VmFrame f, ushort defineRefIdx, Context ctx)
+        {
+            var refs = f.Function.DefineRefs;
+            if (defineRefIdx >= refs.Length)
+                throw new RaUserError(MakeIcError(ctx, $"VM: AnnotationApply refIdx {defineRefIdx} out of range"));
+            var node = (Parser.Nodes.Annotations.AnnotationApplicationNode)refs[defineRefIdx];
+            var sub = RaLanguage.Interpreter.Runtime.Async.SyncAwait.Get(
+                Visitors.Annotations.AnnotationApplicationNodeVisitor.Apply(node, ctx, _interpreter));
+            if (sub.Error != null) throw new RaUserError(sub.Error);
+            return sub.Value ?? NullValue.Null;
+        }
+
+        // L8 — one `for await` pull step. Mirrors ForAwaitNodeVisitor: honour
+        // cancellation, pull the next item (blocking on the cross-thread channel),
+        // set itemSlot + continueSlot (false when closed / done). Synchronous.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpForAwaitPull(LocalsView locals, byte itemSlot, byte continueSlot,
+            RaLanguage.Interpreter.Values.Async.AsyncStreamValue astream, Context ctx)
+        {
+            var token = ctx.AsyncCtx?.Token ?? System.Threading.CancellationToken.None;
+            if (token.IsCancellationRequested)
+            {
+                astream.Core.Cancel();
+                throw new RaUserError(MakeIcError(ctx, "for-await cancelled"));
+            }
+            var (ok, value, closed, err) = astream.Core.PullNext(token);
+            if (err != null) throw new RaUserError(err);
+            if (closed || !ok)
+            {
+                locals[continueSlot] = BooleanValue.False;
+            }
+            else
+            {
+                locals[itemSlot] = value ?? NullValue.Null;
+                locals[continueSlot] = BooleanValue.True;
+            }
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpEnumTagEq(LocalsView locals, uint instr, string[] names, Context ctx)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            string name = names[Encoding.C(instr)];
+            var sv = locals[b];
+            bool matched;
+            if (sv is EnumValue ev)
+                // Inferred enum variant: match on the member name.
+                matched = string.Equals(ev.MemberName, name, System.StringComparison.Ordinal);
+            else if (sv is RaLanguage.Interpreter.Values.Records.RecordInstanceValue rec)
+                // Record-positional: NOMINAL identity — the pattern name must
+                // resolve to the SAME RecordTypeValue as the instance's
+                // Definition (mirrors the visitor's ReferenceEquals check).
+                matched = ctx.SymbolTable.Get(name) is RaLanguage.Interpreter.Values.Records.RecordTypeValue rt
+                    && ReferenceEquals(rt, rec.Definition);
+            else
+                matched = false;
+            locals[a] = BooleanValue.Of(matched);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpEnumPayload(LocalsView locals, uint instr, Context ctx)
+        {
+            byte a = Encoding.A(instr);
+            byte b = Encoding.B(instr);
+            int idx = Encoding.C(instr);
+            var sv = locals[b];
+            if (sv is EnumValue ev)
+            {
+                locals[a] = idx < ev.Payload.Count ? ev.Payload[idx] : NullValue.Null;
+            }
+            else if (sv is RaLanguage.Interpreter.Values.Records.RecordInstanceValue rec)
+            {
+                // Record-positional: extract the i-th primary field BY NAME
+                // (the visitor reads PrimaryFields[i].NameTok then GetField).
+                var pf = rec.Definition.PrimaryFields;
+                if (idx < pf.Count)
+                {
+                    string fname = pf[idx].NameTok.Value?.ToString() ?? "";
+                    locals[a] = rec.HasField(fname) ? rec.GetField(fname) : (RuntimeValue)NullValue.Null;
+                }
+                else locals[a] = NullValue.Null;
+            }
+            else if (sv is TupleValue tup)
+            {
+                // Tuple-positional element (the shape check confirmed arity).
+                locals[a] = idx < tup.Elements.Count ? tup.Elements[idx] : NullValue.Null;
+            }
+            else if (sv is ListValue lst)
+            {
+                // List front element (the shape check confirmed enough length).
+                locals[a] = idx < lst.Elements.Count ? lst.Elements[idx] : NullValue.Null;
+            }
+            else
+            {
+                throw new RaUserError(MakeIcError(ctx, "VM: EnumPayload on non-enum/record/tuple/list value"));
+            }
+        }
+
+        // L7 — variant/record arity guard. Reached only after a passing
+        // EnumTagEq, so the scrutinee IS the matched variant/record. Throws the
+        // visitor's EXACT arity-mismatch message (parity captures err.Details) so
+        // a wrong-arity pattern (`case Point(only_one)`) errors identically
+        // whether lowered or not; nop when the arity matches.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void OpMatchArity(LocalsView locals, uint instr, Context ctx)
+        {
+            byte b = Encoding.B(instr);
+            int subCount = Encoding.C(instr);
+            var sv = locals[b];
+            if (sv is EnumValue ev)
+            {
+                if (ev.Payload.Count != subCount)
+                    throw new RaUserError(MakeIcError(ctx,
+                        $"variant '{ev.EnumName}.{ev.MemberName}' carries {ev.Payload.Count} value(s), pattern destructures {subCount}"));
+            }
+            else if (sv is RaLanguage.Interpreter.Values.Records.RecordInstanceValue rec)
+            {
+                int fc = rec.Definition.PrimaryFields.Count;
+                if (fc != subCount)
+                    throw new RaUserError(MakeIcError(ctx,
+                        $"record '{rec.Definition.StructName}' has {fc} primary field(s), pattern destructures {subCount}"));
+            }
         }
     }
 }

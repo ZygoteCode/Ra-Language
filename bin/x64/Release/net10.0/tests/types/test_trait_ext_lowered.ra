@@ -1,0 +1,59 @@
+import std.prelude.*;
+// Ra Language - L5e: trait + extension definitions now IR-lower to a
+// TraitDef / ExtensionDef + OP_DEFINE_TYPE. Trait methods (provided + abstract)
+// and extension methods (FunctionDefinitionNode, reusing the class method
+// machinery) are precompiled to RaFunctions; `.rac` stores them flat.
+
+print("=== types/trait_ext_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// TE1: trait with a provided default method + structural dispatch
+trait Greeter {
+    fn greet(): string { ret "hi" }
+}
+class Dog {
+    pub fn greet(): string { ret "woof" }
+}
+fn callGreet(g: Greeter): string { ret g.greet(); }
+ck("[TE1]", callGreet(Dog()) == "woof");
+
+// TE2: extension adds a method to a struct
+struct Pt {
+    pub var x: int = 0;
+    pub Pt(a: int) { self.x = a }
+}
+extend Pt {
+    pub fn doubled(): int { ret self.x * 2 }
+}
+let p = Pt(5);
+ck("[TE2]", p.doubled() == 10 && p.x == 5);
+
+// TE3: a second struct extension method (chained)
+extend Pt {
+    pub fn quad(): int { ret self.doubled() * 2 }
+}
+ck("[TE3]", p.quad() == 20);
+
+// TE4: trait with an abstract/required method (signature only)
+trait HasArea {
+    fn area(): int;
+    fn describe(): string { ret "shape" }
+}
+class Sq {
+    pub var s: int = 0;
+    pub Sq(v: int) { self.s = v }
+    pub fn area(): int { ret self.s * self.s }
+    pub fn describe(): string { ret "square" }
+}
+fn areaOf(h: HasArea): int { ret h.area(); }
+ck("[TE4]", areaOf(Sq(4)) == 16);
+
+if failures == 0 {
+    print("=== done (all lowered trait/extension cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

@@ -199,6 +199,47 @@ namespace RaLanguage.Interpreter.Runtime
             return op.CompiledBody;
         }
 
+        // L10: compile a PROPERTY accessor body to a RaFunction (run via the VM by
+        // PropertyAccessOps). self is implicit; the named args mirror what the
+        // accessor context binds — getter `field`; setter/init `value`,`field`;
+        // observer `old`,`value`,`field` (same order the resolver framed). Arrow
+        // `=> expr` auto-returns; block `{ }` (a ScopeNode) does not.
+        public static RaFunction? GetOrCompileAccessor(Parser.Nodes.Properties.PropertyAccessorNode acc)
+        {
+            if (acc.IrCompileTried) return acc.CompiledBody;
+            acc.IrCompileTried = true;
+            if (acc.BodyNode == null || acc.FrameId < 0) return null;
+
+            string[] argNames = acc.Kind switch
+            {
+                Parser.Nodes.Properties.PropertyAccessorKind.Get => new[] { "field" },
+                Parser.Nodes.Properties.PropertyAccessorKind.Set => new[] { "value", "field" },
+                Parser.Nodes.Properties.PropertyAccessorKind.Init => new[] { "value", "field" },
+                Parser.Nodes.Properties.PropertyAccessorKind.Observe => new[] { "old", "value", "field" },
+                _ => System.Array.Empty<string>()
+            };
+            var ps = acc.KindTok.PositionStart;
+            var pe = acc.KindTok.PositionEnd;
+            var argToks = new List<RaLanguage.Lexer.Tokens.Token>(argNames.Length);
+            foreach (var n in argNames)
+                argToks.Add(new RaLanguage.Lexer.Tokens.Token(RaLanguage.Lexer.Tokens.TokenType.IDENTIFIER, n, ps, pe));
+
+            bool autoReturn = !(acc.BodyNode is Parser.Nodes.Special.ScopeNode);
+            try
+            {
+                acc.CompiledBody = IrCompiler.CompileMethodShape(
+                    name: $"prop_{acc.Kind}",
+                    frameId: acc.FrameId,
+                    arity: argToks.Count,
+                    paramBindings: acc.ParamBindings,
+                    argNameToks: argToks,
+                    body: acc.BodyNode,
+                    shouldAutoReturn: autoReturn);
+            }
+            catch (IrCompileException ex) { acc.CompiledBody = null; RecordFailure($"prop-accessor {acc.Kind} frame={acc.FrameId}: {ex.Message}"); }
+            return acc.CompiledBody;
+        }
+
         private static void TryCompileBodyToIr(FunctionValue funcValue, FunctionDefinitionNode node)
         {
             funcValue.CompiledBody = GetOrCompileBody(node);

@@ -1,0 +1,89 @@
+import std.prelude.*;
+// Ra Language - L4 regression: IR-LOWERED stream pipelines followed by a
+// `for x in stream` drain.
+//
+// Pins the fix for a latent SCCP bug exposed by Pipeline lowering:
+// `ForEachStreamPull` writes TWO slots (itemSlot=A, continueSlot=C) but the
+// SSA backbone modelled only A. With many lowered stream pipelines ahead of a
+// stream for-loop, a stale `LoadConst` in continueSlot's reused physical slot
+// let SCCP fold the loop-exit `JmpIfNot` to always-fall-through -> the loop
+// spun forever (93% CPU, deterministic). Fixed via SsaForm.SecondaryDefinedSlot
+// + Sccp pinning continueSlot to Bottom. A wrong result prints FAIL; a
+// regression of the spin makes the suite time the file out.
+
+print("=== streams/streams_lowered ===");
+
+var failures = 0;
+
+fn check(label: string, got: int, want: int) {
+    if got == want {
+        print(label + " OK");
+    } else {
+        print(label + " FAIL got=" + (got as string) + " want=" + (want as string));
+        failures = failures + 1;
+    }
+}
+
+// ---- L1: many stateful stream pipelines, THEN a stream for-loop drain.
+// The exact spin repro: distinct/chunk/window/scan ahead of `for x in s`. ----
+let a1 = stream_range(0, 10) |> stream_filter(|x| x % 2 == 0) |> stream_map(|x| x * x) |> stream_collect();
+let a2 = stream_iterate(1, |x| x * 2) |> stream_take(6) |> stream_collect();
+let a3 = stream_range(0, 7) |> stream_chunk(3) |> stream_collect();
+let a4 = stream_range(0, 5) |> stream_window(3) |> stream_collect();
+let a5 = stream_from([1, 1, 2, 3, 2, 4, 3, 5]) |> stream_distinct() |> stream_collect();
+let a6 = stream_range(1, 6) |> stream_scan(0, |acc, x| acc + x) |> stream_collect();
+let a7 = stream_range(0, 10) |> stream_take_while(|x| x < 4) |> stream_collect();
+
+var drain1 = 0;
+for x in stream_range(1, 5) {
+    drain1 = drain1 + x;
+}
+check("[L1]", drain1, 10);
+
+// ---- L2: same shape, but INSIDE a function (lowered fn-frame path). ----
+fn run_in_fn(): int {
+    let b1 = stream_range(0, 10) |> stream_filter(|x| x % 2 == 0) |> stream_map(|x| x * x) |> stream_collect();
+    let b2 = stream_from([5, 5, 6, 7, 6]) |> stream_distinct() |> stream_collect();
+    let b3 = stream_range(0, 9) |> stream_chunk(2) |> stream_collect();
+    var total = 0;
+    for x in stream_range(1, 6) {
+        total = total + x;
+    }
+    ret total;
+}
+check("[L2]", run_in_fn(), 15);
+
+// ---- L3: pipeline result feeds the for-loop source directly. ----
+var drain3 = 0;
+let s3 = stream_range(0, 20) |> stream_filter(|x| x % 3 == 0);
+for x in s3 {
+    drain3 = drain3 + x;
+}
+check("[L3]", drain3, 63);
+
+// ---- L4: two stream for-loops back to back after pipelines. ----
+let c1 = stream_range(0, 100) |> stream_take(10) |> stream_collect();
+var d4a = 0;
+for x in stream_range(1, 4) {
+    d4a = d4a + x;
+}
+var d4b = 0;
+for x in stream_range(10, 13) {
+    d4b = d4b + x;
+}
+check("[L4]", d4a + d4b, 6 + 33);
+
+// ---- L5: nested for-loops over streams. ----
+var n5 = 0;
+for x in stream_range(0, 3) {
+    for y in stream_range(0, 3) {
+        n5 = n5 + 1;
+    }
+}
+check("[L5]", n5, 9);
+
+if failures == 0 {
+    print("=== done (all lowered-stream cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

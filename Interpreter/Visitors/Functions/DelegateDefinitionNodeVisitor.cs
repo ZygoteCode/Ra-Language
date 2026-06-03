@@ -35,36 +35,13 @@ namespace RaLanguage.Interpreter.Visitors.Functions
                     context));
             }
 
-            var existing = context.SymbolTable.Get(name);
-            if (existing != null && !(existing is DelegateTypeValue))
-            {
-                return res.Failure(new RuntimeError(
-                    node.PositionStart, node.PositionEnd,
-                    $"name '{name}' is already declared in this scope",
-                    context,
-                    code: DiagnosticCode.RuntimeGeneric,
-                    primaryLabel: "duplicate declaration",
-                    help: "delegate aliases share the type namespace with classes / structs / enums"));
-            }
-
-            var value = new DelegateTypeValue(
-                name,
-                node.SignatureType,
-                node.GenericTypeParams,
-                node.WhereConstraints,
-                node.IsPublic)
-                .SetContext(context)
-                .SetPos(node.PositionStart, node.PositionEnd);
-
-            context.SymbolTable.Set(
-                name,
-                value,
-                isLet: true,
-                declaredType: new TypeDescriptor("type"),
-                isStaticallyTyped: true,
-                isPublic: node.IsPublic);
-
-            return res.Success(value);
+            // Build + register via the shared helper so the IR-lowered
+            // OP_DEFINE_TYPE handler installs a byte-identical DelegateTypeValue.
+            var (value, err) = DelegateDefOps.Register(
+                name, node.SignatureType, node.GenericTypeParams, node.WhereConstraints,
+                node.IsPublic, context, node.PositionStart, node.PositionEnd);
+            if (err != null) return res.Failure(err);
+            return res.Success(value!);
         }
     }
 }

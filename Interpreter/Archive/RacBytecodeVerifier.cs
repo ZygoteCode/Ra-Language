@@ -68,6 +68,7 @@ namespace RaLanguage.Interpreter.Archive
             int superLen = fn.SuperRefs?.Length ?? 0;
             int funcDefLen = fn.FuncDefRefs?.Length ?? 0;
             int defineLen = fn.DefineRefs?.Length ?? 0;
+            int typeDefsLen = fn.TypeDefs?.Length ?? 0;
             int declSlotLen = fn.DeclSlotByAstRef?.Length ?? 0;
 
             if (codeLen == 0)
@@ -123,6 +124,8 @@ namespace RaLanguage.Interpreter.Archive
                     case Opcode.Drop:
                     case Opcode.Throw:
                     case Opcode.Ret:
+                    case Opcode.RetYield:
+                    case Opcode.SetPendingFlow:
                     case Opcode.Halt:
                     case Opcode.Emit:
                     case Opcode.RetNull:
@@ -130,8 +133,11 @@ namespace RaLanguage.Interpreter.Archive
                     case Opcode.PopScope:
                     case Opcode.ClearScope:
                     case Opcode.FinallyEnd:
+                    case Opcode.MatchFail: // L7: no operands, always throws
+                    case Opcode.DestructureFail: // L7: no operands, always throws
                         if (op != Opcode.RetNull && op != Opcode.PushScope && op != Opcode.PopScope
-                            && op != Opcode.ClearScope && op != Opcode.FinallyEnd && op != Opcode.Pass)
+                            && op != Opcode.ClearScope && op != Opcode.FinallyEnd && op != Opcode.Pass
+                            && op != Opcode.MatchFail && op != Opcode.DestructureFail)
                             CheckSlot(a, local, pc, opName, "a", diags, path);
                         break;
                     case Opcode.LoadIntS:
@@ -145,6 +151,9 @@ namespace RaLanguage.Interpreter.Archive
                     case Opcode.StoreGlobal:
                     case Opcode.SetLocalDirect:
                     case Opcode.AssignBinding:
+                    // L3: borrows carry a Names[] index in imm16 (same shape).
+                    case Opcode.Borrow:
+                    case Opcode.BorrowMut:
                         CheckSlot(a, local, pc, opName, "a", diags, path);
                         CheckIndex(imm16, nameLen, pc, opName, "name", diags, path);
                         break;
@@ -196,6 +205,10 @@ namespace RaLanguage.Interpreter.Archive
                                     $"DeclSlotByAstRef[{imm16}] = {declSlot} is outside [0, SlotCount={slot})"));
                         }
                         break;
+                    case Opcode.DeclareLocalByName: // L7 destructuring bind: a (value) + imm16 (Names)
+                        CheckSlot(a, local, pc, opName, "a (src)", diags, path);
+                        CheckIndex(imm16, nameLen, pc, opName, "Names", diags, path);
+                        break;
 
                     // ----- Memory model -----
                     case Opcode.Move:
@@ -216,13 +229,26 @@ namespace RaLanguage.Interpreter.Archive
                     case Opcode.ListLen:
                     case Opcode.ForEachIterable:
                     case Opcode.Await:
+                    // L7 variant patterns: a (dst) + b (scrutinee) are slots;
+                    // c is an immediate (Names index / payload index), not a slot.
+                    case Opcode.EnumTagEq:
+                    case Opcode.EnumPayload:
+                    case Opcode.EnumNameEq:
+                    case Opcode.TupleShape:
+                    case Opcode.StructShape:
+                    case Opcode.StructFieldGet:
+                    case Opcode.ListShape:
+                    case Opcode.ListElemBack:
+                    case Opcode.ListRestSlice:
+                    case Opcode.MapShape:
+                    case Opcode.TryUnwrap:
                         CheckSlot(a, local, pc, opName, "a", diags, path);
                         CheckSlot(effB, local, pc, opName, "b", diags, path);
                         break;
-                    case Opcode.Borrow:
-                        CheckSlot(a, local, pc, opName, "a", diags, path);
+                    // L7 MatchArity writes nothing: only b (scrutinee) is a slot;
+                    // a is unused, c is the immediate arity.
+                    case Opcode.MatchArity:
                         CheckSlot(effB, local, pc, opName, "b", diags, path);
-                        // c = mut bool, no range check
                         break;
 
                     // ----- Arithmetic / comparisons (all 3-address) -----
@@ -284,6 +310,9 @@ namespace RaLanguage.Interpreter.Archive
                     case Opcode.UshrII:
                     case Opcode.RolII:
                     case Opcode.RorII:
+                    // L7 map patterns: a (dst) + b (map) + c (key slot), like Eq.
+                    case Opcode.MapHasKey:
+                    case Opcode.MapGetKey:
                         CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
                         CheckSlot(effB, local, pc, opName, "b (lhs)", diags, path);
                         CheckSlot(effC, local, pc, opName, "c (rhs)", diags, path);
@@ -329,6 +358,23 @@ namespace RaLanguage.Interpreter.Archive
                         CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
                         CheckSlot(effB, local, pc, opName, "b (expr)", diags, path);
                         CheckIndex(cLo, constLen, pc, opName, "fmt-const", diags, path);
+                        break;
+                    case Opcode.With:
+                        // [dst:a][base:b][defineRefIdx:c]. recv@base, values
+                        // @base+1.. ; the VM handler bounds-checks base+N at
+                        // runtime against the live frame.
+                        CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
+                        CheckSlot(effB, local, pc, opName, "b (base)", diags, path);
+                        CheckIndex(cLo, defineLen, pc, opName, "DefineRefs", diags, path);
+                        break;
+                    case Opcode.CallGeneric:
+                        // L10 — [dst:a][fnSlot:b][defineRefIdx:c]. callee@fnSlot,
+                        // args@fnSlot+1.. ; argCount comes from the parked
+                        // FunctionCallNode, so the VM bounds-checks the band at
+                        // runtime (With-shaped).
+                        CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
+                        CheckSlot(effB, local, pc, opName, "b (fnSlot)", diags, path);
+                        CheckIndex(cLo, defineLen, pc, opName, "DefineRefs", diags, path);
                         break;
 
                     // ----- Containers -----
@@ -408,6 +454,11 @@ namespace RaLanguage.Interpreter.Archive
                         CheckSlot(effB, local, pc, opName, "b (src)", diags, path);
                         CheckIndex(cLo, castRefsLen, pc, opName, "CastRefs", diags, path);
                         break;
+                    case Opcode.IsType: // L7 is-type: AstRefs[c] (WideC), like Cast
+                        CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
+                        CheckSlot(effB, local, pc, opName, "b (src)", diags, path);
+                        CheckIndex(cLo, astRefsLen, pc, opName, "AstRefs", diags, path);
+                        break;
                     case Opcode.GetSuper:
                         CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
                         CheckIndex(imm16, superLen, pc, opName, "SuperRefs", diags, path);
@@ -419,6 +470,30 @@ namespace RaLanguage.Interpreter.Archive
                     case Opcode.NativeDefine:
                         CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
                         CheckIndex(imm16, defineLen, pc, opName, "DefineRefs", diags, path);
+                        break;
+                    case Opcode.AsmInvoke:
+                        // L9 — [dst:a][defineRefIdx:imm16]. The parked AsmBlockNode
+                        // (pure text) lives in DefineRefs; same shape as NativeDefine.
+                        CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
+                        CheckIndex(imm16, defineLen, pc, opName, "DefineRefs", diags, path);
+                        break;
+                    case Opcode.AnnotationApply:
+                        // L10 — [dst:a][defineRefIdx:imm16]. Parked
+                        // AnnotationApplicationNode; same shape as NativeDefine.
+                        CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
+                        CheckIndex(imm16, defineLen, pc, opName, "DefineRefs", diags, path);
+                        break;
+                    case Opcode.AsmInvokeI:
+                        // L10 — [dst:a][argsBase:b][defineRefIdx:c]. Interpolated
+                        // asm; %{…} args @ argsBase+0..N-1 (the handler bounds-
+                        // checks the band at runtime, like With). With-shaped.
+                        CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
+                        CheckSlot(effB, local, pc, opName, "b (argsBase)", diags, path);
+                        CheckIndex(cLo, defineLen, pc, opName, "DefineRefs", diags, path);
+                        break;
+                    case Opcode.DefineType:
+                        CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
+                        CheckIndex(imm16, typeDefsLen, pc, opName, "TypeDefs", diags, path);
                         break;
                     case Opcode.Is:
                         CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
@@ -502,7 +577,6 @@ namespace RaLanguage.Interpreter.Archive
                     case Opcode.ForNext:
                     case Opcode.ForEachInit:
                     case Opcode.ForEachNext:
-                    case Opcode.AsmInvoke:
                     case Opcode.RunPre:
                     case Opcode.RunPost:
                     case Opcode.ForAwait:

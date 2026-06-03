@@ -1,0 +1,58 @@
+import std.prelude.*;
+// Ra Language - L4: a `${expr:spec}` formatted-interpolation segment is now
+// IR-lowered to OP_FMT — the parsed FormatSpec is packed into a plain integer
+// constant at compile time (FormatSpec.Pack), so the runtime never re-parses
+// the textual spec, even inside a hot loop. Previously every such segment fell
+// back to the AST visitor via OP_NATIVE_DEFINE.
+//
+// These hard-assert the lowered output equals the documented formatting. A
+// regression (wrong slot / wrong spec / unhandled OP_FMT) prints FAIL.
+
+print("=== strings/formatted_interp_lowered ===");
+
+var failures = 0;
+fn eq(label: string, got: string, want: string) {
+    if got == want {
+        print(label + " OK");
+    } else {
+        print(label + " FAIL got=[" + got + "] want=[" + want + "]");
+        failures = failures + 1;
+    }
+}
+
+let pi = 3.14159;
+let n = 255;
+
+// FI1: float precision
+eq("[FI1]", $"${pi:.2f}", "3.14");
+
+// FI2: hex (lower / upper / alternate)
+eq("[FI2]", $"${n:x} ${n:X} ${n:#x} ${n:#X}", "ff FF 0xff 0XFF");
+
+// FI3: multiple specced segments + literal text in one string
+let a = 7;
+let b = 10;
+eq("[FI3]", $"a=${a:x}, b=${b:#x}!", "a=7, b=0xa!");
+
+// FI4: default (no spec) still works alongside specced
+eq("[FI4]", $"${a} then ${a:x}", "7 then 7");
+
+// FI5: spec reused inside a hot loop — the packed const is loaded, never
+// rebuilt; result is stable. (Loop var copied to a `let` to dodge an
+// unrelated pre-existing lazy-loopvar-in-interp bug.)
+var acc = "";
+for k in 0..4 {
+    let v = k + 16;
+    acc = acc + $"${v:x},";
+}
+eq("[FI5]", acc, "10,11,12,13,");
+
+// FI6: binary + octal
+let m = 6;
+eq("[FI6]", $"${m:b} ${m:o}", "110 6");
+
+if failures == 0 {
+    print("=== done (all formatted-interp cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

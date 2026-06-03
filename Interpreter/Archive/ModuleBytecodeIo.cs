@@ -76,7 +76,7 @@ namespace RaLanguage.Interpreter.Archive
         //     v3 payloads keep loading unchanged; their callees pay
         //     the lazy compile once on first invocation, exactly as
         //     before.
-        public const ushort PayloadVersion = 5;
+        public const ushort PayloadVersion = 9;
         public const ushort PayloadVersion_V1 = 1;
         public const ushort PayloadVersion_V2 = 2;
         public const ushort PayloadVersion_V3 = 3;
@@ -85,6 +85,28 @@ namespace RaLanguage.Interpreter.Archive
         // redirecting-constructor metadata. v4 readers skip those fields and
         // default them, so older archives keep loading unchanged.
         public const ushort PayloadVersion_V5 = 5;
+        // v6 (L5 one-shot definitions): RaFunction.TypeDefs — a flat,
+        // AST-free pool of definition descriptors (OP_DEFINE_TYPE). v5 readers
+        // never see it (the trailing pool is gated on ver >= V6); older
+        // archives load unchanged with an empty TypeDefs.
+        public const ushort PayloadVersion_V6 = 6;
+        // v7 (L10 one-shot-defn operator widening): StructDef / ClassDef / RecordDef
+        // TypeDefs carry an OperatorDef[] (operator overloads, precompiled bodies)
+        // after the methods. v6 readers never wrote it; the trailing operator pool
+        // is gated on ver >= V7, so v6 archives load unchanged with no operators.
+        public const ushort PayloadVersion_V7 = 7;
+        // v8 (L10 generic-method-bearing type defs): ClassMethodDef serializes a
+        // trailing method-level Generics string list (generic methods on a class
+        // now lower). Gated on ver >= V8, so v7 archives load unchanged (no
+        // generic methods — they fell back to NativeDefine).
+        public const ushort PayloadVersion_V8 = 8;
+        // v9 (extension fields + indexers): ExtensionDef serializes a trailing
+        // ExtensionFieldDef[] pool (flat ext-field metadata + const default) and an
+        // IndexerDef[] pool (method-index + is-setter, re-pointing at the already-
+        // serialized op_index / op_index_set method bodies) after the events pool.
+        // Both gated on ver >= V9, so v8 archives load unchanged (ext fields /
+        // indexers fell back to NativeDefine).
+        public const ushort PayloadVersion_V9 = 9;
 
         public static byte[] Serialize(RaFunction root, SharedConstPoolBuilder? sharedPool = null)
         {
@@ -97,7 +119,7 @@ namespace RaLanguage.Interpreter.Archive
             // const inlines. Older wire versions (v1 / v2 / v3) are
             // still ACCEPTED by Deserialize for backward read.
             bool emitPool = sharedPool != null && sharedPool.Finalised && sharedPool.Pooled > 0;
-            ushort ver = PayloadVersion_V5;
+            ushort ver = PayloadVersion_V9;
             w.WriteU16(ver);
             w.WriteU16(0);
             // Stash the writer pool + version in thread-local state so
@@ -127,7 +149,9 @@ namespace RaLanguage.Interpreter.Archive
             ushort ver = r.ReadU16();
             if (ver != PayloadVersion_V1 && ver != PayloadVersion_V2
                 && ver != PayloadVersion_V3 && ver != PayloadVersion_V4
-                && ver != PayloadVersion_V5)
+                && ver != PayloadVersion_V5 && ver != PayloadVersion_V6
+                && ver != PayloadVersion_V7 && ver != PayloadVersion_V8
+                && ver != PayloadVersion_V9)
                 throw new InvalidDataException($"rac: ModuleBytecode version {ver} not supported");
             ushort reserved = r.ReadU16();
             if (reserved != 0)
@@ -165,7 +189,7 @@ namespace RaLanguage.Interpreter.Archive
             return DeserializeRaFunction(r, sharedPool);
         }
 
-        private static void SerializeRaFunction(RacBinaryWriter w, RaFunction fn, SharedConstPoolBuilder? sharedPool)
+        internal static void SerializeRaFunction(RacBinaryWriter w, RaFunction fn, SharedConstPoolBuilder? sharedPool)
         {
             w.WriteString(fn.Name);
             w.WriteI32(fn.FrameId);
@@ -258,9 +282,12 @@ namespace RaLanguage.Interpreter.Archive
             SerializeNodeArray<Parser.Nodes.Classes.SuperNode>(w, fn.SuperRefs);
             SerializeNodeArray<Parser.Nodes.Functions.FunctionDefinitionNode>(w, fn.FuncDefRefs);
             SerializeNodeArray(w, fn.DefineRefs);
+            // v6: flat one-shot definition descriptors (L5). Always written by a
+            // v6 writer; v5-and-older readers never reach this (gated on read).
+            AstNodeSerializer.SerializeTypeDefs(w, fn.TypeDefs);
         }
 
-        private static RaFunction DeserializeRaFunction(RacBinaryReader r, SharedConstPool? sharedPool)
+        internal static RaFunction DeserializeRaFunction(RacBinaryReader r, SharedConstPool? sharedPool)
         {
             string name = r.ReadString() ?? "";
             var fn = new RaFunction(name);
@@ -369,6 +396,10 @@ namespace RaLanguage.Interpreter.Archive
             fn.SuperRefs = DeserializeNodeArray<Parser.Nodes.Classes.SuperNode>(r);
             fn.FuncDefRefs = DeserializeNodeArray<Parser.Nodes.Functions.FunctionDefinitionNode>(r);
             fn.DefineRefs = DeserializeNodeArray<Parser.Nodes.AstNode>(r);
+            // v6: flat one-shot definition descriptors (L5). Absent in v5-and-
+            // older archives, which keep an empty TypeDefs (set by the ctor).
+            if (AstNodeSerializer.ReaderVersion >= PayloadVersion_V6)
+                fn.TypeDefs = AstNodeSerializer.DeserializeTypeDefs(r);
 
             // IC tables. Sized to Code.Length so the dispatch hot-path
             // indexes without bounds checks. Slots are zero-initialised
@@ -438,8 +469,12 @@ namespace RaLanguage.Interpreter.Archive
         private const byte ConstTag_PoolInt128  = 0x17;
         private const byte ConstTag_PoolUInt128 = 0x18;
         private const byte ConstTag_PoolDecimal = 0x19;
+        // L4: a `re"pattern"flags` literal lowered to a const. Pattern + flags
+        // are serialized as text; the Regex is rebuilt on load (additive tag,
+        // backward-compatible — older archives never carried a regex const).
+        private const byte ConstTag_Regex       = 0x1A;
 
-        private static void SerializeConst(RacBinaryWriter w, RuntimeValue? v, SharedConstPoolBuilder? pool)
+        internal static void SerializeConst(RacBinaryWriter w, RuntimeValue? v, SharedConstPoolBuilder? pool)
         {
             if (v == null) { w.WriteU8(ConstTag_Null); return; }
             switch (v)
@@ -480,6 +515,13 @@ namespace RaLanguage.Interpreter.Archive
                     // ref makes pooling a net loss.
                     w.WriteU8(ConstTag_Bool);
                     w.WriteU8(b.Value ? (byte)1 : (byte)0);
+                    return;
+                case RegexValue rx:
+                    // L4: serialize the source text; the Regex is recompiled on
+                    // load (RegexValue is otherwise not a poolable scalar).
+                    w.WriteU8(ConstTag_Regex);
+                    w.WriteString(rx.Pattern);
+                    w.WriteString(rx.Flags);
                     return;
                 case IntegerValue iv:
                 {
@@ -635,7 +677,7 @@ namespace RaLanguage.Interpreter.Archive
             }
         }
 
-        private static RuntimeValue? DeserializeConst(RacBinaryReader r, SharedConstPool? pool)
+        internal static RuntimeValue? DeserializeConst(RacBinaryReader r, SharedConstPool? pool)
         {
             byte tag = r.ReadU8();
             switch (tag)
@@ -652,6 +694,22 @@ namespace RaLanguage.Interpreter.Archive
                     return new StringValue(r.ReadString() ?? "");
                 case ConstTag_Bool:
                     return BooleanValue.Of(r.ReadU8() != 0);
+                case ConstTag_Regex:
+                {
+                    // L4: rebuild the compiled Regex from the serialized source.
+                    string pattern = r.ReadString() ?? "";
+                    string flags = r.ReadString() ?? "";
+                    try
+                    {
+                        var opts = RegexValue.ParseFlags(flags);
+                        var rx = RegexValue.Compile(pattern, opts);
+                        return new RegexValue(pattern, flags, opts, rx);
+                    }
+                    catch (System.ArgumentException ex)
+                    {
+                        throw new InvalidDataException($"rac: invalid regex const '{pattern}'/'{flags}': {ex.Message}");
+                    }
+                }
                 case ConstTag_Integer:
                     return new IntegerValue(r.ReadI32());
                 case ConstTag_Long:

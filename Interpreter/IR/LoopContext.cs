@@ -28,6 +28,13 @@ namespace RaLanguage.Interpreter.IR
         // scopes (an `if` body push, an inner `for` push, etc.).
         public readonly int BaselineScopeDepth;
 
+        // L7: a `switch` is breakable but is NOT a loop — `break` inside a
+        // switch arm exits the switch, while `continue` / `retry` must pass
+        // THROUGH it to the nearest enclosing real loop. When true, this
+        // context catches `break` (via BreakFixups) but is transparent to
+        // `continue` / `retry`, which walk past it down the stack.
+        public bool BreakBarrierOnly;
+
         public LoopContext(int retryTargetPc, int baselineScopeDepth)
         {
             RetryTargetPc = retryTargetPc;

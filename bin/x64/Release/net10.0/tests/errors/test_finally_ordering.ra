@@ -7,13 +7,11 @@ import std.prelude.*;
 // Cases:
 //   O1   finally runs on normal completion (try, finally)
 //   O2   finally runs after a caught throw (try, catch, finally)
-//   O3   throw escapes an inner try that has a `finally` but NO `catch`.
-//        EXPECTED (correct): inner-try, inner-finally, outer-catch.
-//        ACTUAL (this build): the inner finally runs, but the in-flight throw
-//        is then SWALLOWED -- the outer catch never fires. Known interpreter
-//        bug (see tests/errors/test_finally_paths.ra F5). We assert the
-//        finally fired and pin the buggy "swallowed" behaviour so a future
-//        fix flips this case loudly.
+//   O3   throw escapes an inner try that has a `finally` but NO `catch`: the
+//        inner finally runs, then the in-flight throw RESUMES and the outer
+//        catch handles it -> inner-try, inner-finally, outer-catch. (The L10 IR
+//        try/finally lowering fixed the old visitor bug that swallowed the
+//        throw here; see RA_FULL_IR_LOWERING_PLAN.md.)
 //   O4   function returns from inside try -> finally runs BEFORE the value
 //        is handed back (try, finally, then caller sees the return value)
 //   O5   nested try/catch/finally: inner finally before outer finally
@@ -48,7 +46,8 @@ try {
 ok("O2", (o2 as string) == "[\"try\", \"catch\", \"finally\"]");
 
 // O3: throw escapes inner try (no inner catch), inner finally runs, then the
-// outer catch handles it. Order proves finally fires during unwinding.
+// throw resumes and the outer catch handles it. Order proves finally fires
+// DURING unwinding and the error correctly propagates afterwards.
 var o3 = [];
 try {
     try {
@@ -60,10 +59,7 @@ try {
 } catch (e) {
     o3 += "outer-catch";
 }
-// Inner finally MUST have run regardless; the outer-catch miss is the bug.
-let o3HasFinally = str_contains(o3 as string, "inner-finally");
-let o3Swallowed = (o3 as string) == "[\"inner-try\", \"inner-finally\"]";
-ok("O3", o3HasFinally and o3Swallowed);
+ok("O3", (o3 as string) == "[\"inner-try\", \"inner-finally\", \"outer-catch\"]");
 
 // O4: return from inside try -> finally runs before the value is observed by
 // the caller. The shared log records "try" and "finally"; the caller then

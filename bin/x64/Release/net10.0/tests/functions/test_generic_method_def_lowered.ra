@@ -1,0 +1,38 @@
+import std.prelude.*;
+// L10: a class that DEFINES a generic method `fn m<T>(...)` now lowers FLAT
+// (OP_DEFINE_TYPE) instead of falling back to NativeDefine. The method-level type
+// params ride the ClassMethodDef descriptor (Generics) + the .rac v8 round-trip;
+// the body compiles type-erased (T is metadata, no runtime code). Only class
+// methods can be generic (struct/record methods cannot).
+print("=== functions/generic_method_def_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+pub class Holder {
+    pub var n: int;
+    pub Holder(n: int) { self.n = n; }
+    pub fn echo<T>(x: T): T { ret x; }
+    pub fn firstOf<A, B>(a: A, b: B): A { ret a; }
+    pub fn plain(): int { ret self.n; }
+}
+
+let h = Holder(5);
+
+// M1: single-type-param generic method, explicit type arg.
+ck("[M1a]", h.echo<int>(42) == 42);
+ck("[M1b]", h.echo<string>("hi") == "hi");
+
+// M2: multi-type-param generic method.
+ck("[M2]", h.firstOf<int, string>(7, "z") == 7);
+
+// M3: the class's non-generic method + field still work after the generic ones.
+ck("[M3a]", h.plain() == 5);
+ck("[M3b]", h.n == 5);
+
+// M4: generic method via inference (no explicit type arg).
+ck("[M4]", h.echo(99) == 99);
+
+if failures == 0 { print("=== done ==="); } else { print("=== FAIL (" + (failures as string) + ") ==="); }

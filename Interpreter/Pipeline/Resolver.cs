@@ -417,6 +417,8 @@ namespace RaLanguage.Interpreter.Pipeline
                 op.FrameId = frameId;
                 op.ParamBindings = paramBindings;
             }
+
+            WalkProperties(cls.Properties, s);
         }
 
         // M18: walk a trait body so each method's frame + param slots are
@@ -451,6 +453,10 @@ namespace RaLanguage.Interpreter.Pipeline
                 op.FrameId = frameId;
                 op.ParamBindings = paramBindings;
             }
+
+            // L10: frame extension property accessor bodies (computed ext properties
+            // run via the VM, same as type-member computed properties).
+            WalkProperties(ext.Properties, s);
         }
 
         private static void WalkStruct(StructDefinitionNode str, State s)
@@ -474,6 +480,8 @@ namespace RaLanguage.Interpreter.Pipeline
                 op.FrameId = frameId;
                 op.ParamBindings = paramBindings;
             }
+
+            WalkProperties(str.Properties, s);
         }
 
         private static void WalkRecord(RecordDefinitionNode rec, State s)
@@ -497,6 +505,8 @@ namespace RaLanguage.Interpreter.Pipeline
                 op.FrameId = frameId;
                 op.ParamBindings = paramBindings;
             }
+
+            WalkProperties(rec.Properties, s);
         }
 
         // Helper for struct/operator method bodies which carry args+body but
@@ -528,6 +538,42 @@ namespace RaLanguage.Interpreter.Pipeline
             s.CurrentScope = savedScope;
             s.PopFrame();
             return paramBindings;
+        }
+
+        // L10: frame each PROPERTY accessor body so it can be IR-compiled. self is
+        // implicit (slot 0); the named bindings mirror what PropertyAccessOps sets
+        // in the accessor context: getter `field`; setter/init `value`,`field`;
+        // observer `old`,`value`,`field`. Auto accessors (no body) are skipped.
+        private static void WalkProperties(System.Collections.Generic.IEnumerable<RaLanguage.Parser.Nodes.Properties.PropertyDefinitionNode> props, State s)
+        {
+            foreach (var p in props)
+            {
+                if (p.Accessors == null) continue;
+                foreach (var acc in p.Accessors)
+                {
+                    if (acc.BodyNode == null) continue; // auto accessor — synthesised, no body
+                    var argToks = AccessorArgToks(acc);
+                    var paramBindings = WalkMethodLikeBody(acc.BodyNode, argToks, s, out int frameId);
+                    acc.FrameId = frameId;
+                    acc.ParamBindings = paramBindings;
+                }
+            }
+        }
+
+        private static RaLanguage.Lexer.Tokens.Token[] AccessorArgToks(RaLanguage.Parser.Nodes.Properties.PropertyAccessorNode acc)
+        {
+            var ps = acc.KindTok.PositionStart;
+            var pe = acc.KindTok.PositionEnd;
+            RaLanguage.Lexer.Tokens.Token T(string n) =>
+                new RaLanguage.Lexer.Tokens.Token(RaLanguage.Lexer.Tokens.TokenType.IDENTIFIER, n, ps, pe);
+            return acc.Kind switch
+            {
+                RaLanguage.Parser.Nodes.Properties.PropertyAccessorKind.Get => new[] { T("field") },
+                RaLanguage.Parser.Nodes.Properties.PropertyAccessorKind.Set => new[] { T("value"), T("field") },
+                RaLanguage.Parser.Nodes.Properties.PropertyAccessorKind.Init => new[] { T("value"), T("field") },
+                RaLanguage.Parser.Nodes.Properties.PropertyAccessorKind.Observe => new[] { T("old"), T("value"), T("field") },
+                _ => System.Array.Empty<RaLanguage.Lexer.Tokens.Token>()
+            };
         }
 
         // ---------------------------------------------------------------------
@@ -667,6 +713,37 @@ namespace RaLanguage.Interpreter.Pipeline
                     // Literal compare — no bindings, but walk the expression so
                     // any identifier it references gets resolved.
                     if (lit.Expression != null) Walk(lit.Expression, s);
+                    break;
+                // Extended patterns: allocate their binders so the IR lowering can
+                // confirm a slot (else the binding form silently falls back to the
+                // visitor). Mirrors the visitor's name-based binding set.
+                case TypePatternNode tpn:
+                    if (!string.IsNullOrEmpty(tpn.BinderName) && tpn.BinderName != "_")
+                        s.AllocateLocalIfAbsent(tpn.BinderName!);
+                    break;
+                case AliasPatternNode apn:
+                    BindPatternNames(apn.Inner, s);
+                    if (!string.IsNullOrEmpty(apn.BinderName) && apn.BinderName != "_")
+                        s.AllocateLocalIfAbsent(apn.BinderName);
+                    break;
+                case AndPatternNode andn:
+                    foreach (var conj in andn.Conjuncts) BindPatternNames(conj, s);
+                    break;
+                case OrPatternNode orn:
+                    foreach (var alt in orn.Alternatives) BindPatternNames(alt, s);
+                    break;
+                case NotPatternNode notn:
+                    BindPatternNames(notn.Inner, s);
+                    break;
+                case MapPatternNode mpn:
+                    foreach (var (key, val) in mpn.Entries) { Walk(key, s); BindPatternNames(val, s); }
+                    break;
+                case RangePatternNode rgn:
+                    if (rgn.Lo != null) Walk(rgn.Lo, s);
+                    if (rgn.Hi != null) Walk(rgn.Hi, s);
+                    break;
+                case RelationalPatternNode rln:
+                    if (rln.Operand != null) Walk(rln.Operand, s);
                     break;
             }
         }

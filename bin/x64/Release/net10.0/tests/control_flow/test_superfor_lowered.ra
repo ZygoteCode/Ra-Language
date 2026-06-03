@@ -1,0 +1,70 @@
+import std.prelude.*;
+// Ra Language - L1: C-style `for (init; cond; step)` (SuperForNode) is now
+// IR-lowered (IrCompiler.CompileSuperFor) instead of routed through the
+// OP_NATIVE_DEFINE → SuperForNodeVisitor tree-walk. These hard cases pin the
+// lowering's semantics — several of which the old visitor path got WRONG
+// (break/continue, body-shadow advance).
+//
+// Cases:
+//   SF1  basic accumulation
+//   SF2  break (visitor path used to hang/abort — native lowering exits cleanly)
+//   SF3  continue still runs the step clause (else it would spin forever)
+//   SF4  body-local declared fresh each iteration
+//   SF5  body SHADOWS the iter var; the step must still advance the OUTER var
+//        (ClearScope-before-steps guard — a wrong lowering loops forever)
+//   SF6  nested C-style for
+//   SF7  `for (;;)` infinite loop + break
+//   SF8  empty init, outer-scope counter
+
+print("=== control_flow/superfor_lowered ===");
+
+var s = 0;
+for (var i = 0; i < 5; i = i + 1) { s = s + i; }
+if s == 10 { print("[SF1] OK"); } else { print("[SF1] FAIL got " + (s as string)); }
+
+var b = 0;
+for (var i = 0; i < 100; i = i + 1) {
+    if i == 3 { break; }
+    b = b + 1;
+}
+if b == 3 { print("[SF2] OK"); } else { print("[SF2] FAIL got " + (b as string)); }
+
+var c = 0;
+for (var i = 0; i < 6; i = i + 1) {
+    if i % 2 == 0 { continue; }
+    c = c + i;
+}
+if c == 9 { print("[SF3] OK"); } else { print("[SF3] FAIL got " + (c as string)); }
+
+var d = 0;
+for (var i = 0; i < 4; i = i + 1) {
+    var t = i * i;
+    d = d + t;
+}
+if d == 14 { print("[SF4] OK"); } else { print("[SF4] FAIL got " + (d as string)); }
+
+var g = 0;
+for (var i = 0; i < 3; i = i + 1) {
+    var i = 99;
+    g = g + 1;
+}
+if g == 3 { print("[SF5] OK"); } else { print("[SF5] FAIL got " + (g as string)); }
+
+var n = 0;
+for (var i = 0; i < 3; i = i + 1) {
+    for (var j = 0; j < 3; j = j + 1) { n = n + 1; }
+}
+if n == 9 { print("[SF6] OK"); } else { print("[SF6] FAIL got " + (n as string)); }
+
+var k = 0;
+for (;;) {
+    k = k + 1;
+    if k == 7 { break; }
+}
+if k == 7 { print("[SF7] OK"); } else { print("[SF7] FAIL got " + (k as string)); }
+
+var z = 0;
+for (; z < 5; z = z + 1) { pass; }
+if z == 5 { print("[SF8] OK"); } else { print("[SF8] FAIL got " + (z as string)); }
+
+print("=== control_flow/superfor_lowered done ===");

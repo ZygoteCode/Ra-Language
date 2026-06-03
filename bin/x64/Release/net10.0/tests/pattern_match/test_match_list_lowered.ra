@@ -1,0 +1,94 @@
+import std.prelude.*;
+// Ra Language - L7 (Match widening): LIST patterns now lower. `case [a, b]`
+// (exact) and `case [h, ..t]` / `case [first, ..mid, last]` (prefix + named
+// rest + suffix) lower to:
+//   ListShape    — scrut is ListValue && Count == N (exact) or >= prefix+suffix
+//                  (rest); mode bit in C. A length mismatch is a no-match.
+//   EnumPayload  — front (prefix) elements by index (polymorphic over lists).
+//   ListElemBack — suffix elements counted from the END (k 1-based).
+//   ListRestSlice— the captured middle bound as a fresh list (named `..rest`).
+// Each fixed element is a LEAF subpattern (wildcard / variable / literal).
+// Nested list/tuple/struct element subpatterns fall back to the visitor.
+
+print("=== pattern_match/match_list_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// LI1-LI4: empty / single / pair / head+rest (exact + min-length shapes).
+fn shape(xs: list<int>): string {
+    ret match xs {
+        case [] -> "empty"
+        case [a] -> "one:" + (a as string)
+        case [a, b] -> "two:" + ((a + b) as string)
+        case [h, ..t] -> "head:" + (h as string) + ",rest:" + (len(t) as string)
+        case _ -> "?"
+    };
+}
+ck("[LI1]", shape([]) == "empty");
+ck("[LI2]", shape([5]) == "one:5");
+ck("[LI3]", shape([3, 4]) == "two:7");
+ck("[LI4]", shape([1, 2, 3, 4]) == "head:1,rest:3");
+
+// LI5-LI7: prefix + named rest + suffix (suffix via ListElemBack from the end).
+fn ends(xs: list<int>): string {
+    ret match xs {
+        case [first, ..mid, last] -> (first as string) + "|" + (len(mid) as string) + "|" + (last as string)
+        case _ -> "short"
+    };
+}
+ck("[LI5]", ends([10, 20, 30, 40]) == "10|2|40");
+ck("[LI6]", ends([1, 2]) == "1|0|2");
+ck("[LI7]", ends([9]) == "short");
+
+// LI8: anonymous `..` rest (no capture) — only the prefix is bound.
+fn firsts(xs: list<int>): int {
+    ret match xs {
+        case [a, b, ..] -> a + b
+        case _ -> -1
+    };
+}
+ck("[LI8]", firsts([7, 8, 9, 10]) == 15);
+ck("[LI9]", firsts([1]) == -1);
+
+// LI10/LI11: LITERAL + wildcard elements in a fixed list.
+fn lead(xs: list<int>): string {
+    ret match xs {
+        case [0, x] -> "zero:" + (x as string)
+        case [_, b] -> "any:" + (b as string)
+        case _ -> "other"
+    };
+}
+ck("[LI10]", lead([0, 9]) == "zero:9");
+ck("[LI11]", lead([5, 6]) == "any:6");
+
+// LI12: GUARD reads list element binds.
+fn pair(xs: list<int>): string {
+    ret match xs {
+        case [a, b] if a + b == 10 -> "ten"
+        case [a, b] -> "pair"
+        case _ -> "other"
+    };
+}
+ck("[LI12]", pair([4, 6]) == "ten");
+ck("[LI13]", pair([1, 2]) == "pair");
+
+// LI14: STATEMENT-position list match.
+fn total(xs: list<int>): int {
+    var s = 0;
+    match xs {
+        case [a, b, c] -> s = a + b + c
+        case _ -> s = 0
+    }
+    ret s;
+}
+ck("[LI14]", total([1, 2, 3]) == 6);
+ck("[LI15]", total([1, 2]) == 0);
+
+if failures == 0 {
+    print("=== done (all list cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

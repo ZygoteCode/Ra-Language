@@ -141,6 +141,37 @@ namespace RaLanguage.Interpreter.Runtime
             return res;
         }
 
+        // L6: run an ALREADY-compiled RaFunction with the given context (no
+        // compile step). Used by the NamespaceDeclaration lowering — the body
+        // statements are precompiled ahead of time (via CompileBodyStatement),
+        // then executed here with the namespace scope chain as the context.
+        // Byte-identical to the on-demand Evaluate(...) path the AST visitor
+        // uses, minus the compile + cache lookup.
+        public static ValueTask<RuntimeResult> RunCompiled(RaFunction fn, Context context, IInterpreter interpreter)
+        {
+            var vm = RentExecutor(interpreter);
+            var frame = VmFrame.Rent(fn);
+            var task = vm.Execute(frame, context);
+            if (task.IsCompletedSuccessfully)
+            {
+                var res = task.Result;
+                if (res.Error == null) VmFrame.Return(frame);
+                return new ValueTask<RuntimeResult>(res);
+            }
+            return AwaitAndReturn(task, frame);
+        }
+
+        // L6: compile a single statement EXACTLY as Evaluate(statement:false)
+        // would (same forceStatement decision), so a precompiled namespace body
+        // statement is bytecode-identical to its on-demand compile.
+        public static RaFunction CompileBodyStatement(AstNode node)
+        {
+            bool forceStatement = IsStatementOnly(node.NodeType);
+            return forceStatement
+                ? IrCompiler.CompileAsStatement(node, "<stmt>")
+                : IrCompiler.CompileAsExpression(node, "<expr>");
+        }
+
         private static RaFunction GetOrCompile(AstNode node, bool statement)
         {
             var key = (node, statement);

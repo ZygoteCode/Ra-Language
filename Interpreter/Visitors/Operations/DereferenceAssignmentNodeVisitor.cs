@@ -26,61 +26,16 @@ namespace RaLanguage.Interpreter.Visitors.Operations
             var refValue = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.RefTarget, context, interpreter));
             if (res.ShouldReturn()) return res;
 
-            if (refValue is not IReferenceValue refTarget)
-                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
-                    $"left-hand side of '*=' is not a reference (got '{refValue?.Type.ToString().ToLowerInvariant() ?? "null"}')",
-                    context,
-                    code: DiagnosticCode.RuntimeBorrowViolation,
-                    primaryLabel: "operand of '*' is not a borrow / reference",
-                    help: "to write through an alias, take '&mut x' first, then assign through that borrow"));
-
             var newValue = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(node.ValueNode, context, interpreter));
             if (res.ShouldReturn()) return res;
 
-            // Compute the resulting value taking compound-assignment operators into
-            // account: `*r += 5` should read through, add, write back.
-            (RuntimeValue? result, Error? error) = node.AssignmentToken.Type switch
-            {
-                TokenType.EQ => (newValue, null),
-                TokenType.PLUS_EQ => refTarget.Value.AddedTo(newValue),
-                TokenType.MINUS_EQ => refTarget.Value.SubbedBy(newValue),
-                TokenType.MUL_EQ => refTarget.Value.MultedBy(newValue),
-                TokenType.DIV_EQ => refTarget.Value.DivedBy(newValue),
-                TokenType.MODULO_EQ => refTarget.Value.ModuledBy(newValue),
-                TokenType.POW_EQ => refTarget.Value.PowedBy(newValue),
-                TokenType.BITWISE_AND_EQ => refTarget.Value.BitwiseAndedBy(newValue),
-                TokenType.BITWISE_OR_EQ => refTarget.Value.BitwiseOredBy(newValue),
-                TokenType.BITWISE_LEFT_SHIFT_EQ => refTarget.Value.BitwiseLeftShiftedBy(newValue),
-                TokenType.BITWISE_RIGHT_SHIFT_EQ => refTarget.Value.BitwiseRightShiftedBy(newValue),
-                TokenType.BITWISE_LOGICAL_LEFT_SHIFT_EQ => refTarget.Value.BitwiseLeftShiftedBy(newValue),
-                TokenType.BITWISE_LOGICAL_RIGHT_SHIFT_EQ => refTarget.Value.BitwiseUnsignedRightShiftedBy(newValue),
-                TokenType.BITWISE_ROTATE_LEFT_EQ => refTarget.Value.BitwiseRotateLeftedBy(newValue),
-                TokenType.BITWISE_ROTATE_RIGHT_EQ => refTarget.Value.BitwiseRotateRightedBy(newValue),
-                TokenType.AND_EQ => refTarget.Value.AndedBy(newValue),
-                TokenType.OR_EQ => refTarget.Value.OredBy(newValue),
-                _ => (null, new RuntimeError(node.PositionStart, node.PositionEnd,
-                        $"unsupported assignment operator through '*': {node.AssignmentToken.Type}",
-                        context, code: DiagnosticCode.RuntimeGeneric)),
-            };
-
+            // Shared operator + write-through with the IR-lowered OP_DEREF_STORE
+            // handler (DerefStoreOps.Apply).
+            var (result, error) = RaLanguage.Interpreter.Runtime.DerefStoreOps.Apply(
+                refValue, newValue, node.AssignmentToken.Type, context,
+                node.PositionStart, node.PositionEnd);
             if (error != null) return res.Failure(error);
-            if (result == null)
-                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
-                    "could not compute assigned value", context, code: DiagnosticCode.RuntimeGeneric));
-
-            try
-            {
-                refTarget.Value = result;
-            }
-            catch (System.Exception ex)
-            {
-                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
-                    $"failed to assign through reference: {ex.Message}",
-                    context,
-                    code: DiagnosticCode.RuntimeBorrowViolation));
-            }
-
-            return res.Success(result.SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+            return res.Success(result);
         }
     }
 }

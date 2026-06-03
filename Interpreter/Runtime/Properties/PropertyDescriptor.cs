@@ -99,12 +99,16 @@ namespace RaLanguage.Interpreter.Runtime.Properties
         public PropertyAccessorVisibility Visibility { get; }
         public AstNode? Body { get; }                    // null when IsAuto
         public bool IsAuto => Body == null;
+        // L10: the source node carries the IR-compiled accessor body (CompiledBody)
+        // — PropertyAccessOps runs it via the VM when present, else AST-walks Body.
+        public PropertyAccessorNode SourceNode { get; }
 
         public PropertyAccessorRuntime(PropertyAccessorNode source)
         {
             Kind = source.Kind;
             Visibility = source.Visibility;
             Body = source.BodyNode;
+            SourceNode = source;
         }
     }
 }

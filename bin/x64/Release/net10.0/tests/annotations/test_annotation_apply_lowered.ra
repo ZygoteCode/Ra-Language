@@ -1,0 +1,40 @@
+import std.prelude.*;
+// L10: a STANDALONE `@Name(args)` value expression (not a decoration on a
+// declaration) builds an AnnotationInstanceValue and lowers to OP_ANNOTATION_APPLY
+// (off the OP_NATIVE_DEFINE route). Decorations are covered by the other
+// annotation tests; this pins the value form.
+print("=== annotations/annotation_apply_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+annotation Marker { tag: string }
+annotation Version { major: int, minor: int }
+
+// AA1: annotation application as an assigned value.
+let a = @Marker(tag = "x");
+ck("[AA1]", (a as string) == "@Marker(tag=x)");
+
+// AA2: distinct args produce distinct instances.
+let b = @Marker(tag = "y");
+ck("[AA2]", (b as string) == "@Marker(tag=y)");
+
+// AA3: multi-param annotation value.
+let v = @Version(major = 1, minor = 2);
+ck("[AA3]", (v as string) == "@Version(major=1, minor=2)");
+
+// AA4: bare `@Name(args);` statement (value discarded) runs without error.
+@Marker(tag = "z");
+ck("[AA4]", true);
+
+// AA5: built inside a loop (the impure op must not be hoisted/folded away).
+var seen = "";
+for i = 0 to 3 {
+    let m = @Marker(tag = (i as string));
+    seen = seen + (m as string) + ";";
+}
+ck("[AA5]", seen == "@Marker(tag=0);@Marker(tag=1);@Marker(tag=2);");
+
+if failures == 0 { print("=== done ==="); } else { print("=== FAIL (" + (failures as string) + ") ==="); }

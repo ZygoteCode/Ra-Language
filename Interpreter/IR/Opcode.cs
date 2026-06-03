@@ -31,9 +31,23 @@ namespace RaLanguage.Interpreter.IR
         // --- memory model ---
         MoveLet         = 0x17,   // a, b  (sets IsMoved on src binding)
         Alias           = 0x18,   // a, b  (explicit Aliased())
-        Borrow          = 0x19,   // a, b, mut:u8 (c)
+        // L3: `&place` / `&mut place`. Lowered to [op][dst:a][nameIdx:imm16] —
+        // the borrowed binding's name lives in Names[], resolved to its
+        // SymbolEntry at dispatch via BorrowOps.TryBorrow (no AST-ref, no
+        // sub-eval, so no new serialized side-table). Two opcodes keep the
+        // whole 16-bit immediate a pure name index (shared vs mutable is the
+        // opcode). Borrows carrying an explicit lifetime, or whose name index
+        // would exceed 65535, fall back to OP_NATIVE_DEFINE.
+        Borrow          = 0x19,   // a (dst), nameIdx:imm16  (shared `&`)
+        BorrowMut       = 0x06,   // a (dst), nameIdx:imm16  (exclusive `&mut`)
         Deref           = 0x1A,   // a, b
-        DerefStore      = 0x1B,   // a (ref), b (value)
+        // L3: `*ref op= value`. [op][dst:a][refSlot:b][opTokenType:c]; the RHS
+        // value lives in the contiguous slot b+1 (same trick as OP_SET_INDEX).
+        // `c` is the assignment-operator TokenType (76 values, fits a byte);
+        // the handler reads through the reference for compound ops, writes the
+        // result back, and leaves it in `dst`. DerefStoreOps.Apply is shared
+        // with the visitor fallback.
+        DerefStore      = 0x1B,   // a (dst), b (refSlot; valSlot = b+1), opTok:c
 
         // `var/let/const/final x = src` for a single declaration. `a` is the
         // source slot holding the already-evaluated initializer; the imm16
@@ -139,6 +153,26 @@ namespace RaLanguage.Interpreter.IR
         StrConcat       = 0x40,   // a, b, c
         Interp          = 0x41,   // a, partsBase:u8 (b), partsCount:u8 (c)
         Fmt             = 0x42,   // a, b (expr), fmtConst:u8 (c)
+
+        // L4: record copy-update `recv with { f: v, ... }`. Layout:
+        //   [op][dst:a][base:b][defineRefIdx:c]
+        // The receiver record sits at slot `base`; the N update values are laid
+        // out contiguously at `base+1 .. base+N`. N (and the field names /
+        // positions / declared types) come from the WithExpressionNode parked
+        // in DefineRefs[c] (reusing the existing AST-ref pool — no new side
+        // table, already serialized in .rac). The handler shallow-clones the
+        // record and applies the validated overrides; the sub-expressions are
+        // evaluated by ordinary opcodes (no AST re-walk of recv / values).
+        With            = 0x43,   // a (dst), b (base: recv@base, values@base+1..), c (defineRefIdx)
+
+        // L5: one-shot type definition from a FLAT descriptor (no AST). `a` =
+        // scratch dst (the registered type value, mostly ignored), imm16 =
+        // index into RaFunction.TypeDefs (polymorphic TypeDef pool). The
+        // handler reconstructs + registers the runtime type from the descriptor
+        // — so `.rac` stores definitions as plain data, not serialized AST.
+        // Definitions whose data isn't fully flat-foldable fall back to
+        // OP_NATIVE_DEFINE. Enum wired first; other kinds slot in behind it.
+        DefineType      = 0x44,   // a (scratch dst), imm16 (TypeDefs index)
 
         // --- containers (M6) ---
         // 3-address encoding for the new-collection opcodes: [op][dst][base][count].
@@ -423,6 +457,95 @@ namespace RaLanguage.Interpreter.IR
         GetEvent        = 0x93,
         EmitEvent       = 0x94,
 
+        // L7 (Match variant patterns). Enum-variant AND record-positional
+        // introspection opcodes used to lower `case Ok(v)` / `case Some(x)` /
+        // `case Point(x, y)` without the visitor. EnumTagEq/EnumPayload write
+        // locals[A], read locals[B] (the scrutinee); C is an immediate (a Names
+        // index / a payload index), not a slot. Both are POLYMORPHIC over the
+        // scrutinee runtime type — EnumValue (by variant member name + payload
+        // index) OR RecordInstanceValue (by nominal record type name + primary
+        // field index) — mirroring the visitor's TryMatchVariant dispatch.
+        //   EnumTagEq    [op][dst][scrut][nameIdx:c]  dst = scrut matches the
+        //                  named variant/record (enum: MemberName==Names[c];
+        //                  record: Definition is the RecordType bound to Names[c])
+        //   EnumPayload  [op][dst][scrut][index:c]    dst = enum Payload[index]
+        //                  OR record primary-field[index] value
+        //   MatchArity   [op][--][scrut][subCount:c]  throws the visitor's exact
+        //                  arity-mismatch error if the matched scrut's payload/
+        //                  primary-field count != c; else nop. Writes nothing,
+        //                  reads B; emitted right after a passing EnumTagEq.
+        //   EnumNameEq   [op][dst][scrut][enumNameIdx:c]  dst = (scrut is
+        //                  EnumValue && scrut.EnumName == Names[c]). Emitted for an
+        //                  EXPLICIT `case Enum.Variant(..)` BEFORE EnumTagEq, to
+        //                  disambiguate same-named variants across enums (records
+        //                  carry no EnumName → never match an explicit pattern,
+        //                  matching the visitor's EnumName!=null record exclusion).
+        //   MatchFail    [op]   throws the visitor's exact "no match arm covered
+        //                  the scrutinee value" error. Emitted as the final
+        //                  instruction of a match with NO wildcard/variable
+        //                  catch-all (exhaustive enum match): reached only when no
+        //                  arm matched. No operands; a Throw-kind CFG terminator.
+        //   TupleShape   [op][dst][scrut][len:c]  dst = (scrut is TupleValue &&
+        //                  Elements.Count == c). A tuple pattern's element count IS
+        //                  its shape — a mismatch is a no-match (not an error), so
+        //                  no MatchArity follows. Elements extract via EnumPayload
+        //                  (polymorphic over enum/record/tuple/list by index).
+        EnumTagEq       = 0x95,
+        EnumPayload     = 0x96,
+        MatchArity      = 0x97,
+        EnumNameEq      = 0x98,
+        MatchFail       = 0x99,
+        TupleShape      = 0x9A,
+        //   StructShape  [op][dst][scrut][nameIdx:c]  dst = scrut is a struct OR
+        //                  class OR record instance whose declared type name ==
+        //                  Names[c] (nominal; a name mismatch is a no-match).
+        //   StructFieldGet [op][dst][scrut][fieldIdx:c]  dst = scrut.GetField(
+        //                  Names[c]); throws the visitor's exact "struct/class 'X'
+        //                  has no field 'f'" error if the field is absent. Reached
+        //                  only after a passing StructShape.
+        StructShape     = 0x9B,
+        StructFieldGet  = 0x9C,
+        //   ListShape    [op][dst][scrut][c]  c = (modeBit<<7)|len7. dst = scrut is
+        //                  ListValue && (mode 0: Count==len7 / mode 1: Count>=len7).
+        //                  EXACT for a no-rest pattern, >= when a `..rest` is
+        //                  present. Front elements extract via EnumPayload (index).
+        //   ListElemBack [op][dst][scrut][kFromEnd:c]  dst = Elements[Count-k]
+        //                  (k 1-based from the end) — the suffix patterns after a
+        //                  `..rest`. Reached only after a passing ListShape.
+        //   ListRestSlice[op][dst][scrut][c]  c = (prefix4<<4)|suffix4. dst = a new
+        //                  ListValue of Elements[prefix .. Count-suffix] — the
+        //                  middle captured by a named `..rest`.
+        ListShape       = 0x9D,
+        ListElemBack    = 0x9E,
+        ListRestSlice   = 0x9F,
+        //   MapShape     [op][dst][scrut][c]  c = (openBit<<7)|count7. dst = scrut
+        //                  is MapValue && (open: Pairs.Count>=count / closed:
+        //                  Pairs.Count==count). A `..` open-rest sets the open bit.
+        //   MapHasKey    [op][dst][map][keySlot]  dst = the map contains keySlot
+        //                  (structural GetComparisonEq over Pairs). 3-address: reads
+        //                  B (map) + C (key SLOT), like Eq.
+        //   MapGetKey    [op][dst][map][keySlot]  dst = the value at keySlot (a
+        //                  preceding MapHasKey confirmed presence). 3-address.
+        MapShape        = 0xA7,
+        MapHasKey       = 0xAF,
+        MapGetKey       = 0xCF,
+        // L7 — `target?` postfix try-unwrap. dst (A) = the Ok payload; reads the
+        // target at B. On Result.Err the handler signals an early function return
+        // of the Err value (the case `return`s SuccessReturn); a non-Result / bad
+        // variant throws the visitor's exact error. Writes A, reads B; impure
+        // (the Err early-return is a side effect — never DCE'd/hoisted).
+        TryUnwrap       = 0xED,
+        // L7 — destructuring-declaration bind BY NAME. `a` = value slot, imm16 =
+        // Names index. Does ctx.SymbolTable.SetLocal(Names[idx], locals[a]) — the
+        // name-based binding the destructuring binders resolve to (the Resolver
+        // does not slot-allocate them). Reads A, writes no slot; impure.
+        DeclareLocalByName = 0xEE,
+        // L7 — destructuring no-match terminator. Throws the visitor's exact
+        // "destructuring pattern did not match the initializer value" error.
+        // No operands; a Throw-kind CFG terminator (defence-in-depth — the parser
+        // rejects refutable destructuring patterns, so this is rarely reached).
+        DestructureFail = 0xEF,
+
         // --- exceptions ---
         Throw           = 0xA0,   // a (err src)
         EnterTry        = 0xA1,   // _, handlerIdx:u16
@@ -448,6 +571,13 @@ namespace RaLanguage.Interpreter.IR
         Ushr            = 0xA4,
         Rol             = 0xA5,
         Ror             = 0xA6,
+
+        // L7 (Match is-type pattern). `case is T [as v]`. dst = the scrutinee's
+        // runtime type matches the TestedType of the IsTypeNode parked in
+        // AstRefs[c] (WideC index, like Cast), via TypeSystem.IsRuntimeTypeMatch.
+        // Reuses the existing IsTypeNode serialization (no new pool / version).
+        // Writes A, reads B; the optional `as v` binder binds the scrutinee.
+        IsType          = 0xAE,
 
         // --- async ---
         Await           = 0xB0,   // a (dst), b (src)
@@ -557,7 +687,12 @@ namespace RaLanguage.Interpreter.IR
         RorII           = 0xDF,
 
         // --- inline asm ---
-        AsmInvoke       = 0xE0,   // a (retBase), b (argsBase), regionId:u8 (c)  + ext: argsCount|retCount
+        AsmInvoke       = 0xE0,   // L9: a (dst), imm16 (DefineRefs idx of the parked pure-text AsmBlockNode)
+        AsmInvokeI      = 0xF2,   // L10: a (dst), b (argsBase), c (DefineRefs idx) — interpolated asm; reads argsBase+0..N-1 (N = interp parts), With-shaped
+        RetYield        = 0xF3,   // L10: a (value slot) — function-level `yield X`: return from the fn with FlowState.Yield (mirrors OP_RET but yield-flow)
+        AnnotationApply = 0xF4,   // L10: a (dst), imm16 (DefineRefs idx) — standalone `@Name(args)` value; builds the AnnotationInstanceValue (NativeDefine-shaped)
+        SetPendingFlow  = 0xF5,   // L10: a (value slot), b (kind: 1=return 2=yield) — stash a control-flow escape through an enclosing finally; OP_FINALLY_END applies it
+        CallGeneric     = 0xF6,   // L10: a (dst), b (fnSlot: callee@fnSlot, args@fnSlot+1..), c (DefineRefs idx of the parked FunctionCallNode) — explicit-generic-type-arg call `foo<int>(...)`; argCount + GenericTypeArgs read from the parked node (With-shaped reads, Call-shaped def)
 
         // ---- streams (Streams runtime — see RA_STREAMS_DESIGN.md §10) ----
         // Forward-jump opcode that branches if `locals[a]` is a sync stream

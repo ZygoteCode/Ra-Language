@@ -61,7 +61,6 @@ namespace RaLanguage.Interpreter.Values.Primitives
         private async ValueTask<RuntimeResult> ExecuteSyncBody(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, List<TypeDescriptor?>? explicitTypeArgs, AsyncContext? asyncCtxOverride)
         {
             var res = new RuntimeResult();
-            var interpreter = new Interpreter();
 
             // PERF: the execution scope is built once by
             // PrepareExecutionContextForCall below (bindRes.execCtx). The
@@ -216,10 +215,24 @@ namespace RaLanguage.Interpreter.Values.Primitives
                     }
                     execCtxF.SymbolTable.AttachFrameParams(fbNames, fbSlots, slotLocalsF);
 
-                    var interpreterF = new Interpreter();
-                    var vmF = new Vm.VmExecutor(interpreterF);
-                    var bodyResF = await vmF.Execute(frameF, execCtxF);
-                    if (bodyResF.Error == null) Vm.VmFrame.Return(frameF);
+                    // PERF: pooled VM host instead of a per-call
+                    // Interpreter + VmExecutor; returned to the pool only on
+                    // synchronous completion (suspended Execute keeps the host
+                    // alive across the await).
+                    var hostF = Vm.VmHostPool.Rent();
+                    var execTaskF = hostF.Executor.Execute(frameF, execCtxF);
+                    RuntimeResult bodyResF;
+                    if (execTaskF.IsCompletedSuccessfully)
+                    {
+                        bodyResF = execTaskF.Result;
+                        if (bodyResF.Error == null) Vm.VmFrame.Return(frameF);
+                        Vm.VmHostPool.Return(hostF);
+                    }
+                    else
+                    {
+                        bodyResF = await execTaskF;
+                        if (bodyResF.Error == null) Vm.VmFrame.Return(frameF);
+                    }
                     if (bodyResF.Error != null) return res.Failure(bodyResF.Error);
 
                     if (bodyResF.FuncReturnValue != null)
@@ -292,10 +305,22 @@ namespace RaLanguage.Interpreter.Values.Primitives
                     $"class method '{Name}' has no executable body", Context));
             {
                 // M79: pool rent + return on success only.
-                var vm = new Vm.VmExecutor(interpreter);
+                // PERF: pooled VM host (Interpreter + VmExecutor); returned to
+                // the pool only on synchronous completion.
+                var host = Vm.VmHostPool.Rent();
                 var frame = Vm.VmFrame.Rent(compiled);
-                bodyRes = await vm.Execute(frame, bindRes.execCtx!);
-                if (bodyRes.Error == null) Vm.VmFrame.Return(frame);
+                var execTask = host.Executor.Execute(frame, bindRes.execCtx!);
+                if (execTask.IsCompletedSuccessfully)
+                {
+                    bodyRes = execTask.Result;
+                    if (bodyRes.Error == null) Vm.VmFrame.Return(frame);
+                    Vm.VmHostPool.Return(host);
+                }
+                else
+                {
+                    bodyRes = await execTask;
+                    if (bodyRes.Error == null) Vm.VmFrame.Return(frame);
+                }
             }
             if (bodyRes.Error != null)
                 return res.Failure(bodyRes.Error);

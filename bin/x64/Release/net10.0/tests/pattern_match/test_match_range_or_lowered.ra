@@ -1,0 +1,96 @@
+import std.prelude.*;
+// Ra Language - L7 (Match widening): RANGE, RELATIONAL, and OR patterns now
+// lower, with ZERO new opcodes — they reuse the comparison opcodes (Ge / Lt /
+// Le / Gt / Eq / Ne, each routing to the same GetComparison* the visitor uses)
+// and OrBB:
+//   case lo..hi   -> scrut >= lo  AND  scrut <  hi   (exclusive high)
+//   case lo..=hi  -> scrut >= lo  AND  scrut <= hi   (inclusive high)
+//   case ..hi / case lo.. -> single open bound
+//   case > 5 / case != -1 -> one comparison
+//   case A | B | C -> test(A) || test(B) || test(C) via an eager OrBB chain
+// Range/relational/or are non-binding bool tests (no per-arm scope). Or-pattern
+// alternatives must all be non-binding (literal/range/relational/wildcard); a
+// binding alternative (`case Ok(x) | Err(x)`) falls back to the visitor.
+
+print("=== pattern_match/match_range_or_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// RG1-RG4: exclusive vs inclusive range boundaries.
+fn band(n: int): string {
+    ret match n {
+        case 0..10 -> "lo"
+        case 10..=20 -> "mid"
+        case _ -> "hi"
+    };
+}
+ck("[RG1]", band(5) == "lo");
+ck("[RG2]", band(10) == "mid");   // 10 excluded from 0..10, included in 10..=20
+ck("[RG3]", band(20) == "mid");   // inclusive high
+ck("[RG4]", band(21) == "hi");
+
+// RG5/RG6: open-ended ranges.
+fn sign(n: int): string {
+    ret match n {
+        case ..0 -> "neg"
+        case 0..=0 -> "zero"
+        case 1.. -> "pos"
+        case _ -> "?"
+    };
+}
+ck("[RG5]", sign(-3) == "neg");
+ck("[RG6]", sign(0) == "zero");
+ck("[RG7]", sign(9) == "pos");
+
+// RL1-RL6: relational operators.
+fn rel(n: int): string {
+    ret match n {
+        case < 0 -> "neg"
+        case > 100 -> "big"
+        case != 50 -> "mid"
+        case _ -> "fifty"
+    };
+}
+ck("[RL1]", rel(-1) == "neg");
+ck("[RL2]", rel(200) == "big");
+ck("[RL3]", rel(7) == "mid");
+ck("[RL4]", rel(50) == "fifty");
+
+// OR1-OR3: or of literals.
+fn vowel(c: string): bool {
+    ret match c {
+        case "a" | "e" | "i" | "o" | "u" -> true
+        case _ -> false
+    };
+}
+ck("[OR1]", vowel("e") == true);
+ck("[OR2]", vowel("z") == false);
+
+// OR4/OR5: or MIXING literal, range, and relational alternatives.
+fn special(n: int): bool {
+    ret match n {
+        case 0 | 100..200 | > 1000 -> true
+        case _ -> false
+    };
+}
+ck("[OR3]", special(0) == true);
+ck("[OR4]", special(150) == true);
+ck("[OR5]", special(5000) == true);
+ck("[OR6]", special(7) == false);
+
+// RG8: negative bound + string relational.
+fn neg(n: int): bool { ret match n { case -10..=-1 -> true case _ -> false }; }
+ck("[RG8]", neg(-5) == true);
+ck("[RG9]", neg(0) == false);
+fn alpha(s: string): bool { ret match s { case >= "m" -> true case _ -> false }; }
+ck("[RL5]", alpha("z") == true);
+ck("[RL6]", alpha("a") == false);
+
+if failures == 0 {
+    print("=== done (all range/relational/or cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

@@ -1,0 +1,57 @@
+import std.prelude.*;
+// L10: events are a pure protocol — accessors carry NO bodies — so an event-bearing
+// type def lowers as flat metadata (EventDef: name + flags + payload params +
+// accessor Kind/Visibility) instead of falling back to NativeDefine. Reconstructed
+// into an EventDefinitionNode → the visitor's EventBuilder registers it; subscribe/
+// raise/count run unchanged. Annotated events fall back. Survives the .rac v8
+// round-trip.
+print("=== functions/event_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// EV1: event with payload params — subscribe + raise + count.
+class Button {
+    pub event Click(x: int, y: int)
+    pub fn fire(x: int, y: int) { self.Click(x, y) }
+}
+let b = Button()
+var hits = 0
+b.Click.on(fn(x: int, y: int) { hits = hits + x + y })
+b.fire(10, 20)
+b.fire(1, 1)
+ck("[EV1a]", hits == 32)
+ck("[EV1b]", b.Click.count() == 1)
+
+// EV2: unsubscribe by handle.
+let s = b.Click.on(fn(x: int, y: int) { hits = hits + 1000 })
+ck("[EV2a]", b.Click.count() == 2)
+b.Click.off(s)
+ck("[EV2b]", b.Click.count() == 1)
+
+// EV3: payload-less event.
+class Clock {
+    pub event Tick()
+    pub fn pulse() { self.Tick() }
+}
+let c = Clock()
+var ticks = 0
+c.Tick.on(fn() { ticks = ticks + 1 })
+c.pulse()
+c.pulse()
+ck("[EV3]", ticks == 2)
+
+// EV4: cancellable event still lowers.
+class Gate {
+    pub cancellable event Confirm(msg: string)
+    pub fn ask(m: string) { self.Confirm(m) }
+}
+let g = Gate()
+var asked = 0
+g.Confirm.on(fn(m: string) { asked = asked + 1 })
+g.ask("ok")
+ck("[EV4]", asked == 1)
+
+if failures == 0 { print("=== done ==="); } else { print("=== FAIL (" + (failures as string) + ") ==="); }

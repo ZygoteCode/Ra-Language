@@ -1,0 +1,59 @@
+import std.prelude.*;
+// L10: function-level (uncaught) `yield X` lowers to OP_RET_YIELD — it returns
+// from the enclosing fn carrying a Yield flow state (≡ ret, but validated via
+// the `.Value` path so the yield error wording is preserved). Not inside a
+// match/switch arm (that path is the YieldTarget lowering, tested elsewhere).
+print("=== control_flow/fn_yield_lowered ===");
+
+// FY1: fn-level yield returns the value + exits (no fall-through).
+fn fy() {
+    yield 5;
+    print("[FY1] FAIL fell through after yield");
+}
+assert_eq(fy(), 5, "fn-level yield returns the value");
+print("[FY1] OK");
+
+// FY2: an expression yield value.
+fn fy2() {
+    yield 6 * 7;
+}
+assert_eq(fy2(), 42, "fn-level yield of an expression");
+print("[FY2] OK");
+
+// FY3: yield inside a loop in a fn propagates out (returns the first yield).
+fn fyl() {
+    for i in [10, 20, 30] { yield i; }
+    print("[FY3] FAIL fell through after loop yield");
+}
+assert_eq(fyl(), 10, "loop yield propagates out of the fn");
+print("[FY3] OK");
+
+// FY4: yield inside an if in a fn.
+fn fyif(n: int) {
+    if n > 0 { yield 100; }
+    yield -1;
+}
+assert_eq(fyif(5), 100, "yield inside if");
+assert_eq(fyif(-5), -1, "fall-through yield");
+print("[FY4] OK");
+
+// FY5: typed fn, matching yield is validated + returned.
+fn ft(): int {
+    yield 42;
+}
+assert_eq(ft(), 42, "typed fn yield");
+print("[FY5] OK");
+
+// FY6: typed fn, mismatched yield raises the return-type error (caught).
+fn fbad(): int {
+    yield "str";
+}
+var threw = false;
+try {
+    let _ = fbad();
+} catch (ex) {
+    threw = true;
+}
+if threw { print("[FY6] OK"); } else { print("[FY6] FAIL no type error"); }
+
+print("=== done ===");

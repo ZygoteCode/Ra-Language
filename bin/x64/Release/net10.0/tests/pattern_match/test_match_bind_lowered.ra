@@ -1,0 +1,67 @@
+import std.prelude.*;
+// Ra Language - L7 (Match widening): variable-pattern BINDINGS now lower. A
+// `case x` arm declares the scrutinee into the local slot the arm body/guard
+// resolved the name to (synthesized `var x` + OP_DECLARE_LOCAL), inside a FRESH
+// per-arm scope (so a later arm can re-bind the same name and a failed-guard arm
+// doesn't leak). A name confirmed only when the body/guard has a slot-eligible
+// LOCAL reference — so an enum-variant pattern (`case None`, which resolves to a
+// Global) safely falls back to the visitor.
+
+print("=== pattern_match/match_bind_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// MB1/MB2: a binding used in the arm body
+fn describe(n: int): string {
+    ret match n {
+        case 0 -> "zero"
+        case x -> "got " + (x as string)
+    };
+}
+ck("[MB1]", describe(0) == "zero");
+ck("[MB2]", describe(7) == "got 7");
+
+// MB3-5: binding visible in the GUARD
+fn sign(n: int): string {
+    ret match n {
+        case x if x > 0 -> "pos"
+        case x if x < 0 -> "neg"
+        case _ -> "zero"
+    };
+}
+ck("[MB3]", sign(5) == "pos");
+ck("[MB4]", sign(-5) == "neg");
+ck("[MB5]", sign(0) == "zero");
+
+// MB6-8: the SAME binding name in multiple arms (per-arm scope — must not
+// trigger a 're-declaration' error)
+fn bucket(n: int): string {
+    ret match n {
+        case x if x < 10 -> "small:" + (x as string)
+        case x if x < 100 -> "med:" + (x as string)
+        case x -> "big:" + (x as string)
+    };
+}
+ck("[MB6]", bucket(5) == "small:5");
+ck("[MB7]", bucket(50) == "med:50");
+ck("[MB8]", bucket(500) == "big:500");
+
+// MB9/MB10: literal arms + a binding catch-all mixed
+fn classify(n: int): string {
+    ret match n {
+        case 0 -> "z"
+        case 1 -> "o"
+        case x -> "n" + (x as string)
+    };
+}
+ck("[MB9]", classify(0) == "z");
+ck("[MB10]", classify(5) == "n5");
+
+if failures == 0 {
+    print("=== done (all lowered binding cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

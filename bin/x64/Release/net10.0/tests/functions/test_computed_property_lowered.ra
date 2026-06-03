@@ -1,0 +1,56 @@
+import std.prelude.*;
+// L10 DEEP: computed / custom-body property accessors now IR-compile + run via the
+// VM (not the visitor). The resolver frames each accessor body (getter `self,field`;
+// setter `self,value,field`; observer `self,old,value,field`); GetOrCompileAccessor
+// compiles it; PropertyAccessOps runs the CompiledBody via the pooled VM, with the
+// `field` mirror-back unchanged (LoadLocalS lazy-resolves the slot to the SAME
+// SymbolEntry the context holds). The DEF lowers (PropertyDef carries the compiled
+// accessor bodies + .rac round-trip). Lazy / abstract still fall back.
+print("=== functions/computed_property_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// C1: arrow-form computed getter `=> expr` (no backing).
+pub class Vec {
+    pub prop x: int = 0
+    pub prop y: int = 0
+    pub prop mag2: int => self.x * self.x + self.y * self.y
+    pub Vec(x: int, y: int) { self.x = x; self.y = y; }
+}
+let v = Vec(3, 4);
+ck("[C1]", v.mag2 == 25);
+
+// C2: block getter + custom setter with the `field = value` mirror-back idiom.
+pub class Box {
+    pub prop raw: int = 0 {
+        get { ret field; }
+        set { field = value * 2; }   // doubles on store
+    }
+    pub Box() { pass }
+}
+let b = Box();
+b.raw = 10;
+ck("[C2a]", b.raw == 20);        // setter doubled, getter returned field
+b.raw = b.raw + 5;               // (20+5)=25 -> setter doubles -> 50
+ck("[C2b]", b.raw == 50);
+
+// C3: custom getter that transforms the backing value.
+pub class Celsius {
+    pub prop c: int = 0
+    pub prop f: int { get { ret self.c * 9 / 5 + 32; } }
+    pub Celsius(c: int) { self.c = c; }
+}
+ck("[C3]", Celsius(100).f == 212);
+
+// C4: a struct with a computed property.
+pub struct SBox {
+    pub prop n: int = 0
+    pub prop triple: int => self.n * 3
+    pub SBox(n: int) { self.n = n; }
+}
+ck("[C4]", SBox(7).triple == 21);
+
+if failures == 0 { print("=== done ==="); } else { print("=== FAIL (" + (failures as string) + ") ==="); }

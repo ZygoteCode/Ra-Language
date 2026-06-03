@@ -1,0 +1,34 @@
+import std.prelude.*;
+// Ra Language - L3: borrow (`&` / `&mut`) and deref-store (`*r op= v`) are now
+// IR-lowered (OP_BORROW / OP_BORROW_MUT / OP_DEREF_STORE) instead of routed
+// through OP_NATIVE_DEFINE. These pin the lowered semantics, including the
+// chained-result case (BD4) that originally exposed a DCE bug (the RHS value
+// load was deleted because the optimizer didn't model DerefStore's B+1 read).
+//
+// Cases:
+//   BD1  shared borrow read   (`*r`)
+//   BD2  mutable write         (`*m = v`)
+//   BD3  compound write        (`*m += v`)
+//   BD4  chained result        (`var y = (*m = v)`)  — the SSA-tracking guard
+//   BD5  the write is observable through the borrow afterwards
+
+print("=== semantics/borrow_deref_lowered ===");
+
+var x = 5;
+let r = &x;
+if *r == 5 { print("[BD1] OK"); } else { print("[BD1] FAIL " + (*r as string)); }
+
+var a = 10;
+let m = &mut a;
+*m = 99;
+if *m == 99 { print("[BD2] OK"); } else { print("[BD2] FAIL " + (*m as string)); }
+
+*m += 1;
+if *m == 100 { print("[BD3] OK"); } else { print("[BD3] FAIL " + (*m as string)); }
+
+var y = (*m = 7);
+if y == 7 { print("[BD4] OK"); } else { print("[BD4] FAIL " + (y as string)); }
+
+if *m == 7 { print("[BD5] OK"); } else { print("[BD5] FAIL " + (*m as string)); }
+
+print("=== done ===");

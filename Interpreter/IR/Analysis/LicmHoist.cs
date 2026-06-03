@@ -571,6 +571,9 @@ namespace RaLanguage.Interpreter.IR.Analysis
                         // that flag false to terminate, so hoisting the reload
                         // out of the loop spins forever. Refuse for ANY binding.
                         case Opcode.NativeDefine:
+                        case Opcode.DefineType:
+                        case Opcode.AsmInvoke: case Opcode.AsmInvokeI: // L9/L10 — native exec, arbitrary side effects
+                        case Opcode.AnnotationApply: // L10 — re-enters the VM (arg eval)
                             return true;
                         // Indirect mutation via call → bridge through
                         // MutatedNames. If the function never assigns
@@ -579,6 +582,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                         // statically-resolvable callee proves clean,
                         // callees in the same scope cannot reach it.
                         case Opcode.Call:
+                        case Opcode.CallGeneric:
                         case Opcode.CallMethod:
                         case Opcode.TailCall:
                             if (nameInMutatedSet) return true;
@@ -700,6 +704,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Alias:
                 case Opcode.MoveLet:
                 case Opcode.Borrow:
+                case Opcode.BorrowMut:
                 case Opcode.Deref:
                 case Opcode.Add: case Opcode.Sub: case Opcode.Mul:
                 case Opcode.Div: case Opcode.Mod: case Opcode.Pow:
@@ -743,9 +748,22 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Closure: case Opcode.DefineFunction:
                 case Opcode.GetSelf: case Opcode.GetSuper:
                 case Opcode.Call: case Opcode.CallKw: case Opcode.CallMethod:
+                case Opcode.CallGeneric:
                 case Opcode.NewInstance:
+                case Opcode.With:
                 case Opcode.NativeDefine:
+                case Opcode.DefineType:
                 case Opcode.Await: case Opcode.Spawn:
+                case Opcode.AsmInvoke: case Opcode.AsmInvokeI:
+                case Opcode.AnnotationApply:
+                case Opcode.EnumTagEq: case Opcode.EnumPayload: // L7 variant patterns
+                case Opcode.EnumNameEq:
+                case Opcode.TupleShape:
+                case Opcode.StructShape: case Opcode.StructFieldGet:
+                case Opcode.ListShape: case Opcode.ListElemBack: case Opcode.ListRestSlice:
+                case Opcode.IsType:
+                case Opcode.MapShape: case Opcode.MapHasKey: case Opcode.MapGetKey:
+                case Opcode.TryUnwrap:
                     return Encoding.A(instr) == slot;
                 default:
                     return false;

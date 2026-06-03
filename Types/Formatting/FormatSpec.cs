@@ -98,6 +98,36 @@ namespace RaLanguage.Types.Formatting
 
         public bool IsDefault => Kind == FormatKind.Default && !HasPrecision && !AlternateForm;
 
+        // Pack the whole spec into a single non-negative int so the IR can
+        // intern it as a plain integer constant (OP_FMT's `c` operand indexes
+        // the const pool). Layout:
+        //   bits 0-3  : Kind   (0..8)
+        //   bit  4    : AlternateForm
+        //   bit  5    : HasPrecision
+        //   bit  6    : UpperCase
+        //   bits 8-30 : Precision (23 bits, far beyond any real format width)
+        // Round-trips losslessly via Unpack — no re-parse of the textual spec
+        // at runtime (the whole point of pre-parsing on the node).
+        public int Pack()
+        {
+            int v = ((int)Kind) & 0xF;
+            if (AlternateForm) v |= 1 << 4;
+            if (HasPrecision)  v |= 1 << 5;
+            if (UpperCase)     v |= 1 << 6;
+            v |= (Precision & 0x7FFFFF) << 8;
+            return v;
+        }
+
+        public static FormatSpec Unpack(int v)
+        {
+            var kind = (FormatKind)(v & 0xF);
+            bool alt = (v & (1 << 4)) != 0;
+            bool hasPrec = (v & (1 << 5)) != 0;
+            bool upper = (v & (1 << 6)) != 0;
+            int precision = (v >> 8) & 0x7FFFFF;
+            return new FormatSpec(kind, alt, hasPrec, precision, upper);
+        }
+
         // Pretty-print used by diagnostics. Reconstructs the canonical form
         // from the parsed pieces so the user sees the spec exactly as they
         // would re-write it.

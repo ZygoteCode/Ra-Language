@@ -1,0 +1,65 @@
+import std.prelude.*;
+// Ra Language - L7: the `target?` try-unwrap operator now lowers (OP_TRY_UNWRAP,
+// 0xED). On Result.Ok(v) the node yields v; on Result.Err(e) the enclosing
+// function early-returns Result.Err(e) through the standard return channel
+// (handler returns SuccessReturn, like Ret); a non-Result / unexpected variant
+// throws the visitor's exact error. Byte-identical to TryUnwrapNodeVisitor
+// (parity MATCH under forced fallback). The opcode writes A (the Ok payload),
+// reads B (the target), and is impure (the Err early-return is a side effect).
+
+print("=== pattern_match/try_unwrap_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+fn parse_pos(s: string): Result<int, string> {
+    let n = s as int;
+    if n > 0 { ret Result.Ok(n); } else { ret Result.Err("not positive: " + s); }
+}
+
+fn unwrap_or(r: Result<int, string>, d: int): int {
+    ret match r { case Ok(v) -> v case Err(e) -> d };
+}
+fn err_of(r: Result<int, string>): string {
+    ret match r { case Ok(v) -> "(ok)" case Err(e) -> e };
+}
+
+// TU1/TU2: chained `?` — both Ok propagate; one Err short-circuits the fn.
+fn add3(a: string, b: string, c: string): Result<int, string> {
+    let x = parse_pos(a)?;
+    let y = parse_pos(b)?;
+    let z = parse_pos(c)?;
+    ret Result.Ok(x + y + z);
+}
+ck("[TU1]", unwrap_or(add3("1", "2", "3"), -1) == 6);
+ck("[TU2]", err_of(add3("1", "-5", "3")) == "not positive: -5");   // 2nd `?` returns Err
+ck("[TU3]", err_of(add3("1", "2", "0")) == "not positive: 0");     // 3rd `?` returns Err
+
+// TU4: `?` in EXPRESSION position (inside an arithmetic / call sub-expression).
+fn doubled(s: string): Result<int, string> {
+    ret Result.Ok(parse_pos(s)? * 2);
+}
+ck("[TU4]", unwrap_or(doubled("21"), -1) == 42);
+ck("[TU5]", err_of(doubled("-3")) == "not positive: -3");
+
+// TU6: `?` result fed directly into another call.
+fn sum_two(a: string, b: string): Result<int, string> {
+    ret Result.Ok(parse_pos(a)? + parse_pos(b)?);
+}
+ck("[TU6]", unwrap_or(sum_two("10", "5"), -1) == 15);
+ck("[TU7]", err_of(sum_two("-1", "5")) == "not positive: -1");
+
+// TU8: single `?` that always succeeds (no early return taken).
+fn ident(s: string): Result<int, string> {
+    let v = parse_pos(s)?;
+    ret Result.Ok(v);
+}
+ck("[TU8]", unwrap_or(ident("99"), -1) == 99);
+
+if failures == 0 {
+    print("=== done (all try-unwrap cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

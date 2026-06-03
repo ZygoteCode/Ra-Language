@@ -1,0 +1,47 @@
+import std.prelude.*;
+// L10 one-shot-defn operator widening: struct / class / record operator overloads
+// are lowered FLAT (OP_DEFINE_TYPE carries an OperatorDef[] with the precompiled
+// body), NOT routed through the AST-fallback NativeDefine. The operator dispatch
+// keys on the TokenType (preserved across the descriptor + the .rac v7 round-trip),
+// and the body executes via CompiledBody.
+//
+// NB: Ra operators bind their single argument under the fixed name `other`
+// (BoundOperatorValue hardcodes it); naming the param anything else is a
+// pre-existing RA0402 and is out of scope here.
+print("=== functions/operator_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// L1: struct `+` and `==`.
+pub struct V2 {
+    pub var x: int;
+    pub var y: int;
+    pub V2(x: int, y: int) { self.x = x; self.y = y; }
+    pub operator + (other: V2) { ret V2(self.x + other.x, self.y + other.y); }
+    pub operator == (other: V2) { ret self.x == other.x and self.y == other.y; }
+}
+let s = V2(1, 2) + V2(3, 4);
+ck("[L1a]", s.x == 4 and s.y == 6);
+ck("[L1b]", V2(5, 5) == V2(5, 5));
+ck("[L1c]", not (V2(5, 5) == V2(5, 6)));
+
+// L2: class `-` overload.
+pub class Acc {
+    pub var n: int;
+    pub Acc(n: int) { self.n = n; }
+    pub operator - (other: Acc) { ret Acc(self.n - other.n); }
+}
+let d = Acc(10) - Acc(3);
+ck("[L2]", d.n == 7);
+
+// L3: record `+` overload (record carries OperatorDef[] too).
+pub record Money(amount: int) {
+    pub operator + (other: Money) { ret Money(self.amount + other.amount); }
+}
+let m = Money(40) + Money(2);
+ck("[L3]", m.amount == 42);
+
+if failures == 0 { print("=== done ==="); } else { print("=== FAIL (" + (failures as string) + ") ==="); }

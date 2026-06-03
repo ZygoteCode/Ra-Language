@@ -77,6 +77,16 @@ namespace RaLanguage.Interpreter.IR.Analysis
                         }
                         set.Add(b.Id);
                     }
+                    int? secondSlot = SecondaryDefinedSlot(Cfg.Function.Code[pc]);
+                    if (secondSlot.HasValue)
+                    {
+                        if (!defsPerSlot.TryGetValue(secondSlot.Value, out var set2))
+                        {
+                            set2 = new HashSet<int>();
+                            defsPerSlot[secondSlot.Value] = set2;
+                        }
+                        set2.Add(b.Id);
+                    }
                 }
             }
 
@@ -166,6 +176,13 @@ namespace RaLanguage.Interpreter.IR.Analysis
                         DefVersions[(pc, def.Value)] = v;
                         pushedSlots.Add(def.Value);
                     }
+                    int? def2 = SecondaryDefinedSlot(instr);
+                    if (def2.HasValue && def2.Value != (def ?? -1))
+                    {
+                        int v2 = FreshVersion(def2.Value);
+                        DefVersions[(pc, def2.Value)] = v2;
+                        pushedSlots.Add(def2.Value);
+                    }
                 }
                 // Fill phi args at every successor whose phis read this
                 // block's exiting versions.
@@ -242,6 +259,26 @@ namespace RaLanguage.Interpreter.IR.Analysis
         // LoadGlobal via the name lookup tables.
         public static int? DefinedSlotOf(uint instr, RaFunction fn, int pc) => DefinedSlot(instr, fn, pc);
         public static int? DefinedSlotOf(uint instr, RaFunction fn) => DefinedSlot(instr, fn, -1);
+
+        // A handful of opcodes write TWO `locals[]` slots, but the SSA
+        // backbone (`DefinedSlot`) returns a single slot. This models the
+        // SECOND write so it gets its own fresh SSA version.
+        //
+        // ForEachStreamPull `[op][itemSlot:a][streamSlot:b][continueSlot:c]`
+        // writes itemSlot (A, the primary def) AND continueSlot (C, the
+        // loop-continue boolean). Without the C def the immediately-following
+        // `JmpIfNot continueSlot` resolves its use to whatever earlier write
+        // touched that physical slot — and if a prior `LoadConst` left a
+        // constant there (common once the surrounding fn is big enough to be
+        // optimised), SCCP folds the loop-exit branch away ⇒ the stream
+        // foreach spins forever. Giving C a fresh version each pull shadows
+        // that stale constant and forces the branch to stay dynamic.
+        public static int? SecondaryDefinedSlot(uint instr)
+        {
+            return Encoding.DecodeOp(instr) == Opcode.ForEachStreamPull
+                ? Encoding.C(instr)
+                : (int?)null;
+        }
 
         // Helper: resolve the SymbolEntry slot that an opcode reads
         // or writes via its AST-side `node.Name`. Returns null when
@@ -381,6 +418,8 @@ namespace RaLanguage.Interpreter.IR.Analysis
                     || o == Opcode.CallMethod || o == Opcode.TailCall
                     || o == Opcode.Spawn || o == Opcode.NewInstance
                     || o == Opcode.NativeDefine || o == Opcode.Await
+                    || o == Opcode.AsmInvoke || o == Opcode.AsmInvokeI
+                    || o == Opcode.AnnotationApply || o == Opcode.CallGeneric
                     || o == Opcode.Throw)
                 {
                     if (pc < firstEvent) firstEvent = pc;
@@ -436,6 +475,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Alias:
                 case Opcode.MoveLet:
                 case Opcode.Borrow:
+                case Opcode.BorrowMut:
                 case Opcode.Deref:
                 case Opcode.Add: case Opcode.Sub: case Opcode.Mul:
                 case Opcode.Div: case Opcode.Mod: case Opcode.Pow:
@@ -449,6 +489,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Lt: case Opcode.Le: case Opcode.Gt: case Opcode.Ge:
                 case Opcode.NullCoal:
                 case Opcode.StrConcat: case Opcode.Interp: case Opcode.Fmt:
+                case Opcode.With:
                 case Opcode.NewList: case Opcode.NewMap:
                 case Opcode.NewSet: case Opcode.NewTuple:
                 case Opcode.ListGet: case Opcode.MapGet:
@@ -461,9 +502,21 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Closure: case Opcode.DefineFunction:
                 case Opcode.GetSelf: case Opcode.GetSuper:
                 case Opcode.Call: case Opcode.CallKw: case Opcode.CallMethod:
+                case Opcode.CallGeneric:
                 case Opcode.NewInstance:
                 case Opcode.NativeDefine:
+                case Opcode.DefineType:
                 case Opcode.Await: case Opcode.Spawn:
+                case Opcode.AsmInvoke: case Opcode.AsmInvokeI:
+                case Opcode.AnnotationApply:
+                case Opcode.EnumTagEq: case Opcode.EnumPayload:
+                case Opcode.EnumNameEq:
+                case Opcode.TupleShape:
+                case Opcode.StructShape: case Opcode.StructFieldGet:
+                case Opcode.ListShape: case Opcode.ListElemBack: case Opcode.ListRestSlice:
+                case Opcode.IsType:
+                case Opcode.MapShape: case Opcode.MapHasKey: case Opcode.MapGetKey:
+                case Opcode.TryUnwrap:
                 // M66.5 / M66.6: II tagged-union opcodes also write
                 // `locals[a]` (or the `LongLocals[a]` shadow). SSA
                 // tracks both arrays' writes uniformly so chain
@@ -575,6 +628,8 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.BAndII: case Opcode.BOrII: case Opcode.BXorII:
                 // M80: typed Pow.
                 case Opcode.PowII: case Opcode.PowFF:
+                // L7 map patterns: read B (map) + C (key slot), like Eq.
+                case Opcode.MapHasKey: case Opcode.MapGetKey:
                     yield return (Encoding.B(instr), true);
                     yield return (Encoding.C(instr), true);
                     break;
@@ -607,6 +662,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Jmp:
                 case Opcode.Pass:
                 case Opcode.RetNull:
+                case Opcode.FinallyEnd: // L10 — no operands (frame-state only)
                 case Opcode.PushScope:
                 case Opcode.PopScope:
                 case Opcode.ClearScope:
@@ -616,6 +672,18 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.GetSuper:
                 case Opcode.Nameof:
                 case Opcode.NativeDefine:
+                // L5: OP_DEFINE_TYPE carries a TypeDefs index in imm16, not a
+                // slot — reads no locals (the type is built from the descriptor).
+                case Opcode.DefineType:
+                // L9: OP_ASM_INVOKE carries a DefineRefs index in imm16, not a
+                // slot — the asm source is constant, no operand slots are read.
+                case Opcode.AsmInvoke:
+                // L10: OP_ANNOTATION_APPLY — DefineRefs idx in imm16, no slot reads.
+                case Opcode.AnnotationApply:
+                // L3: borrows carry a Names[] index in imm16, not a slot — they
+                // read no locals (the place is resolved by name at dispatch).
+                case Opcode.Borrow:
+                case Opcode.BorrowMut:
                     break;
                 case Opcode.Move:
                 case Opcode.Alias:
@@ -631,11 +699,26 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.ForEachIterable:
                 case Opcode.ListLen:
                 case Opcode.Deref:
-                case Opcode.Borrow:
                 case Opcode.Await:
+                // L7 variant patterns: read the scrutinee at B; C is an immediate
+                // (Names index / payload index / arity), not a slot. MatchArity
+                // writes nothing (falls to DefinedSlot's default) but still reads
+                // B — model the read so the scrutinee stays live to it.
+                case Opcode.EnumTagEq:
+                case Opcode.EnumPayload:
+                case Opcode.MatchArity:
+                case Opcode.EnumNameEq:
+                case Opcode.TupleShape:
+                case Opcode.StructShape: case Opcode.StructFieldGet:
+                case Opcode.ListShape: case Opcode.ListElemBack: case Opcode.ListRestSlice:
+                case Opcode.IsType:
+                case Opcode.MapShape:
+                case Opcode.TryUnwrap:
                     yield return (Encoding.B(instr), true);
                     break;
                 case Opcode.Ret:
+                case Opcode.RetYield:
+                case Opcode.SetPendingFlow: // L10 — reads the value slot (A)
                 case Opcode.Throw:
                 case Opcode.Halt:
                 case Opcode.StoreLocalS:
@@ -643,6 +726,8 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.AssignBinding:
                 case Opcode.StoreUpval:
                 case Opcode.DeclareLocal:
+                case Opcode.DeclareLocalByName:
+                case Opcode.Emit:
                 case Opcode.JmpIf:
                 case Opcode.JmpIfNot:
                 case Opcode.AndJz:
@@ -699,6 +784,16 @@ namespace RaLanguage.Interpreter.IR.Analysis
                     // For SetIndex, value slot = idxSlot + 1 (contiguous
                     // layout the IR emitter pins).
                     if (op == Opcode.SetIndex) yield return (Encoding.B(instr) + 1, true);
+                    break;
+                }
+                case Opcode.DerefStore:
+                {
+                    // L3: a is the result DEST (a def); the reads are the
+                    // reference slot `b` and the RHS value slot `b+1` (the
+                    // contiguous layout the IR emitter pins). Without modelling
+                    // the b+1 read, DCE would delete the value-load as dead.
+                    yield return (Encoding.B(instr), true);
+                    yield return (Encoding.B(instr) + 1, true);
                     break;
                 }
                 case Opcode.ListSet:
@@ -808,6 +903,57 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Fmt:
                     yield return (Encoding.B(instr), true);
                     break;
+                case Opcode.With:
+                {
+                    // [op][dst:a][base:b][defineRefIdx:c]. Reads the receiver at
+                    // `base` plus the N contiguous update values at base+1..base+N.
+                    // N comes from the WithExpressionNode parked in DefineRefs[c]
+                    // (the c operand is a ref index, NOT a slot — never read it).
+                    int wb = Encoding.B(instr);
+                    yield return (wb, true);
+                    int wc = Encoding.C(instr);
+                    int wn = 0;
+                    if (fn?.DefineRefs != null && wc < fn.DefineRefs.Length
+                        && fn.DefineRefs[wc] is Parser.Nodes.Operations.WithExpressionNode wnode)
+                        wn = wnode.Updates.Count;
+                    for (int i = 0; i < wn; i++) yield return (wb + 1 + i, true);
+                    break;
+                }
+                case Opcode.CallGeneric:
+                {
+                    // L10 — [op][dst:a][fnSlot:b][defineRefIdx:c]. Reads the callee
+                    // at `fnSlot` plus the N args at fnSlot+1..fnSlot+N (With-shaped).
+                    // N = ArgNodes.Count of the FunctionCallNode parked in
+                    // DefineRefs[c] (c is a ref index, NOT a slot — never read it).
+                    int gb = Encoding.B(instr);
+                    yield return (gb, true);
+                    int gc = Encoding.C(instr);
+                    int gn = 0;
+                    if (fn?.DefineRefs != null && gc < fn.DefineRefs.Length
+                        && fn.DefineRefs[gc] is Parser.Nodes.Functions.FunctionCallNode gfc)
+                        gn = gfc.ArgNodes.Count;
+                    for (int i = 0; i < gn; i++) yield return (gb + 1 + i, true);
+                    break;
+                }
+                case Opcode.AsmInvokeI:
+                {
+                    // L10 — [op][dst:a][argsBase:b][defineRefIdx:c]. Reads the N
+                    // interpolation args at argsBase+0..argsBase+N-1 (no receiver,
+                    // unlike With). N = count of AsmInterpPartNode in the parked
+                    // AsmBlockNode at DefineRefs[c]; the c operand is a ref index,
+                    // NOT a slot — never read it.
+                    int ab = Encoding.B(instr);
+                    int ac = Encoding.C(instr);
+                    int an = 0;
+                    if (fn?.DefineRefs != null && ac < fn.DefineRefs.Length
+                        && fn.DefineRefs[ac] is Parser.Nodes.Asm.AsmBlockNode anode)
+                    {
+                        for (int i = 0; i < anode.Parts.Count; i++)
+                            if (anode.Parts[i].NodeType == RaLanguage.Parser.Nodes.AstNodeType.AsmInterpPart) an++;
+                    }
+                    for (int i = 0; i < an; i++) yield return (ab + i, true);
+                    break;
+                }
                 // M65 safety net: any opcode not explicitly enumerated
                 // above is treated as if it reads BOTH `b` and `c`.
                 // Over-approximates the use set, never under-counts —

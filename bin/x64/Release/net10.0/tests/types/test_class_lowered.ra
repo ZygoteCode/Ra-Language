@@ -1,0 +1,77 @@
+import std.prelude.*;
+// Ra Language - L5e: a plain `class` in the flat-lowerable subset (no
+// inheritance / interfaces / traits / properties / events / operators / static
+// / abstract) now IR-lowers to a ClassDef + OP_DEFINE_TYPE. Class methods are
+// FunctionDefinitionNodes precompiled to RaFunctions (reconstruct-on-load); the
+// visitor Apply is async but completes synchronously for the lowerable subset.
+
+print("=== types/class_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// CL1: field default + mutating method (reference semantics)
+class Counter {
+    pub var n: int = 0;
+    pub fn inc() { self.n = self.n + 1 }
+    pub fn get(): int { ret self.n }
+}
+let c = Counter();
+c.inc();
+c.inc();
+c.inc();
+ck("[CL1]", c.get() == 3);
+
+// CL2: reference aliasing — two names, one instance
+let alias = c;
+alias.inc();
+ck("[CL2]", c.get() == 4 && alias.get() == 4);
+
+// CL3: explicit constructor + multiple fields
+class Box {
+    pub var w: int = 0;
+    pub var h: int = 0;
+    pub Box(a: int, b: int) {
+        self.w = a;
+        self.h = b;
+    }
+    pub fn area(): int { ret self.w * self.h }
+}
+let bx = Box(3, 4);
+ck("[CL3]", bx.w == 3 && bx.h == 4 && bx.area() == 12);
+
+// CL4: method returning a new instance
+class Vec {
+    pub var x: int = 0;
+    pub Vec(v: int) { self.x = v }
+    pub fn doubled(): Vec { ret Vec(self.x * 2) }
+}
+let v = Vec(5);
+ck("[CL4]", v.doubled().x == 10);
+
+// CL5: class in a loop (lowered def, repeated construction)
+var total = 0;
+for i in 0..5 {
+    let k = Counter();
+    k.inc();
+    k.inc();
+    total = total + k.get();
+}
+ck("[CL5]", total == 10);
+
+// CL6: string + bool field defaults
+class Cfg {
+    pub var label: string = "x";
+    pub var on: bool = false;
+    pub fn desc(): string { ret self.label + ":" + (self.on as string) }
+}
+let cf = Cfg();
+ck("[CL6]", cf.desc() == "x:false");
+
+if failures == 0 {
+    print("=== done (all lowered-class cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

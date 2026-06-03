@@ -568,6 +568,69 @@ namespace RaLanguage.Parser
             return ParseBinaryOperation(_parseCall, s_opsPow, _parseFactor);
         }
 
+        // Speculatively parse a generic-type-arg list `<A, B, ...>` starting at the
+        // current `<`. Commits (advances past the args + returns them) ONLY when
+        // the list is well-formed AND immediately followed by '(' (a generic call
+        // `f<A>(...)`) or '.' (a generic-qualified member `Box<int>.of(...)`); a
+        // following '.' after '>' never occurs in a real comparison, and the '('
+        // case is the universally-accepted generic-call shape. Otherwise rolls the
+        // cursor fully back and returns null, so a real comparison `a < b` (and
+        // `a < b > c`) parses unchanged. Shared by the atom-position speculation
+        // and the member-access call position (`obj.method<int>(...)`).
+        private List<TypeDescriptor?>? TryCommitSpeculativeGenericArgs(ParserResult res)
+        {
+            if (_currentToken.Type != TokenType.LT) return null;
+
+            int startIndex = _tokenIndex;
+            var dummyRes = new ParserResult();
+            bool isGenericCall = true;
+            var tempArgs = new List<TypeDescriptor?>();
+
+            dummyRes.RegisterAdvancement();
+            Advance();
+
+            while (true)
+            {
+                var parsedType = ParseType(dummyRes);
+                if (parsedType == null)
+                {
+                    isGenericCall = false;
+                    break;
+                }
+
+                tempArgs.Add(parsedType);
+
+                if (_currentToken.Type == TokenType.COMMA)
+                {
+                    dummyRes.RegisterAdvancement();
+                    Advance();
+                    continue;
+                }
+
+                if (_currentToken.Type != TokenType.GT)
+                {
+                    isGenericCall = false;
+                    break;
+                }
+
+                dummyRes.RegisterAdvancement();
+                Advance();
+                break;
+            }
+
+            if (isGenericCall && (_currentToken.Type == TokenType.LPAREN || _currentToken.Type == TokenType.DOT))
+            {
+                int totalAdvances = _tokenIndex - startIndex;
+                for (int i = 0; i < totalAdvances; i++)
+                    res.RegisterAdvancement();
+                return tempArgs;
+            }
+
+            _tokenIndex = startIndex;
+            UpdateCurrentToken();
+            return null;
+        }
+
         private ParserResult ParseCall()
         {
             var atomRes = ParseAtom();
@@ -591,69 +654,9 @@ namespace RaLanguage.Parser
 
             var resultNode = atom;
 
-            List<TypeDescriptor?>? genericTypeArgs = null;
-            if (_currentToken.Type == TokenType.LT)
-            {
-                int startIndex = _tokenIndex;
-                var dummyRes = new ParserResult();
-                bool isGenericCall = true;
-                var tempArgs = new List<TypeDescriptor?>();
-
-                dummyRes.RegisterAdvancement();
-                Advance();
-
-                while (true)
-                {
-                    var parsedType = ParseType(dummyRes);
-                    if (parsedType == null)
-                    {
-                        isGenericCall = false;
-                        break;
-                    }
-
-                    tempArgs.Add(parsedType);
-
-                    if (_currentToken.Type == TokenType.COMMA)
-                    {
-                        dummyRes.RegisterAdvancement();
-                        Advance();
-                        continue;
-                    }
-
-                    if (_currentToken.Type != TokenType.GT)
-                    {
-                        isGenericCall = false;
-                        break;
-                    }
-
-                    dummyRes.RegisterAdvancement();
-                    Advance();
-                    break;
-                }
-
-                // Commit the speculative generic args when the next token is
-                // '(' — a direct generic call `T<A>(...)` — OR '.' — a generic
-                // type-qualified member access `T<A>.member(...)`, which is how
-                // named/factory constructors on a generic class are written
-                // (`Box<int>.of(7)`). The args ride the postfix chain and attach
-                // to the eventual call node. A '.' after `>` only occurs in this
-                // qualifier position (`expr > .x` is never a valid expression),
-                // so committing here cannot mis-parse a real comparison.
-                if (isGenericCall && (_currentToken.Type == TokenType.LPAREN || _currentToken.Type == TokenType.DOT))
-                {
-                    genericTypeArgs = tempArgs;
-                    int totalAdvances = _tokenIndex - startIndex;
-                    for (int i = 0; i < totalAdvances; i++)
-                    {
-                        res.RegisterAdvancement();
-                    }
-                }
-                else
-                {
-                    _tokenIndex = startIndex;
-                    UpdateCurrentToken();
-                }
-            }
+            // Atom-position generic call `T<A>(...)` / generic-qualified member
+            // `Box<int>.of(...)`. (Helper rolls back on a real comparison.)
+            List<TypeDescriptor?>? genericTypeArgs = TryCommitSpeculativeGenericArgs(res);
 
             while (_currentToken.Type == TokenType.LPAREN
                 || _currentToken.Type == TokenType.LSQUARE
@@ -896,6 +899,18 @@ namespace RaLanguage.Parser
                     Advance();
 
                     resultNode = new MemberAccessNode(resultNode, memberTok);
+
+                    // `obj.method<int>(...)` — explicit generic type args on a
+                    // member-access call. Speculatively parse them here so they
+                    // attach to the FunctionCallNode the following '(' builds (it
+                    // lowers via OP_CALL_GENERIC). The helper commits ONLY on a
+                    // `<types>(`-or-`.` shape and otherwise rolls back, so a real
+                    // comparison `obj.field < x` parses unchanged.
+                    if (_currentToken.Type == TokenType.LT)
+                    {
+                        var memberGenericArgs = TryCommitSpeculativeGenericArgs(res);
+                        if (memberGenericArgs != null) genericTypeArgs = memberGenericArgs;
+                    }
                 }
             }
 

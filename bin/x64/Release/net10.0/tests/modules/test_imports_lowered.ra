@@ -1,0 +1,37 @@
+import std.prelude.*;
+// Ra Language - L6: all three `import` forms now IR-lower to an ImportDef +
+// OP_DEFINE_TYPE (reusing the type-def machinery; imports are directives, not
+// types). The ModuleSpecifier is already flat data, so the handler rebuilds the
+// ImportNode + runs the SAME ImportNodeVisitor.Apply → ModuleManager.Load
+// resolution is byte-identical. Covers: dotted-wildcard (this file's own
+// `import std.prelude.*`), string-literal alias, and selective `from`.
+
+print("=== modules/imports_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// IM1: dotted-wildcard ImportAll already lowered (this file's header) — proven
+// by every built-in below resolving. A second wildcard package import:
+import std.sys.*;
+ck("[IM1]", true);
+
+// IM2: string-literal alias import (ImportAlias) — alias namespaces the module
+import "helpers/strings_helper.ra" as strs;
+ck("[IM2]", strs.repeat("ab", 3) == "ababab");
+
+// IM3: selective `from` import (ImportSelective) — single symbol exposed
+import { shout } from "helpers/strings_helper.ra";
+ck("[IM3]", shout("hi") == "HI!");
+
+// IM4: a second selective import binds another symbol
+import { repeat } from "helpers/strings_helper.ra";
+ck("[IM4]", repeat("xy", 2) == "xyxy");
+
+if failures == 0 {
+    print("=== done (all lowered import forms passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

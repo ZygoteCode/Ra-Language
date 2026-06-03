@@ -391,8 +391,7 @@ namespace RaLanguage.Interpreter.Runtime.Properties
                 inner.SymbolTable.Set("field", slotVal);
             }
 
-            var interp = new Interpreter();
-            var vt = interp.Visit(body, inner);
+            var vt = RunAccessorBody(desc.Getter!, body, inner);
             var bodyRes = vt.IsCompletedSuccessfully ? vt.Result : SyncAwait.Get(vt);
 
             // After the body runs, mirror `field` back into the slot —
@@ -431,8 +430,7 @@ namespace RaLanguage.Interpreter.Runtime.Properties
                 inner.SymbolTable.Set("field", slotVal);
             }
 
-            var interp = new Interpreter();
-            var bodyRes = await interp.Visit(body, inner);
+            var bodyRes = await RunAccessorBody(writer, body, inner);
             if (bodyRes.Error != null) return res.Failure(bodyRes.Error);
 
             // Mirror `field` back. For the common `field = value`
@@ -447,6 +445,43 @@ namespace RaLanguage.Interpreter.Runtime.Properties
             }
 
             return res.Success(value.SetContext(context).SetPos(posStart, posEnd));
+        }
+
+        // L10: run an accessor body. When the IR compiled it (GetOrCompileAccessor),
+        // execute the RaFunction via the pooled VM — self/field/value/old are read
+        // from `inner.SymbolTable` (LoadLocalS lazy-resolves the empty slot by name
+        // and caches the SAME SymbolEntry, so the body's `field = value` mutates the
+        // entry the callers mirror back). Otherwise AST-walk the body. The result is
+        // normalised so the getter's `bodyRes.Value` reads the body's return.
+        private static ValueTask<RuntimeResult> RunAccessorBody(PropertyAccessorRuntime accessor, RaLanguage.Parser.Nodes.AstNode body, Context inner)
+        {
+            var compiled = RaLanguage.Interpreter.Runtime.FunctionDefinitionHelper.GetOrCompileAccessor(accessor.SourceNode);
+            if (compiled == null)
+                return new Interpreter().Visit(body, inner);
+            return RunCompiledAccessor(compiled, inner);
+        }
+
+        private static async ValueTask<RuntimeResult> RunCompiledAccessor(RaLanguage.Interpreter.IR.RaFunction compiled, Context inner)
+        {
+            var host = Vm.VmHostPool.Rent();
+            var frame = Vm.VmFrame.Rent(compiled);
+            RuntimeResult bodyRes;
+            var execTask = host.Executor.Execute(frame, inner);
+            if (execTask.IsCompletedSuccessfully)
+            {
+                bodyRes = execTask.Result;
+                Vm.VmHostPool.Return(host);
+            }
+            else
+            {
+                bodyRes = await execTask.ConfigureAwait(false);
+            }
+            Vm.VmFrame.Return(frame);
+            // Surface the OP_RET value through `.Value` so the getter (which reads
+            // bodyRes.Value) matches the visitor path; setters/observers ignore it.
+            if (bodyRes.Error == null && bodyRes.FuncReturnValue != null)
+                return new RuntimeResult().Success(bodyRes.FuncReturnValue);
+            return bodyRes;
         }
 
         private static async ValueTask<Error?> ExecuteObserverBody(
@@ -465,8 +500,7 @@ namespace RaLanguage.Interpreter.Runtime.Properties
             inner.SymbolTable.Set("value", newValue);
             inner.SymbolTable.Set("field", newValue);
 
-            var interp = new Interpreter();
-            var bodyRes = await interp.Visit(body, inner);
+            var bodyRes = await RunAccessorBody(desc.Observer!, body, inner);
             if (bodyRes.Error != null) return bodyRes.Error;
             return null;
         }

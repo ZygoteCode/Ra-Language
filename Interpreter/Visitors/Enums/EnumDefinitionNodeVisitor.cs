@@ -63,11 +63,11 @@ namespace RaLanguage.Interpreter.Visitors.Enums
                 variants.Add(new EnumVariantInfo(memberName, i, value, payloadTypes));
             }
 
-            var enumTypeValue = new EnumTypeValue(enumName, variants, node.GenericTypeParams, node.WhereConstraints)
-                .SetContext(context)
-                .SetPos(node.PositionStart, node.PositionEnd);
-
-            context.SymbolTable.Set(enumName, enumTypeValue);
+            // Build + register via the shared helper so the IR-lowered
+            // OP_DEFINE_TYPE handler produces a byte-identical EnumTypeValue.
+            var enumTypeValue = EnumDefOps.BuildAndRegister(
+                enumName, variants, node.GenericTypeParams, node.WhereConstraints,
+                context, node.PositionStart, node.PositionEnd);
 
             if (node.HasAnnotations)
             {

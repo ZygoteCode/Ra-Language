@@ -1,6 +1,7 @@
 using RaLanguage.Errors.Types;
 using System.Threading.Tasks;
 using RaLanguage.Interpreter.Architecture;
+using RaLanguage.Interpreter.IR;
 using RaLanguage.Interpreter.Runtime;
 using RaLanguage.Interpreter.Runtime.Namespaces;
 using RaLanguage.Interpreter.Values.Functions;
@@ -23,7 +24,8 @@ namespace RaLanguage.Interpreter.Visitors.Namespaces
         public static async ValueTask<RuntimeResult> Apply(
             NamespaceDeclarationNode node,
             Context context,
-            IInterpreter interpreter)
+            IInterpreter interpreter,
+            RaFunction[]? precompiledBodies = null)
         {
             var res = new RuntimeResult();
 
@@ -86,18 +88,42 @@ namespace RaLanguage.Interpreter.Visitors.Namespaces
             bodyContext.SymbolTable = scopeChain;
             bodyContext.IsInConstructor = context.IsInConstructor;
 
-            var statements = ExtractStatements(node.Body);
-            foreach (var stmt in statements)
+            // Body execution. Two paths, byte-identical apart from compile
+            // timing: the AST path compiles each statement on-demand; the
+            // lowered path (L6) runs the SAME statements precompiled ahead of
+            // time (NamespaceDef.Bodies), with the namespace scope chain as the
+            // execution context so definitions register into the namespace.
+            if (precompiledBodies != null)
             {
-                var stmtRes = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(stmt, bodyContext, interpreter);
-                if (stmtRes.Error != null) return res.Failure(stmtRes.Error);
-                if (stmtRes.FuncReturnValue != null)
+                foreach (var bodyFn in precompiledBodies)
                 {
-                    return res.Failure(new RuntimeError(
-                        stmt.PositionStart,
-                        stmt.PositionEnd,
-                        "'return' is not valid at namespace scope",
-                        bodyContext));
+                    var stmtRes = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.RunCompiled(bodyFn, bodyContext, interpreter);
+                    if (stmtRes.Error != null) return res.Failure(stmtRes.Error);
+                    if (stmtRes.FuncReturnValue != null)
+                    {
+                        return res.Failure(new RuntimeError(
+                            node.PositionStart,
+                            node.PositionEnd,
+                            "'return' is not valid at namespace scope",
+                            bodyContext));
+                    }
+                }
+            }
+            else
+            {
+                var statements = ExtractStatements(node.Body);
+                foreach (var stmt in statements)
+                {
+                    var stmtRes = await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(stmt, bodyContext, interpreter);
+                    if (stmtRes.Error != null) return res.Failure(stmtRes.Error);
+                    if (stmtRes.FuncReturnValue != null)
+                    {
+                        return res.Failure(new RuntimeError(
+                            stmt.PositionStart,
+                            stmt.PositionEnd,
+                            "'return' is not valid at namespace scope",
+                            bodyContext));
+                    }
                 }
             }
 

@@ -24,6 +24,15 @@ namespace RaLanguage.Parser.Nodes.Properties
         public AstNode? BodyNode { get; }
         public bool IsAuto => BodyNode == null;
 
+        // L10: resolver-populated metadata for IR compilation of the accessor body
+        // (mirrors OperatorDefinitionNode). The body is compiled to a RaFunction
+        // run via the VM; self/field/value/old are passed through the context
+        // symbol table (PropertyAccessOps), so the `field` mirror-back is unchanged.
+        public int FrameId = -1;
+        public RaLanguage.Interpreter.Pipeline.BindingId[]? ParamBindings;
+        public RaLanguage.Interpreter.IR.RaFunction? CompiledBody;
+        public bool IrCompileTried;
+
         public PropertyAccessorNode(
             Token kindTok,
             PropertyAccessorKind kind,

@@ -52,7 +52,6 @@ namespace RaLanguage.Interpreter.Values.Structs
         private async ValueTask<RuntimeResult> ExecuteSyncBody(List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, AsyncContext? asyncCtxOverride)
         {
             var res = new RuntimeResult();
-            var interpreter = new Interpreter();
 
             var execCtx = GenerateNewContext();
             if (asyncCtxOverride != null) execCtx.AsyncCtx = asyncCtxOverride;
@@ -88,10 +87,22 @@ namespace RaLanguage.Interpreter.Values.Structs
                     $"struct method '{Name}' has no IR-compiled body", Context));
             {
                 // M79: pool rent + return on success only.
-                var vm = new Vm.VmExecutor(interpreter);
+                // PERF: pooled VM host (Interpreter + VmExecutor); returned to
+                // the pool only on synchronous completion.
+                var host = Vm.VmHostPool.Rent();
                 var frame = Vm.VmFrame.Rent(compiledM);
-                bodyRes = await vm.Execute(frame, execCtx);
-                if (bodyRes.Error == null) Vm.VmFrame.Return(frame);
+                var execTask = host.Executor.Execute(frame, execCtx);
+                if (execTask.IsCompletedSuccessfully)
+                {
+                    bodyRes = execTask.Result;
+                    if (bodyRes.Error == null) Vm.VmFrame.Return(frame);
+                    Vm.VmHostPool.Return(host);
+                }
+                else
+                {
+                    bodyRes = await execTask;
+                    if (bodyRes.Error == null) Vm.VmFrame.Return(frame);
+                }
             }
             if (bodyRes.Error != null) return res.Failure(bodyRes.Error);
 

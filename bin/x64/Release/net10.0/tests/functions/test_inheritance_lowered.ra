@@ -1,0 +1,60 @@
+import std.prelude.*;
+// L10: a concrete class with inheritance (`: Base`), interface impl (`impl IFace`),
+// or trait use (`with Trait`) now lowers FLAT (ClassDef carries the base/interface/
+// trait TypeDescriptors) instead of falling back to NativeDefine. Methods already
+// compile; base-ctor args ride the ctor body's super(...); override / virtual
+// dispatch / structural conformance are handled by the SAME visitor. Abstract /
+// static classes still fall back.
+print("=== functions/inheritance_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// I1: single inheritance + super + override + virtual dispatch through a base method.
+pub class Animal {
+    pub var name: string = "?"
+    pub Animal(n: string) { self.name = n; }
+    pub fn speak(): string { ret "..."; }
+    pub fn describe(): string { ret self.name + ":" + self.speak(); }
+}
+pub class Dog : Animal {
+    pub Dog(n: string) { super(n); }
+    pub override fn speak(): string { ret "woof"; }
+}
+let d = Dog("Rex");
+ck("[I1a]", d.name == "Rex");           // super set the base field
+ck("[I1b]", d.speak() == "woof");        // override
+ck("[I1c]", d.describe() == "Rex:woof"); // base method dispatches to override
+
+// I2: multi-level inheritance.
+pub class Puppy : Dog {
+    pub Puppy(n: string) { super(n); }
+    pub override fn speak(): string { ret "yip"; }
+}
+ck("[I2]", Puppy("Bit").describe() == "Bit:yip");
+
+// I3: interface impl + structural conformance (`is IFace`).
+pub interface Named { pub fn name(): string; }
+pub class Item impl Named {
+    pub fn name(): string { ret "item"; }
+}
+let it = Item();
+ck("[I3a]", it.name() == "item");
+ck("[I3b]", (it is Named) == true);
+
+// I4: base field + derived field both present.
+pub class Shape {
+    pub var sides: int = 0
+    pub Shape(s: int) { self.sides = s; }
+}
+pub class Square : Shape {
+    pub var size: int = 0
+    pub Square(sz: int) { super(4); self.size = sz; }
+    pub fn area(): int { ret self.size * self.size; }
+}
+let sq = Square(5);
+ck("[I4]", sq.sides == 4 and sq.size == 5 and sq.area() == 25);
+
+if failures == 0 { print("=== done ==="); } else { print("=== FAIL (" + (failures as string) + ") ==="); }

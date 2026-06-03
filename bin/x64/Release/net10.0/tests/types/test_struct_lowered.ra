@@ -1,0 +1,74 @@
+import std.prelude.*;
+// Ra Language - L5e: a `struct` in the flat-lowerable subset (no field defaults,
+// no operators/annotations/where-constraints/param-defaults) now IR-lowers to a
+// StructDef + OP_DEFINE_TYPE. Method bodies are precompiled to RaFunctions
+// (the same bytecode the visitor compiles lazily) and stored flat in the `.rac`
+// — no struct AST in the archive. The OP_DEFINE_TYPE handler reconstructs the
+// StructTypeValue and runs the SAME visitor Apply, so behaviour is identical.
+
+print("=== types/struct_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+struct Vec2 {
+    pub var x: int;
+    pub var y: int;
+    pub Vec2(a: int, b: int) {
+        self.x = a;
+        self.y = b;
+    }
+    pub fn sum(): int { ret self.x + self.y }
+    pub fn scaled(k: int): Vec2 { ret Vec2(self.x * k, self.y * k) }
+}
+
+// SL1: construction + field access
+let v = Vec2(3, 4);
+ck("[SL1]", v.x == 3 && v.y == 4);
+
+// SL2: method call
+ck("[SL2]", v.sum() == 7);
+
+// SL3: method returning a struct + chained access
+let w = v.scaled(10);
+ck("[SL3]", w.x == 30 && w.y == 40 && w.sum() == 70);
+
+// SL4: a second lowerable struct + interaction (method takes a struct arg)
+struct Pair {
+    pub var a: int;
+    pub var b: int;
+    pub Pair(x: int, y: int) {
+        self.a = x;
+        self.b = y;
+    }
+    pub fn first(): int { ret self.a }
+}
+let p = Pair(11, 22);
+ck("[SL4]", p.first() == 11 && p.b == 22);
+
+// SL5: struct used inside a loop (lowered def, repeated construction)
+var total = 0;
+for i in 0..5 {
+    let q = Vec2(i, i);
+    total = total + q.sum();
+}
+ck("[SL5]", total == 0 + 2 + 4 + 6 + 8);
+
+// SL6: const field defaults (number / string / bool) — folded at compile time,
+// reconstructed on load. Default-constructed instance uses the defaults.
+struct Cfg {
+    pub var n: int = 7;
+    pub var label: string = "def";
+    pub var on: bool = true;
+    pub fn describe(): string { ret self.label + ":" + (self.n as string) }
+}
+let c = Cfg();
+ck("[SL6]", c.n == 7 && c.label == "def" && c.on == true && c.describe() == "def:7");
+
+if failures == 0 {
+    print("=== done (all lowered-struct cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

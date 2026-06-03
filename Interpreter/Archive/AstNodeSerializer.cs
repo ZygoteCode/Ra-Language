@@ -2848,6 +2848,1053 @@ namespace RaLanguage.Interpreter.Archive
             return ReadTypeDescriptor(r);
         }
 
+        // ---- L5: flat one-shot definition descriptors (RaFunction.TypeDefs) ----
+        // Polymorphic pool: i32 count, then per entry a u8 kind tag + payload.
+        // No AST — payloads are plain strings / ints / TypeDescriptors, so the
+        // `.rac` carries definitions without an AstNodeSerializer exec round-trip.
+        internal static void SerializeTypeDefs(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.TypeDef[] defs)
+        {
+            int n = defs?.Length ?? 0;
+            w.WriteI32(n);
+            for (int i = 0; i < n; i++)
+            {
+                var d = defs![i];
+                w.WriteU8((byte)d.Kind);
+                switch (d.Kind)
+                {
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Enum:
+                        WriteEnumDef(w, (RaLanguage.Interpreter.IR.Defs.EnumDef)d);
+                        break;
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Delegate:
+                        WriteDelegateDef(w, (RaLanguage.Interpreter.IR.Defs.DelegateDef)d);
+                        break;
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Using:
+                        WriteUsingDef(w, (RaLanguage.Interpreter.IR.Defs.UsingDef)d);
+                        break;
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Struct:
+                        WriteStructDef(w, (RaLanguage.Interpreter.IR.Defs.StructDef)d);
+                        break;
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Record:
+                        WriteRecordDef(w, (RaLanguage.Interpreter.IR.Defs.RecordDef)d);
+                        break;
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Class:
+                        WriteClassDef(w, (RaLanguage.Interpreter.IR.Defs.ClassDef)d);
+                        break;
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Trait:
+                        WriteTraitDef(w, (RaLanguage.Interpreter.IR.Defs.TraitDef)d);
+                        break;
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Extension:
+                        WriteExtensionDef(w, (RaLanguage.Interpreter.IR.Defs.ExtensionDef)d);
+                        break;
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Interface:
+                        WriteInterfaceDef(w, (RaLanguage.Interpreter.IR.Defs.InterfaceDef)d);
+                        break;
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Annotation:
+                        WriteAnnotationDef(w, (RaLanguage.Interpreter.IR.Defs.AnnotationDef)d);
+                        break;
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Import:
+                        WriteImportDef(w, (RaLanguage.Interpreter.IR.Defs.ImportDef)d);
+                        break;
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Namespace:
+                        WriteNamespaceDef(w, (RaLanguage.Interpreter.IR.Defs.NamespaceDef)d);
+                        break;
+                    default:
+                        throw new System.IO.InvalidDataException($"rac: unknown TypeDef kind {(byte)d.Kind} on write");
+                }
+            }
+        }
+
+        internal static RaLanguage.Interpreter.IR.Defs.TypeDef[] DeserializeTypeDefs(RacBinaryReader r)
+        {
+            int n = r.ReadI32();
+            if (n < 0 || n > 4_000_000)
+                throw new System.IO.InvalidDataException($"rac: TypeDefs count {n} out of range");
+            if (n == 0) return System.Array.Empty<RaLanguage.Interpreter.IR.Defs.TypeDef>();
+            var defs = new RaLanguage.Interpreter.IR.Defs.TypeDef[n];
+            for (int i = 0; i < n; i++)
+            {
+                byte kind = r.ReadU8();
+                switch ((RaLanguage.Interpreter.IR.Defs.TypeDefKind)kind)
+                {
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Enum:
+                        defs[i] = ReadEnumDef(r);
+                        break;
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Delegate:
+                        defs[i] = ReadDelegateDef(r);
+                        break;
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Using:
+                        defs[i] = ReadUsingDef(r);
+                        break;
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Struct:
+                        defs[i] = ReadStructDef(r);
+                        break;
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Record:
+                        defs[i] = ReadRecordDef(r);
+                        break;
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Class:
+                        defs[i] = ReadClassDef(r);
+                        break;
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Trait:
+                        defs[i] = ReadTraitDef(r);
+                        break;
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Extension:
+                        defs[i] = ReadExtensionDef(r);
+                        break;
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Interface:
+                        defs[i] = ReadInterfaceDef(r);
+                        break;
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Annotation:
+                        defs[i] = ReadAnnotationDef(r);
+                        break;
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Import:
+                        defs[i] = ReadImportDef(r);
+                        break;
+                    case RaLanguage.Interpreter.IR.Defs.TypeDefKind.Namespace:
+                        defs[i] = ReadNamespaceDef(r);
+                        break;
+                    default:
+                        throw new System.IO.InvalidDataException($"rac: unknown TypeDef kind {kind} on read");
+                }
+            }
+            return defs;
+        }
+
+        private static void WriteEnumDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.EnumDef def)
+        {
+            w.WriteString(def.Name);
+            WriteStringList(w, new List<string>(def.Generics));
+            w.WriteI32(def.Variants.Length);
+            foreach (var v in def.Variants)
+            {
+                w.WriteString(v.Name);
+                w.WriteI32(v.Ordinal);
+                w.WriteString(v.Value.ToString()); // Int128 as decimal text (one-shot path, not hot)
+                w.WriteI32(v.PayloadTypes.Length);
+                foreach (var p in v.PayloadTypes) WriteTypeDescriptor(w, p);
+            }
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.EnumDef ReadEnumDef(RacBinaryReader r)
+        {
+            string name = r.ReadString() ?? "";
+            var generics = ReadStringList(r).ToArray();
+            int vn = r.ReadI32();
+            if (vn < 0 || vn > 4_000_000)
+                throw new System.IO.InvalidDataException($"rac: enum variant count {vn} out of range");
+            var variants = new RaLanguage.Interpreter.IR.Defs.EnumVariantDef[vn];
+            for (int i = 0; i < vn; i++)
+            {
+                string vName = r.ReadString() ?? "";
+                int ordinal = r.ReadI32();
+                System.Int128 value = System.Int128.Parse(r.ReadString() ?? "0");
+                int pn = r.ReadI32();
+                if (pn < 0 || pn > 4_000_000)
+                    throw new System.IO.InvalidDataException($"rac: enum payload count {pn} out of range");
+                var payloads = new TypeDescriptor[pn];
+                for (int j = 0; j < pn; j++) payloads[j] = ReadTypeDescriptor(r);
+                variants[i] = new RaLanguage.Interpreter.IR.Defs.EnumVariantDef(vName, ordinal, value, payloads);
+            }
+            return new RaLanguage.Interpreter.IR.Defs.EnumDef(name, generics, variants);
+        }
+
+        private static void WriteDelegateDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.DelegateDef def)
+        {
+            w.WriteString(def.Name);
+            WriteTypeDescriptor(w, def.Signature);
+            WriteStringList(w, new List<string>(def.Generics));
+            w.WriteU8(def.IsPublic ? (byte)1 : (byte)0);
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.DelegateDef ReadDelegateDef(RacBinaryReader r)
+        {
+            string name = r.ReadString() ?? "";
+            TypeDescriptor signature = ReadTypeDescriptor(r);
+            var generics = ReadStringList(r).ToArray();
+            bool isPublic = r.ReadU8() != 0;
+            return new RaLanguage.Interpreter.IR.Defs.DelegateDef(name, signature, generics, isPublic);
+        }
+
+        private static void WriteUsingDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.UsingDef def)
+        {
+            WriteStringList(w, new List<string>(def.Segments));
+            // alias: u8 present-flag + string (empty/none collapses to flag 0)
+            if (string.IsNullOrEmpty(def.Alias)) w.WriteU8(0);
+            else { w.WriteU8(1); w.WriteString(def.Alias); }
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.UsingDef ReadUsingDef(RacBinaryReader r)
+        {
+            var segments = ReadStringList(r).ToArray();
+            string? alias = r.ReadU8() != 0 ? (r.ReadString() ?? "") : null;
+            return new RaLanguage.Interpreter.IR.Defs.UsingDef(segments, alias);
+        }
+
+        private static void WriteOptTd(RacBinaryWriter w, TypeDescriptor? td)
+        {
+            if (td == null) w.WriteU8(0); else { w.WriteU8(1); WriteTypeDescriptor(w, td); }
+        }
+        private static TypeDescriptor? ReadOptTd(RacBinaryReader r) => r.ReadU8() != 0 ? ReadTypeDescriptor(r) : null;
+
+        private static void WriteStructDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.StructDef def)
+        {
+            w.WriteString(def.Name);
+            w.WriteU8(def.IsPublic ? (byte)1 : (byte)0);
+            WriteStringList(w, new List<string>(def.Generics));
+
+            w.WriteI32(def.Fields.Length);
+            foreach (var fld in def.Fields)
+            {
+                w.WriteString(fld.Name);
+                WriteOptTd(w, fld.FieldType);
+                byte fflags = (byte)((fld.IsPublic ? 1 : 0) | (fld.IsStatic ? 2 : 0)
+                    | (fld.IsAbstract ? 4 : 0) | (fld.IsOverride ? 8 : 0));
+                w.WriteU8(fflags);
+                w.WriteI32(fld.DeclKind);
+                if (fld.DefaultConst == null) w.WriteU8(0);
+                else { w.WriteU8(1); ModuleBytecodeIo.SerializeConst(w, fld.DefaultConst, WriterPool); }
+            }
+
+            w.WriteI32(def.Methods.Length);
+            foreach (var m in def.Methods) WriteMethodDef(w, m);
+            WriteOperatorDefs(w, def.Operators);
+            WriteWhereDefs(w, def.Wheres);
+            WritePropertyDefs(w, def.Properties);
+            WriteEventDefs(w, def.Events);
+        }
+
+        // Shared by struct + record (both carry StructMethodDef). Signature
+        // metadata + the precompiled body RaFunction (const pool shared via the
+        // thread-local writer pool).
+        private static void WriteMethodDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.StructMethodDef m)
+        {
+            w.WriteString(m.Name);
+            byte mflags = (byte)((m.IsPublic ? 1 : 0) | (m.IsConstructor ? 2 : 0)
+                | (m.IsAsync ? 4 : 0) | (m.IsAsyncStream ? 8 : 0)
+                | (m.HasVarArgs ? 16 : 0) | (m.ShouldAutoReturn ? 32 : 0));
+            w.WriteU8(mflags);
+            WriteStringList(w, new List<string>(m.ArgNames));
+            w.WriteI32(m.ArgTypes.Length);
+            foreach (var t in m.ArgTypes) WriteOptTd(w, t);
+            w.WriteI32(m.IsRefParams.Length);
+            foreach (var rp in m.IsRefParams) w.WriteU8(rp ? (byte)1 : (byte)0);
+            if (m.VarArgName == null) w.WriteU8(0); else { w.WriteU8(1); w.WriteString(m.VarArgName); }
+            WriteOptTd(w, m.VarArgType);
+            WriteOptTd(w, m.ReturnType);
+            w.WriteI32(m.FrameId);
+            ModuleBytecodeIo.SerializeRaFunction(w, m.Body, WriterPool);
+            // v8: const-folded param defaults (per-slot const, null = no default).
+            if (WriterVersion >= ModuleBytecodeIo.PayloadVersion_V8)
+            {
+                w.WriteI32(m.ParamDefaultConsts.Length);
+                foreach (var c in m.ParamDefaultConsts)
+                {
+                    if (c == null) w.WriteU8(0);
+                    else { w.WriteU8(1); ModuleBytecodeIo.SerializeConst(w, c, WriterPool); }
+                }
+            }
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.StructMethodDef ReadMethodDef(RacBinaryReader r)
+        {
+            string mName = r.ReadString() ?? "";
+            byte mflags = r.ReadU8();
+            var argNames = ReadStringList(r).ToArray();
+            int atn = r.ReadI32();
+            if (atn < 0 || atn > 4_000_000) throw new System.IO.InvalidDataException($"rac: method arg-type count {atn} out of range");
+            var argTypes = new TypeDescriptor?[atn];
+            for (int j = 0; j < atn; j++) argTypes[j] = ReadOptTd(r);
+            int rpn = r.ReadI32();
+            if (rpn < 0 || rpn > 4_000_000) throw new System.IO.InvalidDataException($"rac: method ref-param count {rpn} out of range");
+            var refParams = new bool[rpn];
+            for (int j = 0; j < rpn; j++) refParams[j] = r.ReadU8() != 0;
+            string? varArgName = r.ReadU8() != 0 ? (r.ReadString() ?? "") : null;
+            var varArgType = ReadOptTd(r);
+            var returnType = ReadOptTd(r);
+            int frameId = r.ReadI32();
+            var body = ModuleBytecodeIo.DeserializeRaFunction(r, ReaderPool);
+            var pdConsts = System.Array.Empty<RaLanguage.Interpreter.Values.RuntimeValue?>();
+            if (ReaderVersion >= ModuleBytecodeIo.PayloadVersion_V8)
+            {
+                int pdn = r.ReadI32();
+                if (pdn < 0 || pdn > 4_000_000) throw new System.IO.InvalidDataException($"rac: method param-default count {pdn} out of range");
+                pdConsts = new RaLanguage.Interpreter.Values.RuntimeValue?[pdn];
+                for (int j = 0; j < pdn; j++)
+                    pdConsts[j] = r.ReadU8() != 0 ? ModuleBytecodeIo.DeserializeConst(r, ReaderPool) : null;
+            }
+            return new RaLanguage.Interpreter.IR.Defs.StructMethodDef(
+                mName, (mflags & 1) != 0, (mflags & 2) != 0, (mflags & 4) != 0, (mflags & 8) != 0,
+                argNames, argTypes, refParams, (mflags & 16) != 0, varArgName, varArgType, returnType,
+                (mflags & 32) != 0, frameId, body, null, pdConsts);
+        }
+
+        // L10 v7: an OperatorDef (operator overload — dispatch keys on OpTokenType,
+        // NOT the symbol text). Shared by struct / record / class lowering.
+        private static void WriteOperatorDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.OperatorDef op)
+        {
+            w.WriteI32((int)op.OpTokenType);
+            w.WriteString(op.Symbol);
+            byte oflags = (byte)((op.IsPublic ? 1 : 0) | (op.IsOverride ? 2 : 0)
+                | (op.IsStatic ? 4 : 0) | (op.ShouldAutoReturn ? 8 : 0));
+            w.WriteU8(oflags);
+            w.WriteString(op.ArgName);
+            WriteOptTd(w, op.ArgType);
+            WriteOptTd(w, op.ReturnType);
+            WriteStringList(w, new List<string>(op.Generics));
+            w.WriteI32(op.FrameId);
+            ModuleBytecodeIo.SerializeRaFunction(w, op.Body, WriterPool);
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.OperatorDef ReadOperatorDef(RacBinaryReader r)
+        {
+            var opType = (RaLanguage.Lexer.Tokens.TokenType)r.ReadI32();
+            string symbol = r.ReadString() ?? "";
+            byte oflags = r.ReadU8();
+            string argName = r.ReadString() ?? "";
+            var argType = ReadOptTd(r);
+            var returnType = ReadOptTd(r);
+            var generics = ReadStringList(r).ToArray();
+            int frameId = r.ReadI32();
+            var body = ModuleBytecodeIo.DeserializeRaFunction(r, ReaderPool);
+            return new RaLanguage.Interpreter.IR.Defs.OperatorDef(
+                opType, symbol, (oflags & 1) != 0, (oflags & 2) != 0, (oflags & 4) != 0,
+                argName, argType, returnType, (oflags & 8) != 0, generics, frameId, body);
+        }
+
+        // Trailing OperatorDef[] pool — written only by v7+ writers, read only by
+        // v7+ readers. v6 archives keep no operators (empty), loading unchanged.
+        private static void WriteOperatorDefs(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.OperatorDef[] ops)
+        {
+            if (WriterVersion < ModuleBytecodeIo.PayloadVersion_V7) return;
+            w.WriteI32(ops.Length);
+            foreach (var op in ops) WriteOperatorDef(w, op);
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.OperatorDef[] ReadOperatorDefs(RacBinaryReader r)
+        {
+            if (ReaderVersion < ModuleBytecodeIo.PayloadVersion_V7)
+                return System.Array.Empty<RaLanguage.Interpreter.IR.Defs.OperatorDef>();
+            int on = r.ReadI32();
+            if (on < 0 || on > 4_000_000) throw new System.IO.InvalidDataException($"rac: operator count {on} out of range");
+            var ops = new RaLanguage.Interpreter.IR.Defs.OperatorDef[on];
+            for (int i = 0; i < on; i++) ops[i] = ReadOperatorDef(r);
+            return ops;
+        }
+
+        // L10 v8: a WhereConstraintDef (generic `where T: Bound`). No body — the
+        // param name + bound TypeDescriptor. Shared by struct/record/class.
+        private static void WriteWhereDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.WhereConstraintDef wc)
+        {
+            w.WriteString(wc.ParameterName);
+            WriteOptTd(w, wc.ConstraintType);
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.WhereConstraintDef ReadWhereDef(RacBinaryReader r)
+        {
+            string name = r.ReadString() ?? "";
+            var ct = ReadOptTd(r) ?? new TypeDescriptor("any");
+            return new RaLanguage.Interpreter.IR.Defs.WhereConstraintDef(name, ct);
+        }
+
+        // Trailing WhereConstraintDef[] pool — v8+ only. v7 archives keep none.
+        private static void WriteWhereDefs(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.WhereConstraintDef[] wheres)
+        {
+            if (WriterVersion < ModuleBytecodeIo.PayloadVersion_V8) return;
+            w.WriteI32(wheres.Length);
+            foreach (var wc in wheres) WriteWhereDef(w, wc);
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.WhereConstraintDef[] ReadWhereDefs(RacBinaryReader r)
+        {
+            if (ReaderVersion < ModuleBytecodeIo.PayloadVersion_V8)
+                return System.Array.Empty<RaLanguage.Interpreter.IR.Defs.WhereConstraintDef>();
+            int wn = r.ReadI32();
+            if (wn < 0 || wn > 4_000_000) throw new System.IO.InvalidDataException($"rac: where-constraint count {wn} out of range");
+            var wheres = new RaLanguage.Interpreter.IR.Defs.WhereConstraintDef[wn];
+            for (int i = 0; i < wn; i++) wheres[i] = ReadWhereDef(r);
+            return wheres;
+        }
+
+        // L10 v8: an AUTO PropertyDef — name + type + flags + const default + the
+        // accessor list (Kind/Visibility, no body). Shared by struct/record/class.
+        private static void WritePropertyDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.PropertyDef p)
+        {
+            w.WriteString(p.Name);
+            WriteOptTd(w, p.PropertyType);
+            byte pflags = (byte)((p.IsPublic ? 1 : 0) | (p.IsStatic ? 2 : 0)
+                | (p.IsAbstract ? 4 : 0) | (p.IsOverride ? 8 : 0) | (p.IsLazy ? 16 : 0));
+            w.WriteU8(pflags);
+            if (p.DefaultConst == null) w.WriteU8(0);
+            else { w.WriteU8(1); ModuleBytecodeIo.SerializeConst(w, p.DefaultConst, WriterPool); }
+            w.WriteI32(p.Accessors.Length);
+            foreach (var a in p.Accessors)
+            {
+                w.WriteI32(a.Kind);
+                w.WriteI32(a.Visibility);
+                if (a.Body == null) w.WriteU8(0);
+                else { w.WriteU8(1); ModuleBytecodeIo.SerializeRaFunction(w, a.Body, WriterPool); }
+            }
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.PropertyDef ReadPropertyDef(RacBinaryReader r)
+        {
+            string name = r.ReadString() ?? "";
+            var ptype = ReadOptTd(r);
+            byte pflags = r.ReadU8();
+            RaLanguage.Interpreter.Values.RuntimeValue? defConst =
+                r.ReadU8() != 0 ? ModuleBytecodeIo.DeserializeConst(r, ReaderPool) : null;
+            int an = r.ReadI32();
+            if (an < 0 || an > 4_000_000) throw new System.IO.InvalidDataException($"rac: property accessor count {an} out of range");
+            var accessors = new RaLanguage.Interpreter.IR.Defs.PropertyAccessorDef[an];
+            for (int i = 0; i < an; i++)
+            {
+                int k = r.ReadI32();
+                int v = r.ReadI32();
+                RaLanguage.Interpreter.IR.RaFunction? body =
+                    r.ReadU8() != 0 ? ModuleBytecodeIo.DeserializeRaFunction(r, ReaderPool) : null;
+                accessors[i] = new RaLanguage.Interpreter.IR.Defs.PropertyAccessorDef(k, v, body);
+            }
+            return new RaLanguage.Interpreter.IR.Defs.PropertyDef(
+                name, ptype, (pflags & 1) != 0, (pflags & 2) != 0, (pflags & 4) != 0,
+                (pflags & 8) != 0, (pflags & 16) != 0, defConst, accessors);
+        }
+
+        // Trailing PropertyDef[] pool — v8+ only. v7 archives keep none.
+        private static void WritePropertyDefs(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.PropertyDef[] props)
+        {
+            if (WriterVersion < ModuleBytecodeIo.PayloadVersion_V8) return;
+            w.WriteI32(props.Length);
+            foreach (var p in props) WritePropertyDef(w, p);
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.PropertyDef[] ReadPropertyDefs(RacBinaryReader r)
+        {
+            if (ReaderVersion < ModuleBytecodeIo.PayloadVersion_V8)
+                return System.Array.Empty<RaLanguage.Interpreter.IR.Defs.PropertyDef>();
+            int pn = r.ReadI32();
+            if (pn < 0 || pn > 4_000_000) throw new System.IO.InvalidDataException($"rac: property count {pn} out of range");
+            var props = new RaLanguage.Interpreter.IR.Defs.PropertyDef[pn];
+            for (int i = 0; i < pn; i++) props[i] = ReadPropertyDef(r);
+            return props;
+        }
+
+        // L10 v8: an EventDef — flat metadata (events have no accessor bodies):
+        // name + flags + payload params + accessor (Kind/Visibility) list.
+        private static void WriteEventDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.EventDef ev)
+        {
+            w.WriteString(ev.Name);
+            int flags = (ev.IsPublic ? 1 : 0) | (ev.IsStatic ? 2 : 0) | (ev.IsAbstract ? 4 : 0)
+                | (ev.IsOverride ? 8 : 0) | (ev.IsCancellable ? 16 : 0) | (ev.IsTolerant ? 32 : 0)
+                | (ev.IsAsync ? 64 : 0);
+            w.WriteU8((byte)flags);
+            w.WriteI32(ev.PayloadParams.Length);
+            foreach (var pp in ev.PayloadParams) { w.WriteString(pp.Name); WriteOptTd(w, pp.Type); }
+            w.WriteI32(ev.Accessors.Length);
+            foreach (var a in ev.Accessors) { w.WriteI32(a.Kind); w.WriteI32(a.Visibility); }
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.EventDef ReadEventDef(RacBinaryReader r)
+        {
+            string name = r.ReadString() ?? "";
+            int flags = r.ReadU8();
+            int ppn = r.ReadI32();
+            if (ppn < 0 || ppn > 4_000_000) throw new System.IO.InvalidDataException($"rac: event payload count {ppn} out of range");
+            var payload = new RaLanguage.Interpreter.IR.Defs.EventPayloadParamDef[ppn];
+            for (int i = 0; i < ppn; i++) { string pn = r.ReadString() ?? ""; var pt = ReadOptTd(r); payload[i] = new RaLanguage.Interpreter.IR.Defs.EventPayloadParamDef(pn, pt); }
+            int an = r.ReadI32();
+            if (an < 0 || an > 4_000_000) throw new System.IO.InvalidDataException($"rac: event accessor count {an} out of range");
+            var accessors = new RaLanguage.Interpreter.IR.Defs.EventAccessorDef[an];
+            for (int i = 0; i < an; i++) { int k = r.ReadI32(); int v = r.ReadI32(); accessors[i] = new RaLanguage.Interpreter.IR.Defs.EventAccessorDef(k, v); }
+            return new RaLanguage.Interpreter.IR.Defs.EventDef(
+                name, (flags & 1) != 0, (flags & 2) != 0, (flags & 4) != 0, (flags & 8) != 0,
+                (flags & 16) != 0, (flags & 32) != 0, (flags & 64) != 0, payload, accessors);
+        }
+
+        // Trailing EventDef[] pool — v8+ only. v7 archives keep none.
+        private static void WriteEventDefs(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.EventDef[] events)
+        {
+            if (WriterVersion < ModuleBytecodeIo.PayloadVersion_V8) return;
+            w.WriteI32(events.Length);
+            foreach (var ev in events) WriteEventDef(w, ev);
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.EventDef[] ReadEventDefs(RacBinaryReader r)
+        {
+            if (ReaderVersion < ModuleBytecodeIo.PayloadVersion_V8)
+                return System.Array.Empty<RaLanguage.Interpreter.IR.Defs.EventDef>();
+            int en = r.ReadI32();
+            if (en < 0 || en > 4_000_000) throw new System.IO.InvalidDataException($"rac: event count {en} out of range");
+            var events = new RaLanguage.Interpreter.IR.Defs.EventDef[en];
+            for (int i = 0; i < en; i++) events[i] = ReadEventDef(r);
+            return events;
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.StructDef ReadStructDef(RacBinaryReader r)
+        {
+            string name = r.ReadString() ?? "";
+            bool isPublic = r.ReadU8() != 0;
+            var generics = ReadStringList(r).ToArray();
+
+            int fn = r.ReadI32();
+            if (fn < 0 || fn > 4_000_000) throw new System.IO.InvalidDataException($"rac: struct field count {fn} out of range");
+            var fields = new RaLanguage.Interpreter.IR.Defs.StructFieldDef[fn];
+            for (int i = 0; i < fn; i++)
+            {
+                string fName = r.ReadString() ?? "";
+                var fType = ReadOptTd(r);
+                byte fflags = r.ReadU8();
+                int declKind = r.ReadI32();
+                RaLanguage.Interpreter.Values.RuntimeValue? defConst =
+                    r.ReadU8() != 0 ? ModuleBytecodeIo.DeserializeConst(r, ReaderPool) : null;
+                fields[i] = new RaLanguage.Interpreter.IR.Defs.StructFieldDef(
+                    fName, fType, (fflags & 1) != 0, (fflags & 2) != 0, (fflags & 4) != 0, (fflags & 8) != 0,
+                    declKind, defConst);
+            }
+
+            int mn = r.ReadI32();
+            if (mn < 0 || mn > 4_000_000) throw new System.IO.InvalidDataException($"rac: struct method count {mn} out of range");
+            var methods = new RaLanguage.Interpreter.IR.Defs.StructMethodDef[mn];
+            for (int i = 0; i < mn; i++) methods[i] = ReadMethodDef(r);
+
+            var operators = ReadOperatorDefs(r);
+            var wheres = ReadWhereDefs(r);
+            var properties = ReadPropertyDefs(r);
+            var events = ReadEventDefs(r);
+            return new RaLanguage.Interpreter.IR.Defs.StructDef(name, isPublic, generics, fields, methods, operators, wheres, properties, events);
+        }
+
+        private static void WriteRecordDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.RecordDef def)
+        {
+            w.WriteString(def.Name);
+            w.WriteU8((byte)((def.IsPublic ? 1 : 0) | (def.IsRefRecord ? 2 : 0)
+                | (def.AutoEquals ? 4 : 0) | (def.AutoToString ? 8 : 0)));
+            WriteStringList(w, new List<string>(def.Generics));
+            w.WriteI32(def.PrimaryFields.Length);
+            foreach (var pf in def.PrimaryFields)
+            {
+                w.WriteString(pf.Name);
+                WriteOptTd(w, pf.FieldType);
+                w.WriteU8((byte)((pf.IsPublic ? 1 : 0) | (pf.IsMutable ? 2 : 0)));
+                if (pf.DefaultConst == null) w.WriteU8(0);
+                else { w.WriteU8(1); ModuleBytecodeIo.SerializeConst(w, pf.DefaultConst, WriterPool); }
+            }
+            w.WriteI32(def.Methods.Length);
+            foreach (var m in def.Methods) WriteMethodDef(w, m);
+            WriteOperatorDefs(w, def.Operators);
+            WriteWhereDefs(w, def.Wheres);
+            WritePropertyDefs(w, def.Properties);
+            WriteEventDefs(w, def.Events);
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.RecordDef ReadRecordDef(RacBinaryReader r)
+        {
+            string name = r.ReadString() ?? "";
+            byte rflags = r.ReadU8();
+            var generics = ReadStringList(r).ToArray();
+            int pfn = r.ReadI32();
+            if (pfn < 0 || pfn > 4_000_000) throw new System.IO.InvalidDataException($"rac: record primary-field count {pfn} out of range");
+            var primaryFields = new RaLanguage.Interpreter.IR.Defs.RecordPrimaryFieldDef[pfn];
+            for (int i = 0; i < pfn; i++)
+            {
+                string pName = r.ReadString() ?? "";
+                var pType = ReadOptTd(r);
+                byte pflags = r.ReadU8();
+                RaLanguage.Interpreter.Values.RuntimeValue? pDef =
+                    r.ReadU8() != 0 ? ModuleBytecodeIo.DeserializeConst(r, ReaderPool) : null;
+                primaryFields[i] = new RaLanguage.Interpreter.IR.Defs.RecordPrimaryFieldDef(
+                    pName, pType, (pflags & 1) != 0, (pflags & 2) != 0, pDef);
+            }
+            int mn = r.ReadI32();
+            if (mn < 0 || mn > 4_000_000) throw new System.IO.InvalidDataException($"rac: record method count {mn} out of range");
+            var methods = new RaLanguage.Interpreter.IR.Defs.StructMethodDef[mn];
+            for (int i = 0; i < mn; i++) methods[i] = ReadMethodDef(r);
+            var operators = ReadOperatorDefs(r);
+            var wheres = ReadWhereDefs(r);
+            var properties = ReadPropertyDefs(r);
+            var events = ReadEventDefs(r);
+            return new RaLanguage.Interpreter.IR.Defs.RecordDef(
+                name, (rflags & 1) != 0, (rflags & 2) != 0, (rflags & 4) != 0, (rflags & 8) != 0,
+                generics, primaryFields, methods, operators, wheres, properties, events);
+        }
+
+        private static void WriteFieldDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.StructFieldDef fld)
+        {
+            w.WriteString(fld.Name);
+            WriteOptTd(w, fld.FieldType);
+            byte fflags = (byte)((fld.IsPublic ? 1 : 0) | (fld.IsStatic ? 2 : 0)
+                | (fld.IsAbstract ? 4 : 0) | (fld.IsOverride ? 8 : 0));
+            w.WriteU8(fflags);
+            w.WriteI32(fld.DeclKind);
+            if (fld.DefaultConst == null) w.WriteU8(0);
+            else { w.WriteU8(1); ModuleBytecodeIo.SerializeConst(w, fld.DefaultConst, WriterPool); }
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.StructFieldDef ReadFieldDef(RacBinaryReader r)
+        {
+            string fName = r.ReadString() ?? "";
+            var fType = ReadOptTd(r);
+            byte fflags = r.ReadU8();
+            int declKind = r.ReadI32();
+            RaLanguage.Interpreter.Values.RuntimeValue? defConst =
+                r.ReadU8() != 0 ? ModuleBytecodeIo.DeserializeConst(r, ReaderPool) : null;
+            return new RaLanguage.Interpreter.IR.Defs.StructFieldDef(
+                fName, fType, (fflags & 1) != 0, (fflags & 2) != 0, (fflags & 4) != 0, (fflags & 8) != 0,
+                declKind, defConst);
+        }
+
+        private static void WriteClassMethodDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.ClassMethodDef m)
+        {
+            w.WriteString(m.Name);
+            int flags = (m.IsPublic ? 1 : 0) | (m.IsConstructor ? 2 : 0) | (m.IsAsync ? 4 : 0)
+                | (m.IsAsyncStream ? 8 : 0) | (m.HasVarArgs ? 16 : 0) | (m.ShouldAutoReturn ? 32 : 0)
+                | (m.IsOverride ? 64 : 0) | (m.IsStatic ? 128 : 0);
+            w.WriteU8((byte)flags);
+            WriteStringList(w, new List<string>(m.ArgNames));
+            w.WriteI32(m.ArgTypes.Length);
+            foreach (var t in m.ArgTypes) WriteOptTd(w, t);
+            w.WriteI32(m.IsRefParams.Length);
+            foreach (var rp in m.IsRefParams) w.WriteU8(rp ? (byte)1 : (byte)0);
+            if (m.VarArgName == null) w.WriteU8(0); else { w.WriteU8(1); w.WriteString(m.VarArgName); }
+            WriteOptTd(w, m.VarArgType);
+            WriteOptTd(w, m.ReturnType);
+            w.WriteI32(m.FrameId);
+            // v8: method-level generic type params (generic methods) + factory/named-ctor metadata
+            // + const-folded param defaults (per-slot const, null = no default) + a body-presence
+            // byte (null = abstract method) + the IsAbstract flag. Pre-v8 archives ALWAYS carried a
+            // non-null body (no abstract-method lowering), so the body is written unconditionally there.
+            if (WriterVersion >= ModuleBytecodeIo.PayloadVersion_V8)
+            {
+                if (m.Body == null) w.WriteU8(0);
+                else { w.WriteU8(1); ModuleBytecodeIo.SerializeRaFunction(w, m.Body, WriterPool); }
+                w.WriteU8(m.IsAbstract ? (byte)1 : (byte)0);
+                WriteStringList(w, new List<string>(m.Generics));
+                w.WriteU8(m.IsFactory ? (byte)1 : (byte)0);
+                if (m.ConstructorName == null) w.WriteU8(0);
+                else { w.WriteU8(1); w.WriteString(m.ConstructorName); }
+                w.WriteI32(m.ParamDefaultConsts.Length);
+                foreach (var c in m.ParamDefaultConsts)
+                {
+                    if (c == null) w.WriteU8(0);
+                    else { w.WriteU8(1); ModuleBytecodeIo.SerializeConst(w, c, WriterPool); }
+                }
+            }
+            else
+            {
+                ModuleBytecodeIo.SerializeRaFunction(w, m.Body!, WriterPool);
+            }
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.ClassMethodDef ReadClassMethodDef(RacBinaryReader r)
+        {
+            string mName = r.ReadString() ?? "";
+            int flags = r.ReadU8();
+            var argNames = ReadStringList(r).ToArray();
+            int atn = r.ReadI32();
+            if (atn < 0 || atn > 4_000_000) throw new System.IO.InvalidDataException($"rac: class method arg-type count {atn} out of range");
+            var argTypes = new TypeDescriptor?[atn];
+            for (int j = 0; j < atn; j++) argTypes[j] = ReadOptTd(r);
+            int rpn = r.ReadI32();
+            if (rpn < 0 || rpn > 4_000_000) throw new System.IO.InvalidDataException($"rac: class method ref-param count {rpn} out of range");
+            var refParams = new bool[rpn];
+            for (int j = 0; j < rpn; j++) refParams[j] = r.ReadU8() != 0;
+            string? varArgName = r.ReadU8() != 0 ? (r.ReadString() ?? "") : null;
+            var varArgType = ReadOptTd(r);
+            var returnType = ReadOptTd(r);
+            int frameId = r.ReadI32();
+            RaLanguage.Interpreter.IR.RaFunction? body;
+            var generics = System.Array.Empty<string>();
+            bool isFactory = false;
+            bool isAbstract = false;
+            string? constructorName = null;
+            var pdConsts = System.Array.Empty<RaLanguage.Interpreter.Values.RuntimeValue?>();
+            if (ReaderVersion >= ModuleBytecodeIo.PayloadVersion_V8)
+            {
+                // v8: body is presence-gated (null = abstract method) and IsAbstract follows.
+                body = r.ReadU8() != 0 ? ModuleBytecodeIo.DeserializeRaFunction(r, ReaderPool) : null;
+                isAbstract = r.ReadU8() != 0;
+                generics = ReadStringList(r).ToArray();
+                isFactory = r.ReadU8() != 0;
+                constructorName = r.ReadU8() != 0 ? (r.ReadString() ?? "") : null;
+                int pdn = r.ReadI32();
+                if (pdn < 0 || pdn > 4_000_000) throw new System.IO.InvalidDataException($"rac: class method param-default count {pdn} out of range");
+                pdConsts = new RaLanguage.Interpreter.Values.RuntimeValue?[pdn];
+                for (int j = 0; j < pdn; j++)
+                    pdConsts[j] = r.ReadU8() != 0 ? ModuleBytecodeIo.DeserializeConst(r, ReaderPool) : null;
+            }
+            else
+            {
+                // pre-v8: body always present, no abstract-method lowering.
+                body = ModuleBytecodeIo.DeserializeRaFunction(r, ReaderPool);
+            }
+            return new RaLanguage.Interpreter.IR.Defs.ClassMethodDef(
+                mName, (flags & 1) != 0, (flags & 2) != 0, (flags & 64) != 0, (flags & 128) != 0,
+                (flags & 4) != 0, (flags & 8) != 0, argNames, argTypes, refParams, (flags & 16) != 0,
+                varArgName, varArgType, returnType, (flags & 32) != 0, frameId, body, generics, isFactory, constructorName, pdConsts, isAbstract);
+        }
+
+        private static void WriteClassDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.ClassDef def)
+        {
+            w.WriteString(def.Name);
+            w.WriteU8(def.IsPublic ? (byte)1 : (byte)0);
+            WriteStringList(w, new List<string>(def.Generics));
+            w.WriteI32(def.Fields.Length);
+            foreach (var fld in def.Fields) WriteFieldDef(w, fld);
+            w.WriteI32(def.Methods.Length);
+            foreach (var m in def.Methods) WriteClassMethodDef(w, m);
+            WriteOperatorDefs(w, def.Operators);
+            WriteWhereDefs(w, def.Wheres);
+            WritePropertyDefs(w, def.Properties);
+            WriteEventDefs(w, def.Events);
+            // L10 v8 inheritance: base + interfaces + traits + abstract flag.
+            if (WriterVersion >= ModuleBytecodeIo.PayloadVersion_V8)
+            {
+                WriteOptTd(w, def.BaseType);
+                w.WriteI32(def.Interfaces.Length);
+                foreach (var td in def.Interfaces) WriteOptTd(w, td);
+                w.WriteI32(def.Traits.Length);
+                foreach (var td in def.Traits) WriteOptTd(w, td);
+                w.WriteU8(def.IsAbstract ? (byte)1 : (byte)0);
+            }
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.ClassDef ReadClassDef(RacBinaryReader r)
+        {
+            string name = r.ReadString() ?? "";
+            bool isPublic = r.ReadU8() != 0;
+            var generics = ReadStringList(r).ToArray();
+            int fn = r.ReadI32();
+            if (fn < 0 || fn > 4_000_000) throw new System.IO.InvalidDataException($"rac: class field count {fn} out of range");
+            var fields = new RaLanguage.Interpreter.IR.Defs.StructFieldDef[fn];
+            for (int i = 0; i < fn; i++) fields[i] = ReadFieldDef(r);
+            int mn = r.ReadI32();
+            if (mn < 0 || mn > 4_000_000) throw new System.IO.InvalidDataException($"rac: class method count {mn} out of range");
+            var methods = new RaLanguage.Interpreter.IR.Defs.ClassMethodDef[mn];
+            for (int i = 0; i < mn; i++) methods[i] = ReadClassMethodDef(r);
+            var operators = ReadOperatorDefs(r);
+            var wheres = ReadWhereDefs(r);
+            var properties = ReadPropertyDefs(r);
+            var events = ReadEventDefs(r);
+            TypeDescriptor? baseType = null;
+            var interfaces = System.Array.Empty<TypeDescriptor>();
+            var traits = System.Array.Empty<TypeDescriptor>();
+            bool isAbstract = false;
+            if (ReaderVersion >= ModuleBytecodeIo.PayloadVersion_V8)
+            {
+                baseType = ReadOptTd(r);
+                int icn = r.ReadI32();
+                if (icn < 0 || icn > 4_000_000) throw new System.IO.InvalidDataException($"rac: class interface count {icn} out of range");
+                interfaces = new TypeDescriptor[icn];
+                for (int i = 0; i < icn; i++) interfaces[i] = ReadOptTd(r)!;
+                int tcn = r.ReadI32();
+                if (tcn < 0 || tcn > 4_000_000) throw new System.IO.InvalidDataException($"rac: class trait count {tcn} out of range");
+                traits = new TypeDescriptor[tcn];
+                for (int i = 0; i < tcn; i++) traits[i] = ReadOptTd(r)!;
+                isAbstract = r.ReadU8() != 0;
+            }
+            return new RaLanguage.Interpreter.IR.Defs.ClassDef(name, isPublic, generics, fields, methods, operators, wheres, properties, events, baseType, interfaces, traits, isAbstract);
+        }
+
+        private static void WriteTraitMethodDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.TraitMethodDef m)
+        {
+            w.WriteString(m.Name);
+            int flags = (m.IsAbstract ? 1 : 0) | (m.IsAsync ? 2 : 0) | (m.IsAsyncStream ? 4 : 0)
+                | (m.HasVarArgs ? 8 : 0) | (m.ShouldAutoReturn ? 16 : 0);
+            w.WriteU8((byte)flags);
+            WriteStringList(w, new List<string>(m.ArgNames));
+            w.WriteI32(m.ArgTypes.Length);
+            foreach (var t in m.ArgTypes) WriteOptTd(w, t);
+            w.WriteI32(m.IsRefParams.Length);
+            foreach (var rp in m.IsRefParams) w.WriteU8(rp ? (byte)1 : (byte)0);
+            if (m.VarArgName == null) w.WriteU8(0); else { w.WriteU8(1); w.WriteString(m.VarArgName); }
+            WriteOptTd(w, m.VarArgType);
+            WriteOptTd(w, m.ReturnType);
+            w.WriteI32(m.FrameId);
+            if (m.Body == null) w.WriteU8(0);
+            else { w.WriteU8(1); ModuleBytecodeIo.SerializeRaFunction(w, m.Body, WriterPool); }
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.TraitMethodDef ReadTraitMethodDef(RacBinaryReader r)
+        {
+            string mName = r.ReadString() ?? "";
+            int flags = r.ReadU8();
+            var argNames = ReadStringList(r).ToArray();
+            int atn = r.ReadI32();
+            if (atn < 0 || atn > 4_000_000) throw new System.IO.InvalidDataException($"rac: trait method arg-type count {atn} out of range");
+            var argTypes = new TypeDescriptor?[atn];
+            for (int j = 0; j < atn; j++) argTypes[j] = ReadOptTd(r);
+            int rpn = r.ReadI32();
+            if (rpn < 0 || rpn > 4_000_000) throw new System.IO.InvalidDataException($"rac: trait method ref-param count {rpn} out of range");
+            var refParams = new bool[rpn];
+            for (int j = 0; j < rpn; j++) refParams[j] = r.ReadU8() != 0;
+            string? varArgName = r.ReadU8() != 0 ? (r.ReadString() ?? "") : null;
+            var varArgType = ReadOptTd(r);
+            var returnType = ReadOptTd(r);
+            int frameId = r.ReadI32();
+            RaLanguage.Interpreter.IR.RaFunction? body =
+                r.ReadU8() != 0 ? ModuleBytecodeIo.DeserializeRaFunction(r, ReaderPool) : null;
+            return new RaLanguage.Interpreter.IR.Defs.TraitMethodDef(
+                mName, (flags & 1) != 0, (flags & 2) != 0, (flags & 4) != 0, argNames, argTypes, refParams,
+                (flags & 8) != 0, varArgName, varArgType, returnType, (flags & 16) != 0, frameId, body);
+        }
+
+        private static void WriteTraitDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.TraitDef def)
+        {
+            w.WriteString(def.Name);
+            w.WriteU8(def.IsPublic ? (byte)1 : (byte)0);
+            WriteStringList(w, new List<string>(def.Generics));
+            w.WriteI32(def.Fields.Length);
+            foreach (var fld in def.Fields) WriteFieldDef(w, fld);
+            w.WriteI32(def.Methods.Length);
+            foreach (var m in def.Methods) WriteTraitMethodDef(w, m);
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.TraitDef ReadTraitDef(RacBinaryReader r)
+        {
+            string name = r.ReadString() ?? "";
+            bool isPublic = r.ReadU8() != 0;
+            var generics = ReadStringList(r).ToArray();
+            int fn = r.ReadI32();
+            if (fn < 0 || fn > 4_000_000) throw new System.IO.InvalidDataException($"rac: trait field count {fn} out of range");
+            var fields = new RaLanguage.Interpreter.IR.Defs.StructFieldDef[fn];
+            for (int i = 0; i < fn; i++) fields[i] = ReadFieldDef(r);
+            int mn = r.ReadI32();
+            if (mn < 0 || mn > 4_000_000) throw new System.IO.InvalidDataException($"rac: trait method count {mn} out of range");
+            var methods = new RaLanguage.Interpreter.IR.Defs.TraitMethodDef[mn];
+            for (int i = 0; i < mn; i++) methods[i] = ReadTraitMethodDef(r);
+            return new RaLanguage.Interpreter.IR.Defs.TraitDef(name, isPublic, generics, fields, methods);
+        }
+
+        private static void WriteExtensionDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.ExtensionDef def)
+        {
+            WriteTypeDescriptor(w, def.TargetType);
+            w.WriteU8((byte)((def.IsPublic ? 1 : 0) | (def.IsSealed ? 2 : 0)));
+            w.WriteI32(def.Methods.Length);
+            foreach (var m in def.Methods) WriteClassMethodDef(w, m);
+            WriteOperatorDefs(w, def.Operators);
+            WritePropertyDefs(w, def.Properties);
+            WriteEventDefs(w, def.Events);
+            WriteExtensionFieldDefs(w, def.Fields);
+            WriteIndexerDefs(w, def.Indexers);
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.ExtensionDef ReadExtensionDef(RacBinaryReader r)
+        {
+            var targetType = ReadTypeDescriptor(r);
+            byte flags = r.ReadU8();
+            int mn = r.ReadI32();
+            if (mn < 0 || mn > 4_000_000) throw new System.IO.InvalidDataException($"rac: extension method count {mn} out of range");
+            var methods = new RaLanguage.Interpreter.IR.Defs.ClassMethodDef[mn];
+            for (int i = 0; i < mn; i++) methods[i] = ReadClassMethodDef(r);
+            var operators = ReadOperatorDefs(r);
+            var properties = ReadPropertyDefs(r);
+            var events = ReadEventDefs(r);
+            var fields = ReadExtensionFieldDefs(r);
+            var indexers = ReadIndexerDefs(r);
+            return new RaLanguage.Interpreter.IR.Defs.ExtensionDef(targetType, (flags & 1) != 0, (flags & 2) != 0, methods, operators, properties, events, fields, indexers);
+        }
+
+        // v9: an ExtensionFieldDef — name + type + flags (public / static-storage) +
+        // decl kind + const default. Like the struct field pool but carries the
+        // extension-only static-storage flag (no abstract/override; lazy never
+        // lowers). Trailing pool gated on v9+; v8 archives keep none.
+        private static void WriteExtensionFieldDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.ExtensionFieldDef fld)
+        {
+            w.WriteString(fld.Name);
+            WriteOptTd(w, fld.FieldType);
+            byte fflags = (byte)((fld.IsPublic ? 1 : 0) | (fld.IsStaticField ? 2 : 0));
+            w.WriteU8(fflags);
+            w.WriteI32(fld.DeclKind);
+            if (fld.DefaultConst == null) w.WriteU8(0);
+            else { w.WriteU8(1); ModuleBytecodeIo.SerializeConst(w, fld.DefaultConst, WriterPool); }
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.ExtensionFieldDef ReadExtensionFieldDef(RacBinaryReader r)
+        {
+            string fName = r.ReadString() ?? "";
+            var fType = ReadOptTd(r);
+            byte fflags = r.ReadU8();
+            int declKind = r.ReadI32();
+            RaLanguage.Interpreter.Values.RuntimeValue? defConst =
+                r.ReadU8() != 0 ? ModuleBytecodeIo.DeserializeConst(r, ReaderPool) : null;
+            return new RaLanguage.Interpreter.IR.Defs.ExtensionFieldDef(
+                fName, fType, (fflags & 1) != 0, (fflags & 2) != 0, declKind, defConst);
+        }
+
+        private static void WriteExtensionFieldDefs(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.ExtensionFieldDef[] fields)
+        {
+            if (WriterVersion < ModuleBytecodeIo.PayloadVersion_V9) return;
+            w.WriteI32(fields.Length);
+            foreach (var fld in fields) WriteExtensionFieldDef(w, fld);
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.ExtensionFieldDef[] ReadExtensionFieldDefs(RacBinaryReader r)
+        {
+            if (ReaderVersion < ModuleBytecodeIo.PayloadVersion_V9)
+                return System.Array.Empty<RaLanguage.Interpreter.IR.Defs.ExtensionFieldDef>();
+            int fn = r.ReadI32();
+            if (fn < 0 || fn > 4_000_000) throw new System.IO.InvalidDataException($"rac: extension field count {fn} out of range");
+            var fields = new RaLanguage.Interpreter.IR.Defs.ExtensionFieldDef[fn];
+            for (int i = 0; i < fn; i++) fields[i] = ReadExtensionFieldDef(r);
+            return fields;
+        }
+
+        // v9: an IndexerDef — method-index (into the extension's already-serialized
+        // method pool) + is-setter. Trailing pool gated on v9+; v8 archives keep none.
+        private static void WriteIndexerDefs(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.IndexerDef[] indexers)
+        {
+            if (WriterVersion < ModuleBytecodeIo.PayloadVersion_V9) return;
+            w.WriteI32(indexers.Length);
+            foreach (var ix in indexers)
+            {
+                w.WriteI32(ix.MethodIndex);
+                w.WriteU8(ix.IsSetter ? (byte)1 : (byte)0);
+            }
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.IndexerDef[] ReadIndexerDefs(RacBinaryReader r)
+        {
+            if (ReaderVersion < ModuleBytecodeIo.PayloadVersion_V9)
+                return System.Array.Empty<RaLanguage.Interpreter.IR.Defs.IndexerDef>();
+            int n = r.ReadI32();
+            if (n < 0 || n > 4_000_000) throw new System.IO.InvalidDataException($"rac: extension indexer count {n} out of range");
+            var indexers = new RaLanguage.Interpreter.IR.Defs.IndexerDef[n];
+            for (int i = 0; i < n; i++)
+            {
+                int idx = r.ReadI32();
+                bool isSetter = r.ReadU8() != 0;
+                indexers[i] = new RaLanguage.Interpreter.IR.Defs.IndexerDef(idx, isSetter);
+            }
+            return indexers;
+        }
+
+        // Interface methods are pure signatures: no body, no flags — just the
+        // name + param names + param types + return type.
+        private static void WriteInterfaceMethodDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.InterfaceMethodDef m)
+        {
+            w.WriteString(m.Name);
+            WriteStringList(w, new List<string>(m.ArgNames));
+            w.WriteI32(m.ArgTypes.Length);
+            foreach (var t in m.ArgTypes) WriteOptTd(w, t);
+            WriteOptTd(w, m.ReturnType);
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.InterfaceMethodDef ReadInterfaceMethodDef(RacBinaryReader r)
+        {
+            string mName = r.ReadString() ?? "";
+            var argNames = ReadStringList(r).ToArray();
+            int atn = r.ReadI32();
+            if (atn < 0 || atn > 4_000_000) throw new System.IO.InvalidDataException($"rac: interface method arg-type count {atn} out of range");
+            var argTypes = new TypeDescriptor?[atn];
+            for (int j = 0; j < atn; j++) argTypes[j] = ReadOptTd(r);
+            var returnType = ReadOptTd(r);
+            return new RaLanguage.Interpreter.IR.Defs.InterfaceMethodDef(mName, argNames, argTypes, returnType);
+        }
+
+        private static void WriteInterfaceDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.InterfaceDef def)
+        {
+            w.WriteString(def.Name);
+            w.WriteU8(def.IsPublic ? (byte)1 : (byte)0);
+            WriteStringList(w, new List<string>(def.Generics));
+            w.WriteI32(def.Fields.Length);
+            foreach (var fld in def.Fields) WriteFieldDef(w, fld);
+            w.WriteI32(def.Methods.Length);
+            foreach (var m in def.Methods) WriteInterfaceMethodDef(w, m);
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.InterfaceDef ReadInterfaceDef(RacBinaryReader r)
+        {
+            string name = r.ReadString() ?? "";
+            bool isPublic = r.ReadU8() != 0;
+            var generics = ReadStringList(r).ToArray();
+            int fn = r.ReadI32();
+            if (fn < 0 || fn > 4_000_000) throw new System.IO.InvalidDataException($"rac: interface field count {fn} out of range");
+            var fields = new RaLanguage.Interpreter.IR.Defs.StructFieldDef[fn];
+            for (int i = 0; i < fn; i++) fields[i] = ReadFieldDef(r);
+            int mn = r.ReadI32();
+            if (mn < 0 || mn > 4_000_000) throw new System.IO.InvalidDataException($"rac: interface method count {mn} out of range");
+            var methods = new RaLanguage.Interpreter.IR.Defs.InterfaceMethodDef[mn];
+            for (int i = 0; i < mn; i++) methods[i] = ReadInterfaceMethodDef(r);
+            return new RaLanguage.Interpreter.IR.Defs.InterfaceDef(name, isPublic, generics, fields, methods);
+        }
+
+        private static void WriteAnnotationParamDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.AnnotationParamDef p)
+        {
+            w.WriteString(p.Name);
+            WriteOptTd(w, p.DeclaredType);
+            w.WriteU8(p.IsVarArgs ? (byte)1 : (byte)0);
+            if (p.DefaultConst == null) w.WriteU8(0);
+            else { w.WriteU8(1); ModuleBytecodeIo.SerializeConst(w, p.DefaultConst, WriterPool); }
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.AnnotationParamDef ReadAnnotationParamDef(RacBinaryReader r)
+        {
+            string pName = r.ReadString() ?? "";
+            var declTd = ReadOptTd(r);
+            bool isVarArgs = r.ReadU8() != 0;
+            RaLanguage.Interpreter.Values.RuntimeValue? defConst =
+                r.ReadU8() != 0 ? ModuleBytecodeIo.DeserializeConst(r, ReaderPool) : null;
+            return new RaLanguage.Interpreter.IR.Defs.AnnotationParamDef(pName, declTd, defConst, isVarArgs);
+        }
+
+        private static void WriteAnnotationDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.AnnotationDef def)
+        {
+            w.WriteString(def.Name);
+            w.WriteU8(def.IsPublic ? (byte)1 : (byte)0);
+            w.WriteI32(def.Parameters.Length);
+            foreach (var p in def.Parameters) WriteAnnotationParamDef(w, p);
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.AnnotationDef ReadAnnotationDef(RacBinaryReader r)
+        {
+            string name = r.ReadString() ?? "";
+            bool isPublic = r.ReadU8() != 0;
+            int pn = r.ReadI32();
+            if (pn < 0 || pn > 4_000_000) throw new System.IO.InvalidDataException($"rac: annotation param count {pn} out of range");
+            var ps = new RaLanguage.Interpreter.IR.Defs.AnnotationParamDef[pn];
+            for (int i = 0; i < pn; i++) ps[i] = ReadAnnotationParamDef(r);
+            return new RaLanguage.Interpreter.IR.Defs.AnnotationDef(name, isPublic, ps);
+        }
+
+        private static void WriteImportDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.ImportDef def)
+        {
+            w.WriteU8((byte)def.ImportKind);
+            w.WriteU8((byte)((def.SpecIsDotted ? 1 : 0) | (def.IsWildcard ? 2 : 0)));
+            if (def.RawPath == null) w.WriteU8(0); else { w.WriteU8(1); w.WriteString(def.RawPath); }
+            WriteStringList(w, new List<string>(def.Segments));
+            WriteStringList(w, new List<string>(def.SymbolNames));
+            if (def.Alias == null) w.WriteU8(0); else { w.WriteU8(1); w.WriteString(def.Alias); }
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.ImportDef ReadImportDef(RacBinaryReader r)
+        {
+            var importKind = (RaLanguage.Interpreter.IR.Defs.ImportDefKind)r.ReadU8();
+            byte flags = r.ReadU8();
+            string? rawPath = r.ReadU8() != 0 ? (r.ReadString() ?? "") : null;
+            var segments = ReadStringList(r).ToArray();
+            var symbolNames = ReadStringList(r).ToArray();
+            string? alias = r.ReadU8() != 0 ? (r.ReadString() ?? "") : null;
+            return new RaLanguage.Interpreter.IR.Defs.ImportDef(
+                importKind, (flags & 1) != 0, rawPath, segments, (flags & 2) != 0, symbolNames, alias);
+        }
+
+        private static void WriteNamespaceDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.NamespaceDef def)
+        {
+            WriteStringList(w, new List<string>(def.Segments));
+            w.WriteU8(def.IsFileScoped ? (byte)1 : (byte)0);
+            w.WriteI32(def.Bodies.Length);
+            foreach (var b in def.Bodies) ModuleBytecodeIo.SerializeRaFunction(w, b, WriterPool);
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.NamespaceDef ReadNamespaceDef(RacBinaryReader r)
+        {
+            var segments = ReadStringList(r).ToArray();
+            bool isFileScoped = r.ReadU8() != 0;
+            int bn = r.ReadI32();
+            if (bn < 0 || bn > 4_000_000) throw new System.IO.InvalidDataException($"rac: namespace body count {bn} out of range");
+            var bodies = new RaLanguage.Interpreter.IR.RaFunction[bn];
+            for (int i = 0; i < bn; i++) bodies[i] = ModuleBytecodeIo.DeserializeRaFunction(r, ReaderPool);
+            return new RaLanguage.Interpreter.IR.Defs.NamespaceDef(segments, isFileScoped, bodies);
+        }
+
         private static void WriteTypeDescriptor(RacBinaryWriter w, TypeDescriptor td)
         {
             if (td.IsTypeParameter)

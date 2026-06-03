@@ -1,0 +1,110 @@
+import std.prelude.*;
+// Ra Language - L7 (Match widening): RECORD-POSITIONAL patterns now lower.
+// `case Point(a, b)` on a record instance lowers through the SAME EnumTagEq /
+// EnumPayload / MatchArity opcodes as enum variants — they are POLYMORPHIC over
+// the scrutinee's runtime type:
+//   - EnumTagEq: enum → member-name match; record → NOMINAL identity (the
+//     pattern name must resolve to the SAME RecordTypeValue as the instance's
+//     Definition, mirroring the visitor's ReferenceEquals check).
+//   - EnumPayload: enum → Payload[i]; record → i-th primary field BY NAME.
+//   - MatchArity: throws the visitor's EXACT arity-mismatch message when the
+//     pattern arity != the record's primary-field count (verified out-of-band
+//     by --parity on an in-function arity-mismatch match).
+// Same first-cut gates as enum variants: inferred name (no `Enum.Variant`),
+// wildcard / confirmed-variable subpatterns, trailing wildcard/variable
+// catch-all. All matches below carry `case _` so the record arms LOWER
+// (verified: --dump-ir shows EnumTagEq/MatchArity/EnumPayload, no NativeDefine).
+
+print("=== pattern_match/match_record_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+record Point(x: int, y: int)
+record Vec(a: int, b: int)
+record Single(only: int)
+
+// RC1/RC2: 2-field record-positional bind, both fields used.
+fn sum_pt(p: Point): int {
+    ret match p {
+        case Point(a, b) -> a + b
+        case _ -> -1
+    };
+}
+ck("[RC1]", sum_pt(Point(3, 4)) == 7);
+ck("[RC2]", sum_pt(Point(10, 20)) == 30);
+
+// RC3: 1-field record-positional bind.
+fn unwrap(s: Single): int {
+    ret match s {
+        case Single(v) -> v
+        case _ -> -1
+    };
+}
+ck("[RC3]", unwrap(Single(99)) == 99);
+
+// RC4: `_` wildcard SUBPATTERN drops one field, keeps the other.
+fn first_pt(p: Point): int {
+    ret match p {
+        case Point(a, _) -> a
+        case _ -> 0
+    };
+}
+ck("[RC4]", first_pt(Point(8, 5)) == 8);
+
+// RC5: NOMINAL dispatch — `case Point` must NOT match a Vec (different record
+// type), even though both have two int fields. Scrutinee is `any`.
+fn label(v: any): string {
+    ret match v {
+        case Point(a, b) -> "point:" + ((a + b) as string)
+        case Vec(a, b) -> "vec:" + ((a + b) as string)
+        case _ -> "other"
+    };
+}
+ck("[RC5]", label(Point(1, 2)) == "point:3");
+ck("[RC6]", label(Vec(3, 4)) == "vec:7");
+ck("[RC7]", label(42) == "other");
+
+// RC8: GUARD reads a record-field bind.
+fn classify(p: Point): string {
+    ret match p {
+        case Point(a, b) if a > b -> "x-major"
+        case Point(a, b) -> "y-major-or-eq"
+        case _ -> "none"
+    };
+}
+ck("[RC8]", classify(Point(9, 1)) == "x-major");
+ck("[RC9]", classify(Point(1, 9)) == "y-major-or-eq");
+
+// RC10/RC11: STATEMENT-position record match drives a side effect; the field
+// binds must be live in the arm body.
+fn diff(p: Point): int {
+    var d = 0;
+    match p {
+        case Point(a, b) -> d = a - b
+        case _ -> d = 0
+    }
+    ret d;
+}
+ck("[RC10]", diff(Point(10, 3)) == 7);
+ck("[RC11]", diff(Point(2, 5)) == -3);
+
+// RC12: enum + record both reach the SAME polymorphic opcodes — sanity that a
+// nested record-in-arm match still works alongside an enum match.
+enum Holder { Has(int), Empty }
+fn combine(h: Holder, p: Point): int {
+    ret match h {
+        case Has(n) -> n + match p { case Point(a, b) -> a + b case _ -> 0 }
+        case _ -> 0
+    };
+}
+ck("[RC12]", combine(Holder.Has(100), Point(3, 4)) == 107);
+ck("[RC13]", combine(Holder.Empty, Point(3, 4)) == 0);
+
+if failures == 0 {
+    print("=== done (all lowered record-positional cases passed) ===");
+} else {
+    print("=== FAILURES: " + (failures as string) + " ===");
+}

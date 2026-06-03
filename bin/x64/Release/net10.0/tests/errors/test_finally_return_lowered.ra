@@ -1,0 +1,72 @@
+import std.prelude.*;
+// L10: a `return` inside a try/catch body with a finally is lowered (routed
+// THROUGH the finally via OP_SET_PENDING_FLOW; OP_FINALLY_END resumes the
+// return). break/continue/yield escapes + nested try-with-finally still fall
+// back to the visitor (verified to still work here).
+print("=== errors/finally_return_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// CF1: return from try runs finally first, then hands back the value.
+var c1 = [];
+fn f1() {
+    try { c1 = c1 + ["try"]; ret 42; c1 = c1 + ["NOPE"]; }
+    finally { c1 = c1 + ["fin"]; }
+}
+let r1 = f1();
+ck("[CF1]", (c1 as string) == "[\"try\", \"fin\"]" and r1 == 42);
+
+// CF2: return from inside a loop in the try body.
+var c2 = [];
+fn f2() {
+    try { for i = 0 to 9 { if i == 3 { ret i; } } }
+    finally { c2 = c2 + ["fin"]; }
+}
+let r2 = f2();
+ck("[CF2]", r2 == 3 and (c2 as string) == "[\"fin\"]");
+
+// CF3: return from a catch body runs the finally.
+var c3 = [];
+fn f3() {
+    try { throw "x"; }
+    catch (e) { c3 = c3 + ["catch"]; ret 9; }
+    finally { c3 = c3 + ["fin"]; }
+}
+let r3 = f3();
+ck("[CF3]", r3 == 9 and (c3 as string) == "[\"catch\", \"fin\"]");
+
+// CF4: conditional return — finally runs on BOTH the return and fall-through.
+fn f4(n: int): int {
+    var seen = 0;
+    try {
+        if n > 0 { ret 100; }
+        seen = 1;
+    }
+    finally { seen = seen + 10; }
+    ret seen;
+}
+ck("[CF4a]", f4(5) == 100);
+ck("[CF4b]", f4(-5) == 11);
+
+// CF5: finally with its OWN return overrides the try's return.
+fn f5() {
+    try { ret 1; }
+    finally { ret 2; }
+}
+ck("[CF5]", f5() == 2);
+
+// CF6: nested try-with-finally (falls back to the visitor) — both finallies run.
+var c6 = [];
+fn f6() {
+    try {
+        try { c6 = c6 + ["inner-try"]; ret 7; }
+        finally { c6 = c6 + ["inner-fin"]; }
+    } finally { c6 = c6 + ["outer-fin"]; }
+}
+let r6 = f6();
+ck("[CF6]", r6 == 7 and (c6 as string) == "[\"inner-try\", \"inner-fin\", \"outer-fin\"]");
+
+if failures == 0 { print("=== done ==="); } else { print("=== FAIL (" + (failures as string) + ") ==="); }

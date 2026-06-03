@@ -1159,6 +1159,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Alias:
                 case Opcode.MoveLet:
                 case Opcode.Borrow:
+                case Opcode.BorrowMut:
                 case Opcode.Deref:
                 case Opcode.Add: case Opcode.Sub: case Opcode.Mul:
                 case Opcode.Div: case Opcode.Mod: case Opcode.Pow:
@@ -1184,9 +1185,22 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Closure: case Opcode.DefineFunction:
                 case Opcode.GetSelf: case Opcode.GetSuper:
                 case Opcode.Call: case Opcode.CallKw: case Opcode.CallMethod:
+                case Opcode.CallGeneric:
                 case Opcode.NewInstance:
+                case Opcode.With:
                 case Opcode.NativeDefine:
+                case Opcode.DefineType:
                 case Opcode.Await: case Opcode.Spawn:
+                case Opcode.AsmInvoke: case Opcode.AsmInvokeI: // L9/L10 — write A (impure; not DCE-erasable)
+                case Opcode.AnnotationApply:
+                case Opcode.EnumTagEq: case Opcode.EnumPayload: // L7 variant patterns
+                case Opcode.EnumNameEq:
+                case Opcode.TupleShape:
+                case Opcode.StructShape: case Opcode.StructFieldGet:
+                case Opcode.ListShape: case Opcode.ListElemBack: case Opcode.ListRestSlice:
+                case Opcode.IsType:
+                case Opcode.MapShape: case Opcode.MapHasKey: case Opcode.MapGetKey:
+                case Opcode.TryUnwrap:
                 // M87 — extend WritesToSlot to include the entire typed
                 // tagged-union family. Without these, GVN's
                 // `IsCanonicalSlotClean` walked through a typed write
