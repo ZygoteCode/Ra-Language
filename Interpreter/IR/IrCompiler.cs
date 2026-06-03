@@ -2425,8 +2425,7 @@ namespace RaLanguage.Interpreter.IR
         {
             def = null!;
             if (node.HasAnnotations) return false;
-            // L10: operators + where-constraints are now lowered (captured below).
-            if (node.Properties != null && node.Properties.Count > 0) return false;
+            // L10: operators + where-constraints + auto-properties are now lowered (captured below).
             if (node.Events != null && node.Events.Count > 0) return false;
 
             string name = node.NameTok.Value?.ToString() ?? "";
@@ -2434,6 +2433,7 @@ namespace RaLanguage.Interpreter.IR
 
             if (!TryBuildOperatorDefs(node.Operators, out var operators)) return false;
             var wheres = BuildWhereDefs(node.WhereConstraints);
+            if (!TryBuildPropertyDefs(node.Properties, out var properties)) return false;
 
             var fields = new Defs.StructFieldDef[node.Fields.Count];
             for (int i = 0; i < node.Fields.Count; i++)
@@ -2456,7 +2456,7 @@ namespace RaLanguage.Interpreter.IR
             var generics = (node.GenericTypeParams == null || node.GenericTypeParams.Count == 0)
                 ? System.Array.Empty<string>()
                 : node.GenericTypeParams.ToArray();
-            def = new Defs.StructDef(name, node.IsPublic, generics, fields, methods, operators, wheres);
+            def = new Defs.StructDef(name, node.IsPublic, generics, fields, methods, operators, wheres, properties);
             return true;
         }
 
@@ -2537,6 +2537,48 @@ namespace RaLanguage.Interpreter.IR
             return result;
         }
 
+        // L10 property widening (auto-only): build a FLAT PropertyDef, or false to
+        // fall back. AUTO (stored) properties have no accessor bodies — their
+        // get/set synthesize field access (which already lowers). Custom-body /
+        // computed / lazy / abstract / non-const-default / annotated properties
+        // fall back (their bodies AST-walk via the visitor — accessor-body IR is a
+        // later increment). Shared by struct/record/class lowering.
+        private static bool TryBuildPropertyDef(Parser.Nodes.Properties.PropertyDefinitionNode p, out Defs.PropertyDef pd)
+        {
+            pd = null!;
+            if (p.HasAnnotations) return false;
+            if (p.IsLazy) return false;
+            if (p.IsAbstract) return false;
+            if (p.Accessors != null)
+                foreach (var acc in p.Accessors)
+                    if (acc.BodyNode != null) return false; // custom-body accessor → fallback
+
+            RuntimeValue? defConst = null;
+            if (p.DefaultValueNode != null && !TryFoldFieldDefaultConst(p.DefaultValueNode, out defConst))
+                return false; // non-const default → fallback
+
+            var accessors = (p.Accessors == null || p.Accessors.Count == 0)
+                ? System.Array.Empty<Defs.PropertyAccessorDef>()
+                : new Defs.PropertyAccessorDef[p.Accessors.Count];
+            if (p.Accessors != null)
+                for (int i = 0; i < p.Accessors.Count; i++)
+                    accessors[i] = new Defs.PropertyAccessorDef((int)p.Accessors[i].Kind, (int)p.Accessors[i].Visibility);
+
+            pd = new Defs.PropertyDef(
+                p.NameTok.Value?.ToString() ?? "", p.PropertyType, p.IsPublic, p.IsStatic,
+                p.IsAbstract, p.IsOverride, p.IsLazy, defConst, accessors);
+            return true;
+        }
+
+        private static bool TryBuildPropertyDefs(System.Collections.Generic.List<Parser.Nodes.Properties.PropertyDefinitionNode>? props, out Defs.PropertyDef[] result)
+        {
+            if (props == null || props.Count == 0) { result = System.Array.Empty<Defs.PropertyDef>(); return true; }
+            result = new Defs.PropertyDef[props.Count];
+            for (int i = 0; i < props.Count; i++)
+                if (!TryBuildPropertyDef(props[i], out result[i])) return false;
+            return true;
+        }
+
         // L5e: build a FLAT RecordDef, or return false to fall back. First
         // sub-stage: value records (no `record class` inheritance), no abstract /
         // operators / properties / events / annotations / where-constraints /
@@ -2548,8 +2590,7 @@ namespace RaLanguage.Interpreter.IR
             if (node.BaseType != null) return false;       // inheritance → fallback
             if (node.IsAbstract) return false;
             if (node.HasAnnotations) return false;
-            // L10: operators + where-constraints are now lowered (captured below).
-            if (node.Properties != null && node.Properties.Count > 0) return false;
+            // L10: operators + where-constraints + auto-properties are now lowered (captured below).
             if (node.Events != null && node.Events.Count > 0) return false;
 
             string name = node.NameTok.Value?.ToString() ?? "";
@@ -2557,6 +2598,7 @@ namespace RaLanguage.Interpreter.IR
 
             if (!TryBuildOperatorDefs(node.Operators, out var operators)) return false;
             var wheres = BuildWhereDefs(node.WhereConstraints);
+            if (!TryBuildPropertyDefs(node.Properties, out var properties)) return false;
 
             var pfields = new Defs.RecordPrimaryFieldDef[node.PrimaryFields.Count];
             for (int i = 0; i < node.PrimaryFields.Count; i++)
@@ -2577,7 +2619,7 @@ namespace RaLanguage.Interpreter.IR
                 ? System.Array.Empty<string>()
                 : node.GenericTypeParams.ToArray();
             def = new Defs.RecordDef(name, node.IsPublic, node.IsRefRecord,
-                node.AutoEquals, node.AutoToString, generics, pfields, methods, operators, wheres);
+                node.AutoEquals, node.AutoToString, generics, pfields, methods, operators, wheres, properties);
             return true;
         }
 
@@ -2594,8 +2636,7 @@ namespace RaLanguage.Interpreter.IR
             if (node.WithTraits != null && node.WithTraits.Count > 0) return false;
             if (node.IsAbstract || node.IsStatic) return false;
             if (node.HasAnnotations) return false;
-            // L10: operators + where-constraints are now lowered (captured below).
-            if (node.Properties != null && node.Properties.Count > 0) return false;
+            // L10: operators + where-constraints + auto-properties are now lowered (captured below).
             if (node.Events != null && node.Events.Count > 0) return false;
 
             string name = node.NameTok.Value?.ToString() ?? "";
@@ -2603,6 +2644,7 @@ namespace RaLanguage.Interpreter.IR
 
             if (!TryBuildOperatorDefs(node.Operators, out var operators)) return false;
             var wheres = BuildWhereDefs(node.WhereConstraints);
+            if (!TryBuildPropertyDefs(node.Properties, out var properties)) return false;
 
             var fields = new Defs.StructFieldDef[node.Fields.Count];
             for (int i = 0; i < node.Fields.Count; i++)
@@ -2625,7 +2667,7 @@ namespace RaLanguage.Interpreter.IR
             var generics = (node.GenericTypeParams == null || node.GenericTypeParams.Count == 0)
                 ? System.Array.Empty<string>()
                 : node.GenericTypeParams.ToArray();
-            def = new Defs.ClassDef(name, node.IsPublic, generics, fields, methods, operators, wheres);
+            def = new Defs.ClassDef(name, node.IsPublic, generics, fields, methods, operators, wheres, properties);
             return true;
         }
 

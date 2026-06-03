@@ -233,6 +233,49 @@ namespace RaLanguage.Interpreter.IR.Defs
         }
     }
 
+    // L10 property widening: one accessor of an AUTO (stored) property — Kind
+    // (Get/Set/Init/Observe) + Visibility. No body (auto accessors synthesize
+    // field access). A custom-body / computed accessor makes IrCompiler fall back
+    // (those run via the visitor — accessor-body IR is a later increment).
+    public sealed class PropertyAccessorDef
+    {
+        public readonly int Kind;        // (int)PropertyAccessorKind
+        public readonly int Visibility;  // (int)PropertyAccessorVisibility
+
+        public PropertyAccessorDef(int kind, int visibility)
+        {
+            Kind = kind; Visibility = visibility;
+        }
+    }
+
+    // L10 property widening: an AUTO (stored) property `prop Name: T [= const]
+    // { get; set; }`. Flat: name + type + flags + a const-folded default (null =
+    // none) + the accessor list. Lazy / computed / custom-body / non-const-default
+    // / abstract properties make IrCompiler fall back (the visitor still handles
+    // them — their bodies AST-walk). Reconstructed into a PropertyDefinitionNode;
+    // auto-property ACCESS is field-slot access, which already lowers.
+    public sealed class PropertyDef
+    {
+        public readonly string Name;
+        public readonly TypeDescriptor? PropertyType;
+        public readonly bool IsPublic;
+        public readonly bool IsStatic;
+        public readonly bool IsAbstract;
+        public readonly bool IsOverride;
+        public readonly bool IsLazy;
+        public readonly Values.RuntimeValue? DefaultConst; // folded literal default, or null
+        public readonly PropertyAccessorDef[] Accessors;
+
+        public PropertyDef(string name, TypeDescriptor? propertyType, bool isPublic, bool isStatic,
+            bool isAbstract, bool isOverride, bool isLazy, Values.RuntimeValue? defaultConst,
+            PropertyAccessorDef[] accessors)
+        {
+            Name = name; PropertyType = propertyType; IsPublic = isPublic; IsStatic = isStatic;
+            IsAbstract = isAbstract; IsOverride = isOverride; IsLazy = isLazy; DefaultConst = defaultConst;
+            Accessors = accessors ?? Array.Empty<PropertyAccessorDef>();
+        }
+    }
+
     public sealed class StructDef : TypeDef
     {
         public override TypeDefKind Kind => TypeDefKind.Struct;
@@ -244,9 +287,10 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly StructMethodDef[] Methods;
         public readonly OperatorDef[] Operators;
         public readonly WhereConstraintDef[] Wheres;
+        public readonly PropertyDef[] Properties;
 
         public StructDef(string name, bool isPublic, string[] generics, StructFieldDef[] fields, StructMethodDef[] methods,
-            OperatorDef[]? operators = null, WhereConstraintDef[]? wheres = null)
+            OperatorDef[]? operators = null, WhereConstraintDef[]? wheres = null, PropertyDef[]? properties = null)
         {
             Name = name; IsPublic = isPublic;
             Generics = generics ?? Array.Empty<string>();
@@ -254,6 +298,7 @@ namespace RaLanguage.Interpreter.IR.Defs
             Methods = methods ?? Array.Empty<StructMethodDef>();
             Operators = operators ?? Array.Empty<OperatorDef>();
             Wheres = wheres ?? Array.Empty<WhereConstraintDef>();
+            Properties = properties ?? Array.Empty<PropertyDef>();
         }
     }
 
@@ -292,10 +337,11 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly StructMethodDef[] Methods;
         public readonly OperatorDef[] Operators;
         public readonly WhereConstraintDef[] Wheres;
+        public readonly PropertyDef[] Properties;
 
         public RecordDef(string name, bool isPublic, bool isRefRecord, bool autoEquals, bool autoToString,
             string[] generics, RecordPrimaryFieldDef[] primaryFields, StructMethodDef[] methods,
-            OperatorDef[]? operators = null, WhereConstraintDef[]? wheres = null)
+            OperatorDef[]? operators = null, WhereConstraintDef[]? wheres = null, PropertyDef[]? properties = null)
         {
             Name = name; IsPublic = isPublic; IsRefRecord = isRefRecord;
             AutoEquals = autoEquals; AutoToString = autoToString;
@@ -304,6 +350,7 @@ namespace RaLanguage.Interpreter.IR.Defs
             Methods = methods ?? Array.Empty<StructMethodDef>();
             Operators = operators ?? Array.Empty<OperatorDef>();
             Wheres = wheres ?? Array.Empty<WhereConstraintDef>();
+            Properties = properties ?? Array.Empty<PropertyDef>();
         }
     }
 
@@ -362,9 +409,10 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly ClassMethodDef[] Methods;
         public readonly OperatorDef[] Operators;
         public readonly WhereConstraintDef[] Wheres;
+        public readonly PropertyDef[] Properties;
 
         public ClassDef(string name, bool isPublic, string[] generics, StructFieldDef[] fields, ClassMethodDef[] methods,
-            OperatorDef[]? operators = null, WhereConstraintDef[]? wheres = null)
+            OperatorDef[]? operators = null, WhereConstraintDef[]? wheres = null, PropertyDef[]? properties = null)
         {
             Name = name; IsPublic = isPublic;
             Generics = generics ?? Array.Empty<string>();
@@ -372,6 +420,7 @@ namespace RaLanguage.Interpreter.IR.Defs
             Methods = methods ?? Array.Empty<ClassMethodDef>();
             Operators = operators ?? Array.Empty<OperatorDef>();
             Wheres = wheres ?? Array.Empty<WhereConstraintDef>();
+            Properties = properties ?? Array.Empty<PropertyDef>();
         }
     }
 

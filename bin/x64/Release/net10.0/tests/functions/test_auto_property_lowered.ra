@@ -1,0 +1,59 @@
+import std.prelude.*;
+// L10: a class/struct/record with AUTO (stored) properties `prop Name: T [= const]
+// { get; set; }` now lowers FLAT (OP_DEFINE_TYPE carries a PropertyDef[]) instead
+// of falling back to NativeDefine. Auto accessors have no body (get/set synthesize
+// field access, which already lowers); the const default folds like a field
+// default; visibility (pub/priv) + get/set/init accessors are preserved across
+// the descriptor + the .rac v8 round-trip. Computed / lazy / abstract / custom-body
+// / non-const-default properties still fall back (their bodies AST-walk).
+print("=== functions/auto_property_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+// P1: class auto props — const default applies, ctor overrides.
+pub class Acc {
+    pub prop n: int = 100
+    pub prop tag: string = "base" { get; priv set; }
+    pub Acc(n: int) { self.n = n; }
+}
+let a = Acc(5);
+ck("[P1a]", a.n == 5);          // ctor set it
+ck("[P1b]", a.tag == "base");   // default kept (priv set)
+
+// P2: default applies when ctor does NOT set the property.
+pub class Defaults {
+    pub prop a: int = 11
+    pub prop b: int = 22
+    pub Defaults() { pass }
+}
+let d = Defaults();
+ck("[P2]", d.a == 11 and d.b == 22);
+
+// P3: struct auto property.
+pub struct SP {
+    pub prop v: int = 7
+    pub SP(v: int) { self.v = v; }
+}
+ck("[P3]", SP(9).v == 9);
+
+// P4: record auto property (alongside primary fields).
+pub record RP(id: int) {
+    pub prop note: string = "n"
+}
+let r = RP(3);
+ck("[P4]", r.id == 3 and r.note == "n");
+
+// P5: mutation of a stored auto property.
+pub class Counter {
+    pub prop c: int = 0
+    pub Counter() { pass }
+}
+let cnt = Counter();
+cnt.c = 41;
+cnt.c = cnt.c + 1;
+ck("[P5]", cnt.c == 42);
+
+if failures == 0 { print("=== done ==="); } else { print("=== FAIL (" + (failures as string) + ") ==="); }

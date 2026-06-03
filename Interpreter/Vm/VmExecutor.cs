@@ -3061,7 +3061,8 @@ namespace RaLanguage.Interpreter.Vm
                 def.IsPublic, fields, methods,
                 ReconstructOperators(def.Operators, s, e),
                 new System.Collections.Generic.List<string>(def.Generics),
-                ReconstructWheres(def.Wheres, s, e));
+                ReconstructWheres(def.Wheres, s, e),
+                ReconstructProperties(def.Properties, s, e));
 
             var result = Visitors.Structs.StructDefinitionNodeVisitor.Apply(node, ctx, interpreter);
             if (result.Error != null) throw new RaUserError(result.Error);
@@ -3130,7 +3131,8 @@ namespace RaLanguage.Interpreter.Vm
                 primaryFields, methods,
                 ReconstructOperators(def.Operators, s, e),
                 new System.Collections.Generic.List<string>(def.Generics),
-                ReconstructWheres(def.Wheres, s, e));
+                ReconstructWheres(def.Wheres, s, e),
+                ReconstructProperties(def.Properties, s, e));
             // Restore the @derive-controlled auto flags (default true).
             node.AutoEquals = def.AutoEquals;
             node.AutoToString = def.AutoToString;
@@ -3215,6 +3217,51 @@ namespace RaLanguage.Interpreter.Vm
             return list;
         }
 
+        // L10 property widening: reconstruct an AUTO PropertyDefinitionNode from a
+        // flat PropertyDef — auto accessors (BodyNode null) + a const-folded default
+        // (rebuilt as a NumberNode carrying CachedValue, like struct fields). The
+        // visitor's PropertyBuilder.Build registers it (backing slot in the hidden
+        // class shape); access lowers as field-slot access. Shared by struct/class/
+        // record reconstruction.
+        private static Parser.Nodes.Properties.PropertyDefinitionNode ReconstructProperty(
+            IR.Defs.PropertyDef pd, Lexer.Position s, Lexer.Position e)
+        {
+            var accessors = new System.Collections.Generic.List<Parser.Nodes.Properties.PropertyAccessorNode>(pd.Accessors.Length);
+            foreach (var ad in pd.Accessors)
+            {
+                var kind = (Parser.Nodes.Properties.PropertyAccessorKind)ad.Kind;
+                string kindStr = kind switch
+                {
+                    Parser.Nodes.Properties.PropertyAccessorKind.Get => "get",
+                    Parser.Nodes.Properties.PropertyAccessorKind.Set => "set",
+                    Parser.Nodes.Properties.PropertyAccessorKind.Init => "init",
+                    Parser.Nodes.Properties.PropertyAccessorKind.Observe => "observe",
+                    _ => "get"
+                };
+                accessors.Add(new Parser.Nodes.Properties.PropertyAccessorNode(
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, kindStr, s, e),
+                    kind, (Parser.Nodes.Properties.PropertyAccessorVisibility)ad.Visibility, /*bodyNode*/ null));
+            }
+            AstNode? defNode = null;
+            if (pd.DefaultConst != null)
+                defNode = new Parser.Nodes.Primitives.NumberNode(
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
+                { CachedValue = pd.DefaultConst };
+            return new Parser.Nodes.Properties.PropertyDefinitionNode(
+                new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, pd.Name, s, e),
+                pd.PropertyType, defNode, accessors,
+                pd.IsPublic, pd.IsStatic, pd.IsAbstract, pd.IsOverride, pd.IsLazy);
+        }
+
+        // Shared: reconstruct a property list from PropertyDef[] (empty → empty).
+        private static System.Collections.Generic.List<Parser.Nodes.Properties.PropertyDefinitionNode> ReconstructProperties(
+            IR.Defs.PropertyDef[] props, Lexer.Position s, Lexer.Position e)
+        {
+            var list = new System.Collections.Generic.List<Parser.Nodes.Properties.PropertyDefinitionNode>(props.Length);
+            foreach (var pd in props) list.Add(ReconstructProperty(pd, s, e));
+            return list;
+        }
+
         // L5e: reconstruct the (stub-bodied) ClassDefinitionNode from a flat
         // ClassDef + precompiled method bodies, then run the SAME visitor Apply.
         // The visitor is async only to evaluate field defaults — folded const
@@ -3254,7 +3301,8 @@ namespace RaLanguage.Interpreter.Vm
                 fields, methods,
                 ReconstructOperators(def.Operators, s, e),
                 new System.Collections.Generic.List<string>(def.Generics),
-                ReconstructWheres(def.Wheres, s, e));
+                ReconstructWheres(def.Wheres, s, e),
+                ReconstructProperties(def.Properties, s, e));
 
             var task = Visitors.Classes.ClassDefinitionNodeVisitor.Apply(node, ctx, interpreter);
             var result = task.IsCompleted ? task.Result : task.AsTask().GetAwaiter().GetResult();
