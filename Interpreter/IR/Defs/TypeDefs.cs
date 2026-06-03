@@ -186,6 +186,35 @@ namespace RaLanguage.Interpreter.IR.Defs
     // StructTypeValue API expects, wiring each method's precompiled RaFunction
     // into CompiledBody so execution is byte-identical to the visitor (which
     // compiles the same body lazily).
+    // L10 one-shot-defn widening: an `operator <sym>(arg)` overload — a single-arg
+    // method carrying the operator symbol. The body is precompiled (the SAME
+    // GetOrCompileOperator the visitor uses lazily). Shared by struct/class/
+    // record/extension lowering; reconstructed into an OperatorDefinitionNode.
+    public sealed class OperatorDef
+    {
+        public readonly Lexer.Tokens.TokenType OpTokenType; // operator dispatch keys on Type, NOT text
+        public readonly string Symbol;          // OperatorTok text, e.g. "+"
+        public readonly bool IsPublic;
+        public readonly bool IsOverride;
+        public readonly bool IsStatic;
+        public readonly string ArgName;
+        public readonly TypeDescriptor? ArgType;
+        public readonly TypeDescriptor? ReturnType;
+        public readonly bool ShouldAutoReturn;
+        public readonly string[] Generics;
+        public readonly int FrameId;
+        public readonly RaFunction Body;        // precompiled
+
+        public OperatorDef(Lexer.Tokens.TokenType opTokenType, string symbol, bool isPublic, bool isOverride, bool isStatic,
+            string argName, TypeDescriptor? argType, TypeDescriptor? returnType, bool shouldAutoReturn,
+            string[] generics, int frameId, RaFunction body)
+        {
+            OpTokenType = opTokenType; Symbol = symbol; IsPublic = isPublic; IsOverride = isOverride; IsStatic = isStatic;
+            ArgName = argName; ArgType = argType; ReturnType = returnType; ShouldAutoReturn = shouldAutoReturn;
+            Generics = generics ?? Array.Empty<string>(); FrameId = frameId; Body = body;
+        }
+    }
+
     public sealed class StructDef : TypeDef
     {
         public override TypeDefKind Kind => TypeDefKind.Struct;
@@ -195,13 +224,16 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly string[] Generics;
         public readonly StructFieldDef[] Fields;
         public readonly StructMethodDef[] Methods;
+        public readonly OperatorDef[] Operators;
 
-        public StructDef(string name, bool isPublic, string[] generics, StructFieldDef[] fields, StructMethodDef[] methods)
+        public StructDef(string name, bool isPublic, string[] generics, StructFieldDef[] fields, StructMethodDef[] methods,
+            OperatorDef[]? operators = null)
         {
             Name = name; IsPublic = isPublic;
             Generics = generics ?? Array.Empty<string>();
             Fields = fields ?? Array.Empty<StructFieldDef>();
             Methods = methods ?? Array.Empty<StructMethodDef>();
+            Operators = operators ?? Array.Empty<OperatorDef>();
         }
     }
 
@@ -238,15 +270,18 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly string[] Generics;
         public readonly RecordPrimaryFieldDef[] PrimaryFields;
         public readonly StructMethodDef[] Methods;
+        public readonly OperatorDef[] Operators;
 
         public RecordDef(string name, bool isPublic, bool isRefRecord, bool autoEquals, bool autoToString,
-            string[] generics, RecordPrimaryFieldDef[] primaryFields, StructMethodDef[] methods)
+            string[] generics, RecordPrimaryFieldDef[] primaryFields, StructMethodDef[] methods,
+            OperatorDef[]? operators = null)
         {
             Name = name; IsPublic = isPublic; IsRefRecord = isRefRecord;
             AutoEquals = autoEquals; AutoToString = autoToString;
             Generics = generics ?? Array.Empty<string>();
             PrimaryFields = primaryFields ?? Array.Empty<RecordPrimaryFieldDef>();
             Methods = methods ?? Array.Empty<StructMethodDef>();
+            Operators = operators ?? Array.Empty<OperatorDef>();
         }
     }
 
@@ -302,13 +337,16 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly string[] Generics;
         public readonly StructFieldDef[] Fields;       // reuses the struct field descriptor
         public readonly ClassMethodDef[] Methods;
+        public readonly OperatorDef[] Operators;
 
-        public ClassDef(string name, bool isPublic, string[] generics, StructFieldDef[] fields, ClassMethodDef[] methods)
+        public ClassDef(string name, bool isPublic, string[] generics, StructFieldDef[] fields, ClassMethodDef[] methods,
+            OperatorDef[]? operators = null)
         {
             Name = name; IsPublic = isPublic;
             Generics = generics ?? Array.Empty<string>();
             Fields = fields ?? Array.Empty<StructFieldDef>();
             Methods = methods ?? Array.Empty<ClassMethodDef>();
+            Operators = operators ?? Array.Empty<OperatorDef>();
         }
     }
 

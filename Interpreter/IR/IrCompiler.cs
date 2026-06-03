@@ -2426,12 +2426,14 @@ namespace RaLanguage.Interpreter.IR
             def = null!;
             if (node.HasAnnotations) return false;
             if (node.WhereConstraints != null && node.WhereConstraints.Count > 0) return false;
-            if (node.Operators != null && node.Operators.Count > 0) return false;
+            // L10: operators are now lowered (captured into OperatorDef[] below).
             if (node.Properties != null && node.Properties.Count > 0) return false;
             if (node.Events != null && node.Events.Count > 0) return false;
 
             string name = node.NameTok.Value?.ToString() ?? "";
             if (string.IsNullOrWhiteSpace(name)) return false;
+
+            if (!TryBuildOperatorDefs(node.Operators, out var operators)) return false;
 
             var fields = new Defs.StructFieldDef[node.Fields.Count];
             for (int i = 0; i < node.Fields.Count; i++)
@@ -2454,7 +2456,7 @@ namespace RaLanguage.Interpreter.IR
             var generics = (node.GenericTypeParams == null || node.GenericTypeParams.Count == 0)
                 ? System.Array.Empty<string>()
                 : node.GenericTypeParams.ToArray();
-            def = new Defs.StructDef(name, node.IsPublic, generics, fields, methods);
+            def = new Defs.StructDef(name, node.IsPublic, generics, fields, methods, operators);
             return true;
         }
 
@@ -2485,6 +2487,45 @@ namespace RaLanguage.Interpreter.IR
             return true;
         }
 
+        // L10 one-shot-defn widening: build a FLAT OperatorDef from an
+        // `operator <sym>(arg)` overload, or false to fall back. Body compiles via
+        // the SAME GetOrCompileOperator the visitor uses lazily → identical
+        // bytecode. Annotated / where-constrained operators → false. Shared by
+        // struct / record / class / extension lowering.
+        private static bool TryBuildOperatorDef(Parser.Nodes.Classes.OperatorDefinitionNode op, out Defs.OperatorDef od)
+        {
+            od = null!;
+            if (op.HasAnnotations) return false;
+            if (op.WhereConstraints != null && op.WhereConstraints.Count > 0) return false;
+
+            var body = Runtime.FunctionDefinitionHelper.GetOrCompileOperator(op);
+            if (body == null) return false;
+
+            var generics = (op.GenericTypeParams == null || op.GenericTypeParams.Count == 0)
+                ? System.Array.Empty<string>()
+                : op.GenericTypeParams.ToArray();
+
+            od = new Defs.OperatorDef(
+                op.OperatorTok.Type,
+                op.OperatorTok.Value?.ToString() ?? "",
+                op.IsPublic, op.IsOverride, op.IsStatic,
+                op.ArgNameTok.Value?.ToString() ?? "",
+                op.ArgType, op.ReturnType, op.ShouldAutoReturn,
+                generics, op.FrameId, body);
+            return true;
+        }
+
+        // Shared: build OperatorDef[] from a node's operator list (null/empty → []),
+        // or false if any operator can't be lowered (caller falls back).
+        private static bool TryBuildOperatorDefs(System.Collections.Generic.List<Parser.Nodes.Classes.OperatorDefinitionNode>? ops, out Defs.OperatorDef[] result)
+        {
+            if (ops == null || ops.Count == 0) { result = System.Array.Empty<Defs.OperatorDef>(); return true; }
+            result = new Defs.OperatorDef[ops.Count];
+            for (int i = 0; i < ops.Count; i++)
+                if (!TryBuildOperatorDef(ops[i], out result[i])) return false;
+            return true;
+        }
+
         // L5e: build a FLAT RecordDef, or return false to fall back. First
         // sub-stage: value records (no `record class` inheritance), no abstract /
         // operators / properties / events / annotations / where-constraints /
@@ -2497,12 +2538,14 @@ namespace RaLanguage.Interpreter.IR
             if (node.IsAbstract) return false;
             if (node.HasAnnotations) return false;
             if (node.WhereConstraints != null && node.WhereConstraints.Count > 0) return false;
-            if (node.Operators != null && node.Operators.Count > 0) return false;
+            // L10: operators are now lowered (captured into OperatorDef[] below).
             if (node.Properties != null && node.Properties.Count > 0) return false;
             if (node.Events != null && node.Events.Count > 0) return false;
 
             string name = node.NameTok.Value?.ToString() ?? "";
             if (string.IsNullOrWhiteSpace(name)) return false;
+
+            if (!TryBuildOperatorDefs(node.Operators, out var operators)) return false;
 
             var pfields = new Defs.RecordPrimaryFieldDef[node.PrimaryFields.Count];
             for (int i = 0; i < node.PrimaryFields.Count; i++)
@@ -2523,7 +2566,7 @@ namespace RaLanguage.Interpreter.IR
                 ? System.Array.Empty<string>()
                 : node.GenericTypeParams.ToArray();
             def = new Defs.RecordDef(name, node.IsPublic, node.IsRefRecord,
-                node.AutoEquals, node.AutoToString, generics, pfields, methods);
+                node.AutoEquals, node.AutoToString, generics, pfields, methods, operators);
             return true;
         }
 
@@ -2541,12 +2584,14 @@ namespace RaLanguage.Interpreter.IR
             if (node.IsAbstract || node.IsStatic) return false;
             if (node.HasAnnotations) return false;
             if (node.WhereConstraints != null && node.WhereConstraints.Count > 0) return false;
-            if (node.Operators != null && node.Operators.Count > 0) return false;
+            // L10: operators are now lowered (captured into OperatorDef[] below).
             if (node.Properties != null && node.Properties.Count > 0) return false;
             if (node.Events != null && node.Events.Count > 0) return false;
 
             string name = node.NameTok.Value?.ToString() ?? "";
             if (string.IsNullOrWhiteSpace(name)) return false;
+
+            if (!TryBuildOperatorDefs(node.Operators, out var operators)) return false;
 
             var fields = new Defs.StructFieldDef[node.Fields.Count];
             for (int i = 0; i < node.Fields.Count; i++)
@@ -2569,7 +2614,7 @@ namespace RaLanguage.Interpreter.IR
             var generics = (node.GenericTypeParams == null || node.GenericTypeParams.Count == 0)
                 ? System.Array.Empty<string>()
                 : node.GenericTypeParams.ToArray();
-            def = new Defs.ClassDef(name, node.IsPublic, generics, fields, methods);
+            def = new Defs.ClassDef(name, node.IsPublic, generics, fields, methods, operators);
             return true;
         }
 

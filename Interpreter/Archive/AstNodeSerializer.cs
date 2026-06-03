@@ -3056,6 +3056,7 @@ namespace RaLanguage.Interpreter.Archive
 
             w.WriteI32(def.Methods.Length);
             foreach (var m in def.Methods) WriteMethodDef(w, m);
+            WriteOperatorDefs(w, def.Operators);
         }
 
         // Shared by struct + record (both carry StructMethodDef). Signature
@@ -3104,6 +3105,59 @@ namespace RaLanguage.Interpreter.Archive
                 (mflags & 32) != 0, frameId, body);
         }
 
+        // L10 v7: an OperatorDef (operator overload — dispatch keys on OpTokenType,
+        // NOT the symbol text). Shared by struct / record / class lowering.
+        private static void WriteOperatorDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.OperatorDef op)
+        {
+            w.WriteI32((int)op.OpTokenType);
+            w.WriteString(op.Symbol);
+            byte oflags = (byte)((op.IsPublic ? 1 : 0) | (op.IsOverride ? 2 : 0)
+                | (op.IsStatic ? 4 : 0) | (op.ShouldAutoReturn ? 8 : 0));
+            w.WriteU8(oflags);
+            w.WriteString(op.ArgName);
+            WriteOptTd(w, op.ArgType);
+            WriteOptTd(w, op.ReturnType);
+            WriteStringList(w, new List<string>(op.Generics));
+            w.WriteI32(op.FrameId);
+            ModuleBytecodeIo.SerializeRaFunction(w, op.Body, WriterPool);
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.OperatorDef ReadOperatorDef(RacBinaryReader r)
+        {
+            var opType = (RaLanguage.Lexer.Tokens.TokenType)r.ReadI32();
+            string symbol = r.ReadString() ?? "";
+            byte oflags = r.ReadU8();
+            string argName = r.ReadString() ?? "";
+            var argType = ReadOptTd(r);
+            var returnType = ReadOptTd(r);
+            var generics = ReadStringList(r).ToArray();
+            int frameId = r.ReadI32();
+            var body = ModuleBytecodeIo.DeserializeRaFunction(r, ReaderPool);
+            return new RaLanguage.Interpreter.IR.Defs.OperatorDef(
+                opType, symbol, (oflags & 1) != 0, (oflags & 2) != 0, (oflags & 4) != 0,
+                argName, argType, returnType, (oflags & 8) != 0, generics, frameId, body);
+        }
+
+        // Trailing OperatorDef[] pool — written only by v7+ writers, read only by
+        // v7+ readers. v6 archives keep no operators (empty), loading unchanged.
+        private static void WriteOperatorDefs(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.OperatorDef[] ops)
+        {
+            if (WriterVersion < ModuleBytecodeIo.PayloadVersion_V7) return;
+            w.WriteI32(ops.Length);
+            foreach (var op in ops) WriteOperatorDef(w, op);
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.OperatorDef[] ReadOperatorDefs(RacBinaryReader r)
+        {
+            if (ReaderVersion < ModuleBytecodeIo.PayloadVersion_V7)
+                return System.Array.Empty<RaLanguage.Interpreter.IR.Defs.OperatorDef>();
+            int on = r.ReadI32();
+            if (on < 0 || on > 4_000_000) throw new System.IO.InvalidDataException($"rac: operator count {on} out of range");
+            var ops = new RaLanguage.Interpreter.IR.Defs.OperatorDef[on];
+            for (int i = 0; i < on; i++) ops[i] = ReadOperatorDef(r);
+            return ops;
+        }
+
         private static RaLanguage.Interpreter.IR.Defs.StructDef ReadStructDef(RacBinaryReader r)
         {
             string name = r.ReadString() ?? "";
@@ -3131,7 +3185,8 @@ namespace RaLanguage.Interpreter.Archive
             var methods = new RaLanguage.Interpreter.IR.Defs.StructMethodDef[mn];
             for (int i = 0; i < mn; i++) methods[i] = ReadMethodDef(r);
 
-            return new RaLanguage.Interpreter.IR.Defs.StructDef(name, isPublic, generics, fields, methods);
+            var operators = ReadOperatorDefs(r);
+            return new RaLanguage.Interpreter.IR.Defs.StructDef(name, isPublic, generics, fields, methods, operators);
         }
 
         private static void WriteRecordDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.RecordDef def)
@@ -3151,6 +3206,7 @@ namespace RaLanguage.Interpreter.Archive
             }
             w.WriteI32(def.Methods.Length);
             foreach (var m in def.Methods) WriteMethodDef(w, m);
+            WriteOperatorDefs(w, def.Operators);
         }
 
         private static RaLanguage.Interpreter.IR.Defs.RecordDef ReadRecordDef(RacBinaryReader r)
@@ -3175,9 +3231,10 @@ namespace RaLanguage.Interpreter.Archive
             if (mn < 0 || mn > 4_000_000) throw new System.IO.InvalidDataException($"rac: record method count {mn} out of range");
             var methods = new RaLanguage.Interpreter.IR.Defs.StructMethodDef[mn];
             for (int i = 0; i < mn; i++) methods[i] = ReadMethodDef(r);
+            var operators = ReadOperatorDefs(r);
             return new RaLanguage.Interpreter.IR.Defs.RecordDef(
                 name, (rflags & 1) != 0, (rflags & 2) != 0, (rflags & 4) != 0, (rflags & 8) != 0,
-                generics, primaryFields, methods);
+                generics, primaryFields, methods, operators);
         }
 
         private static void WriteFieldDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.StructFieldDef fld)
@@ -3257,6 +3314,7 @@ namespace RaLanguage.Interpreter.Archive
             foreach (var fld in def.Fields) WriteFieldDef(w, fld);
             w.WriteI32(def.Methods.Length);
             foreach (var m in def.Methods) WriteClassMethodDef(w, m);
+            WriteOperatorDefs(w, def.Operators);
         }
 
         private static RaLanguage.Interpreter.IR.Defs.ClassDef ReadClassDef(RacBinaryReader r)
@@ -3272,7 +3330,8 @@ namespace RaLanguage.Interpreter.Archive
             if (mn < 0 || mn > 4_000_000) throw new System.IO.InvalidDataException($"rac: class method count {mn} out of range");
             var methods = new RaLanguage.Interpreter.IR.Defs.ClassMethodDef[mn];
             for (int i = 0; i < mn; i++) methods[i] = ReadClassMethodDef(r);
-            return new RaLanguage.Interpreter.IR.Defs.ClassDef(name, isPublic, generics, fields, methods);
+            var operators = ReadOperatorDefs(r);
+            return new RaLanguage.Interpreter.IR.Defs.ClassDef(name, isPublic, generics, fields, methods, operators);
         }
 
         private static void WriteTraitMethodDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.TraitMethodDef m)

@@ -3005,7 +3005,7 @@ namespace RaLanguage.Interpreter.Vm
             var node = new Parser.Nodes.Structs.StructDefinitionNode(
                 new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
                 def.IsPublic, fields, methods,
-                new System.Collections.Generic.List<Parser.Nodes.Classes.OperatorDefinitionNode>(),
+                ReconstructOperators(def.Operators, s, e),
                 new System.Collections.Generic.List<string>(def.Generics));
 
             var result = Visitors.Structs.StructDefinitionNodeVisitor.Apply(node, ctx, interpreter);
@@ -3073,7 +3073,7 @@ namespace RaLanguage.Interpreter.Vm
                 def.IsPublic, def.IsRefRecord, /*isAbstract*/ false,
                 /*baseType*/ null, /*baseArgs*/ null,
                 primaryFields, methods,
-                new System.Collections.Generic.List<Parser.Nodes.Classes.OperatorDefinitionNode>(),
+                ReconstructOperators(def.Operators, s, e),
                 new System.Collections.Generic.List<string>(def.Generics),
                 new System.Collections.Generic.List<Parser.Nodes.Special.WhereConstraintNode>());
             // Restore the @derive-controlled auto flags (default true).
@@ -3113,6 +3113,37 @@ namespace RaLanguage.Interpreter.Vm
             return mnode;
         }
 
+        // L10 one-shot-defn widening: reconstruct an OperatorDefinitionNode with a
+        // stub body + the precompiled RaFunction wired into CompiledBody. The
+        // operator-invocation path (BoundOperatorValue.Execute) routes through
+        // GetOrCompileOperator → returns CompiledBody when IrCompileTried is set,
+        // so the stub PassNode is never compiled/executed. Shared by struct/class/
+        // record/extension reconstruction.
+        private static Parser.Nodes.Classes.OperatorDefinitionNode ReconstructOperator(
+            IR.Defs.OperatorDef od, Lexer.Position s, Lexer.Position e)
+        {
+            var onode = new Parser.Nodes.Classes.OperatorDefinitionNode(
+                od.IsPublic, od.IsOverride, od.IsStatic,
+                new Lexer.Tokens.Token(od.OpTokenType, od.Symbol, s, e),
+                new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, od.ArgName, s, e),
+                od.ArgType, od.ReturnType,
+                new Parser.Nodes.Operations.PassNode(s, e), od.ShouldAutoReturn,
+                new System.Collections.Generic.List<string>(od.Generics), null);
+            onode.CompiledBody = od.Body;
+            onode.IrCompileTried = true;
+            onode.FrameId = od.FrameId;
+            return onode;
+        }
+
+        // Shared: reconstruct an operator list from OperatorDef[] (empty → empty).
+        private static System.Collections.Generic.List<Parser.Nodes.Classes.OperatorDefinitionNode> ReconstructOperators(
+            IR.Defs.OperatorDef[] ops, Lexer.Position s, Lexer.Position e)
+        {
+            var list = new System.Collections.Generic.List<Parser.Nodes.Classes.OperatorDefinitionNode>(ops.Length);
+            foreach (var od in ops) list.Add(ReconstructOperator(od, s, e));
+            return list;
+        }
+
         // L5e: reconstruct the (stub-bodied) ClassDefinitionNode from a flat
         // ClassDef + precompiled method bodies, then run the SAME visitor Apply.
         // The visitor is async only to evaluate field defaults — folded const
@@ -3150,7 +3181,7 @@ namespace RaLanguage.Interpreter.Vm
                 new System.Collections.Generic.List<Types.TypeDescriptor>(),
                 new System.Collections.Generic.List<Types.TypeDescriptor>(),
                 fields, methods,
-                new System.Collections.Generic.List<Parser.Nodes.Classes.OperatorDefinitionNode>(),
+                ReconstructOperators(def.Operators, s, e),
                 new System.Collections.Generic.List<string>(def.Generics),
                 new System.Collections.Generic.List<Parser.Nodes.Special.WhereConstraintNode>());
 
