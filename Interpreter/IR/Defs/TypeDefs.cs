@@ -460,10 +460,17 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly WhereConstraintDef[] Wheres;
         public readonly PropertyDef[] Properties;
         public readonly EventDef[] Events;
+        // L10 inheritance: `class D : Base impl IFace with Trait`. The visitor
+        // resolves these TypeDescriptors + builds the chain; base-ctor args ride
+        // the ctor body's super(...). Abstract/static classes still fall back.
+        public readonly TypeDescriptor? BaseType;
+        public readonly TypeDescriptor[] Interfaces;
+        public readonly TypeDescriptor[] Traits;
 
         public ClassDef(string name, bool isPublic, string[] generics, StructFieldDef[] fields, ClassMethodDef[] methods,
             OperatorDef[]? operators = null, WhereConstraintDef[]? wheres = null, PropertyDef[]? properties = null,
-            EventDef[]? events = null)
+            EventDef[]? events = null, TypeDescriptor? baseType = null, TypeDescriptor[]? interfaces = null,
+            TypeDescriptor[]? traits = null)
         {
             Name = name; IsPublic = isPublic;
             Generics = generics ?? Array.Empty<string>();
@@ -473,6 +480,9 @@ namespace RaLanguage.Interpreter.IR.Defs
             Wheres = wheres ?? Array.Empty<WhereConstraintDef>();
             Properties = properties ?? Array.Empty<PropertyDef>();
             Events = events ?? Array.Empty<EventDef>();
+            BaseType = baseType;
+            Interfaces = interfaces ?? Array.Empty<TypeDescriptor>();
+            Traits = traits ?? Array.Empty<TypeDescriptor>();
         }
     }
 

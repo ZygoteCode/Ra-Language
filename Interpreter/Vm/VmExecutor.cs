@@ -3348,9 +3348,9 @@ namespace RaLanguage.Interpreter.Vm
             var node = new Parser.Nodes.Classes.ClassDefinitionNode(
                 new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
                 def.IsPublic, /*isAbstract*/ false, /*isStatic*/ false,
-                /*baseType*/ null,
-                new System.Collections.Generic.List<Types.TypeDescriptor>(),
-                new System.Collections.Generic.List<Types.TypeDescriptor>(),
+                def.BaseType,
+                new System.Collections.Generic.List<Types.TypeDescriptor>(def.Interfaces),
+                new System.Collections.Generic.List<Types.TypeDescriptor>(def.Traits),
                 fields, methods,
                 ReconstructOperators(def.Operators, s, e),
                 new System.Collections.Generic.List<string>(def.Generics),

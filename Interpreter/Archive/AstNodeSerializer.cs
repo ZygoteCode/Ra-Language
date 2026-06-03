@@ -3484,6 +3484,15 @@ namespace RaLanguage.Interpreter.Archive
             WriteWhereDefs(w, def.Wheres);
             WritePropertyDefs(w, def.Properties);
             WriteEventDefs(w, def.Events);
+            // L10 v8 inheritance: base + interfaces + traits.
+            if (WriterVersion >= ModuleBytecodeIo.PayloadVersion_V8)
+            {
+                WriteOptTd(w, def.BaseType);
+                w.WriteI32(def.Interfaces.Length);
+                foreach (var td in def.Interfaces) WriteOptTd(w, td);
+                w.WriteI32(def.Traits.Length);
+                foreach (var td in def.Traits) WriteOptTd(w, td);
+            }
         }
 
         private static RaLanguage.Interpreter.IR.Defs.ClassDef ReadClassDef(RacBinaryReader r)
@@ -3503,7 +3512,22 @@ namespace RaLanguage.Interpreter.Archive
             var wheres = ReadWhereDefs(r);
             var properties = ReadPropertyDefs(r);
             var events = ReadEventDefs(r);
-            return new RaLanguage.Interpreter.IR.Defs.ClassDef(name, isPublic, generics, fields, methods, operators, wheres, properties, events);
+            TypeDescriptor? baseType = null;
+            var interfaces = System.Array.Empty<TypeDescriptor>();
+            var traits = System.Array.Empty<TypeDescriptor>();
+            if (ReaderVersion >= ModuleBytecodeIo.PayloadVersion_V8)
+            {
+                baseType = ReadOptTd(r);
+                int icn = r.ReadI32();
+                if (icn < 0 || icn > 4_000_000) throw new System.IO.InvalidDataException($"rac: class interface count {icn} out of range");
+                interfaces = new TypeDescriptor[icn];
+                for (int i = 0; i < icn; i++) interfaces[i] = ReadOptTd(r)!;
+                int tcn = r.ReadI32();
+                if (tcn < 0 || tcn > 4_000_000) throw new System.IO.InvalidDataException($"rac: class trait count {tcn} out of range");
+                traits = new TypeDescriptor[tcn];
+                for (int i = 0; i < tcn; i++) traits[i] = ReadOptTd(r)!;
+            }
+            return new RaLanguage.Interpreter.IR.Defs.ClassDef(name, isPublic, generics, fields, methods, operators, wheres, properties, events, baseType, interfaces, traits);
         }
 
         private static void WriteTraitMethodDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.TraitMethodDef m)

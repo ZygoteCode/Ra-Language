@@ -2672,12 +2672,9 @@ namespace RaLanguage.Interpreter.IR
         private static bool TryBuildClassDef(Parser.Nodes.Classes.ClassDefinitionNode node, out Defs.ClassDef def)
         {
             def = null!;
-            if (node.BaseType != null) return false;
-            if (node.ImplementedInterfaces != null && node.ImplementedInterfaces.Count > 0) return false;
-            if (node.WithTraits != null && node.WithTraits.Count > 0) return false;
-            if (node.IsAbstract || node.IsStatic) return false;
+            if (node.IsAbstract || node.IsStatic) return false; // abstract methods + static semantics → fallback
             if (node.HasAnnotations) return false;
-            // L10: operators + where-constraints + auto-properties + events lowered (captured below).
+            // L10: inheritance (base/interfaces/traits) + operators + where + auto-properties + events lowered.
 
             string name = node.NameTok.Value?.ToString() ?? "";
             if (string.IsNullOrWhiteSpace(name)) return false;
@@ -2708,7 +2705,14 @@ namespace RaLanguage.Interpreter.IR
             var generics = (node.GenericTypeParams == null || node.GenericTypeParams.Count == 0)
                 ? System.Array.Empty<string>()
                 : node.GenericTypeParams.ToArray();
-            def = new Defs.ClassDef(name, node.IsPublic, generics, fields, methods, operators, wheres, properties, events);
+            var ifaces = (node.ImplementedInterfaces == null || node.ImplementedInterfaces.Count == 0)
+                ? System.Array.Empty<Types.TypeDescriptor>()
+                : node.ImplementedInterfaces.ToArray();
+            var traits = (node.WithTraits == null || node.WithTraits.Count == 0)
+                ? System.Array.Empty<Types.TypeDescriptor>()
+                : node.WithTraits.ToArray();
+            def = new Defs.ClassDef(name, node.IsPublic, generics, fields, methods, operators, wheres, properties, events,
+                node.BaseType, ifaces, traits);
             return true;
         }
 
