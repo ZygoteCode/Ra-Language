@@ -2988,18 +2988,20 @@ namespace RaLanguage.Interpreter.IR
         {
             def = null!;
             if (node.HasAnnotations) return false;
-            if (node.Properties != null && node.Properties.Count > 0) return false;
-            if (node.Operators != null && node.Operators.Count > 0) return false;
-            if (node.Events != null && node.Events.Count > 0) return false;
-            if (node.Fields != null && node.Fields.Count > 0) return false;
-            if (node.Indexers != null && node.Indexers.Count > 0) return false;
+            // L10: extension operators + properties + events lowered (captured below).
+            if (node.Fields != null && node.Fields.Count > 0) return false;     // ext fields → fallback (new descriptor)
+            if (node.Indexers != null && node.Indexers.Count > 0) return false; // ext indexers → fallback (new descriptor)
             if (node.TargetType == null) return false;
+
+            if (!TryBuildOperatorDefs(node.Operators, out var operators)) return false;
+            if (!TryBuildPropertyDefs(node.Properties, out var properties)) return false;
+            if (!TryBuildEventDefs(node.Events, out var events)) return false;
 
             var methods = new Defs.ClassMethodDef[node.Methods.Count];
             for (int i = 0; i < node.Methods.Count; i++)
                 if (!TryBuildClassMethodDef(node.Methods[i], out methods[i])) return false;
 
-            def = new Defs.ExtensionDef(node.TargetType, node.IsPublic, node.IsSealed, methods);
+            def = new Defs.ExtensionDef(node.TargetType, node.IsPublic, node.IsSealed, methods, operators, properties, events);
             return true;
         }
 

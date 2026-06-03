@@ -556,11 +556,18 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly bool IsPublic;
         public readonly bool IsSealed;
         public readonly ClassMethodDef[] Methods;
+        public readonly OperatorDef[] Operators;
+        public readonly PropertyDef[] Properties;
+        public readonly EventDef[] Events;
 
-        public ExtensionDef(TypeDescriptor targetType, bool isPublic, bool isSealed, ClassMethodDef[] methods)
+        public ExtensionDef(TypeDescriptor targetType, bool isPublic, bool isSealed, ClassMethodDef[] methods,
+            OperatorDef[]? operators = null, PropertyDef[]? properties = null, EventDef[]? events = null)
         {
             TargetType = targetType; IsPublic = isPublic; IsSealed = isSealed;
             Methods = methods ?? Array.Empty<ClassMethodDef>();
+            Operators = operators ?? Array.Empty<OperatorDef>();
+            Properties = properties ?? Array.Empty<PropertyDef>();
+            Events = events ?? Array.Empty<EventDef>();
         }
     }
 

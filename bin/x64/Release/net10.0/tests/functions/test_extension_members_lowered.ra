@@ -1,0 +1,30 @@
+import std.prelude.*;
+// L10: extension-block operators / computed-properties / events now lower — the
+// ExtensionDef reuses the OperatorDef / PropertyDef (accessor-body IR) / EventDef
+// descriptors + the resolver now frames ext property accessor bodies
+// (WalkExtension). Extension fields + indexers still fall back (new descriptors).
+print("=== functions/extension_members_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+pub struct V { pub var n: int; pub V(n: int) { self.n = n; } }
+
+extend V {
+    pub prop tripled: int => self.n * 3                       // computed ext property (arrow)
+    pub prop doubled: int { get { ret self.n + self.n; } }    // computed ext property (block)
+    pub operator + (other: V) { ret V(self.n + other.n); }    // ext operator
+    pub operator == (other: V) { ret self.n == other.n; }
+    pub fn scaled(k: int): int { ret self.n * k; }            // ext method
+}
+
+let a = V(5);
+ck("[X1]", a.tripled == 15);
+ck("[X2]", a.doubled == 10);
+ck("[X3]", (a + V(10)).n == 15);
+ck("[X4]", (V(7) == V(7)) and not (V(7) == V(8)));
+ck("[X5]", a.scaled(4) == 20);
+
+if failures == 0 { print("=== done ==="); } else { print("=== FAIL (" + (failures as string) + ") ==="); }

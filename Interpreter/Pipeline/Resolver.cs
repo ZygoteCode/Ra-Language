@@ -453,6 +453,10 @@ namespace RaLanguage.Interpreter.Pipeline
                 op.FrameId = frameId;
                 op.ParamBindings = paramBindings;
             }
+
+            // L10: frame extension property accessor bodies (computed ext properties
+            // run via the VM, same as type-member computed properties).
+            WalkProperties(ext.Properties, s);
         }
 
         private static void WalkStruct(StructDefinitionNode str, State s)

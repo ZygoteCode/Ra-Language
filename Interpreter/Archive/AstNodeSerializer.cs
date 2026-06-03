@@ -3617,6 +3617,9 @@ namespace RaLanguage.Interpreter.Archive
             w.WriteU8((byte)((def.IsPublic ? 1 : 0) | (def.IsSealed ? 2 : 0)));
             w.WriteI32(def.Methods.Length);
             foreach (var m in def.Methods) WriteClassMethodDef(w, m);
+            WriteOperatorDefs(w, def.Operators);
+            WritePropertyDefs(w, def.Properties);
+            WriteEventDefs(w, def.Events);
         }
 
         private static RaLanguage.Interpreter.IR.Defs.ExtensionDef ReadExtensionDef(RacBinaryReader r)
@@ -3627,7 +3630,10 @@ namespace RaLanguage.Interpreter.Archive
             if (mn < 0 || mn > 4_000_000) throw new System.IO.InvalidDataException($"rac: extension method count {mn} out of range");
             var methods = new RaLanguage.Interpreter.IR.Defs.ClassMethodDef[mn];
             for (int i = 0; i < mn; i++) methods[i] = ReadClassMethodDef(r);
-            return new RaLanguage.Interpreter.IR.Defs.ExtensionDef(targetType, (flags & 1) != 0, (flags & 2) != 0, methods);
+            var operators = ReadOperatorDefs(r);
+            var properties = ReadPropertyDefs(r);
+            var events = ReadEventDefs(r);
+            return new RaLanguage.Interpreter.IR.Defs.ExtensionDef(targetType, (flags & 1) != 0, (flags & 2) != 0, methods, operators, properties, events);
         }
 
         // Interface methods are pure signatures: no body, no flags — just the

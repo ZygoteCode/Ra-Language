@@ -3440,7 +3440,9 @@ namespace RaLanguage.Interpreter.Vm
 
             var node = new Parser.Nodes.Classes.ExtensionDefinitionNode(
                 def.TargetType, def.IsPublic, methods,
-                /*properties*/ null, /*operators*/ null, /*events*/ null,
+                ReconstructProperties(def.Properties, s, e),
+                ReconstructOperators(def.Operators, s, e),
+                ReconstructEvents(def.Events, s, e),
                 /*indexers*/ null, /*fields*/ null, def.IsSealed);
 
             var result = Visitors.Extensions.ExtensionDefinitionNodeVisitor.Apply(node, ctx);
