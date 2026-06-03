@@ -367,6 +367,15 @@ namespace RaLanguage.Interpreter.Archive
                         CheckSlot(effB, local, pc, opName, "b (base)", diags, path);
                         CheckIndex(cLo, defineLen, pc, opName, "DefineRefs", diags, path);
                         break;
+                    case Opcode.CallGeneric:
+                        // L10 — [dst:a][fnSlot:b][defineRefIdx:c]. callee@fnSlot,
+                        // args@fnSlot+1.. ; argCount comes from the parked
+                        // FunctionCallNode, so the VM bounds-checks the band at
+                        // runtime (With-shaped).
+                        CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
+                        CheckSlot(effB, local, pc, opName, "b (fnSlot)", diags, path);
+                        CheckIndex(cLo, defineLen, pc, opName, "DefineRefs", diags, path);
+                        break;
 
                     // ----- Containers -----
                     case Opcode.NewList:

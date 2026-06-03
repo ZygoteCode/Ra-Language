@@ -582,6 +582,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                         // statically-resolvable callee proves clean,
                         // callees in the same scope cannot reach it.
                         case Opcode.Call:
+                        case Opcode.CallGeneric:
                         case Opcode.CallMethod:
                         case Opcode.TailCall:
                             if (nameInMutatedSet) return true;
@@ -747,6 +748,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Closure: case Opcode.DefineFunction:
                 case Opcode.GetSelf: case Opcode.GetSuper:
                 case Opcode.Call: case Opcode.CallKw: case Opcode.CallMethod:
+                case Opcode.CallGeneric:
                 case Opcode.NewInstance:
                 case Opcode.With:
                 case Opcode.NativeDefine:

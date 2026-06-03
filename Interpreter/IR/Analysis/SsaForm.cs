@@ -419,7 +419,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                     || o == Opcode.Spawn || o == Opcode.NewInstance
                     || o == Opcode.NativeDefine || o == Opcode.Await
                     || o == Opcode.AsmInvoke || o == Opcode.AsmInvokeI
-                    || o == Opcode.AnnotationApply
+                    || o == Opcode.AnnotationApply || o == Opcode.CallGeneric
                     || o == Opcode.Throw)
                 {
                     if (pc < firstEvent) firstEvent = pc;
@@ -502,6 +502,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Closure: case Opcode.DefineFunction:
                 case Opcode.GetSelf: case Opcode.GetSuper:
                 case Opcode.Call: case Opcode.CallKw: case Opcode.CallMethod:
+                case Opcode.CallGeneric:
                 case Opcode.NewInstance:
                 case Opcode.NativeDefine:
                 case Opcode.DefineType:
@@ -916,6 +917,22 @@ namespace RaLanguage.Interpreter.IR.Analysis
                         && fn.DefineRefs[wc] is Parser.Nodes.Operations.WithExpressionNode wnode)
                         wn = wnode.Updates.Count;
                     for (int i = 0; i < wn; i++) yield return (wb + 1 + i, true);
+                    break;
+                }
+                case Opcode.CallGeneric:
+                {
+                    // L10 — [op][dst:a][fnSlot:b][defineRefIdx:c]. Reads the callee
+                    // at `fnSlot` plus the N args at fnSlot+1..fnSlot+N (With-shaped).
+                    // N = ArgNodes.Count of the FunctionCallNode parked in
+                    // DefineRefs[c] (c is a ref index, NOT a slot — never read it).
+                    int gb = Encoding.B(instr);
+                    yield return (gb, true);
+                    int gc = Encoding.C(instr);
+                    int gn = 0;
+                    if (fn?.DefineRefs != null && gc < fn.DefineRefs.Length
+                        && fn.DefineRefs[gc] is Parser.Nodes.Functions.FunctionCallNode gfc)
+                        gn = gfc.ArgNodes.Count;
+                    for (int i = 0; i < gn; i++) yield return (gb + 1 + i, true);
                     break;
                 }
                 case Opcode.AsmInvokeI:

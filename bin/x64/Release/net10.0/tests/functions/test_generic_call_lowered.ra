@@ -1,0 +1,51 @@
+import std.prelude.*;
+// L10: explicit generic-type-arg calls `foo<int>(...)` / `Box<int>(...)` lower to
+// OP_CALL_GENERIC (the FunctionCallNode is parked in DefineRefs; the VM threads
+// its GenericTypeArgs to FunctionCallExecutor.Invoke). Previously these hit the
+// IsCallNativelyCompilable gate -> whole-expression fallback -> a NativeDefine
+// crash when nested in a Cast/MemberAccess wrapper. Inference `Box(7)` already
+// lowered; only the EXPLICIT `<...>` form was broken.
+print("=== functions/generic_call_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+pub struct Box<T> {
+    pub var v: T;
+    pub Box(v: T) { self.v = v; }
+    pub fn get(): T { ret self.v; }
+}
+pub struct Pair<A, B> {
+    pub var a: A;
+    pub var b: B;
+    pub Pair(a: A, b: B) { self.a = a; self.b = b; }
+}
+fn idg<T>(x: T): T { ret x; }
+
+// G1: explicit-type-arg construction into a var.
+var b1 = Box<int>(7);
+ck("[G1]", b1.get() == 7);
+
+// G2: inline construct + member-access chain (the wrapper that used to crash).
+ck("[G2]", Box<int>(40).v + 2 == 42);
+
+// G3: inline construct + method-call + cast chain.
+ck("[G3]", (Box<int>(21).get() as string) == "21");
+
+// G4: multi-type-arg generic struct.
+let p = Pair<int, string>(7, "hi");
+ck("[G4]", p.a == 7 and p.b == "hi");
+
+// G5: explicit-type-arg generic FUNCTION call.
+ck("[G5]", idg<int>(41) + 1 == 42);
+
+// G6: generic call as a direct argument to another call.
+ck("[G6]", idg<int>(100) == 100);
+
+// G7: nested generic construction (Box of a Box).
+let bb = Box<int>(idg<int>(5));
+ck("[G7]", bb.get() == 5);
+
+if failures == 0 { print("=== done ==="); } else { print("=== FAIL (" + (failures as string) + ") ==="); }

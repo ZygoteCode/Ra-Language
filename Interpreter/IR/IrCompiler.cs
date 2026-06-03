@@ -8442,6 +8442,37 @@ namespace RaLanguage.Interpreter.IR
                 case AstNodeType.FunctionCall:
                 {
                     var fc = (FunctionCallNode)expr;
+                    // L10: explicit generic-type-arg call `foo<int>(...)` /
+                    // `Box<int>(...)`. The plain OP_CALL can't carry the type
+                    // args, so park the FunctionCallNode (it round-trips with its
+                    // GenericTypeArgs) and emit OP_CALL_GENERIC — the VM reads
+                    // argCount (= ArgNodes.Count) + the type args from the parked
+                    // node and threads them to FunctionCallExecutor.Invoke (the
+                    // SAME chokepoint the visitor uses). Named/ref/spread args or a
+                    // >u8 arg-count / DefineRefs index → fall back to the visitor.
+                    if (fc.GenericTypeArgs != null && fc.GenericTypeArgs.Count > 0)
+                    {
+                        int gArgCount = fc.ArgNodes.Count;
+                        if (gArgCount > byte.MaxValue)
+                            throw new IrCompileException("generic call has too many args (>255) -> fallback");
+                        foreach (var arg in fc.ArgNodes)
+                        {
+                            if (arg.IsRef) throw new IrCompileException("generic call has ref arg -> fallback");
+                            if (arg.NameTok != null) throw new IrCompileException("generic call has named arg -> fallback");
+                            if (arg.Expr.NodeType == AstNodeType.Spread) throw new IrCompileException("generic call has spread arg -> fallback");
+                        }
+                        byte gFnSlot = AllocTemp(ref topSlot);
+                        for (int i = 0; i < gArgCount; i++) AllocTemp(ref topSlot);
+                        CompileExpression(fc.NodeToCall, gFnSlot, st, ref topSlot);
+                        for (int i = 0; i < gArgCount; i++)
+                            CompileExpression(fc.ArgNodes[i].Expr, (byte)(gFnSlot + 1 + i), st, ref topSlot);
+                        if (st.DefineRefs.Count > byte.MaxValue)
+                            throw new IrCompileException("DefineRefs index exceeds u8 for OP_CALL_GENERIC -> fallback");
+                        byte gRefIdx = (byte)st.DefineRefs.Count;
+                        st.DefineRefs.Add(fc);
+                        st.Code.Emit3(Opcode.CallGeneric, destSlot, gFnSlot, gRefIdx);
+                        return;
+                    }
                     if (!IsCallNativelyCompilable(fc))
                         throw new IrCompileException("call has named/ref/spread/generic args -> fallback");
                     int argCount = fc.ArgNodes.Count;

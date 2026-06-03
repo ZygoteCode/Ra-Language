@@ -588,6 +588,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Closure: case Opcode.DefineFunction:
                 case Opcode.GetSelf: case Opcode.GetSuper:
                 case Opcode.Call: case Opcode.CallKw: case Opcode.CallMethod:
+                case Opcode.CallGeneric:                       // L10 — generic call, write A (impure, never folded)
                 case Opcode.NewInstance:
                 case Opcode.NativeDefine:
                 case Opcode.DefineType:

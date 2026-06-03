@@ -2060,6 +2060,14 @@ namespace RaLanguage.Interpreter.Vm
                         break;
                     }
 
+                    case Opcode.CallGeneric:
+                        // L10 explicit-generic-type-arg call `foo<int>(...)`. Off-
+                        // stack body (NoInlining async) — keeps the dispatch frame
+                        // small for sync-completion deep recursion (M85).
+                        locals[Encoding.A(instr)] =
+                            await ExecuteCallGeneric(f, locals, instr, ctx).ConfigureAwait(false);
+                        break;
+
                     // M28.3: fused Call + Ret. Same dispatch logic as OP_CALL
                     // (including the BoundClassMethodGroupValue overload IC)
                     // but propagates the invoked function's return value as
@@ -2916,6 +2924,52 @@ namespace RaLanguage.Interpreter.Vm
             var (wresult, werr) = Runtime.WithExpressionOps.Apply(locals[baseSlot], wnode, wvalues, ctx);
             if (werr != null) throw new RaUserError(werr);
             return wresult!;
+        }
+
+        // L10 OP_CALL_GENERIC off-stack body. Mirrors the OP_CALL inline handler
+        // but reads argCount (= ArgNodes.Count) + the explicit GenericTypeArgs
+        // from the FunctionCallNode parked in DefineRefs[c] (With-shaped), and
+        // threads the type args to FunctionCallExecutor.Invoke (the SAME chokepoint
+        // the AST visitor uses → identical generic-dispatch semantics).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static async System.Threading.Tasks.ValueTask<RuntimeValue> ExecuteCallGeneric(
+            VmFrame f, LocalsView locals, uint instr, Context ctx)
+        {
+            if (ctx.AreCallsBlocked)
+                throw new RaUserError(MakeIcError(ctx, "function calls are not allowed in this context"));
+            byte fnSlot = Encoding.B(instr);
+            int refIdx = Encoding.C(instr);
+            var grefs = f.Function.DefineRefs;
+            if (grefs == null || refIdx >= grefs.Length
+                || grefs[refIdx] is not Parser.Nodes.Functions.FunctionCallNode gfc)
+                throw new RaUserError(MakeIcError(ctx, "VM: OP_CALL_GENERIC ref is not a FunctionCallNode"));
+            int argCount = gfc.ArgNodes.Count;
+            var fn = locals[fnSlot];
+            if (fn == null)
+                throw new RaUserError(MakeIcError(ctx, "VM: callee slot is null"));
+            var argList = RentArgList(argCount);
+            for (int i = 0; i < argCount; i++)
+            {
+                var a = locals[fnSlot + 1 + i];
+                if (a == null)
+                    throw new RaUserError(MakeIcError(ctx, $"VM: argument {i} slot is null"));
+                argList.Add(a);
+            }
+            var emptyNamed = Runtime.Calls.FunctionCallExecutor.EmptyNamedArgs;
+            var pos = DummyPos(ctx);
+            var invokeTask = Runtime.Calls.FunctionCallExecutor.Invoke(
+                fn, argList, emptyNamed, gfc.GenericTypeArgs, pos, pos, ctx);
+            RuntimeResult invokeRes;
+            if (invokeTask.IsCompletedSuccessfully)
+            {
+                invokeRes = invokeTask.Result;
+                ReturnArgList(argList);
+            }
+            else
+                invokeRes = await invokeTask.ConfigureAwait(false);
+            if (invokeRes.Error != null) throw new RaUserError(invokeRes.Error);
+            return invokeRes.Value!;
         }
 
         // L5 OP_DEFINE_TYPE off-stack body. Reconstruct + register a one-shot
