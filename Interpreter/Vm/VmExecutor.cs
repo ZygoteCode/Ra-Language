@@ -3062,7 +3062,8 @@ namespace RaLanguage.Interpreter.Vm
                 ReconstructOperators(def.Operators, s, e),
                 new System.Collections.Generic.List<string>(def.Generics),
                 ReconstructWheres(def.Wheres, s, e),
-                ReconstructProperties(def.Properties, s, e));
+                ReconstructProperties(def.Properties, s, e),
+                ReconstructEvents(def.Events, s, e));
 
             var result = Visitors.Structs.StructDefinitionNodeVisitor.Apply(node, ctx, interpreter);
             if (result.Error != null) throw new RaUserError(result.Error);
@@ -3132,7 +3133,8 @@ namespace RaLanguage.Interpreter.Vm
                 ReconstructOperators(def.Operators, s, e),
                 new System.Collections.Generic.List<string>(def.Generics),
                 ReconstructWheres(def.Wheres, s, e),
-                ReconstructProperties(def.Properties, s, e));
+                ReconstructProperties(def.Properties, s, e),
+                ReconstructEvents(def.Events, s, e));
             // Restore the @derive-controlled auto flags (default true).
             node.AutoEquals = def.AutoEquals;
             node.AutoToString = def.AutoToString;
@@ -3274,6 +3276,45 @@ namespace RaLanguage.Interpreter.Vm
             return list;
         }
 
+        // L10 event widening: reconstruct an EventDefinitionNode from flat metadata
+        // (events have no accessor bodies) → the visitor's EventBuilder registers it.
+        private static Parser.Nodes.Events.EventDefinitionNode ReconstructEvent(
+            IR.Defs.EventDef ed, Lexer.Position s, Lexer.Position e)
+        {
+            var payload = new System.Collections.Generic.List<Parser.Nodes.Events.EventPayloadParam>(ed.PayloadParams.Length);
+            foreach (var pp in ed.PayloadParams)
+                payload.Add(new Parser.Nodes.Events.EventPayloadParam(
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, pp.Name, s, e), pp.Type));
+
+            var accessors = new System.Collections.Generic.List<Parser.Nodes.Events.EventAccessorNode>(ed.Accessors.Length);
+            foreach (var ad in ed.Accessors)
+            {
+                var kind = (Parser.Nodes.Events.EventAccessorKind)ad.Kind;
+                string kindStr = kind switch
+                {
+                    Parser.Nodes.Events.EventAccessorKind.Subscribe => "subscribe",
+                    Parser.Nodes.Events.EventAccessorKind.Raise => "raise",
+                    _ => "subscribe"
+                };
+                accessors.Add(new Parser.Nodes.Events.EventAccessorNode(
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, kindStr, s, e),
+                    kind, (Parser.Nodes.Events.EventAccessorVisibility)ad.Visibility));
+            }
+
+            return new Parser.Nodes.Events.EventDefinitionNode(
+                new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, ed.Name, s, e),
+                payload, accessors,
+                ed.IsPublic, ed.IsStatic, ed.IsAbstract, ed.IsOverride, ed.IsCancellable, ed.IsTolerant, ed.IsAsync);
+        }
+
+        private static System.Collections.Generic.List<Parser.Nodes.Events.EventDefinitionNode> ReconstructEvents(
+            IR.Defs.EventDef[] events, Lexer.Position s, Lexer.Position e)
+        {
+            var list = new System.Collections.Generic.List<Parser.Nodes.Events.EventDefinitionNode>(events.Length);
+            foreach (var ed in events) list.Add(ReconstructEvent(ed, s, e));
+            return list;
+        }
+
         // L5e: reconstruct the (stub-bodied) ClassDefinitionNode from a flat
         // ClassDef + precompiled method bodies, then run the SAME visitor Apply.
         // The visitor is async only to evaluate field defaults — folded const
@@ -3314,7 +3355,8 @@ namespace RaLanguage.Interpreter.Vm
                 ReconstructOperators(def.Operators, s, e),
                 new System.Collections.Generic.List<string>(def.Generics),
                 ReconstructWheres(def.Wheres, s, e),
-                ReconstructProperties(def.Properties, s, e));
+                ReconstructProperties(def.Properties, s, e),
+                ReconstructEvents(def.Events, s, e));
 
             var task = Visitors.Classes.ClassDefinitionNodeVisitor.Apply(node, ctx, interpreter);
             var result = task.IsCompleted ? task.Result : task.AsTask().GetAwaiter().GetResult();

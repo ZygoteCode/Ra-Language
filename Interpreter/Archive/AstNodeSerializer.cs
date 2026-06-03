@@ -3059,6 +3059,7 @@ namespace RaLanguage.Interpreter.Archive
             WriteOperatorDefs(w, def.Operators);
             WriteWhereDefs(w, def.Wheres);
             WritePropertyDefs(w, def.Properties);
+            WriteEventDefs(w, def.Events);
         }
 
         // Shared by struct + record (both carry StructMethodDef). Signature
@@ -3257,6 +3258,57 @@ namespace RaLanguage.Interpreter.Archive
             return props;
         }
 
+        // L10 v8: an EventDef — flat metadata (events have no accessor bodies):
+        // name + flags + payload params + accessor (Kind/Visibility) list.
+        private static void WriteEventDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.EventDef ev)
+        {
+            w.WriteString(ev.Name);
+            int flags = (ev.IsPublic ? 1 : 0) | (ev.IsStatic ? 2 : 0) | (ev.IsAbstract ? 4 : 0)
+                | (ev.IsOverride ? 8 : 0) | (ev.IsCancellable ? 16 : 0) | (ev.IsTolerant ? 32 : 0)
+                | (ev.IsAsync ? 64 : 0);
+            w.WriteU8((byte)flags);
+            w.WriteI32(ev.PayloadParams.Length);
+            foreach (var pp in ev.PayloadParams) { w.WriteString(pp.Name); WriteOptTd(w, pp.Type); }
+            w.WriteI32(ev.Accessors.Length);
+            foreach (var a in ev.Accessors) { w.WriteI32(a.Kind); w.WriteI32(a.Visibility); }
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.EventDef ReadEventDef(RacBinaryReader r)
+        {
+            string name = r.ReadString() ?? "";
+            int flags = r.ReadU8();
+            int ppn = r.ReadI32();
+            if (ppn < 0 || ppn > 4_000_000) throw new System.IO.InvalidDataException($"rac: event payload count {ppn} out of range");
+            var payload = new RaLanguage.Interpreter.IR.Defs.EventPayloadParamDef[ppn];
+            for (int i = 0; i < ppn; i++) { string pn = r.ReadString() ?? ""; var pt = ReadOptTd(r); payload[i] = new RaLanguage.Interpreter.IR.Defs.EventPayloadParamDef(pn, pt); }
+            int an = r.ReadI32();
+            if (an < 0 || an > 4_000_000) throw new System.IO.InvalidDataException($"rac: event accessor count {an} out of range");
+            var accessors = new RaLanguage.Interpreter.IR.Defs.EventAccessorDef[an];
+            for (int i = 0; i < an; i++) { int k = r.ReadI32(); int v = r.ReadI32(); accessors[i] = new RaLanguage.Interpreter.IR.Defs.EventAccessorDef(k, v); }
+            return new RaLanguage.Interpreter.IR.Defs.EventDef(
+                name, (flags & 1) != 0, (flags & 2) != 0, (flags & 4) != 0, (flags & 8) != 0,
+                (flags & 16) != 0, (flags & 32) != 0, (flags & 64) != 0, payload, accessors);
+        }
+
+        // Trailing EventDef[] pool — v8+ only. v7 archives keep none.
+        private static void WriteEventDefs(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.EventDef[] events)
+        {
+            if (WriterVersion < ModuleBytecodeIo.PayloadVersion_V8) return;
+            w.WriteI32(events.Length);
+            foreach (var ev in events) WriteEventDef(w, ev);
+        }
+
+        private static RaLanguage.Interpreter.IR.Defs.EventDef[] ReadEventDefs(RacBinaryReader r)
+        {
+            if (ReaderVersion < ModuleBytecodeIo.PayloadVersion_V8)
+                return System.Array.Empty<RaLanguage.Interpreter.IR.Defs.EventDef>();
+            int en = r.ReadI32();
+            if (en < 0 || en > 4_000_000) throw new System.IO.InvalidDataException($"rac: event count {en} out of range");
+            var events = new RaLanguage.Interpreter.IR.Defs.EventDef[en];
+            for (int i = 0; i < en; i++) events[i] = ReadEventDef(r);
+            return events;
+        }
+
         private static RaLanguage.Interpreter.IR.Defs.StructDef ReadStructDef(RacBinaryReader r)
         {
             string name = r.ReadString() ?? "";
@@ -3287,7 +3339,8 @@ namespace RaLanguage.Interpreter.Archive
             var operators = ReadOperatorDefs(r);
             var wheres = ReadWhereDefs(r);
             var properties = ReadPropertyDefs(r);
-            return new RaLanguage.Interpreter.IR.Defs.StructDef(name, isPublic, generics, fields, methods, operators, wheres, properties);
+            var events = ReadEventDefs(r);
+            return new RaLanguage.Interpreter.IR.Defs.StructDef(name, isPublic, generics, fields, methods, operators, wheres, properties, events);
         }
 
         private static void WriteRecordDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.RecordDef def)
@@ -3310,6 +3363,7 @@ namespace RaLanguage.Interpreter.Archive
             WriteOperatorDefs(w, def.Operators);
             WriteWhereDefs(w, def.Wheres);
             WritePropertyDefs(w, def.Properties);
+            WriteEventDefs(w, def.Events);
         }
 
         private static RaLanguage.Interpreter.IR.Defs.RecordDef ReadRecordDef(RacBinaryReader r)
@@ -3337,9 +3391,10 @@ namespace RaLanguage.Interpreter.Archive
             var operators = ReadOperatorDefs(r);
             var wheres = ReadWhereDefs(r);
             var properties = ReadPropertyDefs(r);
+            var events = ReadEventDefs(r);
             return new RaLanguage.Interpreter.IR.Defs.RecordDef(
                 name, (rflags & 1) != 0, (rflags & 2) != 0, (rflags & 4) != 0, (rflags & 8) != 0,
-                generics, primaryFields, methods, operators, wheres, properties);
+                generics, primaryFields, methods, operators, wheres, properties, events);
         }
 
         private static void WriteFieldDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.StructFieldDef fld)
@@ -3428,6 +3483,7 @@ namespace RaLanguage.Interpreter.Archive
             WriteOperatorDefs(w, def.Operators);
             WriteWhereDefs(w, def.Wheres);
             WritePropertyDefs(w, def.Properties);
+            WriteEventDefs(w, def.Events);
         }
 
         private static RaLanguage.Interpreter.IR.Defs.ClassDef ReadClassDef(RacBinaryReader r)
@@ -3446,7 +3502,8 @@ namespace RaLanguage.Interpreter.Archive
             var operators = ReadOperatorDefs(r);
             var wheres = ReadWhereDefs(r);
             var properties = ReadPropertyDefs(r);
-            return new RaLanguage.Interpreter.IR.Defs.ClassDef(name, isPublic, generics, fields, methods, operators, wheres, properties);
+            var events = ReadEventDefs(r);
+            return new RaLanguage.Interpreter.IR.Defs.ClassDef(name, isPublic, generics, fields, methods, operators, wheres, properties, events);
         }
 
         private static void WriteTraitMethodDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.TraitMethodDef m)

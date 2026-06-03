@@ -277,6 +277,48 @@ namespace RaLanguage.Interpreter.IR.Defs
         }
     }
 
+    // L10 event widening: events are a pure protocol — accessors carry NO bodies
+    // (subscribe/raise are runtime-driven), so an event lowers as flat metadata:
+    // name + flags + payload params + accessor (Kind/Visibility) list. Annotated
+    // events fall back. Reconstructed into an EventDefinitionNode → EventBuilder.
+    public sealed class EventPayloadParamDef
+    {
+        public readonly string Name;
+        public readonly TypeDescriptor? Type;
+        public EventPayloadParamDef(string name, TypeDescriptor? type) { Name = name; Type = type; }
+    }
+
+    public sealed class EventAccessorDef
+    {
+        public readonly int Kind;        // (int)EventAccessorKind
+        public readonly int Visibility;  // (int)EventAccessorVisibility
+        public EventAccessorDef(int kind, int visibility) { Kind = kind; Visibility = visibility; }
+    }
+
+    public sealed class EventDef
+    {
+        public readonly string Name;
+        public readonly bool IsPublic;
+        public readonly bool IsStatic;
+        public readonly bool IsAbstract;
+        public readonly bool IsOverride;
+        public readonly bool IsCancellable;
+        public readonly bool IsTolerant;
+        public readonly bool IsAsync;
+        public readonly EventPayloadParamDef[] PayloadParams;
+        public readonly EventAccessorDef[] Accessors;
+
+        public EventDef(string name, bool isPublic, bool isStatic, bool isAbstract, bool isOverride,
+            bool isCancellable, bool isTolerant, bool isAsync,
+            EventPayloadParamDef[] payloadParams, EventAccessorDef[] accessors)
+        {
+            Name = name; IsPublic = isPublic; IsStatic = isStatic; IsAbstract = isAbstract;
+            IsOverride = isOverride; IsCancellable = isCancellable; IsTolerant = isTolerant; IsAsync = isAsync;
+            PayloadParams = payloadParams ?? Array.Empty<EventPayloadParamDef>();
+            Accessors = accessors ?? Array.Empty<EventAccessorDef>();
+        }
+    }
+
     public sealed class StructDef : TypeDef
     {
         public override TypeDefKind Kind => TypeDefKind.Struct;
@@ -289,9 +331,11 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly OperatorDef[] Operators;
         public readonly WhereConstraintDef[] Wheres;
         public readonly PropertyDef[] Properties;
+        public readonly EventDef[] Events;
 
         public StructDef(string name, bool isPublic, string[] generics, StructFieldDef[] fields, StructMethodDef[] methods,
-            OperatorDef[]? operators = null, WhereConstraintDef[]? wheres = null, PropertyDef[]? properties = null)
+            OperatorDef[]? operators = null, WhereConstraintDef[]? wheres = null, PropertyDef[]? properties = null,
+            EventDef[]? events = null)
         {
             Name = name; IsPublic = isPublic;
             Generics = generics ?? Array.Empty<string>();
@@ -300,6 +344,7 @@ namespace RaLanguage.Interpreter.IR.Defs
             Operators = operators ?? Array.Empty<OperatorDef>();
             Wheres = wheres ?? Array.Empty<WhereConstraintDef>();
             Properties = properties ?? Array.Empty<PropertyDef>();
+            Events = events ?? Array.Empty<EventDef>();
         }
     }
 
@@ -339,10 +384,12 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly OperatorDef[] Operators;
         public readonly WhereConstraintDef[] Wheres;
         public readonly PropertyDef[] Properties;
+        public readonly EventDef[] Events;
 
         public RecordDef(string name, bool isPublic, bool isRefRecord, bool autoEquals, bool autoToString,
             string[] generics, RecordPrimaryFieldDef[] primaryFields, StructMethodDef[] methods,
-            OperatorDef[]? operators = null, WhereConstraintDef[]? wheres = null, PropertyDef[]? properties = null)
+            OperatorDef[]? operators = null, WhereConstraintDef[]? wheres = null, PropertyDef[]? properties = null,
+            EventDef[]? events = null)
         {
             Name = name; IsPublic = isPublic; IsRefRecord = isRefRecord;
             AutoEquals = autoEquals; AutoToString = autoToString;
@@ -352,6 +399,7 @@ namespace RaLanguage.Interpreter.IR.Defs
             Operators = operators ?? Array.Empty<OperatorDef>();
             Wheres = wheres ?? Array.Empty<WhereConstraintDef>();
             Properties = properties ?? Array.Empty<PropertyDef>();
+            Events = events ?? Array.Empty<EventDef>();
         }
     }
 
@@ -411,9 +459,11 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly OperatorDef[] Operators;
         public readonly WhereConstraintDef[] Wheres;
         public readonly PropertyDef[] Properties;
+        public readonly EventDef[] Events;
 
         public ClassDef(string name, bool isPublic, string[] generics, StructFieldDef[] fields, ClassMethodDef[] methods,
-            OperatorDef[]? operators = null, WhereConstraintDef[]? wheres = null, PropertyDef[]? properties = null)
+            OperatorDef[]? operators = null, WhereConstraintDef[]? wheres = null, PropertyDef[]? properties = null,
+            EventDef[]? events = null)
         {
             Name = name; IsPublic = isPublic;
             Generics = generics ?? Array.Empty<string>();
@@ -422,6 +472,7 @@ namespace RaLanguage.Interpreter.IR.Defs
             Operators = operators ?? Array.Empty<OperatorDef>();
             Wheres = wheres ?? Array.Empty<WhereConstraintDef>();
             Properties = properties ?? Array.Empty<PropertyDef>();
+            Events = events ?? Array.Empty<EventDef>();
         }
     }
 
