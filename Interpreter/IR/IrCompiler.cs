@@ -2556,7 +2556,11 @@ namespace RaLanguage.Interpreter.IR
             pd = null!;
             if (p.HasAnnotations) return false;
             if (p.IsLazy) return false;       // lazy: DefaultValueNode eval'd on first touch (AST)
-            if (p.IsAbstract) return false;   // abstract: hierarchy resolution, no impl
+            // L10 abstract: an abstract property is auto-accessor (no bodies, no
+            // backing — PropertyBuilder returns hasBacking=false for IsAbstract).
+            // The accessor loop below already handles bodyless accessors; the
+            // IsAbstract flag is captured into PropertyDef so the visitor refuses
+            // instantiation / requires an override.
 
             RuntimeValue? defConst = null;
             if (p.DefaultValueNode != null && !TryFoldFieldDefaultConst(p.DefaultValueNode, out defConst))
@@ -2673,16 +2677,17 @@ namespace RaLanguage.Interpreter.IR
         }
 
         // L5e: build a FLAT ClassDef, or return false to fall back. First
-        // sub-stage: plain classes — no inheritance / interfaces / traits /
-        // properties / events / operators / static / abstract / annotations /
-        // where-constraints. Fields reuse the struct field machinery; class
-        // methods are FunctionDefinitionNodes (via TryBuildClassMethodDef).
+        // sub-stage: plain classes — fields reuse the struct field machinery;
+        // class methods are FunctionDefinitionNodes (via TryBuildClassMethodDef).
+        // L10: inheritance / interfaces / traits / properties / events / operators /
+        // where-constraints / ABSTRACT classes (abstract methods + abstract props)
+        // are lowered. Static classes + annotations still fall back.
         private static bool TryBuildClassDef(Parser.Nodes.Classes.ClassDefinitionNode node, out Defs.ClassDef def)
         {
             def = null!;
-            if (node.IsAbstract || node.IsStatic) return false; // abstract methods + static semantics → fallback
+            if (node.IsStatic) return false;   // static semantics → fallback (abstract is now lowered)
             if (node.HasAnnotations) return false;
-            // L10: inheritance (base/interfaces/traits) + operators + where + auto-properties + events lowered.
+            // L10: inheritance (base/interfaces/traits) + operators + where + auto-properties + events + abstract lowered.
 
             string name = node.NameTok.Value?.ToString() ?? "";
             if (string.IsNullOrWhiteSpace(name)) return false;
@@ -2720,18 +2725,18 @@ namespace RaLanguage.Interpreter.IR
                 ? System.Array.Empty<Types.TypeDescriptor>()
                 : node.WithTraits.ToArray();
             def = new Defs.ClassDef(name, node.IsPublic, generics, fields, methods, operators, wheres, properties, events,
-                node.BaseType, ifaces, traits);
+                node.BaseType, ifaces, traits, node.IsAbstract);
             return true;
         }
 
         // Class method = FunctionDefinitionNode. Compiles via GetOrCompileBody
-        // (same path the visitor uses lazily). Factory ctors / abstract /
-        // generic / param-default / param-annotated / captured / where-
-        // constrained / annotated methods → false (the class falls back).
+        // (same path the visitor uses lazily). Factory ctors / abstract methods /
+        // generic methods are now lowered. Param-default-folding failures /
+        // param-annotated / captured / where-constrained / annotated methods →
+        // false (the class falls back).
         private static bool TryBuildClassMethodDef(Parser.Nodes.Functions.FunctionDefinitionNode m, out Defs.ClassMethodDef md)
         {
             md = null!;
-            if (m.IsAbstract) return false;
             // L10: factory + named ctors are now lowered (IsFactory/ConstructorName captured below).
             if (m.HasAnnotations) return false;
             if (m.CaptureList != null && m.CaptureList.Count > 0) return false;
@@ -2744,8 +2749,16 @@ namespace RaLanguage.Interpreter.IR
                 foreach (var pa in m.ParamAnnotations) if (pa != null && pa.Count > 0) return false;
             if (m.VarArgAnnotations != null && m.VarArgAnnotations.Count > 0) return false;
 
-            var body = Runtime.FunctionDefinitionHelper.GetOrCompileBody(m);
-            if (body == null) return false;
+            // L10 abstract: an abstract method has NO body (BodyNode == null,
+            // GetOrCompileBody returns null) — it is never invoked (ClassTypeValue
+            // filters dispatch/compile on !IsAbstract). Carry Body = null. A
+            // CONCRETE method that fails to IR-compile (body == null) still falls back.
+            RaFunction? body = null;
+            if (!m.IsAbstract)
+            {
+                body = Runtime.FunctionDefinitionHelper.GetOrCompileBody(m);
+                if (body == null) return false;
+            }
 
             string mname = m.VarNameTok?.Value?.ToString() ?? "";
             var argNames = new string[m.ArgNameToks.Count];
@@ -2770,7 +2783,7 @@ namespace RaLanguage.Interpreter.IR
                 mname, m.IsPublic, m.IsConstructor, m.IsOverride, m.IsStatic, m.IsAsync, m.IsAsyncStream,
                 argNames, m.ArgTypes.ToArray(), m.IsRefParams.ToArray(), m.HasVarArgs,
                 m.VarArgNameTok?.Value?.ToString(), m.VarArgType, m.ReturnType, m.ShouldAutoReturn,
-                m.FrameId, body, mGenerics, m.IsFactory, m.ConstructorName, pdConsts);
+                m.FrameId, body, mGenerics, m.IsFactory, m.ConstructorName, pdConsts, m.IsAbstract);
             return true;
         }
 

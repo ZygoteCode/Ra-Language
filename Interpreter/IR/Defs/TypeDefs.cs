@@ -431,19 +431,20 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly TypeDescriptor? ReturnType;
         public readonly bool ShouldAutoReturn;
         public readonly int FrameId;
-        public readonly RaFunction Body;
+        public readonly RaFunction? Body;        // null = abstract method (signature only, never invoked)
         public readonly string[] Generics;   // method-level type params (generic method)
         public readonly Values.RuntimeValue?[] ParamDefaultConsts; // folded literal default per param, null = none
 
         public readonly bool IsFactory;          // factory ctor (no self, must ret)
         public readonly string? ConstructorName;  // named ctor (T.name) — null = unnamed/not-a-ctor
+        public readonly bool IsAbstract;         // abstract method (no body) on an abstract class
 
         public ClassMethodDef(string name, bool isPublic, bool isConstructor, bool isOverride, bool isStatic,
             bool isAsync, bool isAsyncStream, string[] argNames, TypeDescriptor?[] argTypes, bool[] isRefParams,
             bool hasVarArgs, string? varArgName, TypeDescriptor? varArgType, TypeDescriptor? returnType,
-            bool shouldAutoReturn, int frameId, RaFunction body, string[]? generics = null,
+            bool shouldAutoReturn, int frameId, RaFunction? body, string[]? generics = null,
             bool isFactory = false, string? constructorName = null,
-            Values.RuntimeValue?[]? paramDefaultConsts = null)
+            Values.RuntimeValue?[]? paramDefaultConsts = null, bool isAbstract = false)
         {
             Name = name; IsPublic = isPublic; IsConstructor = isConstructor; IsOverride = isOverride;
             IsStatic = isStatic; IsAsync = isAsync; IsAsyncStream = isAsyncStream; ArgNames = argNames;
@@ -452,6 +453,7 @@ namespace RaLanguage.Interpreter.IR.Defs
             FrameId = frameId; Body = body; Generics = generics ?? Array.Empty<string>();
             IsFactory = isFactory; ConstructorName = constructorName;
             ParamDefaultConsts = paramDefaultConsts ?? Array.Empty<Values.RuntimeValue?>();
+            IsAbstract = isAbstract;
         }
     }
 
@@ -475,15 +477,18 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly EventDef[] Events;
         // L10 inheritance: `class D : Base impl IFace with Trait`. The visitor
         // resolves these TypeDescriptors + builds the chain; base-ctor args ride
-        // the ctor body's super(...). Abstract/static classes still fall back.
+        // the ctor body's super(...). Static classes still fall back.
         public readonly TypeDescriptor? BaseType;
         public readonly TypeDescriptor[] Interfaces;
         public readonly TypeDescriptor[] Traits;
+        // L10 abstract: `abstract class` — carries abstract methods (Body null) +
+        // abstract properties. The visitor refuses instantiation; static stays gated.
+        public readonly bool IsAbstract;
 
         public ClassDef(string name, bool isPublic, string[] generics, StructFieldDef[] fields, ClassMethodDef[] methods,
             OperatorDef[]? operators = null, WhereConstraintDef[]? wheres = null, PropertyDef[]? properties = null,
             EventDef[]? events = null, TypeDescriptor? baseType = null, TypeDescriptor[]? interfaces = null,
-            TypeDescriptor[]? traits = null)
+            TypeDescriptor[]? traits = null, bool isAbstract = false)
         {
             Name = name; IsPublic = isPublic;
             Generics = generics ?? Array.Empty<string>();
@@ -496,6 +501,7 @@ namespace RaLanguage.Interpreter.IR.Defs
             BaseType = baseType;
             Interfaces = interfaces ?? Array.Empty<TypeDescriptor>();
             Traits = traits ?? Array.Empty<TypeDescriptor>();
+            IsAbstract = isAbstract;
         }
     }
 

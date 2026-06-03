@@ -3457,11 +3457,15 @@ namespace RaLanguage.Interpreter.Archive
             WriteOptTd(w, m.VarArgType);
             WriteOptTd(w, m.ReturnType);
             w.WriteI32(m.FrameId);
-            ModuleBytecodeIo.SerializeRaFunction(w, m.Body, WriterPool);
             // v8: method-level generic type params (generic methods) + factory/named-ctor metadata
-            // + const-folded param defaults (per-slot const, null = no default).
+            // + const-folded param defaults (per-slot const, null = no default) + a body-presence
+            // byte (null = abstract method) + the IsAbstract flag. Pre-v8 archives ALWAYS carried a
+            // non-null body (no abstract-method lowering), so the body is written unconditionally there.
             if (WriterVersion >= ModuleBytecodeIo.PayloadVersion_V8)
             {
+                if (m.Body == null) w.WriteU8(0);
+                else { w.WriteU8(1); ModuleBytecodeIo.SerializeRaFunction(w, m.Body, WriterPool); }
+                w.WriteU8(m.IsAbstract ? (byte)1 : (byte)0);
                 WriteStringList(w, new List<string>(m.Generics));
                 w.WriteU8(m.IsFactory ? (byte)1 : (byte)0);
                 if (m.ConstructorName == null) w.WriteU8(0);
@@ -3472,6 +3476,10 @@ namespace RaLanguage.Interpreter.Archive
                     if (c == null) w.WriteU8(0);
                     else { w.WriteU8(1); ModuleBytecodeIo.SerializeConst(w, c, WriterPool); }
                 }
+            }
+            else
+            {
+                ModuleBytecodeIo.SerializeRaFunction(w, m.Body!, WriterPool);
             }
         }
 
@@ -3492,13 +3500,17 @@ namespace RaLanguage.Interpreter.Archive
             var varArgType = ReadOptTd(r);
             var returnType = ReadOptTd(r);
             int frameId = r.ReadI32();
-            var body = ModuleBytecodeIo.DeserializeRaFunction(r, ReaderPool);
+            RaLanguage.Interpreter.IR.RaFunction? body;
             var generics = System.Array.Empty<string>();
             bool isFactory = false;
+            bool isAbstract = false;
             string? constructorName = null;
             var pdConsts = System.Array.Empty<RaLanguage.Interpreter.Values.RuntimeValue?>();
             if (ReaderVersion >= ModuleBytecodeIo.PayloadVersion_V8)
             {
+                // v8: body is presence-gated (null = abstract method) and IsAbstract follows.
+                body = r.ReadU8() != 0 ? ModuleBytecodeIo.DeserializeRaFunction(r, ReaderPool) : null;
+                isAbstract = r.ReadU8() != 0;
                 generics = ReadStringList(r).ToArray();
                 isFactory = r.ReadU8() != 0;
                 constructorName = r.ReadU8() != 0 ? (r.ReadString() ?? "") : null;
@@ -3508,10 +3520,15 @@ namespace RaLanguage.Interpreter.Archive
                 for (int j = 0; j < pdn; j++)
                     pdConsts[j] = r.ReadU8() != 0 ? ModuleBytecodeIo.DeserializeConst(r, ReaderPool) : null;
             }
+            else
+            {
+                // pre-v8: body always present, no abstract-method lowering.
+                body = ModuleBytecodeIo.DeserializeRaFunction(r, ReaderPool);
+            }
             return new RaLanguage.Interpreter.IR.Defs.ClassMethodDef(
                 mName, (flags & 1) != 0, (flags & 2) != 0, (flags & 64) != 0, (flags & 128) != 0,
                 (flags & 4) != 0, (flags & 8) != 0, argNames, argTypes, refParams, (flags & 16) != 0,
-                varArgName, varArgType, returnType, (flags & 32) != 0, frameId, body, generics, isFactory, constructorName, pdConsts);
+                varArgName, varArgType, returnType, (flags & 32) != 0, frameId, body, generics, isFactory, constructorName, pdConsts, isAbstract);
         }
 
         private static void WriteClassDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.ClassDef def)
@@ -3527,7 +3544,7 @@ namespace RaLanguage.Interpreter.Archive
             WriteWhereDefs(w, def.Wheres);
             WritePropertyDefs(w, def.Properties);
             WriteEventDefs(w, def.Events);
-            // L10 v8 inheritance: base + interfaces + traits.
+            // L10 v8 inheritance: base + interfaces + traits + abstract flag.
             if (WriterVersion >= ModuleBytecodeIo.PayloadVersion_V8)
             {
                 WriteOptTd(w, def.BaseType);
@@ -3535,6 +3552,7 @@ namespace RaLanguage.Interpreter.Archive
                 foreach (var td in def.Interfaces) WriteOptTd(w, td);
                 w.WriteI32(def.Traits.Length);
                 foreach (var td in def.Traits) WriteOptTd(w, td);
+                w.WriteU8(def.IsAbstract ? (byte)1 : (byte)0);
             }
         }
 
@@ -3558,6 +3576,7 @@ namespace RaLanguage.Interpreter.Archive
             TypeDescriptor? baseType = null;
             var interfaces = System.Array.Empty<TypeDescriptor>();
             var traits = System.Array.Empty<TypeDescriptor>();
+            bool isAbstract = false;
             if (ReaderVersion >= ModuleBytecodeIo.PayloadVersion_V8)
             {
                 baseType = ReadOptTd(r);
@@ -3569,8 +3588,9 @@ namespace RaLanguage.Interpreter.Archive
                 if (tcn < 0 || tcn > 4_000_000) throw new System.IO.InvalidDataException($"rac: class trait count {tcn} out of range");
                 traits = new TypeDescriptor[tcn];
                 for (int i = 0; i < tcn; i++) traits[i] = ReadOptTd(r)!;
+                isAbstract = r.ReadU8() != 0;
             }
-            return new RaLanguage.Interpreter.IR.Defs.ClassDef(name, isPublic, generics, fields, methods, operators, wheres, properties, events, baseType, interfaces, traits);
+            return new RaLanguage.Interpreter.IR.Defs.ClassDef(name, isPublic, generics, fields, methods, operators, wheres, properties, events, baseType, interfaces, traits, isAbstract);
         }
 
         private static void WriteTraitMethodDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.TraitMethodDef m)

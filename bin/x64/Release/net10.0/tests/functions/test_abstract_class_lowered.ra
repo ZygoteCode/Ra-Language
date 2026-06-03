@@ -1,0 +1,46 @@
+import std.prelude.*;
+// L10: abstract classes (with abstract methods + abstract properties) now lower —
+// ClassDef carries IsAbstract, ClassMethodDef.Body is nullable (abstract = no body),
+// and abstract properties (auto-accessor, no backing) are captured. The visitor
+// builds the abstract type (can't instantiate; concrete subclasses must override).
+// Static classes still fall back.
+print("=== functions/abstract_class_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+pub abstract class Shape {
+    pub abstract fn area(): int;
+    pub abstract prop kind: string { get; }
+    pub fn describe(): string { ret self.kind + ":" + (self.area() as string); }
+}
+pub class Square : Shape {
+    pub var side: int = 0
+    pub Square(s: int) { self.side = s; }
+    pub override fn area(): int { ret self.side * self.side; }
+    pub override prop kind: string => "square"
+}
+pub class Circle : Shape {
+    pub var r: int = 0
+    pub Circle(r: int) { self.r = r; }
+    pub override fn area(): int { ret 3 * self.r * self.r; }
+    pub override prop kind: string => "circle"
+}
+
+let sq = Square(5);
+ck("[AB1]", sq.area() == 25);
+ck("[AB2]", sq.kind == "square");
+ck("[AB3]", sq.describe() == "square:25");   // base method dispatches to overrides
+
+let c = Circle(2);
+ck("[AB4]", c.describe() == "circle:12");
+
+// AB5: abstract class cannot be instantiated.
+fn tryAbstract(): bool {
+    try { let x = Shape(); ret false; } catch (e) { ret true; }
+}
+ck("[AB5]", tryAbstract());
+
+if failures == 0 { print("=== done ==="); } else { print("=== FAIL (" + (failures as string) + ") ==="); }

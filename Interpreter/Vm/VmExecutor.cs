@@ -3192,7 +3192,10 @@ namespace RaLanguage.Interpreter.Vm
                 argToks, argTypes, refParams, paramDefaults,
                 md.HasVarArgs, varArgTok, md.VarArgType, md.ReturnType,
                 new Parser.Nodes.Operations.PassNode(s, e), md.ShouldAutoReturn,
-                mGenerics, md.IsPublic, md.IsConstructor, md.IsOverride, /*isAbstract*/ false, md.IsStatic);
+                mGenerics, md.IsPublic, md.IsConstructor, md.IsOverride, md.IsAbstract, md.IsStatic);
+            // Abstract methods carry no body (md.Body == null) and are never invoked
+            // (ClassTypeValue filters dispatch/compile on !IsAbstract); concrete
+            // methods wire the precompiled RaFunction.
             mnode.CompiledBody = md.Body;
             mnode.IrCompileTried = true;
             mnode.FrameId = md.FrameId;
@@ -3375,7 +3378,7 @@ namespace RaLanguage.Interpreter.Vm
 
             var node = new Parser.Nodes.Classes.ClassDefinitionNode(
                 new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
-                def.IsPublic, /*isAbstract*/ false, /*isStatic*/ false,
+                def.IsPublic, def.IsAbstract, /*isStatic*/ false,
                 def.BaseType,
                 new System.Collections.Generic.List<Types.TypeDescriptor>(def.Interfaces),
                 new System.Collections.Generic.List<Types.TypeDescriptor>(def.Traits),
