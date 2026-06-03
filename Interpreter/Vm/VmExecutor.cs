@@ -3080,7 +3080,15 @@ namespace RaLanguage.Interpreter.Vm
                 argToks.Add(new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, an, s, e));
             var argTypes = new System.Collections.Generic.List<Types.TypeDescriptor?>(md.ArgTypes);
             var refParams = new System.Collections.Generic.List<bool>(md.IsRefParams);
+            // Rebuild const-folded param defaults as NumberNodes carrying CachedValue
+            // (NumberNodeVisitor returns CachedValue verbatim) — byte-identical to the
+            // visitor's default-arg evaluation. Null slots stay null (no default).
             var paramDefaults = new System.Collections.Generic.List<AstNode?>(new AstNode?[md.ArgNames.Length]);
+            for (int i = 0; i < md.ArgNames.Length && i < md.ParamDefaultConsts.Length; i++)
+                if (md.ParamDefaultConsts[i] != null)
+                    paramDefaults[i] = new Parser.Nodes.Primitives.NumberNode(
+                        new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
+                    { CachedValue = md.ParamDefaultConsts[i] };
             Lexer.Tokens.Token? varArgTok = md.VarArgName == null ? null
                 : new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, md.VarArgName, s, e);
 
@@ -3154,7 +3162,15 @@ namespace RaLanguage.Interpreter.Vm
                 argToks.Add(new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, an, s, e));
             var argTypes = new System.Collections.Generic.List<Types.TypeDescriptor?>(md.ArgTypes);
             var refParams = new System.Collections.Generic.List<bool>(md.IsRefParams);
+            // Rebuild const-folded param defaults as NumberNodes carrying CachedValue
+            // (NumberNodeVisitor returns CachedValue verbatim) — byte-identical to the
+            // visitor's default-arg evaluation. Null slots stay null (no default).
             var paramDefaults = new System.Collections.Generic.List<AstNode?>(new AstNode?[md.ArgNames.Length]);
+            for (int i = 0; i < md.ArgNames.Length && i < md.ParamDefaultConsts.Length; i++)
+                if (md.ParamDefaultConsts[i] != null)
+                    paramDefaults[i] = new Parser.Nodes.Primitives.NumberNode(
+                        new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
+                    { CachedValue = md.ParamDefaultConsts[i] };
             Lexer.Tokens.Token? varArgTok = md.VarArgName == null ? null
                 : new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, md.VarArgName, s, e);
 

@@ -1,0 +1,31 @@
+import std.prelude.*;
+// L10: methods with CONST-foldable param defaults `fn f(x, k: int = 2)` now lower —
+// TryBuild{Struct,Class}MethodDef captures the folded default per slot
+// (ParamDefaultConsts) instead of gating on `ParamDefaults != null`, and
+// ReconstructStructMethod/ClassMethod rebuild them as NumberNode-CachedValue (the
+// field-default flat-const form). Non-const defaults still fall back. .rac v8.
+// NB: class methods apply param defaults; struct-method call-site default-fill is a
+// separate PRE-EXISTING gap (BoundStructMethodValue ignores ParamDefaults), so this
+// asserts the class path (the def lowering itself is verified by ND=0 + parity).
+print("=== functions/param_default_lowered ===");
+
+var failures = 0;
+fn ck(label: string, cond: bool) {
+    if cond { print(label + " OK"); } else { print(label + " FAIL"); failures = failures + 1; }
+}
+
+pub class Calc {
+    pub var base: int = 0
+    pub Calc(b: int) { self.base = b; }
+    pub fn add(x: int, y: int = 10): int { ret self.base + x + y; }
+    pub fn scale(x: int, k: int = 2, off: int = 0): int { ret (self.base + x) * k + off; }
+}
+
+let c = Calc(1);
+ck("[D1]", c.add(2) == 13);          // default y=10: 1+2+10
+ck("[D2]", c.add(2, 100) == 103);    // explicit y=100
+ck("[D3]", c.scale(1) == 4);         // defaults k=2,off=0: (1+1)*2+0
+ck("[D4]", c.scale(1, 5) == 10);     // k=5, off default 0: (1+1)*5
+ck("[D5]", c.scale(1, 5, 7) == 17);  // all explicit: (1+1)*5+7
+
+if failures == 0 { print("=== done ==="); } else { print("=== FAIL (" + (failures as string) + ") ==="); }

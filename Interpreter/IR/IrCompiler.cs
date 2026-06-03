@@ -2468,9 +2468,6 @@ namespace RaLanguage.Interpreter.IR
         {
             md = null!;
             if (m.HasAnnotations) return false;
-            if (m.ParamDefaults != null)
-                foreach (var pd in m.ParamDefaults)
-                    if (pd != null) return false;
 
             var body = Runtime.FunctionDefinitionHelper.GetOrCompileStructMethod(m);
             if (body == null) return false;
@@ -2479,11 +2476,22 @@ namespace RaLanguage.Interpreter.IR
             for (int a = 0; a < m.ArgNameToks.Count; a++)
                 argNames[a] = m.ArgNameToks[a].Value?.ToString() ?? "";
 
+            // Capture const-foldable param defaults per slot; a non-const default
+            // (interpolated string / expression) makes the whole method fall back.
+            var pdConsts = new RuntimeValue?[m.ArgNameToks.Count];
+            if (m.ParamDefaults != null)
+                for (int a = 0; a < m.ArgNameToks.Count && a < m.ParamDefaults.Count; a++)
+                {
+                    if (m.ParamDefaults[a] == null) continue;
+                    if (!TryFoldFieldDefaultConst(m.ParamDefaults[a]!, out var c)) return false;
+                    pdConsts[a] = c;
+                }
+
             md = new Defs.StructMethodDef(
                 m.NameTok.Value?.ToString() ?? "", m.IsPublic, m.IsConstructor, m.IsAsync, m.IsAsyncStream,
                 argNames, m.ArgTypes.ToArray(), m.IsRefParams.ToArray(), m.HasVarArgs,
                 m.VarArgNameTok?.Value?.ToString(), m.VarArgType, m.ReturnType, m.ShouldAutoReturn,
-                m.FrameId, body);
+                m.FrameId, body, null, pdConsts);
             return true;
         }
 
@@ -2732,8 +2740,6 @@ namespace RaLanguage.Interpreter.IR
             // can't IR-compile falls back below via `body == null`). Where-
             // constrained generic methods still fall back.
             if (m.WhereConstraints != null && m.WhereConstraints.Count > 0) return false;
-            if (m.ParamDefaults != null)
-                foreach (var pd in m.ParamDefaults) if (pd != null) return false;
             if (m.ParamAnnotations != null)
                 foreach (var pa in m.ParamAnnotations) if (pa != null && pa.Count > 0) return false;
             if (m.VarArgAnnotations != null && m.VarArgAnnotations.Count > 0) return false;
@@ -2746,6 +2752,17 @@ namespace RaLanguage.Interpreter.IR
             for (int a = 0; a < m.ArgNameToks.Count; a++)
                 argNames[a] = m.ArgNameToks[a].Value?.ToString() ?? "";
 
+            // Capture const-foldable param defaults per slot; a non-const default
+            // (interpolated string / expression) makes the whole method fall back.
+            var pdConsts = new RuntimeValue?[m.ArgNameToks.Count];
+            if (m.ParamDefaults != null)
+                for (int a = 0; a < m.ArgNameToks.Count && a < m.ParamDefaults.Count; a++)
+                {
+                    if (m.ParamDefaults[a] == null) continue;
+                    if (!TryFoldFieldDefaultConst(m.ParamDefaults[a]!, out var c)) return false;
+                    pdConsts[a] = c;
+                }
+
             var mGenerics = (m.GenericTypeParams == null || m.GenericTypeParams.Count == 0)
                 ? System.Array.Empty<string>()
                 : m.GenericTypeParams.ToArray();
@@ -2753,7 +2770,7 @@ namespace RaLanguage.Interpreter.IR
                 mname, m.IsPublic, m.IsConstructor, m.IsOverride, m.IsStatic, m.IsAsync, m.IsAsyncStream,
                 argNames, m.ArgTypes.ToArray(), m.IsRefParams.ToArray(), m.HasVarArgs,
                 m.VarArgNameTok?.Value?.ToString(), m.VarArgType, m.ReturnType, m.ShouldAutoReturn,
-                m.FrameId, body, mGenerics, m.IsFactory, m.ConstructorName);
+                m.FrameId, body, mGenerics, m.IsFactory, m.ConstructorName, pdConsts);
             return true;
         }
 

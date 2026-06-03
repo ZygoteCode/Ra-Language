@@ -145,8 +145,10 @@ namespace RaLanguage.Interpreter.IR.Defs
     }
 
     // L5e — a struct method, flat: signature metadata + the PRECOMPILED body
-    // RaFunction (replaces the AST BodyNode). Param defaults are AST → a method
-    // with any non-null param default makes IrCompiler fall back to the visitor.
+    // RaFunction (replaces the AST BodyNode). Const-foldable param defaults are
+    // captured per-slot as const RuntimeValues (null per slot = no default; empty
+    // array = no defaults at all); a non-const param default makes IrCompiler fall
+    // back to the visitor.
     public sealed class StructMethodDef
     {
         public readonly string Name;
@@ -165,17 +167,20 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly int FrameId;
         public readonly RaFunction Body;               // precompiled (CompileMethodShape)
         public readonly string[] Generics;             // method-level type params (generic method)
+        public readonly Values.RuntimeValue?[] ParamDefaultConsts; // folded literal default per param, null = none
 
         public StructMethodDef(string name, bool isPublic, bool isConstructor, bool isAsync, bool isAsyncStream,
             string[] argNames, TypeDescriptor?[] argTypes, bool[] isRefParams, bool hasVarArgs,
             string? varArgName, TypeDescriptor? varArgType, TypeDescriptor? returnType, bool shouldAutoReturn,
-            int frameId, RaFunction body, string[]? generics = null)
+            int frameId, RaFunction body, string[]? generics = null,
+            Values.RuntimeValue?[]? paramDefaultConsts = null)
         {
             Name = name; IsPublic = isPublic; IsConstructor = isConstructor; IsAsync = isAsync;
             IsAsyncStream = isAsyncStream; ArgNames = argNames; ArgTypes = argTypes; IsRefParams = isRefParams;
             HasVarArgs = hasVarArgs; VarArgName = varArgName; VarArgType = varArgType; ReturnType = returnType;
             ShouldAutoReturn = shouldAutoReturn; FrameId = frameId; Body = body;
             Generics = generics ?? Array.Empty<string>();
+            ParamDefaultConsts = paramDefaultConsts ?? Array.Empty<Values.RuntimeValue?>();
         }
     }
 
@@ -428,6 +433,7 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly int FrameId;
         public readonly RaFunction Body;
         public readonly string[] Generics;   // method-level type params (generic method)
+        public readonly Values.RuntimeValue?[] ParamDefaultConsts; // folded literal default per param, null = none
 
         public readonly bool IsFactory;          // factory ctor (no self, must ret)
         public readonly string? ConstructorName;  // named ctor (T.name) — null = unnamed/not-a-ctor
@@ -436,7 +442,8 @@ namespace RaLanguage.Interpreter.IR.Defs
             bool isAsync, bool isAsyncStream, string[] argNames, TypeDescriptor?[] argTypes, bool[] isRefParams,
             bool hasVarArgs, string? varArgName, TypeDescriptor? varArgType, TypeDescriptor? returnType,
             bool shouldAutoReturn, int frameId, RaFunction body, string[]? generics = null,
-            bool isFactory = false, string? constructorName = null)
+            bool isFactory = false, string? constructorName = null,
+            Values.RuntimeValue?[]? paramDefaultConsts = null)
         {
             Name = name; IsPublic = isPublic; IsConstructor = isConstructor; IsOverride = isOverride;
             IsStatic = isStatic; IsAsync = isAsync; IsAsyncStream = isAsyncStream; ArgNames = argNames;
@@ -444,6 +451,7 @@ namespace RaLanguage.Interpreter.IR.Defs
             VarArgType = varArgType; ReturnType = returnType; ShouldAutoReturn = shouldAutoReturn;
             FrameId = frameId; Body = body; Generics = generics ?? Array.Empty<string>();
             IsFactory = isFactory; ConstructorName = constructorName;
+            ParamDefaultConsts = paramDefaultConsts ?? Array.Empty<Values.RuntimeValue?>();
         }
     }
 
