@@ -177,6 +177,14 @@ namespace RaLanguage.Interpreter.Pipeline
                 case TypeofNode tof:
                     if (tof.Node != null) Walk(tof.Node, s);
                     return;
+                case IsTypeNode itn:
+                    // `expr is T` — resolve the tested expression so a binding it
+                    // reads (e.g. a match pattern binder `case Ok(n) -> n is T`)
+                    // gets a slot-eligible BindingId, not left Unresolved. Without
+                    // this the IR match compiler can't confirm the binder's slot
+                    // and falls back to OP_NATIVE_DEFINE. TestedType is a type, not
+                    // a value expression — nothing to walk there.
+                    Walk(itn.Expression, s); return;
                 case MemberAccessNode ma:
                     Walk(ma.TargetNode, s); return;
                 case MemberAssignmentNode mas:

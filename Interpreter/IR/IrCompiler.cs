@@ -4721,7 +4721,10 @@ namespace RaLanguage.Interpreter.IR
                         if (arm.Guard == null && catchAllIdx < 0) catchAllIdx = i;
                         break;
                     case Parser.Nodes.Patterns.LiteralPatternNode lp:
-                        if (!IsLowerableMatchLiteral(lp.Expression))
+                        // `case null` lowers via the identity test (EmitNullLiteralTest);
+                        // any other literal must be plain-Eq-lowerable.
+                        if (lp.Expression.NodeType != AstNodeType.Null
+                            && !IsLowerableMatchLiteral(lp.Expression))
                             throw new IrCompileException("match: non-trivial literal pattern -> fallback");
                         break;
                     case Parser.Nodes.Patterns.VariablePatternNode vp:
@@ -4884,15 +4887,39 @@ namespace RaLanguage.Interpreter.IR
                         break;
                     case Parser.Nodes.Patterns.OrPatternNode opn:
                     {
-                        // `case A | B | C`: first cut requires every alternative to
-                        // be a NON-BINDING bool test (literal / range / relational /
-                        // wildcard) — a binding alternative (`case Ok(x) | Err(x)`)
-                        // falls back, since the disjunction is lowered as an eager
-                        // OrBB chain that cannot bind. Never a catch-all.
+                        // `case A | B | C`. Two lowerings:
+                        //  (a) ALL alternatives non-binding bool tests → an eager
+                        //      OrBB chain (the cheap path, no per-alternative binds);
+                        //  (b) some alternative BINDS (`case L(x) | R(x)`) → the
+                        //      sequential binding-or path: each alternative is tried
+                        //      in source order, the first to match binds its
+                        //      name(s) + jumps to the body. Admitted only when every
+                        //      alternative is ALL-OR-NOTHING (OrAltBindSafe) so a
+                        //      partial match can't leave a half-applied bind that the
+                        //      next alternative would re-declare. Otherwise fall back.
                         if (opn.Alternatives.Count == 0)
                             throw new IrCompileException("match: empty or-pattern -> fallback");
-                        foreach (var alt in opn.Alternatives)
-                            GuardBoolPatternTest(alt);
+                        if (OrPatternIsPureBoolTest(opn))
+                        {
+                            foreach (var alt in opn.Alternatives)
+                                GuardBoolPatternTest(alt);
+                        }
+                        else
+                        {
+                            foreach (var alt in opn.Alternatives)
+                            {
+                                if (!OrAltBindSafe(alt))
+                                    throw new IrCompileException("match: or-alternative not all-or-nothing bindable -> fallback");
+                                // Validate lowerability + track this alternative's
+                                // binding slot(s) so the shared binding-slot reserve
+                                // (maxBindingSlot) accounts for every alt's binds.
+                                GuardLeafSubpattern(alt, arm.Guard, arm.Body, st, ref maxBindingSlot);
+                            }
+                        }
+                        // An or-pattern TESTS — never a catch-all (even a wildcard
+                        // alternative needs the other alternatives' shape tests to
+                        // have been laid down first; the visitor treats `_` as a
+                        // bool-test alt, exhaustiveness still needs a trailing arm).
                         break;
                     }
                     case Parser.Nodes.Patterns.TypePatternNode tpn:
@@ -5040,7 +5067,12 @@ namespace RaLanguage.Interpreter.IR
                 // and/not are non-binding bool tests.
                 bool isAlias = arm.Pattern is Parser.Nodes.Patterns.AliasPatternNode;
                 bool isMap = arm.Pattern is Parser.Nodes.Patterns.MapPatternNode;
-                bool hasScope = isBinding || isVariant || isTuple || isStruct || isList || isTypeBinder || isAlias || isMap;
+                // A BINDING or-pattern (`case L(x) | R(x)`) declares names per
+                // alternative → needs a fresh arm scope. A pure-bool-test or-pattern
+                // binds nothing → no scope (matches the eager-OrBB path).
+                bool isBindingOr = arm.Pattern is Parser.Nodes.Patterns.OrPatternNode bopn
+                                   && !OrPatternIsPureBoolTest(bopn);
+                bool hasScope = isBinding || isVariant || isTuple || isStruct || isList || isTypeBinder || isAlias || isMap || isBindingOr;
                 if (hasScope) EmitPushScope(st);
 
                 var skips = new List<int>(); // jumps to this arm's no-match cleanup
@@ -5203,11 +5235,19 @@ namespace RaLanguage.Interpreter.IR
                 }
                 else if (arm.Pattern is Parser.Nodes.Patterns.LiteralPatternNode lp)
                 {
-                    byte litSlot = AllocTemp(ref topSlot);
-                    CompileExpression(lp.Expression, litSlot, st, ref topSlot);
-                    byte condSlot = AllocTemp(ref topSlot);
-                    st.Code.Emit3(Opcode.Eq, condSlot, scrutSlot, litSlot);
-                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, condSlot));
+                    if (lp.Expression.NodeType == AstNodeType.Null)
+                    {
+                        // `case null`: null-IDENTITY test, not Eq (see EmitNullLiteralTest).
+                        EmitNullLiteralTest(scrutSlot, skips, st, ref topSlot);
+                    }
+                    else
+                    {
+                        byte litSlot = AllocTemp(ref topSlot);
+                        CompileExpression(lp.Expression, litSlot, st, ref topSlot);
+                        byte condSlot = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.Eq, condSlot, scrutSlot, litSlot);
+                        skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, condSlot));
+                    }
                 }
                 else if (arm.Pattern is Parser.Nodes.Patterns.RangePatternNode
                       || arm.Pattern is Parser.Nodes.Patterns.RelationalPatternNode)
@@ -5219,15 +5259,51 @@ namespace RaLanguage.Interpreter.IR
                 }
                 else if (arm.Pattern is Parser.Nodes.Patterns.OrPatternNode opn)
                 {
-                    // `case A | B | C`: acc = test(A) || test(B) || test(C) via an
-                    // eager OrBB chain (alternatives are non-binding), skip on false.
-                    byte acc = EmitBoolPatternTest(opn.Alternatives[0], scrutSlot, st, ref topSlot);
-                    for (int k = 1; k < opn.Alternatives.Count; k++)
+                    if (OrPatternIsPureBoolTest(opn))
                     {
-                        byte c = EmitBoolPatternTest(opn.Alternatives[k], scrutSlot, st, ref topSlot);
-                        st.Code.Emit3(Opcode.OrBB, acc, acc, c);
+                        // `case A | B | C` (non-binding): acc = test(A) || test(B) ||
+                        // test(C) via an eager OrBB chain, skip on false.
+                        byte acc = EmitBoolPatternTest(opn.Alternatives[0], scrutSlot, st, ref topSlot);
+                        for (int k = 1; k < opn.Alternatives.Count; k++)
+                        {
+                            byte c = EmitBoolPatternTest(opn.Alternatives[k], scrutSlot, st, ref topSlot);
+                            st.Code.Emit3(Opcode.OrBB, acc, acc, c);
+                        }
+                        skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, acc));
                     }
-                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, acc));
+                    else
+                    {
+                        // Binding or-pattern (`case L(x) | R(x)`): try each
+                        // alternative in SOURCE ORDER (the visitor's TryMatchOr).
+                        // Alternative i routes its failures to `altSkips` (→ the
+                        // start of alternative i+1); on a full match it falls through
+                        // and JUMPS to the shared `matched` convergence point, where
+                        // the bound name(s) are live (each alt binds via the same
+                        // name → the same slot) and the guard + body run once. The
+                        // LAST alternative routes failures to the arm's `skips`
+                        // (no-match). Soundness: every alternative is ALL-OR-NOTHING
+                        // (OrAltBindSafe), so at most one alt's binds ever execute —
+                        // no half-applied bind survives into the next alt to be
+                        // re-declared. Binds land in the arm scope already pushed
+                        // above (hasScope covers a binding or-pattern).
+                        var toMatched = new List<int>();
+                        int altCount = opn.Alternatives.Count;
+                        for (int k = 0; k < altCount; k++)
+                        {
+                            var altSkips = (k < altCount - 1) ? new List<int>() : skips;
+                            EmitLeafSubpattern(opn.Alternatives[k], scrutSlot, altSkips,
+                                               arm.Guard, arm.Body, node, st, ref topSlot);
+                            if (k < altCount - 1)
+                            {
+                                // Matched this alternative → jump to the body.
+                                toMatched.Add(st.Code.EmitForwardJump(Opcode.Jmp));
+                                // Failed this alternative → fall into the next one.
+                                foreach (var sj in altSkips) st.Code.PatchJumpToHere(sj);
+                            }
+                            // The last alternative falls through to `matched`.
+                        }
+                        foreach (var j in toMatched) st.Code.PatchJumpToHere(j);
+                    }
                 }
                 else if (isTypePat)
                 {
@@ -5349,8 +5425,9 @@ namespace RaLanguage.Interpreter.IR
         }
 
         // A match literal pattern this first cut can lower: a plain number /
-        // bool / single-text string. `null` is excluded (the visitor matches it
-        // by identity, not Eq); unary-minus / interpolation / others fall back.
+        // bool / single-text string. `null` is handled SEPARATELY (see
+        // IsNullLiteralPattern / EmitNullLiteralTest) because the visitor matches
+        // it by identity, not Eq; unary-minus / interpolation / others fall back.
         private static bool IsLowerableMatchLiteral(AstNode expr)
         {
             switch (expr.NodeType)
@@ -5367,6 +5444,29 @@ namespace RaLanguage.Interpreter.IR
                 default:
                     return false;
             }
+        }
+
+        // `case null` is a LiteralPatternNode wrapping a bare null literal
+        // (`lp.Expression.NodeType == AstNodeType.Null`). The visitor
+        // (TryMatchLiteral) matches it by IDENTITY (scrutinee IS a NullValue), NOT
+        // via the Eq operator — most primitives raise on Eq-vs-null, and
+        // `null == "null"` is true on the string side. It is therefore lowered
+        // SEPARATELY (EmitNullLiteralTest) so an ordinary literal arm keeps its
+        // plain-Eq path.
+
+        // Emit the null-IDENTITY test for `case null`: load the null singleton,
+        // then SEq(cond, nullSlot, valueSlot). SEq dispatches on the LHS, so this
+        // is NullValue.GetComparisonStrictEq(scrutinee) → `scrutinee.Type == Null`
+        // for EVERY scrutinee type (true only for a real null; false for the string
+        // "null" / an int / etc.) — exactly the visitor's identity semantics, with
+        // no risk of an IllegalOperation throw. Appends the skip-on-not-null jump.
+        private static void EmitNullLiteralTest(byte valueSlot, List<int> skips, State st, ref byte topSlot)
+        {
+            byte nullSlot = AllocTemp(ref topSlot);
+            st.Code.Emit3(Opcode.LoadNull, nullSlot, 0, 0);
+            byte condSlot = AllocTemp(ref topSlot);
+            st.Code.Emit3(Opcode.SEq, condSlot, nullSlot, valueSlot);
+            skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, condSlot));
         }
 
         // L7: the local SLOT a match variable-pattern binding occupies, or -1 if
@@ -5470,7 +5570,10 @@ namespace RaLanguage.Interpreter.IR
                     throw new IrCompileException("match: unconfirmable subpattern binding -> fallback");
                 }
                 case Parser.Nodes.Patterns.LiteralPatternNode lp:
-                    if (!IsLowerableMatchLiteral(lp.Expression))
+                    // `null` subpattern lowers via the identity test; any other
+                    // literal must be plain-Eq-lowerable.
+                    if (lp.Expression.NodeType != AstNodeType.Null
+                        && !IsLowerableMatchLiteral(lp.Expression))
                         throw new IrCompileException("match: non-trivial subpattern literal -> fallback");
                     break;
                 case Parser.Nodes.Patterns.TuplePatternNode tup:
@@ -5611,6 +5714,11 @@ namespace RaLanguage.Interpreter.IR
                 }
                 case Parser.Nodes.Patterns.LiteralPatternNode lp:
                 {
+                    if (lp.Expression.NodeType == AstNodeType.Null)
+                    {
+                        EmitNullLiteralTest(valueSlot, skips, st, ref topSlot);
+                        break;
+                    }
                     byte litSlot = AllocTemp(ref topSlot);
                     CompileExpression(lp.Expression, litSlot, st, ref topSlot);
                     byte condSlot = AllocTemp(ref topSlot);
@@ -5762,6 +5870,112 @@ namespace RaLanguage.Interpreter.IR
             _ => (Opcode?)null,
         };
 
+        // Non-throwing mirror of GuardBoolPatternTest: is `p` a NON-BINDING
+        // bool-test pattern (the eager-OrBB-chain shape)? Used to decide whether
+        // an or-pattern lowers via the cheap bool-test chain (all alternatives
+        // non-binding) or the sequential binding-or path (some alt binds). Kept in
+        // lock-step with GuardBoolPatternTest's accepted set.
+        private static bool IsBoolTestablePattern(Parser.Nodes.Patterns.PatternNode p)
+        {
+            switch (p)
+            {
+                case Parser.Nodes.Patterns.WildcardPatternNode _:
+                    return true;
+                case Parser.Nodes.Patterns.LiteralPatternNode lp:
+                    return lp.Expression.NodeType == AstNodeType.Null
+                        || IsLowerableMatchLiteral(lp.Expression);
+                case Parser.Nodes.Patterns.RangePatternNode rp:
+                    if (rp.Lo == null && rp.Hi == null) return false;
+                    if (rp.Lo != null && !IsLowerablePatternConst(rp.Lo)) return false;
+                    if (rp.Hi != null && !IsLowerablePatternConst(rp.Hi)) return false;
+                    return true;
+                case Parser.Nodes.Patterns.RelationalPatternNode rop:
+                    return RelationalCmpOpcode(rop.Op) != null && IsLowerablePatternConst(rop.Operand);
+                case Parser.Nodes.Patterns.NotPatternNode notn:
+                    return IsBoolTestablePattern(notn.Inner);
+                case Parser.Nodes.Patterns.AndPatternNode andn:
+                    if (andn.Conjuncts.Count == 0) return false;
+                    foreach (var c in andn.Conjuncts) if (!IsBoolTestablePattern(c)) return false;
+                    return true;
+                case Parser.Nodes.Patterns.OrPatternNode orn:
+                    if (orn.Alternatives.Count == 0) return false;
+                    foreach (var a in orn.Alternatives) if (!IsBoolTestablePattern(a)) return false;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        // True iff EVERY alternative of an or-pattern is a non-binding bool test
+        // (so it lowers via the eager OrBB chain, no per-alternative binds). When
+        // false, the or-pattern has a BINDING alternative and must use the
+        // sequential binding-or path (each alternative tried in order, the first to
+        // match binds + jumps to the body).
+        private static bool OrPatternIsPureBoolTest(Parser.Nodes.Patterns.OrPatternNode opn)
+        {
+            foreach (var alt in opn.Alternatives)
+                if (!IsBoolTestablePattern(alt)) return false;
+            return true;
+        }
+
+        // An or-pattern alternative that may BIND is lowerable as a sequential
+        // "try-this-alternative-then-jump-to-body" block ONLY when it is
+        // ALL-OR-NOTHING: either it binds nothing (a refutable bool test) or every
+        // refutation in it happens BEFORE any of its binds. If a refutation could
+        // fire AFTER a sibling bind (e.g. `Pair(x, 0)` — bind x, then the `0`
+        // literal refutes), control would fall to the NEXT alternative with x
+        // already DeclareLocal'd, and that alternative's re-bind of x would throw
+        // "'x' is already defined". This holds for:
+        //   • wildcard / lowerable-literal(incl null) / range / relational — refute,
+        //     no bind (single test, trivially all-or-nothing);
+        //   • a bare zero-arity-variant ref — a refutable tag test, no bind;
+        //   • a VARIANT whose payload subpatterns are EACH wildcard or a bare
+        //     variable — the only refutations (EnumNameEq / EnumTagEq / MatchArity)
+        //     all precede every payload bind, so the alternative binds all-or-nothing.
+        // Anything else (tuple / struct / list / nested variant / literal-or-range
+        // payload after a bind / alias / map / and / or) → not provably safe → the
+        // caller keeps the visitor fallback. Returns true if SAFE.
+        private static bool OrAltBindSafe(Parser.Nodes.Patterns.PatternNode alt)
+        {
+            switch (alt)
+            {
+                case Parser.Nodes.Patterns.WildcardPatternNode _:
+                    return true;
+                case Parser.Nodes.Patterns.LiteralPatternNode lp:
+                    return lp.Expression.NodeType == AstNodeType.Null
+                        || IsLowerableMatchLiteral(lp.Expression);
+                case Parser.Nodes.Patterns.RangePatternNode rp:
+                    if (rp.Lo == null && rp.Hi == null) return false;
+                    if (rp.Lo != null && !IsLowerablePatternConst(rp.Lo)) return false;
+                    if (rp.Hi != null && !IsLowerablePatternConst(rp.Hi)) return false;
+                    return true;
+                case Parser.Nodes.Patterns.RelationalPatternNode rop:
+                    return RelationalCmpOpcode(rop.Op) != null && IsLowerablePatternConst(rop.Operand);
+                case Parser.Nodes.Patterns.VariablePatternNode vp:
+                    // A bare zero-arity-variant TEST is safe (refute, no bind). A
+                    // bare BINDING variable (catch-all) is NOT admitted here — it
+                    // would make the or-pattern an unconditional catch-all whose
+                    // interaction with the other alts' binds we don't model.
+                    return IsKnownZeroArityVariant(vp.Name);
+                case Parser.Nodes.Patterns.VariantPatternNode vap:
+                {
+                    if (vap.SubPatterns == null) return true; // parenless tag test
+                    foreach (var sub in vap.SubPatterns)
+                    {
+                        // Each payload must be wildcard or a bare variable (a bind
+                        // or an unused-binder/zero-arity sub). A literal / nested /
+                        // range payload could refute after a sibling bind → unsafe.
+                        if (sub is Parser.Nodes.Patterns.WildcardPatternNode) continue;
+                        if (sub is Parser.Nodes.Patterns.VariablePatternNode) continue;
+                        return false;
+                    }
+                    return true;
+                }
+                default:
+                    return false;
+            }
+        }
+
         // Guard-phase: confirm a NON-BINDING bool-test pattern (wildcard / lowerable
         // literal / range with lowerable bounds / relational with lowerable
         // operand) is lowerable. Throws IrCompileException (→ fallback) otherwise.
@@ -5773,7 +5987,10 @@ namespace RaLanguage.Interpreter.IR
                 case Parser.Nodes.Patterns.WildcardPatternNode _:
                     return;
                 case Parser.Nodes.Patterns.LiteralPatternNode lp:
-                    if (!IsLowerableMatchLiteral(lp.Expression))
+                    // `null` is bool-testable via the identity SEq (EmitBoolPatternTest);
+                    // any other literal must be plain-Eq-lowerable.
+                    if (lp.Expression.NodeType != AstNodeType.Null
+                        && !IsLowerableMatchLiteral(lp.Expression))
                         throw new IrCompileException("match: non-trivial or-literal -> fallback");
                     return;
                 case Parser.Nodes.Patterns.RangePatternNode rp:
@@ -5825,6 +6042,17 @@ namespace RaLanguage.Interpreter.IR
                 }
                 case Parser.Nodes.Patterns.LiteralPatternNode lp:
                 {
+                    if (lp.Expression.NodeType == AstNodeType.Null)
+                    {
+                        // `null` bool test: null-IDENTITY via SEq (LHS = null), giving
+                        // `scrutinee.Type == Null` for every scrutinee — the visitor's
+                        // identity semantics, never an Eq-vs-null throw.
+                        byte nullSlot = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.LoadNull, nullSlot, 0, 0);
+                        byte ncond = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.SEq, ncond, nullSlot, scrutSlot);
+                        return ncond;
+                    }
                     byte litSlot = AllocTemp(ref topSlot);
                     CompileExpression(lp.Expression, litSlot, st, ref topSlot);
                     byte cond = AllocTemp(ref topSlot);
@@ -6266,8 +6494,35 @@ namespace RaLanguage.Interpreter.IR
                         if (ArrowBlockHasNonYieldControlEscape(e)) return true;
                     return false;
                 }
-                // Conservative: an unknown structure (if / try / nested switch /
-                // …) might hide a non-yield escape → fall back.
+                // `if` / `elif` / `else` introduce NO break-barrier: a break /
+                // continue / return inside a branch escapes THIS arm exactly as it
+                // would at the arm's top level. Descend into every branch BODY
+                // (conditions are expressions — they can't carry a statement-level
+                // escape). TryCompileStatement lowers the `if` itself natively, so a
+                // branch of pure side effects + `throw` (e.g. the calculator's
+                // `if len < 2 { throw }`) lowers; only a real escape inside disqualifies.
+                case AstNodeType.If:
+                {
+                    var ifn = (IfNode)node;
+                    foreach (var (_, body, _) in ifn.Cases)
+                        if (ArrowBlockHasNonYieldControlEscape(body)) return true;
+                    if (ifn.ElseCase != null && ArrowBlockHasNonYieldControlEscape(ifn.ElseCase.Value.Expr))
+                        return true;
+                    return false;
+                }
+                // `try` / `catch` / `finally` likewise add no break-barrier — an
+                // escape in any of the three bodies escapes the arm. CompileTry
+                // lowers the statement; descend to confirm no in-arm escape.
+                case AstNodeType.Try:
+                {
+                    var tn = (Parser.Nodes.Special.TryNode)node;
+                    if (ArrowBlockHasNonYieldControlEscape(tn.TryBody)) return true;
+                    if (tn.CatchBody != null && ArrowBlockHasNonYieldControlEscape(tn.CatchBody)) return true;
+                    if (tn.FinallyBody != null && ArrowBlockHasNonYieldControlEscape(tn.FinallyBody)) return true;
+                    return false;
+                }
+                // Conservative: an unknown structure (nested switch / match / …)
+                // might hide a non-yield escape → fall back.
                 default:
                     return true;
             }
