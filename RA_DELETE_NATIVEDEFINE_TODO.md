@@ -1,5 +1,48 @@
 # RA_DELETE_NATIVEDEFINE_TODO.md — endgame to 100% native IR+VM
 
+## ✅ DONE (branch claude/ir-delete-nativedefine, 24 commits)
+
+**OP_NATIVE_DEFINE is deleted.** Recursive corpus NativeDefine count: 47 → **0**
+(every frame of all 324 test files lowers to pure IR/bytecode — zero runtime
+AST-walking). The opcode (0x90), its 16 emit sites, the EmitFallback/
+CompileStatementWithFallback routing, and the ~237-line VM AST-exec handler are
+removed (~670 net LOC). Suite stayed 281/281 files + 3067 assertions + archive
+22/22 GREEN at every step; NativeAOT ILC analysis clean.
+
+Constructs lowered this campaign (each: parity-verified + .rac round-trip + suite):
+record-class inheritance/abstract · lazy properties · **if/try-as-expression** ·
+node-level annotations (V12) · match patterns (unused/complex binders — the
+biggest single win via the FindVarAccessByName completeness fix · null · is-arm ·
+block-arm · or-pattern-binds · nested-finally-destructure) · in/not-in (OP_IN) ·
+list-spread (OP_LIST_EXTEND) · non-const struct/class/ext field defaults +
+lazy-ext-field (construction thunks) · interface/trait properties+events ·
+postfix/prefix ++/-- (+ C-style for) · `del` (OP_DELETE_LOCAL) · retry-for-times +
+`delay` (OP_SLEEP) · nested-try-finally + ret-in-finally · catch-variant-pattern ·
+ref-param call · unary-plus · chained-assign · negative-literal defaults · switch-arrow.
+
+New tooling: `--count-nd` (recursive NativeDefine counter — `--dump-ir` is
+top-level-only; this was the key measurement correction, 7→47 true count).
+
+Latent bugs fixed en route: DCE erasing dead boxed rotate/shift (silenced throws);
+struct-serializer field-dedup (dropped thunks on .rac load); 2 RacBytecodeVerifier
+false-positives (DeclSlot=-1, CatchSlot vs LocalCount); Resolver missing IsTypeNode
+case (`x is T` binder unresolved); DestructuringDeclaration mis-grouped with
+AnnotationApplication (OP_ANNOTATION_APPLY InvalidCast crash); visitor O3
+finally-ordering bug surfaced (IR is correct).
+
+Breaking: `--parity` CLI removed (its oracle ran *through* the fallback);
+.rac archives with the retired 0x90 are rejected (6 fixtures regenerated).
+
+Remaining (NOT required for the deletion — future/stretch): the parked-node opcodes
+(OP_WITH/OP_CALL_GENERIC/OP_ASM_INVOKE/OP_ANNOTATION_APPLY/OP_IS_TYPE) still serialize
+an AST node into .rac (the "zero serialized AST" stretch goal, §"parked-node" below);
+a reworked visitor-diff oracle to replace `--parity`; OP_SLEEP/retry `delay` limited
+to literal ms.
+
+---
+
+## (historical plan below)
+
 Goal: **0.0% AST-node-walking at runtime, delete `OP_NATIVE_DEFINE` (0x90)** + the
 whole AST-execution substrate (the tree-walking visitors as a runtime engine,
 `IrExpressionEvaluator`, the `DefineRefs`/`AstRefs` AST pools, ~3 KLoC of
