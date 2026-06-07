@@ -219,8 +219,22 @@ namespace RaLanguage.Interpreter.Runtime
 
                 var inner = context.Copy();
                 inner.SymbolTable!.Set("self", target);
-                var vt = new Interpreter().Visit(desc.DefaultValueNode, inner);
-                var bodyRes = vt.IsCompletedSuccessfully ? vt.Result : SyncAwait.Get(vt);
+                // L10: a NON-CONST or LAZY default lowered to a thunk (IR) runs via the
+                // VM in the SAME `inner` context the AST-walk uses (self bound, field
+                // semantics identical → parity). A non-lowered default AST-walks it. The
+                // shared RunCompiledThunk normalises the OP_RET value through `.Value`.
+                RuntimeResult bodyRes;
+                var compiled = desc.SourceNode.DefaultCompiledBody;
+                if (compiled != null)
+                {
+                    var vtc = PropertyAccessOps.RunCompiledThunk(compiled, inner);
+                    bodyRes = vtc.IsCompletedSuccessfully ? vtc.Result : SyncAwait.Get(vtc);
+                }
+                else
+                {
+                    var vt = new Interpreter().Visit(desc.DefaultValueNode, inner);
+                    bodyRes = vt.IsCompletedSuccessfully ? vt.Result : SyncAwait.Get(vt);
+                }
 
                 if (desc.IsLazy)
                     ExtensionFieldStorage.MarkLazyInitializing(target, desc.SlotIndex, false);

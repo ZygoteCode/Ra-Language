@@ -76,7 +76,7 @@ namespace RaLanguage.Interpreter.Archive
         //     v3 payloads keep loading unchanged; their callees pay
         //     the lazy compile once on first invocation, exactly as
         //     before.
-        public const ushort PayloadVersion = 9;
+        public const ushort PayloadVersion = 15;
         public const ushort PayloadVersion_V1 = 1;
         public const ushort PayloadVersion_V2 = 2;
         public const ushort PayloadVersion_V3 = 3;
@@ -107,6 +107,35 @@ namespace RaLanguage.Interpreter.Archive
         // Both gated on ver >= V9, so v8 archives load unchanged (ext fields /
         // indexers fell back to NativeDefine).
         public const ushort PayloadVersion_V9 = 9;
+        // V10: record-class inheritance — RecordDef gains BaseType + const-folded
+        // base-ctor args + IsAbstract. Older archives lack these (read as defaults).
+        public const ushort PayloadVersion_V10 = 10;
+        // V11: lazy properties — PropertyDef gains a CompiledDefault RaFunction (the
+        // lazy initializer lowered to a self-bound 0-arg thunk). Gated on ver >= V11,
+        // so V10 archives load unchanged (lazy properties fell back to NativeDefine).
+        public const ushort PayloadVersion_V11 = 11;
+        // V12: node-level annotations on type/annotation/extension definitions —
+        // every TypeDef gains an AnnotationApplicationNode[] (the @Ann on the decl),
+        // serialized at the end of each *Def. Gated on ver >= V12, so V11 archives
+        // load unchanged (annotated type/extension/annotation decls fell back to
+        // NativeDefine).
+        public const ushort PayloadVersion_V12 = 12;
+        // V13: non-const struct/class field defaults — StructFieldDef gains a
+        // CompiledDefault RaFunction (the non-const initializer lowered to a self-
+        // bound 0-arg thunk run at construction). Gated on ver >= V13, so V12 archives
+        // load unchanged (non-const eager field defaults fell back to NativeDefine).
+        public const ushort PayloadVersion_V13 = 13;
+        // V14: interface/trait contract properties + events — InterfaceDef / TraitDef
+        // gain a PropertyDef[] + EventDef[] pool (abstract/protocol members, no
+        // bodies), serialized after the methods. Gated on ver >= V14, so V13 archives
+        // load unchanged (interface/trait properties+events fell back to NativeDefine).
+        public const ushort PayloadVersion_V14 = 14;
+        // V15: non-const + lazy EXTENSION-field defaults — ExtensionFieldDef gains an
+        // IsLazy flag + a CompiledDefault RaFunction (the non-const/lazy initializer
+        // lowered to a self-bound 0-arg thunk run on first field-access). Gated on
+        // ver >= V15, so V14 archives load unchanged (non-const/lazy ext-field defaults
+        // fell back to NativeDefine).
+        public const ushort PayloadVersion_V15 = 15;
 
         public static byte[] Serialize(RaFunction root, SharedConstPoolBuilder? sharedPool = null)
         {
@@ -119,7 +148,7 @@ namespace RaLanguage.Interpreter.Archive
             // const inlines. Older wire versions (v1 / v2 / v3) are
             // still ACCEPTED by Deserialize for backward read.
             bool emitPool = sharedPool != null && sharedPool.Finalised && sharedPool.Pooled > 0;
-            ushort ver = PayloadVersion_V9;
+            ushort ver = PayloadVersion_V15;
             w.WriteU16(ver);
             w.WriteU16(0);
             // Stash the writer pool + version in thread-local state so
@@ -151,7 +180,10 @@ namespace RaLanguage.Interpreter.Archive
                 && ver != PayloadVersion_V3 && ver != PayloadVersion_V4
                 && ver != PayloadVersion_V5 && ver != PayloadVersion_V6
                 && ver != PayloadVersion_V7 && ver != PayloadVersion_V8
-                && ver != PayloadVersion_V9)
+                && ver != PayloadVersion_V9 && ver != PayloadVersion_V10
+                && ver != PayloadVersion_V11 && ver != PayloadVersion_V12
+                && ver != PayloadVersion_V13 && ver != PayloadVersion_V14
+                && ver != PayloadVersion_V15)
                 throw new InvalidDataException($"rac: ModuleBytecode version {ver} not supported");
             ushort reserved = r.ReadU16();
             if (reserved != 0)

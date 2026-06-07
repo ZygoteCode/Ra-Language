@@ -306,37 +306,110 @@ namespace RaLanguage.Interpreter.IR
             }
         }
 
-        // ---- L0 parity-oracle support (RA_FULL_IR_LOWERING_PLAN §4b) ----
+        // The set of ZERO-ARITY enum-variant names declared ANYWHERE in the
+        // program being compiled, plus the built-in nullary variant `None`.
+        // Used by the match pattern compiler to disambiguate a bare-identifier
+        // pattern (`case None`, `case Empty`, or a positional subpattern like
+        // `Ok(None)`) between a zero-arity VARIANT TEST and a fresh BINDING —
+        // mirroring the visitor's TryMatchVariableOrZeroArityVariant, but
+        // decided up-front so the lowering can emit EnumTagEq (member-name
+        // compare, the same operation the visitor's branch-1 uses) for a
+        // variant and a DeclareLocal for a binding.
         //
-        // When a node kind is in this set, CompileStatementWithFallback
-        // refuses to lower it natively and emits OP_NATIVE_DEFINE instead
-        // (provided the kind has a HasNativeDefineRoute). This lets a
-        // differential harness run the SAME program twice — native vs
-        // visitor-fallback — and assert byte-identical observable behaviour,
-        // which is the gate that lets later phases delete a fallback safely.
-        //
-        // Empty in every normal compile; a single `Count != 0` check gates
-        // the hot path, so there is zero cost when unused. Process-global +
-        // set/cleared by the harness around each run; never touched by the
-        // production CLI / archive paths.
-        private static readonly HashSet<AstNodeType> s_forceFallbackKinds = new();
+        // `s_variantNamesReady` gates use: it is set true only once
+        // CompileScript has scanned the whole program. CompileScript always
+        // runs before any lazy CompileFunction (functions compile on first
+        // call, during execution of the already-compiled top-level body), so
+        // the set is populated for every function body too. When NOT ready
+        // (exotic tooling that compiles a function in isolation), the match
+        // compiler stays conservative: a bare-identifier pattern is lowered
+        // only as a CONFIRMED local binding, else it falls back — never
+        // silently treated as an always-match no-op.
+        private static readonly HashSet<string> s_zeroArityVariantNames = new(StringComparer.Ordinal);
+        private static bool s_variantNamesReady;
 
-        public static void SetForceFallback(System.Collections.Generic.IEnumerable<AstNodeType> kinds)
+        // Populate s_zeroArityVariantNames from every EnumDefinitionNode in the
+        // program AST. Cheap one-shot walk run by CompileScript.
+        private static void CollectZeroArityVariantNames(AstNode? root)
         {
-            s_forceFallbackKinds.Clear();
-            foreach (var k in kinds) s_forceFallbackKinds.Add(k);
+            s_zeroArityVariantNames.Clear();
+            // Built-in nullary ADT variant. Result.Ok / Result.Err carry a
+            // payload, so they are NOT nullary; Option.None is.
+            s_zeroArityVariantNames.Add("None");
+            CollectZeroArityVariantNamesWalk(root);
+            s_variantNamesReady = true;
         }
 
-        public static void ClearForceFallback() => s_forceFallbackKinds.Clear();
+        // Focused walk: descends the statement-bearing containers an enum can
+        // be declared in (top-level list/scope, function & method bodies, the
+        // control-flow / try bodies, match arms). Completeness is NOT required
+        // for soundness — the match compiler's bare-identifier disambiguation
+        // is 3-way (confirmed binding / known variant / else→fallback), so a
+        // missed enum only costs coverage (that pattern falls back), never
+        // correctness. Hence the conservative `default: do nothing`.
+        private static void CollectZeroArityVariantNamesWalk(AstNode? node)
+        {
+            if (node == null) return;
+            switch (node)
+            {
+                case Parser.Nodes.Enums.EnumDefinitionNode ed:
+                    foreach (var variant in ed.Variants)
+                        if (!variant.HasPayload)
+                            s_zeroArityVariantNames.Add(variant.Name);
+                    return;
+                case Parser.Nodes.Primitives.ListNode lst:
+                    foreach (var c in lst.ElementNodes) CollectZeroArityVariantNamesWalk(c);
+                    return;
+                case Parser.Nodes.Special.ScopeNode sc:
+                    foreach (var c in sc.Nodes) CollectZeroArityVariantNamesWalk(c);
+                    return;
+                case Parser.Nodes.Functions.FunctionDefinitionNode fdn:
+                    CollectZeroArityVariantNamesWalk(fdn.BodyNode);
+                    return;
+                case Parser.Nodes.Classes.ClassDefinitionNode cls:
+                    foreach (var m in cls.Methods) CollectZeroArityVariantNamesWalk(m.BodyNode);
+                    return;
+                case Parser.Nodes.Structs.StructDefinitionNode str:
+                    foreach (var m in str.Methods) CollectZeroArityVariantNamesWalk(m.BodyNode);
+                    return;
+                case Parser.Nodes.Records.RecordDefinitionNode rec:
+                    foreach (var m in rec.Methods) CollectZeroArityVariantNamesWalk(m.BodyNode);
+                    return;
+                case Parser.Nodes.Statements.IfNode ifn:
+                    foreach (var cs in ifn.Cases) CollectZeroArityVariantNamesWalk(cs.Expr);
+                    if (ifn.ElseCase.HasValue) CollectZeroArityVariantNamesWalk(ifn.ElseCase.Value.Expr);
+                    return;
+                case Parser.Nodes.Statements.WhileNode wn:
+                    CollectZeroArityVariantNamesWalk(wn.BodyNode);
+                    return;
+                case Parser.Nodes.Statements.DoWhileNode dw:
+                    CollectZeroArityVariantNamesWalk(dw.BodyNode);
+                    return;
+                case Parser.Nodes.Statements.ForNode forn:
+                    CollectZeroArityVariantNamesWalk(forn.BodyNode);
+                    return;
+                case Parser.Nodes.Statements.ForEachNode fe:
+                    CollectZeroArityVariantNamesWalk(fe.BodyNode);
+                    return;
+                case Parser.Nodes.Special.TryNode tn:
+                    CollectZeroArityVariantNamesWalk(tn.TryBody);
+                    CollectZeroArityVariantNamesWalk(tn.CatchBody);
+                    CollectZeroArityVariantNamesWalk(tn.FinallyBody);
+                    return;
+                case Parser.Nodes.Patterns.MatchNode mn:
+                    foreach (var arm in mn.Arms) CollectZeroArityVariantNamesWalk(arm.Body);
+                    return;
+                default:
+                    return;
+            }
+        }
 
-        [System.Runtime.CompilerServices.MethodImpl(
-            System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        private static bool IsForcedFallback(AstNodeType t)
-            => s_forceFallbackKinds.Count != 0 && s_forceFallbackKinds.Contains(t);
-
-        // Exposed so the harness can reject a requested kind that has no
-        // visitor route (EmitFallback would hard-error on it).
-        public static bool IsFallbackRoutable(AstNodeType t) => HasNativeDefineRoute(t);
+        // True iff `name` is known to be a zero-arity enum variant somewhere in
+        // the program (so a bare-identifier pattern of this name is a VARIANT
+        // TEST, never a binding) — only meaningful once the program-wide scan
+        // has run.
+        private static bool IsKnownZeroArityVariant(string name)
+            => s_variantNamesReady && s_zeroArityVariantNames.Contains(name);
 
         public static RaFunction CompileScript(AstNode root, string sourceName)
         {
@@ -345,6 +418,10 @@ namespace RaLanguage.Interpreter.IR
             fn.MutatedNames = CollectMutatedNames(root);
             fn.HasImports = AstContainsImport(root);
             fn.CalleeMutatedNames = CollectCalleeMutatedNames(root);
+            // Program-wide scan for zero-arity enum-variant names, consumed by
+            // the match pattern compiler to tell a variant TEST from a binding.
+            // Runs here (whole program in hand) before any lazy CompileFunction.
+            CollectZeroArityVariantNames(root);
 
             var st = new State();
             st.FrameId = 0;
@@ -355,7 +432,7 @@ namespace RaLanguage.Interpreter.IR
 
             foreach (var stmt in statements)
             {
-                CompileStatementWithFallback(stmt, st, ScratchSlot);
+                CompileStatementOrThrow(stmt, st, ScratchSlot);
             }
 
             st.Code.Emit3(Opcode.Halt, ScratchSlot, 0, 0);
@@ -1331,30 +1408,22 @@ namespace RaLanguage.Interpreter.IR
             int savedPc = st.Code.Pc;
             int savedAstRefs = st.AstRefs.Count;
             int savedScopeDepth = st.ScopeDepth;
-            bool emitted = false;
             try
             {
                 CompileExpression(node, retSlot, st, ref topSlot);
                 if (topSlot > st.MaxTempUsed) st.MaxTempUsed = topSlot;
-                emitted = true;
             }
             catch (IrCompileException)
             {
-                // Roll back partial emit and route via OP_NATIVE_DEFINE.
+                // Roll back partial emit and re-propagate: there is no
+                // OP_NATIVE_DEFINE fallback any more, so an unlowerable
+                // expression is a hard compile failure. A higher legitimate
+                // retry (if any) sees clean state thanks to the rollback.
                 st.Code.Truncate(savedPc);
                 if (st.AstRefs.Count > savedAstRefs)
                     st.AstRefs.RemoveRange(savedAstRefs, st.AstRefs.Count - savedAstRefs);
                 st.ScopeDepth = savedScopeDepth;
-            }
-
-            if (!emitted)
-            {
-                if (st.DefineRefs.Count > ushort.MaxValue)
-                    throw new IrCompileException("DefineRefs overflow during CompileAsExpression");
-                ushort refIdx = (ushort)st.DefineRefs.Count;
-                st.DefineRefs.Add(node);
-                st.Code.Emit2(Opcode.NativeDefine, retSlot, refIdx);
-                if (topSlot > st.MaxTempUsed) st.MaxTempUsed = topSlot;
+                throw;
             }
 
             st.Code.Emit3(Opcode.Halt, retSlot, 0, 0);
@@ -1379,7 +1448,7 @@ namespace RaLanguage.Interpreter.IR
             st.StringInitBindings.UnionWith(CollectStringInitBindingNames(node));
             const byte ScratchSlot = 0;
 
-            CompileStatementWithFallback(node, st, ScratchSlot);
+            CompileStatementOrThrow(node, st, ScratchSlot);
 
             // Trailing terminator: load null + halt (Value=null, no
             // FuncReturnValue set). Explicit `ret X` inside the body emits
@@ -1504,8 +1573,8 @@ namespace RaLanguage.Interpreter.IR
                 catch (IrCompileException)
                 {
                     // Roll back any partial emit before falling through to the
-                    // block-form path (which uses CompileStatementWithFallback
-                    // — strictly more permissive at the cost of losing the
+                    // block-form path (CompileStatementOrThrow per statement —
+                    // strictly more permissive at the cost of losing the
                     // auto-return value).
                     st.Code.Truncate(savedPc);
                     if (st.AstRefs.Count > savedAstRefs)
@@ -1517,11 +1586,11 @@ namespace RaLanguage.Interpreter.IR
             if (body is ScopeNode sc)
             {
                 foreach (var stmt in sc.Nodes)
-                    CompileStatementWithFallback(stmt, st, ScratchSlot);
+                    CompileStatementOrThrow(stmt, st, ScratchSlot);
             }
             else if (body != null)
             {
-                CompileStatementWithFallback(body, st, ScratchSlot);
+                CompileStatementOrThrow(body, st, ScratchSlot);
             }
 
             // Default trailing terminator: load null into the scratch slot
@@ -1768,7 +1837,11 @@ namespace RaLanguage.Interpreter.IR
                 case Opcode.LoadIntS64:
                 case Opcode.Add: case Opcode.Sub: case Opcode.Mul:
                 case Opcode.Shl: case Opcode.Shr:
-                case Opcode.Ushr: case Opcode.Rol: case Opcode.Ror:
+                // Boxed Ushr / Rol / Ror deliberately EXCLUDED — they raise a
+                // user-visible RuntimeError on an arbitrary-precision `number`
+                // (Ushr also on a negative). Erasing a dead one (e.g. the
+                // discarded `1 <<<< 4` in `try { 1 <<<< 4; … }`) would silence
+                // that throw. The typed II variants below stay eligible.
                 case Opcode.BAnd: case Opcode.BOr: case Opcode.BXor:
                 case Opcode.AddNN: case Opcode.SubNN: case Opcode.MulNN:
                 case Opcode.AddII: case Opcode.SubII: case Opcode.MulII:
@@ -1906,7 +1979,6 @@ namespace RaLanguage.Interpreter.IR
                     case Opcode.Typeof:
                     case Opcode.Nameof:
                     case Opcode.DefineFunction:
-                    case Opcode.NativeDefine:
                     case Opcode.Await:
                     case Opcode.Spawn:
                     case Opcode.NullCoal:
@@ -2203,118 +2275,22 @@ namespace RaLanguage.Interpreter.IR
             }
         }
 
-        private static void CompileStatementWithFallback(AstNode stmt, State st, byte scratchSlot)
+        // Compile a single statement that MUST lower to IR. Replaces the old
+        // CompileStatementWithFallback: with OP_NATIVE_DEFINE deleted there is
+        // no visitor fallback, so a kind TryCompileStatement cannot natively
+        // lower (returns false) or throws while lowering is a hard compile
+        // failure. Every caller is a top-level statement loop (CompileScript,
+        // CompileMethodShape body, CompileAsStatement) or the non-strict bare
+        // `{ }` Scope child loop — none retry speculatively, so no local
+        // rollback is needed (the whole RaFunction is abandoned on failure, or
+        // an outer rollback truncates past this statement). The corpus is
+        // entirely ND=0, so this never fires for any corpus frame.
+        private static void CompileStatementOrThrow(AstNode stmt, State st, byte scratchSlot)
         {
-            int savedPc = st.Code.Pc;
-            int savedAstRefs = st.AstRefs.Count;
-            int savedScopeDepth = st.ScopeDepth;
             byte topSlot = 1;
-
-            try
-            {
-                // L0 parity oracle: when this kind is force-flagged, skip the
-                // native path so the statement rolls back to OP_NATIVE_DEFINE.
-                // Nothing was emitted yet, so the rollback below is a no-op.
-                if (!IsForcedFallback(stmt.NodeType)
-                    && TryCompileStatement(stmt, st, ref topSlot, scratchSlot, strict: false))
-                {
-                    if (topSlot > st.MaxTempUsed) st.MaxTempUsed = topSlot;
-                    return;
-                }
-            }
-            catch (IrCompileException)
-            {
-                // intentional: fall through and fallback
-            }
-
-            // rollback tentative state
-            st.Code.Truncate(savedPc);
-            if (st.AstRefs.Count > savedAstRefs)
-                st.AstRefs.RemoveRange(savedAstRefs, st.AstRefs.Count - savedAstRefs);
-            st.ScopeDepth = savedScopeDepth;
-            EmitFallback(stmt, st, scratchSlot);
-        }
-
-        // Rollback emits OP_NATIVE_DEFINE for every node kind that has a
-        // registered Apply dispatch in VmExecutor. Anything else is a hard
-        // failure: there is no AST-walker fallback any more.
-        private static void EmitFallback(AstNode node, State st, byte scratchSlot)
-        {
-            if (!HasNativeDefineRoute(node.NodeType))
-                throw new IrCompileException(
-                    $"no NATIVE_DEFINE route for node {node.NodeType}; wire VmExecutor.OP_NATIVE_DEFINE first");
-            if (st.DefineRefs.Count > ushort.MaxValue)
-                throw new IrCompileException("DefineRefs overflow (>65535)");
-            ushort refIdx = (ushort)st.DefineRefs.Count;
-            st.DefineRefs.Add(node);
-            st.Code.Emit2(Opcode.NativeDefine, scratchSlot, refIdx);
-        }
-
-        // Mirrors VmExecutor's OP_NATIVE_DEFINE switch. Keep in sync when
-        // adding a new dispatch case there.
-        private static bool HasNativeDefineRoute(AstNodeType t)
-        {
-            switch (t)
-            {
-                case AstNodeType.ExtensionDefinition:
-                case AstNodeType.TraitDefinition:
-                case AstNodeType.StructDefinition:
-                case AstNodeType.RecordDefinition:
-                case AstNodeType.InterfaceDefinition:
-                case AstNodeType.EnumDefinition:
-                case AstNodeType.UsingNamespace:
-                case AstNodeType.ClassDefinition:
-                case AstNodeType.AnnotationDefinition:
-                case AstNodeType.DelegateDefinition:
-                case AstNodeType.NamespaceDeclaration:
-                case AstNodeType.ImportAll:
-                case AstNodeType.ImportSelective:
-                case AstNodeType.ImportAlias:
-                case AstNodeType.Match:
-                case AstNodeType.DestructuringDeclaration:
-                case AstNodeType.TryUnwrap:
-                case AstNodeType.Await:
-                case AstNodeType.Spawn:
-                case AstNodeType.Emit:
-                case AstNodeType.ForAwait:
-                case AstNodeType.Pipeline:
-                case AstNodeType.Borrow:
-                case AstNodeType.DereferenceAssignment:
-                case AstNodeType.Goto:
-                case AstNodeType.Label:
-                case AstNodeType.SuperFor:
-                case AstNodeType.AsmBlock:
-                case AstNodeType.RegexLiteral:
-                case AstNodeType.FormattedInterpolation:
-                case AstNodeType.Yield:
-                case AstNodeType.AnnotationApplication:
-                case AstNodeType.Switch:
-                case AstNodeType.Try:
-                case AstNodeType.Scope:
-                case AstNodeType.If:
-                case AstNodeType.VariableDeclaration:
-                case AstNodeType.VariableAssignment:
-                case AstNodeType.Break:
-                case AstNodeType.Continue:
-                case AstNodeType.Pass:
-                case AstNodeType.Return:
-                case AstNodeType.Throw:
-                case AstNodeType.Retry:
-                case AstNodeType.BinaryOperation:
-                case AstNodeType.UnaryOperation:
-                case AstNodeType.List:
-                case AstNodeType.Set:
-                case AstNodeType.Tuple:
-                case AstNodeType.Map:
-                case AstNodeType.FunctionCall:
-                case AstNodeType.VariableDelete:
-                case AstNodeType.MemberAssignment:
-                case AstNodeType.ListAssignment:
-                case AstNodeType.WithExpression:
-                    return true;
-                default:
-                    return false;
-            }
+            if (!TryCompileStatement(stmt, st, ref topSlot, scratchSlot, strict: false))
+                throw new IrCompileException($"statement not IR-lowerable: {stmt.NodeType}");
+            if (topSlot > st.MaxTempUsed) st.MaxTempUsed = topSlot;
         }
 
         // L5: build a FLAT EnumDef from an enum declaration, or return false to
@@ -2328,7 +2304,6 @@ namespace RaLanguage.Interpreter.IR
         private static bool TryBuildEnumDef(Parser.Nodes.Enums.EnumDefinitionNode node, out Defs.EnumDef def)
         {
             def = null!;
-            if (node.HasAnnotations) return false;
             if (node.WhereConstraints != null && node.WhereConstraints.Count > 0) return false;
 
             string enumName = node.NameTok.Value?.ToString() ?? "";
@@ -2373,6 +2348,7 @@ namespace RaLanguage.Interpreter.IR
                 ? System.Array.Empty<string>()
                 : node.GenericTypeParams.ToArray();
             def = new Defs.EnumDef(enumName, generics, variants);
+            def.Annotations = node.Annotations != null ? node.Annotations.ToArray() : System.Array.Empty<Parser.Nodes.Annotations.AnnotationApplicationNode>();
             return true;
         }
 
@@ -2424,7 +2400,6 @@ namespace RaLanguage.Interpreter.IR
         private static bool TryBuildStructDef(Parser.Nodes.Structs.StructDefinitionNode node, out Defs.StructDef def)
         {
             def = null!;
-            if (node.HasAnnotations) return false;
             // L10: operators + where-constraints + auto-properties + events lowered (captured below).
 
             string name = node.NameTok.Value?.ToString() ?? "";
@@ -2440,13 +2415,21 @@ namespace RaLanguage.Interpreter.IR
             {
                 var fld = node.Fields[i];
                 if (fld.HasAnnotations) return false;
+                // L10: const default folds to DefaultConst (unchanged); a NON-CONST
+                // default compiles to a self-bound 0-arg thunk run at construction
+                // (the SAME GetOrCompileFieldDefault the struct field-init runs). A
+                // default that won't IR-compile → fall back to the visitor.
                 RuntimeValue? defConst = null;
+                RaFunction? fldThunk = null;
                 if (fld.DefaultValueNode != null && !TryFoldFieldDefaultConst(fld.DefaultValueNode, out defConst))
-                    return false; // non-constant field default → fallback to the visitor
+                {
+                    fldThunk = Runtime.FunctionDefinitionHelper.GetOrCompileFieldDefault(fld);
+                    if (fldThunk == null) return false; // non-const default that won't IR-compile → fallback to the visitor
+                }
                 fields[i] = new Defs.StructFieldDef(
                     fld.NameTok.Value?.ToString() ?? "", fld.FieldType,
                     fld.IsPublic, fld.IsStatic, fld.IsAbstract, fld.IsOverride,
-                    (int)fld.DeclarationType, defConst);
+                    (int)fld.DeclarationType, defConst, fldThunk);
             }
 
             var methods = new Defs.StructMethodDef[node.Methods.Count];
@@ -2457,6 +2440,7 @@ namespace RaLanguage.Interpreter.IR
                 ? System.Array.Empty<string>()
                 : node.GenericTypeParams.ToArray();
             def = new Defs.StructDef(name, node.IsPublic, generics, fields, methods, operators, wheres, properties, events);
+            def.Annotations = node.Annotations != null ? node.Annotations.ToArray() : System.Array.Empty<Parser.Nodes.Annotations.AnnotationApplicationNode>();
             return true;
         }
 
@@ -2545,26 +2529,39 @@ namespace RaLanguage.Interpreter.IR
             return result;
         }
 
-        // L10 property widening (auto-only): build a FLAT PropertyDef, or false to
-        // fall back. AUTO (stored) properties have no accessor bodies — their
-        // get/set synthesize field access (which already lowers). Custom-body /
-        // computed / lazy / abstract / non-const-default / annotated properties
-        // fall back (their bodies AST-walk via the visitor — accessor-body IR is a
-        // later increment). Shared by struct/record/class lowering.
+        // L10 property widening: build a FLAT PropertyDef, or false to fall back.
+        // AUTO (stored) properties have no accessor bodies — their get/set
+        // synthesize field access (which already lowers). Custom-body / computed
+        // accessors compile their bodies; a LAZY default compiles its initializer
+        // into a first-touch thunk. Non-const EAGER default / annotated properties
+        // fall back (their bodies AST-walk via the visitor). Shared by
+        // struct/record/class lowering.
         private static bool TryBuildPropertyDef(Parser.Nodes.Properties.PropertyDefinitionNode p, out Defs.PropertyDef pd)
         {
             pd = null!;
             if (p.HasAnnotations) return false;
-            if (p.IsLazy) return false;       // lazy: DefaultValueNode eval'd on first touch (AST)
             // L10 abstract: an abstract property is auto-accessor (no bodies, no
             // backing — PropertyBuilder returns hasBacking=false for IsAbstract).
             // The accessor loop below already handles bodyless accessors; the
             // IsAbstract flag is captured into PropertyDef so the visitor refuses
             // instantiation / requires an override.
 
+            // L10 lazy: a LAZY default initializer compiles to a self-bound 0-arg
+            // thunk (the SAME GetOrCompilePropertyDefault PropertyAccessOps runs on
+            // first touch). A lazy default that won't IR-compile → fallback. A
+            // non-const EAGER default still falls back (separate gate).
             RuntimeValue? defConst = null;
-            if (p.DefaultValueNode != null && !TryFoldFieldDefaultConst(p.DefaultValueNode, out defConst))
-                return false; // non-const default → fallback
+            RaFunction? compiledDefault = null;
+            if (p.DefaultValueNode != null)
+            {
+                if (p.IsLazy)
+                {
+                    compiledDefault = Runtime.FunctionDefinitionHelper.GetOrCompilePropertyDefault(p);
+                    if (compiledDefault == null) return false; // lazy default that won't IR-compile → fallback
+                }
+                else if (!TryFoldFieldDefaultConst(p.DefaultValueNode, out defConst))
+                    return false; // non-const EAGER default → still fallback (separate gate)
+            }
 
             var accessors = (p.Accessors == null || p.Accessors.Count == 0)
                 ? System.Array.Empty<Defs.PropertyAccessorDef>()
@@ -2587,7 +2584,7 @@ namespace RaLanguage.Interpreter.IR
 
             pd = new Defs.PropertyDef(
                 p.NameTok.Value?.ToString() ?? "", p.PropertyType, p.IsPublic, p.IsStatic,
-                p.IsAbstract, p.IsOverride, p.IsLazy, defConst, accessors);
+                p.IsAbstract, p.IsOverride, p.IsLazy, defConst, accessors, compiledDefault);
             return true;
         }
 
@@ -2640,10 +2637,8 @@ namespace RaLanguage.Interpreter.IR
         private static bool TryBuildRecordDef(Parser.Nodes.Records.RecordDefinitionNode node, out Defs.RecordDef def)
         {
             def = null!;
-            if (node.BaseType != null) return false;       // inheritance → fallback
-            if (node.IsAbstract) return false;
-            if (node.HasAnnotations) return false;
-            // L10: operators + where-constraints + auto-properties + events lowered (captured below).
+            // L10: inheritance (base-class + const-folded base-ctor args) + abstract +
+            // operators + where-constraints + auto-properties + events lowered (captured below).
 
             string name = node.NameTok.Value?.ToString() ?? "";
             if (string.IsNullOrWhiteSpace(name)) return false;
@@ -2671,8 +2666,20 @@ namespace RaLanguage.Interpreter.IR
             var generics = (node.GenericTypeParams == null || node.GenericTypeParams.Count == 0)
                 ? System.Array.Empty<string>()
                 : node.GenericTypeParams.ToArray();
+            Values.RuntimeValue?[] baseArgConsts = System.Array.Empty<Values.RuntimeValue?>();
+            if (node.BaseArgs != null && node.BaseArgs.Count > 0)
+            {
+                baseArgConsts = new Values.RuntimeValue?[node.BaseArgs.Count];
+                for (int i = 0; i < node.BaseArgs.Count; i++)
+                {
+                    if (!TryFoldFieldDefaultConst(node.BaseArgs[i], out var c)) return false; // non-const base arg → fallback
+                    baseArgConsts[i] = c;
+                }
+            }
             def = new Defs.RecordDef(name, node.IsPublic, node.IsRefRecord,
-                node.AutoEquals, node.AutoToString, generics, pfields, methods, operators, wheres, properties, events);
+                node.AutoEquals, node.AutoToString, generics, pfields, methods, operators, wheres, properties, events,
+                baseType: node.BaseType, baseArgConsts: baseArgConsts, isAbstract: node.IsAbstract);
+            def.Annotations = node.Annotations != null ? node.Annotations.ToArray() : System.Array.Empty<Parser.Nodes.Annotations.AnnotationApplicationNode>();
             return true;
         }
 
@@ -2686,7 +2693,6 @@ namespace RaLanguage.Interpreter.IR
         {
             def = null!;
             if (node.IsStatic) return false;   // static semantics → fallback (abstract is now lowered)
-            if (node.HasAnnotations) return false;
             // L10: inheritance (base/interfaces/traits) + operators + where + auto-properties + events + abstract lowered.
 
             string name = node.NameTok.Value?.ToString() ?? "";
@@ -2702,13 +2708,21 @@ namespace RaLanguage.Interpreter.IR
             {
                 var fld = node.Fields[i];
                 if (fld.HasAnnotations) return false;
+                // L10: const default folds to DefaultConst (unchanged); a NON-CONST
+                // default compiles to a self-bound 0-arg thunk run at construction
+                // (the SAME GetOrCompileFieldDefault the class field-init runs). A
+                // default that won't IR-compile → fall back to the visitor.
                 RuntimeValue? defConst = null;
+                RaFunction? fldThunk = null;
                 if (fld.DefaultValueNode != null && !TryFoldFieldDefaultConst(fld.DefaultValueNode, out defConst))
-                    return false;
+                {
+                    fldThunk = Runtime.FunctionDefinitionHelper.GetOrCompileFieldDefault(fld);
+                    if (fldThunk == null) return false; // non-const default that won't IR-compile → fallback
+                }
                 fields[i] = new Defs.StructFieldDef(
                     fld.NameTok.Value?.ToString() ?? "", fld.FieldType,
                     fld.IsPublic, fld.IsStatic, fld.IsAbstract, fld.IsOverride,
-                    (int)fld.DeclarationType, defConst);
+                    (int)fld.DeclarationType, defConst, fldThunk);
             }
 
             var methods = new Defs.ClassMethodDef[node.Methods.Count];
@@ -2726,6 +2740,7 @@ namespace RaLanguage.Interpreter.IR
                 : node.WithTraits.ToArray();
             def = new Defs.ClassDef(name, node.IsPublic, generics, fields, methods, operators, wheres, properties, events,
                 node.BaseType, ifaces, traits, node.IsAbstract);
+            def.Annotations = node.Annotations != null ? node.Annotations.ToArray() : System.Array.Empty<Parser.Nodes.Annotations.AnnotationApplicationNode>();
             return true;
         }
 
@@ -2788,15 +2803,16 @@ namespace RaLanguage.Interpreter.IR
         }
 
         // L5e: build a FLAT TraitDef, or false to fall back. First sub-stage:
-        // methods (provided + abstract/required) + fields; fallback on
-        // properties / events / where-constraints / annotations.
+        // methods (provided + abstract/required) + fields. L10 widening: contract
+        // properties + events (abstract/protocol members, no bodies) lower via the
+        // shared TryBuildPropertyDefs/TryBuildEventDefs helpers. Fallback on
+        // where-constraints / annotations.
         private static bool TryBuildTraitDef(Parser.Nodes.Traits.TraitDefinitionNode node, out Defs.TraitDef def)
         {
             def = null!;
-            if (node.HasAnnotations) return false;
             if (node.WhereConstraints != null && node.WhereConstraints.Count > 0) return false;
-            if (node.Properties != null && node.Properties.Count > 0) return false;
-            if (node.Events != null && node.Events.Count > 0) return false;
+            if (!TryBuildPropertyDefs(node.Properties, out var properties)) return false;
+            if (!TryBuildEventDefs(node.Events, out var events)) return false;
 
             string name = node.NameTok.Value?.ToString() ?? "";
             if (string.IsNullOrWhiteSpace(name)) return false;
@@ -2822,7 +2838,8 @@ namespace RaLanguage.Interpreter.IR
             var generics = (node.GenericTypeParams == null || node.GenericTypeParams.Count == 0)
                 ? System.Array.Empty<string>()
                 : node.GenericTypeParams.ToArray();
-            def = new Defs.TraitDef(name, node.IsPublic, generics, fields, methods);
+            def = new Defs.TraitDef(name, node.IsPublic, generics, fields, methods, properties, events);
+            def.Annotations = node.Annotations != null ? node.Annotations.ToArray() : System.Array.Empty<Parser.Nodes.Annotations.AnnotationApplicationNode>();
             return true;
         }
 
@@ -2857,8 +2874,10 @@ namespace RaLanguage.Interpreter.IR
         // L5e: build a FLAT InterfaceDef, or false to fall back. Interface methods
         // are pure SIGNATURES (no bodies → no precompiled RaFunction); fields
         // reuse the struct field descriptor (interface fields can't carry defaults
-        // → DefaultConst stays null). Fallback on annotations (on the interface, a
-        // method, or a field) / properties / events / where-constraints / a field
+        // → DefaultConst stays null). L10 widening: contract properties + events
+        // (abstract/protocol members, no bodies) lower via the shared
+        // TryBuildPropertyDefs/TryBuildEventDefs helpers. Fallback on annotations
+        // (on the interface, a method, or a field) / where-constraints / a field
         // that declares a default value (the visitor rejects those — fall back so
         // it surfaces the identical error directly). Invalid-but-default-free
         // fields (final/let/no-type) still lower: the reconstructed node re-runs
@@ -2866,10 +2885,9 @@ namespace RaLanguage.Interpreter.IR
         private static bool TryBuildInterfaceDef(Parser.Nodes.Interfaces.InterfaceDefinitionNode node, out Defs.InterfaceDef def)
         {
             def = null!;
-            if (node.HasAnnotations) return false;
             if (node.WhereConstraints != null && node.WhereConstraints.Count > 0) return false;
-            if (node.Properties != null && node.Properties.Count > 0) return false;
-            if (node.Events != null && node.Events.Count > 0) return false;
+            if (!TryBuildPropertyDefs(node.Properties, out var properties)) return false;
+            if (!TryBuildEventDefs(node.Events, out var events)) return false;
 
             string name = node.NameTok.Value?.ToString() ?? "";
             if (string.IsNullOrWhiteSpace(name)) return false;
@@ -2901,7 +2919,8 @@ namespace RaLanguage.Interpreter.IR
             var generics = (node.GenericTypeParams == null || node.GenericTypeParams.Count == 0)
                 ? System.Array.Empty<string>()
                 : node.GenericTypeParams.ToArray();
-            def = new Defs.InterfaceDef(name, node.IsPublic, generics, fields, methods);
+            def = new Defs.InterfaceDef(name, node.IsPublic, generics, fields, methods, properties, events);
+            def.Annotations = node.Annotations != null ? node.Annotations.ToArray() : System.Array.Empty<Parser.Nodes.Annotations.AnnotationApplicationNode>();
             return true;
         }
 
@@ -2912,7 +2931,6 @@ namespace RaLanguage.Interpreter.IR
         private static bool TryBuildAnnotationDef(Parser.Nodes.Annotations.AnnotationDefinitionNode node, out Defs.AnnotationDef def)
         {
             def = null!;
-            if (node.HasAnnotations) return false; // meta-annotations → fallback
             string name = node.Name;
             if (string.IsNullOrWhiteSpace(name)) return false;
 
@@ -2927,6 +2945,7 @@ namespace RaLanguage.Interpreter.IR
             }
 
             def = new Defs.AnnotationDef(name, node.IsPublic, ps);
+            def.Annotations = node.Annotations != null ? node.Annotations.ToArray() : System.Array.Empty<Parser.Nodes.Annotations.AnnotationApplicationNode>();
             return true;
         }
 
@@ -3017,7 +3036,6 @@ namespace RaLanguage.Interpreter.IR
         private static bool TryBuildExtensionDef(Parser.Nodes.Classes.ExtensionDefinitionNode node, out Defs.ExtensionDef def)
         {
             def = null!;
-            if (node.HasAnnotations) return false;
             // L10: extension operators + properties + events + fields + indexers lowered (captured below).
             if (node.TargetType == null) return false;
 
@@ -3029,11 +3047,11 @@ namespace RaLanguage.Interpreter.IR
             for (int i = 0; i < node.Methods.Count; i++)
                 if (!TryBuildClassMethodDef(node.Methods[i], out methods[i])) return false;
 
-            // Extension fields: mirror the struct-field flat capture. A lazy field
-            // relies on the live AST default (evaluated on first touch with `self`
-            // bound) + re-entrancy gating, so it falls back. A non-const default
-            // (instance-state expr, list literal, …) falls back exactly like a
-            // struct field's non-const default. Const / absent defaults lower.
+            // Extension fields: mirror the struct-field flat capture. A const /
+            // absent default lowers directly; a NON-CONST default (instance-state
+            // expr, list literal, …) OR a LAZY field compiles to a first-touch thunk
+            // (run with `self` bound on first access, with the re-entrancy guard for
+            // lazy in ExtensionDispatch). A default that won't IR-compile falls back.
             if (!TryBuildExtensionFieldDefs(node.Fields, out var fields)) return false;
 
             // Extension indexers: the get/set bodies ARE FunctionDefinitionNodes
@@ -3044,6 +3062,7 @@ namespace RaLanguage.Interpreter.IR
             if (!TryBuildIndexerDefs(node.Methods, node.Indexers, out var indexers)) return false;
 
             def = new Defs.ExtensionDef(node.TargetType, node.IsPublic, node.IsSealed, methods, operators, properties, events, fields, indexers);
+            def.Annotations = node.Annotations != null ? node.Annotations.ToArray() : System.Array.Empty<Parser.Nodes.Annotations.AnnotationApplicationNode>();
             return true;
         }
 
@@ -3059,18 +3078,30 @@ namespace RaLanguage.Interpreter.IR
             for (int i = 0; i < fields.Count; i++)
             {
                 var decl = fields[i];
-                // Lazy ext-fields defer their default eval (reading `self`) until
-                // first read, with a re-entrancy guard — keep them on the AST path.
-                if (decl.IsLazy) { result = null!; return false; }
                 var fld = decl.Field;
                 if (fld.HasAnnotations) { result = null!; return false; }
+                // L10: a const non-lazy default folds to DefaultConst (unchanged). A
+                // NON-CONST or LAZY default compiles to a self-bound 0-arg thunk run on
+                // first field-access (the SAME GetOrCompileFieldDefault struct/class
+                // fields run, with `self` bound to the extended instance) — covering
+                // both the eager-on-first-read non-const case and the lazy case (the
+                // re-entrancy guard lives in ExtensionDispatch). A lazy field always
+                // takes the thunk path (its default is never const-folded, so first
+                // read keeps observing instance state). A default that won't IR-compile
+                // → fall back to the visitor.
                 RuntimeValue? defConst = null;
-                if (fld.DefaultValueNode != null && !TryFoldFieldDefaultConst(fld.DefaultValueNode, out defConst))
-                { result = null!; return false; } // non-const default → fallback
+                RaFunction? fldThunk = null;
+                bool needsThunk = decl.IsLazy ||
+                    (fld.DefaultValueNode != null && !TryFoldFieldDefaultConst(fld.DefaultValueNode, out defConst));
+                if (needsThunk)
+                {
+                    fldThunk = Runtime.FunctionDefinitionHelper.GetOrCompileFieldDefault(fld);
+                    if (fldThunk == null) { result = null!; return false; } // non-const/lazy default that won't IR-compile → fallback
+                }
                 result[i] = new Defs.ExtensionFieldDef(
                     fld.NameTok.Value?.ToString() ?? "", fld.FieldType,
                     fld.IsPublic, decl.IsStaticField,
-                    (int)fld.DeclarationType, defConst);
+                    (int)fld.DeclarationType, defConst, decl.IsLazy, fldThunk);
             }
             return true;
         }
@@ -3129,6 +3160,24 @@ namespace RaLanguage.Interpreter.IR
                         else return false; // interpolated → not a compile-time constant
                     }
                     val = new Values.Primitives.StringValue(sb.ToString()); return true;
+                }
+                // Negative / unary-plus numeric default: `= -1`, `= -3.5`, `= +7`.
+                // The parser renders `-1` as UnaryOperation(MINUS, NumberNode), so a
+                // bare literal default with a sign never reaches the NumberNode case
+                // above. Recurse to fold the operand (reusing the NumberNode path),
+                // then negate (unary `-`) or pass through (unary `+`) the resulting
+                // NumberValue. Non-numeric operands stay on fallback. Negation uses
+                // `BigNumber.Zero - v.Value` — the same idiom as TryConstEvalNumber —
+                // which preserves the numeric scale (so `-3.5` stays decimal-class).
+                case UnaryOperationNode un
+                    when un.OpTok.Type == TokenType.MINUS || un.OpTok.Type == TokenType.PLUS:
+                {
+                    if (!TryFoldFieldDefaultConst(un.Node, out var inner)) return false;
+                    if (inner is not Values.Primitives.NumberValue nv) return false;
+                    val = un.OpTok.Type == TokenType.MINUS
+                        ? Values.Primitives.NumberValue.OfBigNumber(BigNumber.Zero - nv.Value)
+                        : nv;
+                    return true;
                 }
                 default:
                     return false;
@@ -3219,7 +3268,7 @@ namespace RaLanguage.Interpreter.IR
                     {
                         EmitPushScope(st);
                         foreach (var child in sc.Nodes)
-                            CompileStatementWithFallback(child, st, scratchSlot);
+                            CompileStatementOrThrow(child, st, scratchSlot);
                         EmitPopScope(st);
                         return true;
                     }
@@ -3279,15 +3328,17 @@ namespace RaLanguage.Interpreter.IR
                     return true;
                 }
 
+                // `retry for N times [delay M] { body } [else {...}]`. The only
+                // node tagged AstNodeType.Retry is RetryNode — there is no bare
+                // `retry` keyword (the parser always requires `for ... times`).
+                // CompileRetry composes the loop counter + EhTable machinery and
+                // self-throws IrCompileException for the cases it cannot lower
+                // (non-literal/negative/too-large count, `delay`, a body/else
+                // control escape). With OP_NATIVE_DEFINE deleted those throws
+                // propagate as a hard compile failure (no corpus retry hits this).
                 case AstNodeType.Retry:
-                {
-                    var loop = NearestRealLoop(st);
-                    if (loop == null)
-                        throw new IrCompileException("`retry` outside loop");
-                    EmitPopsDownTo(st, loop.BaselineScopeDepth);
-                    st.Code.EmitBackwardJump(Opcode.Jmp, 0, loop.RetryTargetPc);
+                    CompileRetry((Parser.Nodes.Statements.RetryNode)stmt, st, ref topSlot, scratchSlot);
                     return true;
-                }
 
                 case AstNodeType.Return:
                 {
@@ -3352,14 +3403,15 @@ namespace RaLanguage.Interpreter.IR
                 // constant-integer literals (and with no annotations / where-
                 // constraints) lower to a FLAT EnumDef descriptor + OP_DEFINE_TYPE
                 // — no AST in the `.rac`. Anything outside that flat subset
-                // throws → CompileStatementWithFallback emits OP_NATIVE_DEFINE so
-                // the visitor handles it (value side effects, exotic types,
-                // annotations, generics-with-constraints, …).
+                // (value side effects, exotic types, annotations,
+                // generics-with-constraints, …) throws IrCompileException; with
+                // OP_NATIVE_DEFINE gone that is a hard compile failure (the whole
+                // corpus stays inside the flat subset).
                 case AstNodeType.EnumDefinition:
                 {
                     var en = (Parser.Nodes.Enums.EnumDefinitionNode)stmt;
                     if (!TryBuildEnumDef(en, out var edef))
-                        throw new IrCompileException("enum not flat-lowerable -> fallback");
+                        throw new IrCompileException("enum not flat-lowerable");
                     if (st.TypeDefs.Count > ushort.MaxValue)
                         throw new IrCompileException("TypeDefs overflow (>65535)");
                     ushort tdIdx = (ushort)st.TypeDefs.Count;
@@ -3591,12 +3643,7 @@ namespace RaLanguage.Interpreter.IR
                         if (st.DefineRefs.Count > dSavedRefs)
                             st.DefineRefs.RemoveRange(dSavedRefs, st.DefineRefs.Count - dSavedRefs);
                     }
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort ddRefIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(stmt);
-                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, ddRefIdx);
-                    return true;
+                    throw new IrCompileException("destructuring-declaration not IR-lowerable");
                 }
 
                 // L8 — `emit x` (statement, sync). Evaluate the value, emit
@@ -3623,12 +3670,7 @@ namespace RaLanguage.Interpreter.IR
                         if (st.DefineRefs.Count > eSavedRefs)
                             st.DefineRefs.RemoveRange(eSavedRefs, st.DefineRefs.Count - eSavedRefs);
                     }
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort emRefIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(stmt);
-                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, emRefIdx);
-                    return true;
+                    throw new IrCompileException("emit statement not IR-lowerable");
                 }
 
                 // L8 — `for await x in stream { body }` (statement form). Lowered
@@ -3698,12 +3740,7 @@ namespace RaLanguage.Interpreter.IR
                         if (st.DefineRefs.Count > faSavedRefs)
                             st.DefineRefs.RemoveRange(faSavedRefs, st.DefineRefs.Count - faSavedRefs);
                     }
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort faRefIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(stmt);
-                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, faRefIdx);
-                    return true;
+                    throw new IrCompileException("for-await statement not IR-lowerable");
                 }
 
                 // Native registrations + long-tail expressions / statements.
@@ -3724,12 +3761,9 @@ namespace RaLanguage.Interpreter.IR
                         st.Code.EmitBackwardJump(Opcode.Jmp, 0, gtTarget.Pc);
                         return true;
                     }
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort gtRefIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(stmt);
-                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, gtRefIdx);
-                    return true;
+                    // Forward / undefined goto target: not IR-lowerable (the
+                    // visitor used to raise RA0401 here via OP_NATIVE_DEFINE).
+                    throw new IrCompileException("forward/undefined goto not IR-lowerable");
                 }
                 // L10: `LABEL: <rest of block>`. The parser folds the rest of the
                 // enclosing block into the label's ScopeNode body. Lower it like a
@@ -3771,12 +3805,7 @@ namespace RaLanguage.Interpreter.IR
                         if (st.DefineRefs.Count > lSavedRefs)
                             st.DefineRefs.RemoveRange(lSavedRefs, st.DefineRefs.Count - lSavedRefs);
                     }
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort lblRefIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(stmt);
-                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, lblRefIdx);
-                    return true;
+                    throw new IrCompileException("label body not IR-lowerable");
                 }
                 case AstNodeType.AsmBlock:
                     CompileAsmBlock((Parser.Nodes.Asm.AsmBlockNode)stmt, scratchSlot, st, ref topSlot);
@@ -3826,12 +3855,9 @@ namespace RaLanguage.Interpreter.IR
                                 st.DefineRefs.RemoveRange(ySavedRefs, st.DefineRefs.Count - ySavedRefs);
                         }
                     }
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort yRefIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(stmt);
-                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, yRefIdx);
-                    return true;
+                    // Reached when the yield value expr can't lower (or a bare
+                    // `yield` with no expression, which the IR does not lower).
+                    throw new IrCompileException("yield statement not IR-lowerable");
                 }
                 case AstNodeType.AnnotationApplication:
                 {
@@ -3868,12 +3894,7 @@ namespace RaLanguage.Interpreter.IR
                         if (st.DefineRefs.Count > savedRefs)
                             st.DefineRefs.RemoveRange(savedRefs, st.DefineRefs.Count - savedRefs);
                     }
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort swStmtRefIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(stmt);
-                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, swStmtRefIdx);
-                    return true;
+                    throw new IrCompileException("switch statement not IR-lowerable");
                 }
 
                 // L7: statement-position match — lower the literal/wildcard
@@ -3901,12 +3922,7 @@ namespace RaLanguage.Interpreter.IR
                         if (st.DefineRefs.Count > savedRefs)
                             st.DefineRefs.RemoveRange(savedRefs, st.DefineRefs.Count - savedRefs);
                     }
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort mStmtRefIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(stmt);
-                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, mStmtRefIdx);
-                    return true;
+                    throw new IrCompileException("match statement not IR-lowerable");
                 }
 
                 case AstNodeType.VariableAssignment:
@@ -4044,6 +4060,27 @@ namespace RaLanguage.Interpreter.IR
                     return true;
                 }
 
+                case AstNodeType.VariableDelete:
+                {
+                    // `del a, b, ...` — emit one OP_DELETE_LOCAL per name. Each
+                    // removes the binding from the symbol table (raising if the
+                    // name is absent), mirroring VariableDeleteNodeVisitor.Apply.
+                    // The Resolver has already forced every del'd name to be
+                    // NON-slot-eligible (DelNames), so a subsequent read compiles
+                    // to OP_LOAD_GLOBAL and correctly errors after the Remove.
+                    var del = (VariableDeleteNode)stmt;
+                    foreach (var tok in del.Tokens)
+                    {
+                        var delName = tok.Value?.ToString();
+                        if (string.IsNullOrEmpty(delName))
+                            throw new IrCompileException("del with empty name");
+                        ushort nameIdx = st.Names.Add(delName);
+                        // `a` unused; nameIdx in imm16.
+                        st.Code.Emit2(Opcode.DeleteLocal, 0, nameIdx);
+                    }
+                    return true;
+                }
+
                 default:
                     if (strict)
                         throw new IrCompileException($"unsupported statement in compiled body: {stmt.NodeType}");
@@ -4069,13 +4106,12 @@ namespace RaLanguage.Interpreter.IR
         // branch exit.
         //
         // M21.1: dropped the BodyContainsUnsupported pre-checks. Strict-mode
-        // TryCompileStatement already emits OP_NATIVE_DEFINE for the long
-        // tail (Match, Switch, Try, Await, AnnotationApplication, etc.), so
-        // pre-rejecting them throws away native lowering of the if scaffold
-        // for no gain. Anything strict-mode genuinely can't express still
-        // throws IrCompileException, which the outer
-        // CompileStatementWithFallback catches and routes the whole If
-        // through OP_NATIVE_DEFINE → IfNodeVisitor.Apply.
+        // TryCompileStatement natively lowers the long tail (Match, Switch,
+        // Try, Await, AnnotationApplication, etc.), so pre-rejecting them throws
+        // away native lowering of the if scaffold for no gain. Anything
+        // strict-mode genuinely can't express still throws IrCompileException,
+        // which now propagates as a hard compile failure (OP_NATIVE_DEFINE and
+        // its visitor fallback are gone; the corpus never reaches this).
         private static void CompileIf(IfNode node, State st, ref byte topSlot, byte scratchSlot)
         {
             var endJumps = new List<int>();
@@ -4135,6 +4171,129 @@ namespace RaLanguage.Interpreter.IR
         {
             foreach (var name in st.TypedAccumulators.Keys)
                 st.DirtyTypedAccs.Add(name);
+        }
+
+        // L11: compile a block (or bare expr) so its VALUE lands in destSlot.
+        // Ra block-value semantics: a block's value is its LAST expression;
+        // earlier elements run as statements. A bare (non-block) body compiles
+        // as a value expression directly. Does NOT push its own scope — callers
+        // scope each branch/body. Throws IrCompileException on anything
+        // non-lowerable, so the caller rolls the whole expression back to the
+        // OP_NATIVE_DEFINE fallback.
+        private static void CompileBlockValue(AstNode body, byte destSlot, State st, ref byte topSlot, byte scratch)
+        {
+            if (body.NodeType != AstNodeType.Scope && body.NodeType != AstNodeType.List)
+            {
+                CompileExpression(body, destSlot, st, ref topSlot);
+                return;
+            }
+            var nodes = body is ScopeNode sc
+                ? sc.Nodes
+                : ((Parser.Nodes.Primitives.ListNode)body).ElementNodes;
+            if (nodes.Count == 0) { st.Code.Emit3(Opcode.LoadNull, destSlot, 0, 0); return; }
+            for (int i = 0; i < nodes.Count - 1; i++)
+                if (!TryCompileStatement(nodes[i], st, ref topSlot, scratch, strict: true))
+                    throw new IrCompileException($"block-value stmt not compilable: {nodes[i].NodeType}");
+            var last = nodes[nodes.Count - 1];
+            // Last element: try as a value-expression; if it isn't one, run it as
+            // a statement and the block value is null (matches the visitor, whose
+            // RuntimeResult.Value for a non-expression statement is null).
+            int savedPc = st.Code.Pc;
+            byte savedTop = topSlot;
+            int savedRefs = st.DefineRefs.Count;
+            int savedAst = st.AstRefs.Count;
+            try
+            {
+                CompileExpression(last, destSlot, st, ref topSlot);
+            }
+            catch (IrCompileException)
+            {
+                st.Code.Truncate(savedPc);
+                topSlot = savedTop;
+                if (st.DefineRefs.Count > savedRefs) st.DefineRefs.RemoveRange(savedRefs, st.DefineRefs.Count - savedRefs);
+                if (st.AstRefs.Count > savedAst) st.AstRefs.RemoveRange(savedAst, st.AstRefs.Count - savedAst);
+                if (!TryCompileStatement(last, st, ref topSlot, scratch, strict: true))
+                    throw new IrCompileException($"block-value last stmt not compilable: {last.NodeType}");
+                st.Code.Emit3(Opcode.LoadNull, destSlot, 0, 0);
+            }
+        }
+
+        // L11: value-producing if (`let x = if c { … } else { … }`). Mirrors
+        // CompileIf, but each branch body lands its VALUE in destSlot via
+        // CompileBlockValue. No matching branch (and no else) → null, matching
+        // the visitor (IfNodeVisitor returns a null RuntimeValue when nothing
+        // fires). Each branch runs in its own scope.
+        private static void CompileIfExpr(IfNode node, byte destSlot, State st, ref byte topSlot)
+        {
+            byte scratch = AllocTemp(ref topSlot);
+            var endJumps = new List<int>();
+            for (int i = 0; i < node.Cases.Count; i++)
+            {
+                var (cond, body, _srn) = node.Cases[i];
+                bool? folded = TryFoldCondition(cond);
+                if (folded == true)
+                {
+                    EmitPushScope(st); CompileBlockValue(body, destSlot, st, ref topSlot, scratch); EmitPopScope(st);
+                    // remaining elif / else branches statically dead — drop.
+                    foreach (var j in endJumps) st.Code.PatchJumpToHere(j);
+                    MarkAllTypedAccsDirty(st);
+                    return;
+                }
+                if (folded == false) continue;
+                byte condSlot = AllocTemp(ref topSlot);
+                CompileExpression(cond, condSlot, st, ref topSlot);
+                int skipJmp = st.Code.EmitForwardJump(Opcode.JmpIfNot, condSlot);
+                EmitPushScope(st); CompileBlockValue(body, destSlot, st, ref topSlot, scratch); EmitPopScope(st);
+                endJumps.Add(st.Code.EmitForwardJump(Opcode.Jmp));
+                st.Code.PatchJumpToHere(skipJmp);
+            }
+            if (node.ElseCase.HasValue)
+            {
+                var (elseBody, _srn2) = node.ElseCase.Value;
+                EmitPushScope(st); CompileBlockValue(elseBody, destSlot, st, ref topSlot, scratch); EmitPopScope(st);
+            }
+            else
+            {
+                st.Code.Emit3(Opcode.LoadNull, destSlot, 0, 0); // no matching branch → null
+            }
+            foreach (var j in endJumps) st.Code.PatchJumpToHere(j);
+            MarkAllTypedAccsDirty(st);
+        }
+
+        // L11: value-producing try/catch (`let x = try { … } catch (e) { … }`).
+        // Mirrors the no-finally CompileTry path, landing both the try and the
+        // catch body's VALUE in destSlot via CompileBlockValue. A finally clause
+        // as a value stays gated → fallback (CompileTryFinally is statement-only
+        // and finally-value routing isn't lowered).
+        private static void CompileTryExpr(Parser.Nodes.Special.TryNode node, byte destSlot, State st, ref byte topSlot)
+        {
+            if (node.FinallyBody != null) throw new IrCompileException("try-expr with finally -> fallback");
+            if (node.CatchBody == null) throw new IrCompileException("try-expr without catch -> fallback");
+            byte catchSlot = AllocTemp(ref topSlot);
+            byte scratch = AllocTemp(ref topSlot);
+            int scopeDepthAtTry = st.ScopeDepth;
+            EmitPushScope(st);
+            int tryStartPc = st.Code.Pc;
+            CompileBlockValue(node.TryBody, destSlot, st, ref topSlot, scratch);
+            int tryEndPc = st.Code.Pc;
+            EmitPopScope(st);
+            int afterCatchJmp = st.Code.EmitForwardJump(Opcode.Jmp);
+            int catchPc = st.Code.Pc;
+            EmitPushScope(st);
+            if (node.CatchVarTok != null)
+            {
+                string varName = node.CatchVarTok.Value!.ToString()!;
+                ushort nameIdx = st.Names.Add(varName);
+                st.Code.Emit2(Opcode.SetLocalDirect, catchSlot, nameIdx);
+            }
+            CompileBlockValue(node.CatchBody, destSlot, st, ref topSlot, scratch);
+            EmitPopScope(st);
+            st.Code.PatchJumpToHere(afterCatchJmp);
+            st.EhTable.Add(new ExceptionHandler(
+                start: tryStartPc, end: tryEndPc,
+                catchPc: catchPc, finallyPc: -1,
+                catchSlot: catchSlot, scopeDepth: scopeDepthAtTry));
+            MarkAllTypedAccsDirty(st);
         }
 
         // L7 (first cut): expression-switch lowering. A switch where EVERY case
@@ -4401,42 +4560,73 @@ namespace RaLanguage.Interpreter.IR
                         if (arm.Guard == null && catchAllIdx < 0) catchAllIdx = i;
                         break;
                     case Parser.Nodes.Patterns.LiteralPatternNode lp:
-                        if (!IsLowerableMatchLiteral(lp.Expression))
+                        // `case null` lowers via the identity test (EmitNullLiteralTest);
+                        // any other literal must be plain-Eq-lowerable.
+                        if (lp.Expression.NodeType != AstNodeType.Null
+                            && !IsLowerableMatchLiteral(lp.Expression))
                             throw new IrCompileException("match: non-trivial literal pattern -> fallback");
                         break;
                     case Parser.Nodes.Patterns.VariablePatternNode vp:
                     {
-                        // Lower a variable pattern ONLY when it is a confirmed
-                        // BINDING: the guard/body must reference the name through a
-                        // slot-eligible LOCAL access. The Resolver resolves a real
-                        // binding ref to a Local slot; a zero-arity variant ref
-                        // (`case None`) resolves to Global/enum — so the variant
-                        // disambiguation falls out for free (no Local ref → fall
-                        // back). An unused binding also can't be confirmed → fall
-                        // back. The matched slot is where the arm body reads it.
+                        // A variable pattern is either a BINDING or a zero-arity
+                        // variant TEST (`case None`). Resolve the same 3 ways as a
+                        // subpattern (see GuardLeafSubpattern):
+                        //  1) confirmed local binding → bind; it is an
+                        //     unconditional CATCH-ALL when unguarded;
+                        //  2) known zero-arity variant → an EnumTagEq tag test
+                        //     (refutable, NOT a catch-all);
+                        //  3) else (a lowercase identifier that is NOT a known
+                        //     zero-arity variant) → a BINDING. The zero-arity-variant
+                        //     set is program-complete (the CompileScript scan), so
+                        //     "not a known variant" PROVES this is a binding. If its
+                        //     value is never read in guard/body (the complete
+                        //     FindVarAccessByName scan finds no access → slot -1 AND
+                        //     MatchBinderIsProvablyUnused), the bind has no
+                        //     observable effect → treat it as a catch-all that binds
+                        //     NOTHING (a wildcard); when unguarded it always matches.
+                        //     If the name IS read but only out-of-frame (captured by
+                        //     a nested closure → not slot-eligible), fall back.
                         int bslot = FindMatchBindingSlot(vp.Name, arm.Guard, arm.Body, st);
-                        if (bslot < 0)
+                        if (bslot >= 0)
+                        {
+                            if (bslot > maxBindingSlot) maxBindingSlot = bslot;
+                            // A binding arm with no guard always matches → catch-all.
+                            if (arm.Guard == null && catchAllIdx < 0) catchAllIdx = i;
+                        }
+                        else if (IsKnownZeroArityVariant(vp.Name))
+                        {
+                            if (st.Names.Add(vp.Name) > byte.MaxValue)
+                                throw new IrCompileException("match: variant name index out of 8-bit range -> fallback");
+                            // refutable tag test — never a catch-all.
+                        }
+                        else if (MatchBinderIsProvablyUnused(vp.Name, arm.Guard, arm.Body))
+                        {
+                            // Unused binding ≡ wildcard catch-all (no bind, no
+                            // slot to reserve). Unguarded → always matches.
+                            if (arm.Guard == null && catchAllIdx < 0) catchAllIdx = i;
+                        }
+                        else
+                        {
+                            // Name IS used but the slot isn't a frame-local (e.g.
+                            // captured by a nested closure) → keep the safe fallback.
                             throw new IrCompileException("match: unconfirmable variable binding -> fallback");
-                        if (bslot > maxBindingSlot) maxBindingSlot = bslot;
-                        // A variable arm with no guard always matches → catch-all.
-                        if (arm.Guard == null && catchAllIdx < 0) catchAllIdx = i;
+                        }
                         break;
                     }
                     case Parser.Nodes.Patterns.VariantPatternNode vap:
                     {
                         // Variant lowering (`case Ok(v)` / `case Some(x)` / `case
                         // Pair(a, b)` / `case Enum.Variant(..)` / record-positional
-                        // `case Point(x, y)`): inferred OR explicit enum, payload
-                        // subpatterns limited to wildcards + confirmed variable
-                        // bindings. Everything else falls back to the visitor.
-                        //  - zero-arity `case None` is a VariablePatternNode, not
-                        //    this node; a parenless variant here would have null
-                        //    SubPatterns -> defer.
-                        //  - nested/literal/tuple/struct subpatterns -> defer.
-                        if (vap.SubPatterns == null)
-                            throw new IrCompileException("match: parenless variant pattern -> fallback");
+                        // `case Point(x, y)` / nested `case Ok(Some(x))`): inferred
+                        // OR explicit enum; payload subpatterns are validated
+                        // recursively by GuardLeafSubpattern. A PARENLESS qualified
+                        // variant (`case Token.Eof`, SubPatterns == null) is a
+                        // zero-arity tag test (EnumNameEq + EnumTagEq + arity-0).
+                        // The bare parenless form (`case None`) is a
+                        // VariablePatternNode, handled above.
+                        int subCount = vap.SubPatterns?.Count ?? 0;
                         // EnumPayload's payload index rides the 8-bit C operand.
-                        if (vap.SubPatterns.Count > byte.MaxValue)
+                        if (subCount > byte.MaxValue)
                             throw new IrCompileException("match: variant payload arity out of 8-bit range -> fallback");
                         // The tag name (and, for an explicit `Enum.Variant`, the
                         // enum-type name) must index into the 8-bit C operand of
@@ -4445,8 +4635,9 @@ namespace RaLanguage.Interpreter.IR
                             throw new IrCompileException("match: variant name index out of 8-bit range -> fallback");
                         if (vap.EnumName != null && st.Names.Add(vap.EnumName) > byte.MaxValue)
                             throw new IrCompileException("match: enum name index out of 8-bit range -> fallback");
-                        foreach (var sub in vap.SubPatterns)
-                            GuardLeafSubpattern(sub, arm.Guard, arm.Body, st, ref maxBindingSlot);
+                        if (vap.SubPatterns != null)
+                            foreach (var sub in vap.SubPatterns)
+                                GuardLeafSubpattern(sub, arm.Guard, arm.Body, st, ref maxBindingSlot);
                         // A variant pattern TESTS the tag — it is never a catch-all;
                         // exhaustiveness still needs a trailing wildcard/variable arm.
                         break;
@@ -4477,11 +4668,18 @@ namespace RaLanguage.Interpreter.IR
                                 throw new IrCompileException("match: struct field name index out of 8-bit range -> fallback");
                             if (fieldPattern == null)
                             {
-                                // shorthand: bind the field name itself
+                                // shorthand: bind the field name itself. An UNUSED
+                                // shorthand bind (no read of the field name) has no
+                                // effect → skip it (acts as `{ x: _ }`); the field
+                                // name was already interned above so the shape test
+                                // still requires the field to exist.
                                 int fs = FindMatchBindingSlot(fieldName, arm.Guard, arm.Body, st);
-                                if (fs < 0)
+                                if (fs >= 0)
+                                {
+                                    if (fs > maxBindingSlot) maxBindingSlot = fs;
+                                }
+                                else if (!MatchBinderIsProvablyUnused(fieldName, arm.Guard, arm.Body))
                                     throw new IrCompileException("match: unconfirmable struct field binding -> fallback");
-                                if (fs > maxBindingSlot) maxBindingSlot = fs;
                             }
                             else
                             {
@@ -4504,13 +4702,18 @@ namespace RaLanguage.Interpreter.IR
                             throw new IrCompileException("match: list prefix/suffix out of 4-bit range -> fallback");
                         foreach (var sub in lpat.Elements)
                             GuardLeafSubpattern(sub, arm.Guard, arm.Body, st, ref maxBindingSlot);
-                        // A named `..rest` binds the captured middle as a list.
+                        // A named `..rest` binds the captured middle as a list. An
+                        // UNUSED rest bind (rest name never read) has no effect →
+                        // skip it (ListShape still enforces the prefix/suffix arity).
                         if (lpat.Rest != null && lpat.Rest.BindName != null)
                         {
                             int rs = FindMatchBindingSlot(lpat.Rest.BindName, arm.Guard, arm.Body, st);
-                            if (rs < 0)
+                            if (rs >= 0)
+                            {
+                                if (rs > maxBindingSlot) maxBindingSlot = rs;
+                            }
+                            else if (!MatchBinderIsProvablyUnused(lpat.Rest.BindName, arm.Guard, arm.Body))
                                 throw new IrCompileException("match: unconfirmable list-rest binding -> fallback");
-                            if (rs > maxBindingSlot) maxBindingSlot = rs;
                         }
                         // A list pattern TESTS the shape — never a catch-all.
                         break;
@@ -4523,28 +4726,56 @@ namespace RaLanguage.Interpreter.IR
                         break;
                     case Parser.Nodes.Patterns.OrPatternNode opn:
                     {
-                        // `case A | B | C`: first cut requires every alternative to
-                        // be a NON-BINDING bool test (literal / range / relational /
-                        // wildcard) — a binding alternative (`case Ok(x) | Err(x)`)
-                        // falls back, since the disjunction is lowered as an eager
-                        // OrBB chain that cannot bind. Never a catch-all.
+                        // `case A | B | C`. Two lowerings:
+                        //  (a) ALL alternatives non-binding bool tests → an eager
+                        //      OrBB chain (the cheap path, no per-alternative binds);
+                        //  (b) some alternative BINDS (`case L(x) | R(x)`) → the
+                        //      sequential binding-or path: each alternative is tried
+                        //      in source order, the first to match binds its
+                        //      name(s) + jumps to the body. Admitted only when every
+                        //      alternative is ALL-OR-NOTHING (OrAltBindSafe) so a
+                        //      partial match can't leave a half-applied bind that the
+                        //      next alternative would re-declare. Otherwise fall back.
                         if (opn.Alternatives.Count == 0)
                             throw new IrCompileException("match: empty or-pattern -> fallback");
-                        foreach (var alt in opn.Alternatives)
-                            GuardBoolPatternTest(alt);
+                        if (OrPatternIsPureBoolTest(opn))
+                        {
+                            foreach (var alt in opn.Alternatives)
+                                GuardBoolPatternTest(alt);
+                        }
+                        else
+                        {
+                            foreach (var alt in opn.Alternatives)
+                            {
+                                if (!OrAltBindSafe(alt))
+                                    throw new IrCompileException("match: or-alternative not all-or-nothing bindable -> fallback");
+                                // Validate lowerability + track this alternative's
+                                // binding slot(s) so the shared binding-slot reserve
+                                // (maxBindingSlot) accounts for every alt's binds.
+                                GuardLeafSubpattern(alt, arm.Guard, arm.Body, st, ref maxBindingSlot);
+                            }
+                        }
+                        // An or-pattern TESTS — never a catch-all (even a wildcard
+                        // alternative needs the other alternatives' shape tests to
+                        // have been laid down first; the visitor treats `_` as a
+                        // bool-test alt, exhaustiveness still needs a trailing arm).
                         break;
                     }
                     case Parser.Nodes.Patterns.TypePatternNode tpn:
                     {
                         // `case is T [as v]`: a runtime type test + optional binder.
-                        // Always lowerable (the type test is the IsType opcode); a
-                        // binder must be a confirmed Local use, else fall back.
+                        // Always lowerable (the type test is the IsType opcode); an
+                        // UNUSED `as v` binder (v never read) has no effect → the
+                        // IsType test still runs, the bind is skipped (≡ `case is T`).
                         if (tpn.BinderName != null)
                         {
                             int ts = FindMatchBindingSlot(tpn.BinderName, arm.Guard, arm.Body, st);
-                            if (ts < 0)
+                            if (ts >= 0)
+                            {
+                                if (ts > maxBindingSlot) maxBindingSlot = ts;
+                            }
+                            else if (!MatchBinderIsProvablyUnused(tpn.BinderName, arm.Guard, arm.Body))
                                 throw new IrCompileException("match: unconfirmable is-type binder -> fallback");
-                            if (ts > maxBindingSlot) maxBindingSlot = ts;
                         }
                         // A type pattern TESTS the type — never a catch-all.
                         break;
@@ -4675,16 +4906,38 @@ namespace RaLanguage.Interpreter.IR
                 // and/not are non-binding bool tests.
                 bool isAlias = arm.Pattern is Parser.Nodes.Patterns.AliasPatternNode;
                 bool isMap = arm.Pattern is Parser.Nodes.Patterns.MapPatternNode;
-                bool hasScope = isBinding || isVariant || isTuple || isStruct || isList || isTypeBinder || isAlias || isMap;
+                // A BINDING or-pattern (`case L(x) | R(x)`) declares names per
+                // alternative → needs a fresh arm scope. A pure-bool-test or-pattern
+                // binds nothing → no scope (matches the eager-OrBB path).
+                bool isBindingOr = arm.Pattern is Parser.Nodes.Patterns.OrPatternNode bopn
+                                   && !OrPatternIsPureBoolTest(bopn);
+                bool hasScope = isBinding || isVariant || isTuple || isStruct || isList || isTypeBinder || isAlias || isMap || isBindingOr;
                 if (hasScope) EmitPushScope(st);
 
                 var skips = new List<int>(); // jumps to this arm's no-match cleanup
 
                 if (isBinding)
                 {
-                    // Bind the whole scrutinee to the variable, in the arm scope.
                     var vp = (Parser.Nodes.Patterns.VariablePatternNode)arm.Pattern;
-                    EmitMatchBinding(vp.Name, scrutSlot, arm.Guard, arm.Body, node, st);
+                    int bslot = FindMatchBindingSlot(vp.Name, arm.Guard, arm.Body, st);
+                    if (bslot >= 0)
+                    {
+                        // Bind the whole scrutinee to the variable, in the arm scope.
+                        EmitMatchBinding(vp.Name, scrutSlot, arm.Guard, arm.Body, node, st);
+                    }
+                    else if (IsKnownZeroArityVariant(vp.Name))
+                    {
+                        // Zero-arity variant TEST (`case None`): refutable
+                        // member-name compare, mirroring the visitor's branch-1.
+                        // No binding, no arity guard (see EmitLeafSubpattern).
+                        int nameIdx = st.Names.Add(vp.Name);
+                        byte tagSlot = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.EnumTagEq, tagSlot, scrutSlot, (byte)nameIdx);
+                        skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, tagSlot));
+                    }
+                    // else: an UNUSED binding (slot -1, not a known variant) ≡ a
+                    // wildcard catch-all — no tag test, no bind, no skip (it always
+                    // matches). Mirrors the guard-phase third branch.
                 }
                 else if (isVariant)
                 {
@@ -4709,19 +4962,22 @@ namespace RaLanguage.Interpreter.IR
                     int nameIdx = st.Names.Add(vap.VariantName); // interned; <=255 (guard-checked)
                     st.Code.Emit3(Opcode.EnumTagEq, tagSlot, scrutSlot, (byte)nameIdx);
                     skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, tagSlot));
-                    var subs = vap.SubPatterns!;
+                    var subs = vap.SubPatterns; // null for a parenless `Token.Eof`
+                    int subCount = subs?.Count ?? 0;
                     // 2) Arity guard: once the tag matches, the scrutinee's
                     //    payload/primary-field count MUST equal the pattern arity,
                     //    else the visitor raises a precise error — MatchArity
                     //    reproduces it exactly (else a wrong-arity pattern would
                     //    silently mis-bind). Reached only when the tag matched.
-                    st.Code.Emit3(Opcode.MatchArity, 0, scrutSlot, (byte)subs.Count);
-                    // 3) Extract each payload/field slot, match its leaf subpattern
-                    //    (bind / literal-test / ignore `_`). Reached only when the
-                    //    tag matched, so EnumPayload extraction is safe.
-                    for (int s = 0; s < subs.Count; s++)
+                    //    For a parenless qualified variant (arity 0) this also
+                    //    enforces "no payload", matching the visitor.
+                    st.Code.Emit3(Opcode.MatchArity, 0, scrutSlot, (byte)subCount);
+                    // 3) Extract each payload/field slot, match its (possibly
+                    //    nested) subpattern. Reached only when the tag matched, so
+                    //    EnumPayload extraction is safe.
+                    for (int s = 0; s < subCount; s++)
                     {
-                        if (subs[s] is Parser.Nodes.Patterns.WildcardPatternNode) continue;
+                        if (subs![s] is Parser.Nodes.Patterns.WildcardPatternNode) continue;
                         byte paySlot = AllocTemp(ref topSlot);
                         st.Code.Emit3(Opcode.EnumPayload, paySlot, scrutSlot, (byte)s);
                         EmitLeafSubpattern(subs[s], paySlot, skips, arm.Guard, arm.Body, node, st, ref topSlot);
@@ -4762,9 +5018,16 @@ namespace RaLanguage.Interpreter.IR
                     {
                         byte fSlot = AllocTemp(ref topSlot);
                         int fIdx = st.Names.Add(fieldName);
+                        // Always extract: StructFieldGet reproduces the visitor's
+                        // "no field 'f'" error if absent, even for an unused bind.
                         st.Code.Emit3(Opcode.StructFieldGet, fSlot, scrutSlot, (byte)fIdx);
                         if (fieldPattern == null)
-                            EmitMatchBinding(fieldName, fSlot, arm.Guard, arm.Body, node, st);
+                        {
+                            // shorthand bind — skip when unused (slot -1), mirroring
+                            // the guard phase (an unused bind has no effect).
+                            if (FindMatchBindingSlot(fieldName, arm.Guard, arm.Body, st) >= 0)
+                                EmitMatchBinding(fieldName, fSlot, arm.Guard, arm.Body, node, st);
+                        }
                         else
                             EmitLeafSubpattern(fieldPattern, fSlot, skips, arm.Guard, arm.Body, node, st, ref topSlot);
                     }
@@ -4798,7 +5061,10 @@ namespace RaLanguage.Interpreter.IR
                         EmitLeafSubpattern(pat, elemSlot, skips, arm.Guard, arm.Body, node, st, ref topSlot);
                     }
                     // Named `..rest` → bind the captured middle as a fresh list.
-                    if (lpat.Rest != null && lpat.Rest.BindName != null)
+                    // Skip entirely when the bind is unused (slot -1): no slice,
+                    // no bind (mirrors the guard phase — no observable effect).
+                    if (lpat.Rest != null && lpat.Rest.BindName != null
+                        && FindMatchBindingSlot(lpat.Rest.BindName, arm.Guard, arm.Body, st) >= 0)
                     {
                         byte restSlot = AllocTemp(ref topSlot);
                         int packed = (prefixN << 4) | suffixN;
@@ -4808,11 +5074,19 @@ namespace RaLanguage.Interpreter.IR
                 }
                 else if (arm.Pattern is Parser.Nodes.Patterns.LiteralPatternNode lp)
                 {
-                    byte litSlot = AllocTemp(ref topSlot);
-                    CompileExpression(lp.Expression, litSlot, st, ref topSlot);
-                    byte condSlot = AllocTemp(ref topSlot);
-                    st.Code.Emit3(Opcode.Eq, condSlot, scrutSlot, litSlot);
-                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, condSlot));
+                    if (lp.Expression.NodeType == AstNodeType.Null)
+                    {
+                        // `case null`: null-IDENTITY test, not Eq (see EmitNullLiteralTest).
+                        EmitNullLiteralTest(scrutSlot, skips, st, ref topSlot);
+                    }
+                    else
+                    {
+                        byte litSlot = AllocTemp(ref topSlot);
+                        CompileExpression(lp.Expression, litSlot, st, ref topSlot);
+                        byte condSlot = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.Eq, condSlot, scrutSlot, litSlot);
+                        skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, condSlot));
+                    }
                 }
                 else if (arm.Pattern is Parser.Nodes.Patterns.RangePatternNode
                       || arm.Pattern is Parser.Nodes.Patterns.RelationalPatternNode)
@@ -4824,15 +5098,51 @@ namespace RaLanguage.Interpreter.IR
                 }
                 else if (arm.Pattern is Parser.Nodes.Patterns.OrPatternNode opn)
                 {
-                    // `case A | B | C`: acc = test(A) || test(B) || test(C) via an
-                    // eager OrBB chain (alternatives are non-binding), skip on false.
-                    byte acc = EmitBoolPatternTest(opn.Alternatives[0], scrutSlot, st, ref topSlot);
-                    for (int k = 1; k < opn.Alternatives.Count; k++)
+                    if (OrPatternIsPureBoolTest(opn))
                     {
-                        byte c = EmitBoolPatternTest(opn.Alternatives[k], scrutSlot, st, ref topSlot);
-                        st.Code.Emit3(Opcode.OrBB, acc, acc, c);
+                        // `case A | B | C` (non-binding): acc = test(A) || test(B) ||
+                        // test(C) via an eager OrBB chain, skip on false.
+                        byte acc = EmitBoolPatternTest(opn.Alternatives[0], scrutSlot, st, ref topSlot);
+                        for (int k = 1; k < opn.Alternatives.Count; k++)
+                        {
+                            byte c = EmitBoolPatternTest(opn.Alternatives[k], scrutSlot, st, ref topSlot);
+                            st.Code.Emit3(Opcode.OrBB, acc, acc, c);
+                        }
+                        skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, acc));
                     }
-                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, acc));
+                    else
+                    {
+                        // Binding or-pattern (`case L(x) | R(x)`): try each
+                        // alternative in SOURCE ORDER (the visitor's TryMatchOr).
+                        // Alternative i routes its failures to `altSkips` (→ the
+                        // start of alternative i+1); on a full match it falls through
+                        // and JUMPS to the shared `matched` convergence point, where
+                        // the bound name(s) are live (each alt binds via the same
+                        // name → the same slot) and the guard + body run once. The
+                        // LAST alternative routes failures to the arm's `skips`
+                        // (no-match). Soundness: every alternative is ALL-OR-NOTHING
+                        // (OrAltBindSafe), so at most one alt's binds ever execute —
+                        // no half-applied bind survives into the next alt to be
+                        // re-declared. Binds land in the arm scope already pushed
+                        // above (hasScope covers a binding or-pattern).
+                        var toMatched = new List<int>();
+                        int altCount = opn.Alternatives.Count;
+                        for (int k = 0; k < altCount; k++)
+                        {
+                            var altSkips = (k < altCount - 1) ? new List<int>() : skips;
+                            EmitLeafSubpattern(opn.Alternatives[k], scrutSlot, altSkips,
+                                               arm.Guard, arm.Body, node, st, ref topSlot);
+                            if (k < altCount - 1)
+                            {
+                                // Matched this alternative → jump to the body.
+                                toMatched.Add(st.Code.EmitForwardJump(Opcode.Jmp));
+                                // Failed this alternative → fall into the next one.
+                                foreach (var sj in altSkips) st.Code.PatchJumpToHere(sj);
+                            }
+                            // The last alternative falls through to `matched`.
+                        }
+                        foreach (var j in toMatched) st.Code.PatchJumpToHere(j);
+                    }
                 }
                 else if (isTypePat)
                 {
@@ -4853,7 +5163,9 @@ namespace RaLanguage.Interpreter.IR
                     st.Code.Emit3WideC(Opcode.IsType, cond, scrutSlot, refIdx);
                     skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, cond));
                     // `as v`: bind the (type-narrowed) scrutinee to the binder.
-                    if (tpn.BinderName != null)
+                    // Skip when unused (slot -1), mirroring the guard phase.
+                    if (tpn.BinderName != null
+                        && FindMatchBindingSlot(tpn.BinderName, arm.Guard, arm.Body, st) >= 0)
                         EmitMatchBinding(tpn.BinderName, scrutSlot, arm.Guard, arm.Body, node, st);
                 }
                 else if (arm.Pattern is Parser.Nodes.Patterns.AliasPatternNode apat)
@@ -4952,8 +5264,9 @@ namespace RaLanguage.Interpreter.IR
         }
 
         // A match literal pattern this first cut can lower: a plain number /
-        // bool / single-text string. `null` is excluded (the visitor matches it
-        // by identity, not Eq); unary-minus / interpolation / others fall back.
+        // bool / single-text string. `null` is handled SEPARATELY (see
+        // IsNullLiteralPattern / EmitNullLiteralTest) because the visitor matches
+        // it by identity, not Eq; unary-minus / interpolation / others fall back.
         private static bool IsLowerableMatchLiteral(AstNode expr)
         {
             switch (expr.NodeType)
@@ -4972,14 +5285,40 @@ namespace RaLanguage.Interpreter.IR
             }
         }
 
+        // `case null` is a LiteralPatternNode wrapping a bare null literal
+        // (`lp.Expression.NodeType == AstNodeType.Null`). The visitor
+        // (TryMatchLiteral) matches it by IDENTITY (scrutinee IS a NullValue), NOT
+        // via the Eq operator — most primitives raise on Eq-vs-null, and
+        // `null == "null"` is true on the string side. It is therefore lowered
+        // SEPARATELY (EmitNullLiteralTest) so an ordinary literal arm keeps its
+        // plain-Eq path.
+
+        // Emit the null-IDENTITY test for `case null`: load the null singleton,
+        // then SEq(cond, nullSlot, valueSlot). SEq dispatches on the LHS, so this
+        // is NullValue.GetComparisonStrictEq(scrutinee) → `scrutinee.Type == Null`
+        // for EVERY scrutinee type (true only for a real null; false for the string
+        // "null" / an int / etc.) — exactly the visitor's identity semantics, with
+        // no risk of an IllegalOperation throw. Appends the skip-on-not-null jump.
+        private static void EmitNullLiteralTest(byte valueSlot, List<int> skips, State st, ref byte topSlot)
+        {
+            byte nullSlot = AllocTemp(ref topSlot);
+            st.Code.Emit3(Opcode.LoadNull, nullSlot, 0, 0);
+            byte condSlot = AllocTemp(ref topSlot);
+            st.Code.Emit3(Opcode.SEq, condSlot, nullSlot, valueSlot);
+            skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, condSlot));
+        }
+
         // L7: the local SLOT a match variable-pattern binding occupies, or -1 if
         // it can't be confirmed as a slot-eligible Local binding. The guard/body
         // is searched for a VariableAccess to `name`; if that access resolves to a
         // slot-eligible Local (the Resolver's pattern-binding slot), its offset is
         // returned — this is the slot the body reads, so storing the scrutinee
         // there makes the binding visible. A variant ref (`case None`) resolves to
-        // Global/enum (not slot-eligible Local) → -1 → fallback; an unused binding
-        // has no access → -1 → fallback.
+        // Global/enum (not slot-eligible Local) → -1; a binding used only by a
+        // nested closure resolves to an out-of-frame slot → -1; a genuinely unused
+        // binding has no access at all → -1. The -1 cases are disambiguated by the
+        // caller via MatchBinderIsProvablyUnused (occurs-nowhere ⇒ skip the bind;
+        // occurs-but-not-slot-local ⇒ fall back to the visitor).
         private static int FindMatchBindingSlot(string name, AstNode? guard, AstNode? body, State st)
         {
             var acc = FindVarAccessByName(guard, name) ?? FindVarAccessByName(body, name);
@@ -4987,6 +5326,18 @@ namespace RaLanguage.Interpreter.IR
             if (!IsSlotEligible(acc.Binding, acc.BindingKind, st)) return -1;
             return acc.Binding.Offset;
         }
+
+        // True iff the match pattern binder `name` is PROVABLY never read in the
+        // guard or body — i.e. the COMPLETE subtree walk (FindVarAccessByName,
+        // which descends every child incl. nested fn/lambda bodies) finds zero
+        // VariableAccess to it. Only then is dropping the bind (treating the
+        // binder as a wildcard) semantically a no-op. When the name DOES occur but
+        // FindMatchBindingSlot still returns -1 (e.g. captured by a nested closure
+        // → out-of-frame slot, or otherwise not slot-eligible), this returns FALSE
+        // so the caller falls back to the visitor instead of unsoundly skipping a
+        // bind a closure still needs.
+        private static bool MatchBinderIsProvablyUnused(string name, AstNode? guard, AstNode? body)
+            => FindVarAccessByName(guard, name) == null && FindVarAccessByName(body, name) == null;
 
         // L7: emit the DECLARE of one match pattern binding `<name>`, bound to the
         // value already in `valueSlot`, at the slot the arm body/guard resolved the
@@ -5014,12 +5365,14 @@ namespace RaLanguage.Interpreter.IR
             st.Code.Emit2(Opcode.DeclareLocal, valueSlot, declRefIdx);
         }
 
-        // Guard-phase: confirm a LEAF subpattern (wildcard / confirmed-variable
-        // binding / lowerable literal) is lowerable and track its binding slot.
-        // Throws IrCompileException (→ fallback) for any nested/complex subpattern
-        // (tuple/list/struct/variant inside a tuple/list/struct/variant element).
-        // Shared by tuple elements, list elements, struct fields, and variant
-        // payload subpatterns.
+        // Guard-phase: confirm a subpattern is lowerable and track its binding
+        // slot(s). RECURSIVE — a nested tuple / variant / struct / list / map
+        // subpattern (`((a,b),(c,d))`, `Ok(Some(x))`) is the same logic applied
+        // to its sub-elements, so the emitter can extract + recurse with the
+        // existing shape/extract opcodes. Throws IrCompileException (→ fallback)
+        // for any genuinely-unlowerable shape. Shared by tuple elements, list
+        // elements, struct fields, variant payload, and map values. (Name kept
+        // for the many call sites; it is no longer leaf-only.)
         private static void GuardLeafSubpattern(Parser.Nodes.Patterns.PatternNode sub,
                                                 AstNode? guard, AstNode? body, State st, ref int maxBindingSlot)
         {
@@ -5029,25 +5382,136 @@ namespace RaLanguage.Interpreter.IR
                     break;
                 case Parser.Nodes.Patterns.VariablePatternNode vp:
                 {
+                    // Disambiguate binding vs. zero-arity variant TEST the same
+                    // 3 ways the top-level arm does (and the visitor's runtime
+                    // TryMatchVariableOrZeroArityVariant resolves):
+                    //  1) a CONFIRMED local binding (body/guard reads it through
+                    //     a Local slot) — a zero-arity variant ref resolves to a
+                    //     Global/enum constructor, never a Local, so a Local slot
+                    //     PROVES a binding;
+                    //  2) a KNOWN zero-arity variant name — a refutable tag test
+                    //     (no binding), lowered via EnumTagEq (member-name
+                    //     compare = the visitor's branch-1/2 semantics);
+                    //  3) otherwise (a lowercase identifier that is NOT a known
+                    //     zero-arity variant) — a BINDING whose value is UNUSED
+                    //     (DCE'd, no slot). The variant set is program-complete, so
+                    //     in a SUBPATTERN position (where the identifier can only be
+                    //     a binder or a variant) "not a variant" PROVES a binding.
+                    //     An unused bind has no effect → treat it as a wildcard
+                    //     (shape already matched by the parent; nothing to extract).
                     int s = FindMatchBindingSlot(vp.Name, guard, body, st);
-                    if (s < 0)
-                        throw new IrCompileException("match: unconfirmable subpattern binding -> fallback");
-                    if (s > maxBindingSlot) maxBindingSlot = s;
-                    break;
+                    if (s >= 0) { if (s > maxBindingSlot) maxBindingSlot = s; break; }
+                    if (IsKnownZeroArityVariant(vp.Name)) break;
+                    // Unused binder ≡ wildcard (no bind, no slot). Only when the
+                    // name is PROVABLY never read; a used-but-out-of-frame binder
+                    // (captured by a nested closure) still falls back.
+                    if (MatchBinderIsProvablyUnused(vp.Name, guard, body)) break;
+                    throw new IrCompileException("match: unconfirmable subpattern binding -> fallback");
                 }
                 case Parser.Nodes.Patterns.LiteralPatternNode lp:
-                    if (!IsLowerableMatchLiteral(lp.Expression))
+                    // `null` subpattern lowers via the identity test; any other
+                    // literal must be plain-Eq-lowerable.
+                    if (lp.Expression.NodeType != AstNodeType.Null
+                        && !IsLowerableMatchLiteral(lp.Expression))
                         throw new IrCompileException("match: non-trivial subpattern literal -> fallback");
+                    break;
+                case Parser.Nodes.Patterns.TuplePatternNode tup:
+                    if (tup.Elements.Count > byte.MaxValue)
+                        throw new IrCompileException("match: nested tuple arity out of 8-bit range -> fallback");
+                    foreach (var e in tup.Elements)
+                        GuardLeafSubpattern(e, guard, body, st, ref maxBindingSlot);
+                    break;
+                case Parser.Nodes.Patterns.VariantPatternNode vap:
+                {
+                    int subArity = vap.SubPatterns?.Count ?? 0;
+                    if (subArity > byte.MaxValue)
+                        throw new IrCompileException("match: nested variant arity out of 8-bit range -> fallback");
+                    if (st.Names.Add(vap.VariantName) > byte.MaxValue)
+                        throw new IrCompileException("match: nested variant name index out of 8-bit range -> fallback");
+                    if (vap.EnumName != null && st.Names.Add(vap.EnumName) > byte.MaxValue)
+                        throw new IrCompileException("match: nested enum name index out of 8-bit range -> fallback");
+                    if (vap.SubPatterns != null)
+                        foreach (var s2 in vap.SubPatterns)
+                            GuardLeafSubpattern(s2, guard, body, st, ref maxBindingSlot);
+                    break;
+                }
+                case Parser.Nodes.Patterns.StructPatternNode spat:
+                {
+                    if (st.Names.Add(spat.StructName) > byte.MaxValue)
+                        throw new IrCompileException("match: nested struct name index out of 8-bit range -> fallback");
+                    foreach (var (fieldName, fieldPattern) in spat.Fields)
+                    {
+                        if (st.Names.Add(fieldName) > byte.MaxValue)
+                            throw new IrCompileException("match: nested struct field name index out of 8-bit range -> fallback");
+                        if (fieldPattern == null)
+                        {
+                            // shorthand `{ x }` binds the field name; an UNUSED
+                            // shorthand bind (field name never read) is a no-op →
+                            // skip it (the field name is interned above, so the
+                            // field existence is still enforced at extract time).
+                            int fs = FindMatchBindingSlot(fieldName, guard, body, st);
+                            if (fs >= 0)
+                            {
+                                if (fs > maxBindingSlot) maxBindingSlot = fs;
+                            }
+                            else if (!MatchBinderIsProvablyUnused(fieldName, guard, body))
+                                throw new IrCompileException("match: unconfirmable nested struct field binding -> fallback");
+                        }
+                        else GuardLeafSubpattern(fieldPattern, guard, body, st, ref maxBindingSlot);
+                    }
+                    break;
+                }
+                case Parser.Nodes.Patterns.ListPatternNode lpat:
+                {
+                    int prefixN = lpat.Rest != null ? lpat.RestIndex : lpat.Elements.Count;
+                    int suffixN = lpat.Rest != null ? lpat.Elements.Count - lpat.RestIndex : 0;
+                    if (lpat.Elements.Count > 0x7F)
+                        throw new IrCompileException("match: nested list arity out of 7-bit range -> fallback");
+                    if (lpat.Rest != null && (prefixN > 0x0F || suffixN > 0x0F))
+                        throw new IrCompileException("match: nested list prefix/suffix out of 4-bit range -> fallback");
+                    foreach (var e in lpat.Elements)
+                        GuardLeafSubpattern(e, guard, body, st, ref maxBindingSlot);
+                    if (lpat.Rest != null && lpat.Rest.BindName != null)
+                    {
+                        // UNUSED `..rest` bind (rest name never read) is a no-op →
+                        // skip it (ListShape still enforces prefix/suffix arity).
+                        int rs = FindMatchBindingSlot(lpat.Rest.BindName, guard, body, st);
+                        if (rs >= 0)
+                        {
+                            if (rs > maxBindingSlot) maxBindingSlot = rs;
+                        }
+                        else if (!MatchBinderIsProvablyUnused(lpat.Rest.BindName, guard, body))
+                            throw new IrCompileException("match: unconfirmable nested list-rest binding -> fallback");
+                    }
+                    break;
+                }
+                // Non-binding bool-testable subpatterns (`(0..9, y)`, `(<5, _)`):
+                // reuse the existing eager-bool-test path. Guarded recursively.
+                case Parser.Nodes.Patterns.RangePatternNode _:
+                case Parser.Nodes.Patterns.RelationalPatternNode _:
+                case Parser.Nodes.Patterns.OrPatternNode _:
+                case Parser.Nodes.Patterns.AndPatternNode _:
+                case Parser.Nodes.Patterns.NotPatternNode _:
+                    GuardBoolPatternTest(sub);
                     break;
                 default:
                     throw new IrCompileException("match: nested/complex subpattern -> fallback");
             }
         }
 
-        // Emit-phase: match a LEAF subpattern against the value already in
-        // `valueSlot`. Variable → DECLARE-bind in the arm scope; literal → Eq +
-        // JmpIfNot onto `skips` (the arm's no-match cleanup); wildcard → nothing.
-        // The pattern shape was already confirmed lowerable by GuardLeafSubpattern.
+        // Emit-phase: match a subpattern against the value already in
+        // `valueSlot`. RECURSIVE — mirrors GuardLeafSubpattern:
+        //   * wildcard            → nothing;
+        //   * variable BINDING    → DECLARE-bind in the arm scope;
+        //   * variable VARIANT    → EnumTagEq tag test (member-name compare)
+        //                           onto `skips` — no binding (a `Ok(None)`-style
+        //                           nullary variant payload);
+        //   * literal             → Eq + JmpIfNot onto `skips`;
+        //   * tuple/variant/struct/list/bool-test → the same shape-test + extract
+        //                           opcodes the top-level arm uses, recursing into
+        //                           sub-elements.
+        // A failing shape/tag/literal jumps to `skips` (the arm's no-match
+        // cleanup). The shape was confirmed lowerable by GuardLeafSubpattern.
         private static void EmitLeafSubpattern(Parser.Nodes.Patterns.PatternNode sub, byte valueSlot,
                                                List<int> skips, AstNode? guard, AstNode? body,
                                                AstNode node, State st, ref byte topSlot)
@@ -5057,15 +5521,155 @@ namespace RaLanguage.Interpreter.IR
                 case Parser.Nodes.Patterns.WildcardPatternNode _:
                     break;
                 case Parser.Nodes.Patterns.VariablePatternNode vp:
-                    EmitMatchBinding(vp.Name, valueSlot, guard, body, node, st);
+                {
+                    // A confirmed local binding binds; a known zero-arity variant
+                    // is a refutable tag test (member-name compare + arity-0),
+                    // exactly the disambiguation GuardLeafSubpattern admitted.
+                    int s = FindMatchBindingSlot(vp.Name, guard, body, st);
+                    if (s >= 0)
+                    {
+                        EmitMatchBinding(vp.Name, valueSlot, guard, body, node, st);
+                        break;
+                    }
+                    if (IsKnownZeroArityVariant(vp.Name))
+                    {
+                        // Known zero-arity variant TEST (`case None`, `Ok(None)`):
+                        // a pure member-name compare, mirroring the visitor's
+                        // branch-1 (TryMatchVariableOrZeroArityVariant returns
+                        // `ev.MemberName == name` when the scrutinee's enum type
+                        // declares `name` as a zero-arity variant). No binding and
+                        // NO arity guard — the visitor does not arity-check this
+                        // path, so neither do we (avoids a throw-vs-no-match
+                        // divergence on a contrived same-name payload collision).
+                        int nameIdx = st.Names.Add(vp.Name);
+                        byte tagSlot = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.EnumTagEq, tagSlot, valueSlot, (byte)nameIdx);
+                        skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, tagSlot));
+                    }
+                    // else: an UNUSED binding (slot -1, not a known variant) ≡ a
+                    // wildcard — the parent already extracted+shape-tested this
+                    // value; binding it to a DCE'd name is a no-op. Nothing to emit.
                     break;
+                }
                 case Parser.Nodes.Patterns.LiteralPatternNode lp:
                 {
+                    if (lp.Expression.NodeType == AstNodeType.Null)
+                    {
+                        EmitNullLiteralTest(valueSlot, skips, st, ref topSlot);
+                        break;
+                    }
                     byte litSlot = AllocTemp(ref topSlot);
                     CompileExpression(lp.Expression, litSlot, st, ref topSlot);
                     byte condSlot = AllocTemp(ref topSlot);
                     st.Code.Emit3(Opcode.Eq, condSlot, valueSlot, litSlot);
                     skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, condSlot));
+                    break;
+                }
+                case Parser.Nodes.Patterns.TuplePatternNode tup:
+                {
+                    byte shapeSlot = AllocTemp(ref topSlot);
+                    st.Code.Emit3(Opcode.TupleShape, shapeSlot, valueSlot, (byte)tup.Elements.Count);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, shapeSlot));
+                    for (int i = 0; i < tup.Elements.Count; i++)
+                    {
+                        if (tup.Elements[i] is Parser.Nodes.Patterns.WildcardPatternNode) continue;
+                        byte elemSlot = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.EnumPayload, elemSlot, valueSlot, (byte)i);
+                        EmitLeafSubpattern(tup.Elements[i], elemSlot, skips, guard, body, node, st, ref topSlot);
+                    }
+                    break;
+                }
+                case Parser.Nodes.Patterns.VariantPatternNode vap:
+                {
+                    int subArity = vap.SubPatterns?.Count ?? 0;
+                    if (vap.EnumName != null)
+                    {
+                        byte enmSlot = AllocTemp(ref topSlot);
+                        int enmIdx = st.Names.Add(vap.EnumName);
+                        st.Code.Emit3(Opcode.EnumNameEq, enmSlot, valueSlot, (byte)enmIdx);
+                        skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, enmSlot));
+                    }
+                    byte tagSlot = AllocTemp(ref topSlot);
+                    int nameIdx = st.Names.Add(vap.VariantName);
+                    st.Code.Emit3(Opcode.EnumTagEq, tagSlot, valueSlot, (byte)nameIdx);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, tagSlot));
+                    st.Code.Emit3(Opcode.MatchArity, 0, valueSlot, (byte)subArity);
+                    if (vap.SubPatterns != null)
+                        for (int i = 0; i < vap.SubPatterns.Count; i++)
+                        {
+                            if (vap.SubPatterns[i] is Parser.Nodes.Patterns.WildcardPatternNode) continue;
+                            byte paySlot = AllocTemp(ref topSlot);
+                            st.Code.Emit3(Opcode.EnumPayload, paySlot, valueSlot, (byte)i);
+                            EmitLeafSubpattern(vap.SubPatterns[i], paySlot, skips, guard, body, node, st, ref topSlot);
+                        }
+                    break;
+                }
+                case Parser.Nodes.Patterns.StructPatternNode spat:
+                {
+                    byte shapeSlot = AllocTemp(ref topSlot);
+                    int snameIdx = st.Names.Add(spat.StructName);
+                    st.Code.Emit3(Opcode.StructShape, shapeSlot, valueSlot, (byte)snameIdx);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, shapeSlot));
+                    foreach (var (fieldName, fieldPattern) in spat.Fields)
+                    {
+                        byte fSlot = AllocTemp(ref topSlot);
+                        int fIdx = st.Names.Add(fieldName);
+                        // Always extract: StructFieldGet reproduces the visitor's
+                        // "no field 'f'" error if absent, even for an unused bind.
+                        st.Code.Emit3(Opcode.StructFieldGet, fSlot, valueSlot, (byte)fIdx);
+                        if (fieldPattern == null)
+                        {
+                            // shorthand bind — skip when unused (slot -1).
+                            if (FindMatchBindingSlot(fieldName, guard, body, st) >= 0)
+                                EmitMatchBinding(fieldName, fSlot, guard, body, node, st);
+                        }
+                        else
+                            EmitLeafSubpattern(fieldPattern, fSlot, skips, guard, body, node, st, ref topSlot);
+                    }
+                    break;
+                }
+                case Parser.Nodes.Patterns.ListPatternNode lpat:
+                {
+                    int prefixN = lpat.Rest != null ? lpat.RestIndex : lpat.Elements.Count;
+                    int suffixN = lpat.Rest != null ? lpat.Elements.Count - lpat.RestIndex : 0;
+                    byte shapeSlot = AllocTemp(ref topSlot);
+                    int modeAndLen = (lpat.Rest != null ? 0x80 : 0) | lpat.Elements.Count;
+                    st.Code.Emit3(Opcode.ListShape, shapeSlot, valueSlot, (byte)modeAndLen);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, shapeSlot));
+                    for (int i = 0; i < prefixN; i++)
+                    {
+                        if (lpat.Elements[i] is Parser.Nodes.Patterns.WildcardPatternNode) continue;
+                        byte elemSlot = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.EnumPayload, elemSlot, valueSlot, (byte)i);
+                        EmitLeafSubpattern(lpat.Elements[i], elemSlot, skips, guard, body, node, st, ref topSlot);
+                    }
+                    for (int i = 0; i < suffixN; i++)
+                    {
+                        var pat = lpat.Elements[prefixN + i];
+                        if (pat is Parser.Nodes.Patterns.WildcardPatternNode) continue;
+                        byte elemSlot = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.ListElemBack, elemSlot, valueSlot, (byte)(suffixN - i));
+                        EmitLeafSubpattern(pat, elemSlot, skips, guard, body, node, st, ref topSlot);
+                    }
+                    if (lpat.Rest != null && lpat.Rest.BindName != null
+                        && FindMatchBindingSlot(lpat.Rest.BindName, guard, body, st) >= 0)
+                    {
+                        byte restSlot = AllocTemp(ref topSlot);
+                        int packed = (prefixN << 4) | suffixN;
+                        st.Code.Emit3(Opcode.ListRestSlice, restSlot, valueSlot, (byte)packed);
+                        EmitMatchBinding(lpat.Rest.BindName, restSlot, guard, body, node, st);
+                    }
+                    break;
+                }
+                // Non-binding bool-testable subpattern → eager bool test, skip on false.
+                case Parser.Nodes.Patterns.RangePatternNode _:
+                case Parser.Nodes.Patterns.RelationalPatternNode _:
+                case Parser.Nodes.Patterns.OrPatternNode _:
+                case Parser.Nodes.Patterns.AndPatternNode _:
+                case Parser.Nodes.Patterns.NotPatternNode _:
+                {
+                    byte cond = EmitBoolPatternTest(sub, valueSlot, st, ref topSlot);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, cond));
                     break;
                 }
             }
@@ -5105,6 +5709,112 @@ namespace RaLanguage.Interpreter.IR
             _ => (Opcode?)null,
         };
 
+        // Non-throwing mirror of GuardBoolPatternTest: is `p` a NON-BINDING
+        // bool-test pattern (the eager-OrBB-chain shape)? Used to decide whether
+        // an or-pattern lowers via the cheap bool-test chain (all alternatives
+        // non-binding) or the sequential binding-or path (some alt binds). Kept in
+        // lock-step with GuardBoolPatternTest's accepted set.
+        private static bool IsBoolTestablePattern(Parser.Nodes.Patterns.PatternNode p)
+        {
+            switch (p)
+            {
+                case Parser.Nodes.Patterns.WildcardPatternNode _:
+                    return true;
+                case Parser.Nodes.Patterns.LiteralPatternNode lp:
+                    return lp.Expression.NodeType == AstNodeType.Null
+                        || IsLowerableMatchLiteral(lp.Expression);
+                case Parser.Nodes.Patterns.RangePatternNode rp:
+                    if (rp.Lo == null && rp.Hi == null) return false;
+                    if (rp.Lo != null && !IsLowerablePatternConst(rp.Lo)) return false;
+                    if (rp.Hi != null && !IsLowerablePatternConst(rp.Hi)) return false;
+                    return true;
+                case Parser.Nodes.Patterns.RelationalPatternNode rop:
+                    return RelationalCmpOpcode(rop.Op) != null && IsLowerablePatternConst(rop.Operand);
+                case Parser.Nodes.Patterns.NotPatternNode notn:
+                    return IsBoolTestablePattern(notn.Inner);
+                case Parser.Nodes.Patterns.AndPatternNode andn:
+                    if (andn.Conjuncts.Count == 0) return false;
+                    foreach (var c in andn.Conjuncts) if (!IsBoolTestablePattern(c)) return false;
+                    return true;
+                case Parser.Nodes.Patterns.OrPatternNode orn:
+                    if (orn.Alternatives.Count == 0) return false;
+                    foreach (var a in orn.Alternatives) if (!IsBoolTestablePattern(a)) return false;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        // True iff EVERY alternative of an or-pattern is a non-binding bool test
+        // (so it lowers via the eager OrBB chain, no per-alternative binds). When
+        // false, the or-pattern has a BINDING alternative and must use the
+        // sequential binding-or path (each alternative tried in order, the first to
+        // match binds + jumps to the body).
+        private static bool OrPatternIsPureBoolTest(Parser.Nodes.Patterns.OrPatternNode opn)
+        {
+            foreach (var alt in opn.Alternatives)
+                if (!IsBoolTestablePattern(alt)) return false;
+            return true;
+        }
+
+        // An or-pattern alternative that may BIND is lowerable as a sequential
+        // "try-this-alternative-then-jump-to-body" block ONLY when it is
+        // ALL-OR-NOTHING: either it binds nothing (a refutable bool test) or every
+        // refutation in it happens BEFORE any of its binds. If a refutation could
+        // fire AFTER a sibling bind (e.g. `Pair(x, 0)` — bind x, then the `0`
+        // literal refutes), control would fall to the NEXT alternative with x
+        // already DeclareLocal'd, and that alternative's re-bind of x would throw
+        // "'x' is already defined". This holds for:
+        //   • wildcard / lowerable-literal(incl null) / range / relational — refute,
+        //     no bind (single test, trivially all-or-nothing);
+        //   • a bare zero-arity-variant ref — a refutable tag test, no bind;
+        //   • a VARIANT whose payload subpatterns are EACH wildcard or a bare
+        //     variable — the only refutations (EnumNameEq / EnumTagEq / MatchArity)
+        //     all precede every payload bind, so the alternative binds all-or-nothing.
+        // Anything else (tuple / struct / list / nested variant / literal-or-range
+        // payload after a bind / alias / map / and / or) → not provably safe → the
+        // caller keeps the visitor fallback. Returns true if SAFE.
+        private static bool OrAltBindSafe(Parser.Nodes.Patterns.PatternNode alt)
+        {
+            switch (alt)
+            {
+                case Parser.Nodes.Patterns.WildcardPatternNode _:
+                    return true;
+                case Parser.Nodes.Patterns.LiteralPatternNode lp:
+                    return lp.Expression.NodeType == AstNodeType.Null
+                        || IsLowerableMatchLiteral(lp.Expression);
+                case Parser.Nodes.Patterns.RangePatternNode rp:
+                    if (rp.Lo == null && rp.Hi == null) return false;
+                    if (rp.Lo != null && !IsLowerablePatternConst(rp.Lo)) return false;
+                    if (rp.Hi != null && !IsLowerablePatternConst(rp.Hi)) return false;
+                    return true;
+                case Parser.Nodes.Patterns.RelationalPatternNode rop:
+                    return RelationalCmpOpcode(rop.Op) != null && IsLowerablePatternConst(rop.Operand);
+                case Parser.Nodes.Patterns.VariablePatternNode vp:
+                    // A bare zero-arity-variant TEST is safe (refute, no bind). A
+                    // bare BINDING variable (catch-all) is NOT admitted here — it
+                    // would make the or-pattern an unconditional catch-all whose
+                    // interaction with the other alts' binds we don't model.
+                    return IsKnownZeroArityVariant(vp.Name);
+                case Parser.Nodes.Patterns.VariantPatternNode vap:
+                {
+                    if (vap.SubPatterns == null) return true; // parenless tag test
+                    foreach (var sub in vap.SubPatterns)
+                    {
+                        // Each payload must be wildcard or a bare variable (a bind
+                        // or an unused-binder/zero-arity sub). A literal / nested /
+                        // range payload could refute after a sibling bind → unsafe.
+                        if (sub is Parser.Nodes.Patterns.WildcardPatternNode) continue;
+                        if (sub is Parser.Nodes.Patterns.VariablePatternNode) continue;
+                        return false;
+                    }
+                    return true;
+                }
+                default:
+                    return false;
+            }
+        }
+
         // Guard-phase: confirm a NON-BINDING bool-test pattern (wildcard / lowerable
         // literal / range with lowerable bounds / relational with lowerable
         // operand) is lowerable. Throws IrCompileException (→ fallback) otherwise.
@@ -5116,7 +5826,10 @@ namespace RaLanguage.Interpreter.IR
                 case Parser.Nodes.Patterns.WildcardPatternNode _:
                     return;
                 case Parser.Nodes.Patterns.LiteralPatternNode lp:
-                    if (!IsLowerableMatchLiteral(lp.Expression))
+                    // `null` is bool-testable via the identity SEq (EmitBoolPatternTest);
+                    // any other literal must be plain-Eq-lowerable.
+                    if (lp.Expression.NodeType != AstNodeType.Null
+                        && !IsLowerableMatchLiteral(lp.Expression))
                         throw new IrCompileException("match: non-trivial or-literal -> fallback");
                     return;
                 case Parser.Nodes.Patterns.RangePatternNode rp:
@@ -5168,6 +5881,17 @@ namespace RaLanguage.Interpreter.IR
                 }
                 case Parser.Nodes.Patterns.LiteralPatternNode lp:
                 {
+                    if (lp.Expression.NodeType == AstNodeType.Null)
+                    {
+                        // `null` bool test: null-IDENTITY via SEq (LHS = null), giving
+                        // `scrutinee.Type == Null` for every scrutinee — the visitor's
+                        // identity semantics, never an Eq-vs-null throw.
+                        byte nullSlot = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.LoadNull, nullSlot, 0, 0);
+                        byte ncond = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.SEq, ncond, nullSlot, scrutSlot);
+                        return ncond;
+                    }
                     byte litSlot = AllocTemp(ref topSlot);
                     CompileExpression(lp.Expression, litSlot, st, ref topSlot);
                     byte cond = AllocTemp(ref topSlot);
@@ -5299,6 +6023,48 @@ namespace RaLanguage.Interpreter.IR
                     }
                     return;
                 }
+                // L10: variant destructure. The desugared head of a PATTERN-catch
+                // body (`catch (NotFound(path)) { … }`) is a `let NotFound(path) =
+                // $$catch$N` DestructuringDeclaration whose pattern is a variant.
+                // Mirrors the match compiler's variant arm (CompileMatchExpr ~5115
+                // and EmitLeafSubpattern ~5755): optional EnumNameEq gate, the
+                // polymorphic EnumTagEq tag test (skip→DestructureFail on a wrong
+                // variant — byte-identical err.Details to the visitor's RA0404),
+                // MatchArity, then EnumPayload-extract each sub recursively. A
+                // refutable variant in a plain `let X(..) = e` would have been
+                // parse-rejected, so on the let-destructure path the only producer
+                // is the catch desugaring (the visitor re-raises on no-match —
+                // which the DestructureFail skip reproduces).
+                case Parser.Nodes.Patterns.VariantPatternNode vp:
+                {
+                    int subArity = vp.SubPatterns?.Count ?? 0;
+                    if (subArity > byte.MaxValue)
+                        throw new IrCompileException("destructure: variant arity -> fallback");
+                    if (vp.EnumName != null)
+                    {
+                        if (st.Names.Add(vp.EnumName) > byte.MaxValue)
+                            throw new IrCompileException("destructure: enum name index -> fallback");
+                        byte enmSlot = AllocTemp(ref topSlot);
+                        int enmIdx = st.Names.Add(vp.EnumName);
+                        st.Code.Emit3(Opcode.EnumNameEq, enmSlot, valueSlot, (byte)enmIdx);
+                        skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, enmSlot));
+                    }
+                    if (st.Names.Add(vp.VariantName) > byte.MaxValue)
+                        throw new IrCompileException("destructure: variant name index -> fallback");
+                    byte tagSlot = AllocTemp(ref topSlot);
+                    int nameIdx = st.Names.Add(vp.VariantName);
+                    st.Code.Emit3(Opcode.EnumTagEq, tagSlot, valueSlot, (byte)nameIdx);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, tagSlot));
+                    st.Code.Emit3(Opcode.MatchArity, 0, valueSlot, (byte)subArity);
+                    if (vp.SubPatterns != null)
+                        for (int i = 0; i < vp.SubPatterns.Count; i++)
+                        {
+                            byte paySlot = AllocTemp(ref topSlot);
+                            st.Code.Emit3(Opcode.EnumPayload, paySlot, valueSlot, (byte)i);
+                            EmitDestructure(vp.SubPatterns[i], paySlot, skips, st, ref topSlot);
+                        }
+                    return;
+                }
                 case Parser.Nodes.Patterns.ListPatternNode lp:
                 {
                     int prefixN = lp.Rest != null ? lp.RestIndex : lp.Elements.Count;
@@ -5338,40 +6104,43 @@ namespace RaLanguage.Interpreter.IR
             }
         }
 
-        // Find a VariableAccess to `name` in an expression subtree (common pure-
-        // value node kinds; does not descend nested fn/lambda bodies).
+        // The first VariableAccess to `name` anywhere in `node`'s subtree, or
+        // null if the name is never read. COMPLETE — it recurses through every
+        // structural child via the shared StdLibTreeShaker.EnumerateChildren
+        // walker, so a use buried in an assignment RHS / block body / member
+        // access / index / list-or-map literal / interpolation is found, not
+        // just the handful of expression shapes an ad-hoc switch covered.
+        //
+        // Completeness is load-bearing for the match compiler: a binder whose
+        // FindMatchBindingSlot returns -1 is treated as an UNUSED wildcard (the
+        // bind is skipped). If this walk were INCOMPLETE it could miss a real
+        // use and return null for a USED binder, wrongly dropping the bind and
+        // raising "<name> is not defined" at runtime (regression caught by the
+        // --parity oracle). Sharing the maintained EnumerateChildren keeps the
+        // walk in lockstep with new AST node kinds.
         private static Parser.Nodes.Variables.VariableAccessNode? FindVarAccessByName(AstNode? node, string name)
         {
-            switch (node)
+            if (node == null) return null;
+            if (node is Parser.Nodes.Variables.VariableAccessNode va)
+                return va.Name == name ? va : null;
+            foreach (var child in RaLanguage.Interpreter.Archive.StdLibTreeShaker.EnumerateChildren(node))
             {
-                case null: return null;
-                case Parser.Nodes.Variables.VariableAccessNode va:
-                    return va.Name == name ? va : null;
-                case Parser.Nodes.Operations.BinaryOperationNode bo:
-                    return FindVarAccessByName(bo.LeftNode, name) ?? FindVarAccessByName(bo.RightNode, name);
-                case Parser.Nodes.Operations.UnaryOperationNode uo:
-                    return FindVarAccessByName(uo.Node, name);
-                case CastNode cn:
-                    return FindVarAccessByName(cn.Expression, name);
-                case Parser.Nodes.Operations.TernaryNode tn:
-                    return FindVarAccessByName(tn.Condition, name)
-                        ?? FindVarAccessByName(tn.TrueExpression, name)
-                        ?? FindVarAccessByName(tn.FalseExpression, name);
-                case Parser.Nodes.Functions.FunctionCallNode fc:
-                {
-                    var r = FindVarAccessByName(fc.NodeToCall, name);
-                    if (r != null) return r;
-                    foreach (var a in fc.ArgNodes) { r = FindVarAccessByName(a.Expr, name); if (r != null) return r; }
-                    return null;
-                }
-                default: return null;
+                var r = FindVarAccessByName(child, name);
+                if (r != null) return r;
             }
+            return null;
         }
 
-        // L7: emit one arrow (`=>`) switch arm body. A block body (`{ … }`) runs
-        // its statements and the arm value is null (LoadNull dest); an expression
-        // body evaluates straight into dest. The caller emits the trailing Jmp to
-        // the switch end (arrow arms never fall through).
+        // L7: emit one arrow (`=>`) switch / match arm body. A block body (`{ … }`)
+        // runs its statements and the arm value is null (LoadNull dest); an
+        // expression body evaluates straight into dest. A bare STATEMENT body
+        // (`case 2 -> picked = 22`, a `VariableAssignment` / `MemberAssignment` /
+        // `ListAssignment` / `VariableDeclaration`) is run as a statement and the
+        // arm value is null — matching the visitor in STATEMENT-position match,
+        // the only place such arms occur (an expr-position assignment arm whose
+        // VALUE is consumed would differ, and the parity oracle would catch it).
+        // The caller emits the trailing Jmp to the end (arrow arms never fall
+        // through).
         private static void EmitArrowBody(AstNode body, byte destSlot, byte bodyScratch, State st, ref byte topSlot)
         {
             // An arrow block is parsed as a ListNode whose ElementNodes are run
@@ -5389,6 +6158,16 @@ namespace RaLanguage.Interpreter.IR
             {
                 st.Code.Emit3(Opcode.LoadNull, destSlot, 0, 0);
                 CompileBodyStrictInline(body, st, ref topSlot, bodyScratch);
+            }
+            else if (body.NodeType == AstNodeType.VariableAssignment
+                  || body.NodeType == AstNodeType.MemberAssignment
+                  || body.NodeType == AstNodeType.ListAssignment
+                  || body.NodeType == AstNodeType.VariableDeclaration)
+            {
+                // Statement-shaped arm body: run it as a statement; arm value null.
+                st.Code.Emit3(Opcode.LoadNull, destSlot, 0, 0);
+                if (!TryCompileStatement(body, st, ref topSlot, bodyScratch, strict: true))
+                    throw new IrCompileException($"arrow stmt body not compilable: {body.NodeType}");
             }
             else
             {
@@ -5417,9 +6196,9 @@ namespace RaLanguage.Interpreter.IR
                 return;
             }
 
-            // Interpolated: try OP_ASM_INVOKE_I; roll back + NativeDefine on any
-            // limit hit (DefineRefs idx > u8, temp-band overflow) or an
-            // un-lowerable %{…} expression.
+            // Interpolated: try OP_ASM_INVOKE_I; on any limit hit (DefineRefs
+            // idx > u8, temp-band overflow) or an un-lowerable %{…} expression,
+            // roll back and fail — there is no OP_NATIVE_DEFINE fallback.
             int savedPc = st.Code.Pc;
             byte savedTop = topSlot;
             int savedRefs = st.DefineRefs.Count;
@@ -5432,11 +6211,7 @@ namespace RaLanguage.Interpreter.IR
             topSlot = savedTop;
             if (st.DefineRefs.Count > savedRefs)
                 st.DefineRefs.RemoveRange(savedRefs, st.DefineRefs.Count - savedRefs);
-            if (st.DefineRefs.Count > ushort.MaxValue)
-                throw new IrCompileException("DefineRefs overflow (>65535)");
-            ushort ndIdx = (ushort)st.DefineRefs.Count;
-            st.DefineRefs.Add(node);
-            st.Code.Emit2(Opcode.NativeDefine, dst, ndIdx);
+            throw new IrCompileException("interpolated asm block not IR-lowerable");
         }
 
         // Emit OP_ASM_INVOKE_I for an interpolated asm block, or return false to
@@ -5596,8 +6371,35 @@ namespace RaLanguage.Interpreter.IR
                         if (ArrowBlockHasNonYieldControlEscape(e)) return true;
                     return false;
                 }
-                // Conservative: an unknown structure (if / try / nested switch /
-                // …) might hide a non-yield escape → fall back.
+                // `if` / `elif` / `else` introduce NO break-barrier: a break /
+                // continue / return inside a branch escapes THIS arm exactly as it
+                // would at the arm's top level. Descend into every branch BODY
+                // (conditions are expressions — they can't carry a statement-level
+                // escape). TryCompileStatement lowers the `if` itself natively, so a
+                // branch of pure side effects + `throw` (e.g. the calculator's
+                // `if len < 2 { throw }`) lowers; only a real escape inside disqualifies.
+                case AstNodeType.If:
+                {
+                    var ifn = (IfNode)node;
+                    foreach (var (_, body, _) in ifn.Cases)
+                        if (ArrowBlockHasNonYieldControlEscape(body)) return true;
+                    if (ifn.ElseCase != null && ArrowBlockHasNonYieldControlEscape(ifn.ElseCase.Value.Expr))
+                        return true;
+                    return false;
+                }
+                // `try` / `catch` / `finally` likewise add no break-barrier — an
+                // escape in any of the three bodies escapes the arm. CompileTry
+                // lowers the statement; descend to confirm no in-arm escape.
+                case AstNodeType.Try:
+                {
+                    var tn = (Parser.Nodes.Special.TryNode)node;
+                    if (ArrowBlockHasNonYieldControlEscape(tn.TryBody)) return true;
+                    if (tn.CatchBody != null && ArrowBlockHasNonYieldControlEscape(tn.CatchBody)) return true;
+                    if (tn.FinallyBody != null && ArrowBlockHasNonYieldControlEscape(tn.FinallyBody)) return true;
+                    return false;
+                }
+                // Conservative: an unknown structure (nested switch / match / …)
+                // might hide a non-yield escape → fall back.
                 default:
                     return true;
             }
@@ -5658,8 +6460,8 @@ namespace RaLanguage.Interpreter.IR
         {
             // M21.1: pre-check dropped — strict-mode CompileBodyStrictInline
             // raises IrCompileException directly when a body child genuinely
-            // cannot lower, and the outer CompileStatementWithFallback rolls
-            // back and routes the whole While through OP_NATIVE_DEFINE.
+            // cannot lower; that now propagates as a hard compile failure
+            // (OP_NATIVE_DEFINE + visitor fallback are gone).
             // M22.1: constant-fold a literal condition. `while false {}`
             // emits nothing; `while true {}` drops the cond + exit jump.
             bool? whileFolded = TryFoldCondition(node.ConditionNode);
@@ -7488,29 +8290,30 @@ namespace RaLanguage.Interpreter.IR
             if (node.FinallyBody != null)
             {
                 // try/catch bodies: a `return` is now lowered (routed THROUGH the
-                // finally via OP_SET_PENDING_FLOW). `break`/`continue` need the
-                // enclosing loop's jump target (not threaded here); `yield` may be
-                // destined for an enclosing match/switch arm (the finally would
-                // wrongly turn it into a fn-return); and a nested try-WITH-finally
-                // would need multi-finally return routing — all three fall back
-                // (ContainsControlEscape with allowReturn = true catches the first
-                // two, ContainsTryWithFinally the third). The finally body itself
-                // must stay escape-free (ContainsControlEscape, all escapes).
+                // finally via OP_SET_PENDING_FLOW), INCLUDING a return that escapes
+                // a nested try-WITH-finally — the inner OP_FINALLY_END chains the
+                // pending flow into the enclosing finally (see CompileTryFinally),
+                // so ContainsTryWithFinally no longer gates. `break`/`continue` need
+                // the enclosing loop's jump target (not threaded here) and `yield`
+                // may be destined for an enclosing match/switch arm (the finally
+                // would wrongly turn it into a fn-return) — both still fall back
+                // (ContainsControlEscape with allowReturn = true catches them in any
+                // nesting). The finally body may itself `return` (its OP_RET, or a
+                // route into a further-enclosing finally, overrides the stash —
+                // matching the visitor's finally-supersedes rule), so the finally
+                // gate also allows return; only break/continue/yield in a finally
+                // fall back (they need loop/arm targets the finally cannot see).
                 if (!ContainsControlEscape(node.TryBody, allowReturn: true)
                     && !ContainsControlEscape(node.CatchBody, allowReturn: true)
-                    && !ContainsTryWithFinally(node.TryBody)
-                    && !ContainsTryWithFinally(node.CatchBody)
-                    && !ContainsControlEscape(node.FinallyBody))
+                    && !ContainsControlEscape(node.FinallyBody, allowReturn: true))
                 {
                     CompileTryFinally(node, st, ref topSlot, scratchSlot);
                     return;
                 }
-                if (st.DefineRefs.Count > ushort.MaxValue)
-                    throw new IrCompileException("DefineRefs overflow");
-                ushort refIdx = (ushort)st.DefineRefs.Count;
-                st.DefineRefs.Add(node);
-                st.Code.Emit2(Opcode.NativeDefine, scratchSlot, refIdx);
-                return;
+                // A break/continue/yield escaping a try/finally body needs a
+                // loop/arm target the finally lowering cannot see: not
+                // IR-lowerable (the visitor used to handle this).
+                throw new IrCompileException("try/finally with control-flow escape not IR-lowerable");
             }
             // M21.1: pre-checks dropped — strict-mode body compile raises
             // IrCompileException directly when needed.
@@ -7618,10 +8421,33 @@ namespace RaLanguage.Interpreter.IR
             foreach (var j in fctx.ToFinally) st.Code.PatchJumpToHere(j);
             st.FinallyContexts.Pop();
             fctxPopped = true;
+            // L10 nested try/finally: after popping THIS context, the new top (if
+            // any) is the ENCLOSING try's finally. A return/yield that escaped the
+            // inner try/catch is, at this point, stashed as a pending flow; its
+            // OP_FINALLY_END must run the enclosing finally FIRST (mirroring the
+            // visitor, where the inner SuccessReturn bubbles to the outer try whose
+            // finally runs before the value is handed back). We emit the inner
+            // OP_FINALLY_END as a *conditional router*: when a flow is pending it
+            // pops ctx down to the enclosing depth (its `a` operand) and jumps into
+            // the enclosing finally (its imm16, patched below via the enclosing
+            // fctx.ToFinally). With NO enclosing finally we emit the plain form
+            // (imm16 = 0 → OP_FINALLY_END returns/re-raises as the outermost level).
+            FinallyContext? enclosing = st.FinallyContexts.Count > 0 ? st.FinallyContexts.Peek() : null;
             EmitPushScope(st);
             CompileBodyStrictInline(node.FinallyBody!, st, ref topSlot, scratchSlot);
             EmitPopScope(st);
-            st.Code.Emit3(Opcode.FinallyEnd, 0, 0, 0);
+            if (enclosing != null)
+            {
+                if ((uint)enclosing.ScopeDepth > byte.MaxValue)
+                    throw new IrCompileException("nested finally scope depth exceeds 255 -> fallback");
+                int fendPc = st.Code.Pc;
+                st.Code.Emit2(Opcode.FinallyEnd, (byte)enclosing.ScopeDepth, 0);
+                enclosing.ToFinally.Add(fendPc);
+            }
+            else
+            {
+                st.Code.Emit3(Opcode.FinallyEnd, 0, 0, 0);
+            }
 
             // --- EhTable --- (skip empty regions: a zero-instruction body — e.g.
             // `catch (e) { pass; }` — cannot fault, and the verifier rejects an
@@ -7659,6 +8485,196 @@ namespace RaLanguage.Interpreter.IR
                     && ReferenceEquals(st.FinallyContexts.Peek(), fctx))
                     st.FinallyContexts.Pop();
             }
+        }
+
+        // L10: lower `retry for N times [delay M] { body } [else { eBody }]` —
+        // compose the loop counter (boxed NumberValue arithmetic) with the
+        // try/catch EhTable machinery; no new opcode. Mirrors RetryNodeVisitor:
+        //   * Evaluate N (= the literal attempt count). The body runs up to N
+        //     times; the FIRST attempt that completes WITHOUT error wins and the
+        //     retry stops. An attempt that throws is retried until N is reached.
+        //   * If every attempt fails, the `else` branch runs (its value is
+        //     discarded — `retry` is a statement); with NO `else`, the LAST
+        //     attempt's error is re-raised (OP_THROW catchSlot).
+        //   * N == 0 runs NO body at all: just the `else` (if present), else NOP.
+        //
+        // Gates (fall back to the visitor otherwise):
+        //   * N (CountNode) AND, when present, M (DelayNode) must be non-negative
+        //     foldable integer literals. A runtime / non-int / negative / too-large
+        //     count is left to the visitor, which carries the exact ExtractRetryInt
+        //     coercion + RA error messages ("retry count is too large", "delay
+        //     cannot be negative", …). A negative literal also falls back so the
+        //     visitor surfaces "retry count cannot be negative" at runtime (a
+        //     compile error here would be wrong — it must be a runtime failure).
+        //   * `delay M` cannot be expressed in IR (no sleep opcode; the visitor
+        //     calls Thread.Sleep directly, and routing through the Ra `sleep`
+        //     builtin would need it in scope + would change validation), so any
+        //     `delay` form falls back. test_retry_times R5 exercises this.
+        //   * A control-flow escape (return / break / continue / yield) in the body
+        //     or else — the visitor returns those out of the retry immediately
+        //     (SuccessReturn/Break/Continue/Yield), which this lowering does not
+        //     intercept — falls back. A try-WITH-finally in either body also falls
+        //     back (finally routing is not threaded here). A plain `throw` is fine
+        //     (the EhTable catches it → that attempt failed).
+        //
+        //   <load N as box>                       (only the count; N>=1 path)
+        //   attempt = 0 (boxed NumberValue)
+        //   loop_top:
+        //     PushScope                            (fresh body scope per attempt — matches context.Copy())
+        //     body_start: [BODY]                   EhTable [body_start..body_end] -> catch_pc, errSlot, depth=D
+        //     body_end:
+        //     PopScope
+        //     Jmp done                             // body succeeded -> stop
+        //   catch_pc:                              (error in errSlot; ctx popped to D)
+        //     attempt = attempt + 1
+        //     Lt cmp, attempt, N
+        //     JmpIf cmp -> loop_top                // attempts remain -> retry
+        //   exhausted:                             // every attempt failed
+        //     [else: PushScope; [ELSE]; PopScope]  OR  [no else: Throw errSlot]
+        //   done:
+        private static void CompileRetry(Parser.Nodes.Statements.RetryNode node, State st, ref byte topSlot, byte scratchSlot)
+        {
+            // Gate 1: the attempt count must be a non-negative foldable literal.
+            if (!TryGetLiteralLong(node.CountNode, out long countLit))
+                throw new IrCompileException("retry count not a foldable literal -> fallback");
+            if (countLit < 0 || countLit > int.MaxValue)
+                throw new IrCompileException("retry count out of range -> fallback (visitor surfaces the runtime error)");
+
+            // Gate 2: `delay M` lowers via OP_SLEEP (0xFB), but M MUST be a
+            // non-negative foldable integer literal in [0, 65535] — the imm16
+            // range OP_SLEEP carries the delay in. A literal matches how the count
+            // is validated at COMPILE time, so a non-int / negative / larger /
+            // runtime-expression `delay` falls back to the visitor — which carries
+            // the exact ExtractRetryInt coercion + RA error messages ("delay must
+            // be a non-negative integer", "delay cannot be negative", "delay is
+            // too large", …) AND evaluates/validates M up-front, before the first
+            // attempt. Falling back therefore preserves byte-exact parity for
+            // every non-literal delay form. (Encoding the delay as an immediate —
+            // rather than a slot read in the off-CFG catch handler — is what keeps
+            // the lowered form DCE-safe; see Opcode.Sleep.)
+            bool hasDelay = node.DelayNode != null;
+            long delayLit = 0;
+            if (hasDelay)
+            {
+                if (!TryGetLiteralLong(node.DelayNode!, out delayLit))
+                    throw new IrCompileException("retry `delay` not a foldable integer literal -> fallback (visitor coerces + validates up-front)");
+                if (delayLit < 0 || delayLit > ushort.MaxValue)
+                    throw new IrCompileException("retry `delay` out of imm16 range -> fallback (visitor validates + sleeps)");
+            }
+
+            // Gate 3: control-flow escapes / try-with-finally in body or else are
+            // not routed through this lowering — fall back to the visitor.
+            if (ContainsControlEscape(node.BodyNode) || ContainsControlEscape(node.ElseNode)
+                || ContainsTryWithFinally(node.BodyNode) || ContainsTryWithFinally(node.ElseNode))
+                throw new IrCompileException("retry body/else has a control escape or try/finally -> fallback");
+
+            // N == 0: no body runs at all. Just the else branch (value discarded),
+            // or nothing. No error is ever raised.
+            if (countLit == 0)
+            {
+                if (node.ElseNode != null)
+                    CompileBodyScoped(node.ElseNode, st, ref topSlot, scratchSlot);
+                MarkAllTypedAccsDirty(st);
+                return;
+            }
+
+            byte errSlot = AllocTemp(ref topSlot);
+
+            // attempt counter in a typed-Int64 slot (LongValid) so AddII / LtII
+            // operate directly on the long register file. N is a literal that fit
+            // a non-negative int, so attempt/one/count never overflow or box. NB:
+            // these MUST be typed longs — a boxed NumberValue here would be misread
+            // by the LtII the rewriter fuses, since the II opcodes read LongLocals.
+            byte attemptSlot = AllocTemp(ref topSlot);
+            st.Code.Emit2(Opcode.LoadIntS64, attemptSlot, 0); // attempt = 0
+
+            byte oneSlot = AllocTemp(ref topSlot);
+            st.Code.Emit2(Opcode.LoadIntS64, oneSlot, 1); // step = 1
+
+            byte countSlot = AllocTemp(ref topSlot);
+            EmitLiteralLongLoad(countLit, countSlot, st, ref topSlot); // N
+
+            // `delay M`: nothing to load up-front — the (compile-time-validated)
+            // delay literal is baked into the OP_SLEEP immediate emitted on the
+            // retry branch below. The visitor evaluates a *literal* M to the same
+            // constant regardless of when, so there is no observable difference in
+            // evaluation timing for the literal forms this path accepts.
+
+            int scopeDepthAtBody = st.ScopeDepth;
+            int loopTopPc = st.Code.Pc;
+
+            // --- attempt body (own scope, like CompileTry's try body) ---
+            EmitPushScope(st);
+            int bodyStartPc = st.Code.Pc;
+            CompileBodyStrictInline(node.BodyNode, st, ref topSlot, scratchSlot);
+            int bodyEndPc = st.Code.Pc;
+            EmitPopScope(st);
+
+            int doneJmp = st.Code.EmitForwardJump(Opcode.Jmp); // body succeeded -> done
+
+            // --- catch handler: the attempt raised; the error is in errSlot and
+            // the VM has popped ctx back to scopeDepthAtBody. ---
+            int catchPc = st.Code.Pc;
+            // attempt += 1  (typed long)
+            st.Code.Emit3(Opcode.AddII, attemptSlot, attemptSlot, oneSlot);
+            // if attempt < N: retry (backward jump to loop_top)
+            byte cmpSlot = AllocTemp(ref topSlot);
+            st.Code.Emit3(Opcode.LtII, cmpSlot, attemptSlot, countSlot);
+            if (!hasDelay)
+            {
+                // No `delay`: the retry branch is just the back-jump (unchanged).
+                st.Code.EmitBackwardJump(Opcode.JmpIf, cmpSlot, loopTopPc);
+            }
+            else
+            {
+                // `delay M`: on the retry branch (attempt < N) sleep BEFORE the
+                // back-jump — mirroring the visitor's `if (attempt < retries - 1
+                // && delayMs > 0) Thread.Sleep(delayMs)` between failed attempts.
+                // On the exhausted branch (attempt >= N) skip the sleep entirely
+                // (the visitor's last failing attempt runs the else / re-raises
+                // WITHOUT sleeping). The delay (ms) rides in the OP_SLEEP imm16.
+                // Lower as:
+                //   JmpIfNot cmp -> afterSleep   (attempt >= N: skip sleep)
+                //   OP_SLEEP imm16=M             (attempt <  N: inter-attempt delay)
+                //   Jmp -> loop_top              (retry)
+                //   afterSleep:                  (falls into exhausted/else)
+                int skipSleepJmp = st.Code.EmitForwardJump(Opcode.JmpIfNot, cmpSlot);
+                st.Code.Emit2(Opcode.Sleep, 0, (ushort)delayLit);
+                st.Code.EmitBackwardJump(Opcode.Jmp, 0, loopTopPc);
+                st.Code.PatchJumpToHere(skipSleepJmp);
+            }
+
+            // --- exhausted: every attempt failed ---
+            if (node.ElseNode != null)
+            {
+                CompileBodyScoped(node.ElseNode, st, ref topSlot, scratchSlot);
+            }
+            else
+            {
+                // No else: re-raise the LAST attempt's error (matches the
+                // visitor's `res.Failure(lastError)`).
+                st.Code.Emit3(Opcode.Throw, errSlot, 0, 0);
+            }
+
+            st.Code.PatchJumpToHere(doneJmp);
+
+            // EhTable: a fault anywhere in [bodyStart..bodyEnd] routes to catchPc
+            // with the error bound into errSlot, after popping ctx to the depth
+            // BEFORE the per-attempt PushScope. Skip an empty (cannot-fault) body
+            // region — the verifier rejects Start>=End — in which case the body
+            // never throws, the success Jmp always fires, and catch/exhausted are
+            // simply dead code.
+            if (bodyEndPc > bodyStartPc)
+            {
+                st.EhTable.Add(new ExceptionHandler(
+                    start: bodyStartPc, end: bodyEndPc,
+                    catchPc: catchPc, finallyPc: -1,
+                    catchSlot: errSlot, scopeDepth: scopeDepthAtBody));
+            }
+
+            // The body ran an unknown number of times (or the else ran instead);
+            // conservatively re-dirty every typed accumulator.
+            MarkAllTypedAccsDirty(st);
         }
 
         // L10: does `n` contain a control-flow escape (return / break / continue
@@ -7952,6 +8968,80 @@ namespace RaLanguage.Interpreter.IR
                 case AstNodeType.UnaryOperation:
                 {
                     var un = (UnaryOperationNode)expr;
+                    // Unary `+` is a pure identity (the visitor leaves the operand
+                    // value untouched — no `case TokenType.PLUS` in its switch), so
+                    // a leading `+` on any number/expr compiles straight into the
+                    // destination slot. Distinct from DOUBLE_PLUS (`++`), handled
+                    // by the inc/dec branch just below.
+                    if (un.OpTok.Type == TokenType.PLUS)
+                    {
+                        CompileExpression(un.Node, destSlot, st, ref topSlot);
+                        return;
+                    }
+                    // `i++` / `i--` (postfix, IsLeft==false) and `++i` / `--i`
+                    // (prefix, IsLeft==true) on a *simple variable*. Mirrors
+                    // UnaryOperationNodeVisitor: both carry the side-effect
+                    // `i = i ± 1`; the EXPRESSION value is the OLD value for the
+                    // postfix form and the NEW value for the prefix form (as a
+                    // bare statement it lands in scratch and is discarded). Only a
+                    // bare VariableAccess target is lowered here — the parser only
+                    // ever builds postfix `++`/`--` after a plain identifier, and
+                    // member/index/other prefix targets are deliberately left to
+                    // fall through to MapUnary (which throws → OP_NATIVE_DEFINE
+                    // fallback). Store-back mirrors the VariableAssignment-as-value
+                    // case: StoreLocalS for a slot-bound binding, else StoreGlobal
+                    // via a synthesized `=` VariableAssignmentNode through
+                    // AssignmentHelper. Reuses that case's typed-accumulator /
+                    // active-iter guard so the unboxed-promotion bookkeeping for a
+                    // promoted slot is never silently bypassed.
+                    if ((un.OpTok.Type == TokenType.DOUBLE_PLUS || un.OpTok.Type == TokenType.DOUBLE_MINUS)
+                        && un.Node is Parser.Nodes.Variables.VariableAccessNode incVa)
+                    {
+                        if (st.TypedAccumulators.ContainsKey(incVa.Name)
+                            || st.ActiveTypedIters.ContainsKey(incVa.Name))
+                            throw new IrCompileException("inc/dec of typed-slot binding not lowered");
+
+                        bool isInc = un.OpTok.Type == TokenType.DOUBLE_PLUS;
+                        // Postfix: OLD value is the expression result → goes in
+                        // destSlot, the NEW value is stored back from a temp.
+                        // Prefix: NEW value is the expression result → goes in
+                        // destSlot (stored back from there), OLD value parked in a
+                        // temp. Either way the constant `1` and the "other" value
+                        // live in temps ABOVE destSlot so they never clobber it.
+                        byte oneSlot = AllocTemp(ref topSlot);
+                        ushort oneIdx = st.Consts.Add(NumberValue.One);
+                        byte otherSlot = AllocTemp(ref topSlot);
+                        byte oldSlot, newSlot;
+                        if (un.IsLeft) { oldSlot = otherSlot; newSlot = destSlot; }
+                        else           { oldSlot = destSlot;  newSlot = otherSlot; }
+
+                        CompileExpression(incVa, oldSlot, st, ref topSlot);
+                        st.Code.Emit2(Opcode.LoadConst, oneSlot, oneIdx);
+                        st.Code.Emit3(isInc ? Opcode.Add : Opcode.Sub, newSlot, oldSlot, oneSlot);
+
+                        if (IsSlotEligible(incVa.Binding, incVa.BindingKind, st))
+                        {
+                            st.RegisterSlot(incVa.Binding.Offset, incVa.Name);
+                            st.Code.Emit2(Opcode.StoreLocalS, newSlot, (ushort)incVa.Binding.Offset);
+                        }
+                        else
+                        {
+                            if (st.AstRefs.Count > ushort.MaxValue)
+                                throw new IrCompileException("AstRefs overflow");
+                            // Synthesize `incVa.Name = <new>` so OP_STORE_GLOBAL's
+                            // AssignmentHelper path (which keys off node.Name +
+                            // node.AssignmentToken only — never node.ValueNode) can
+                            // commit the write with full coerce/type-check parity.
+                            var eqTok = new Lexer.Tokens.Token(
+                                TokenType.EQ, null, incVa.VarNameTok.PositionStart);
+                            var storeNode = new Parser.Nodes.Variables.VariableAssignmentNode(
+                                incVa.VarNameTok, eqTok, incVa);
+                            ushort incRefIdx = (ushort)st.AstRefs.Count;
+                            st.AstRefs.Add(storeNode);
+                            st.Code.Emit2(Opcode.StoreGlobal, newSlot, incRefIdx);
+                        }
+                        return;
+                    }
                     // M27.1 — Fold `-<constexpr>` at compile time when the subtree is
                     // a pure-arithmetic literal expression. Mirrors the BinaryOperation
                     // folder so `-(2*3)` collapses to LoadConst(-6).
@@ -7986,6 +9076,31 @@ namespace RaLanguage.Interpreter.IR
                         if (kw == Keyword.Or)
                         {
                             CompileShortCircuitOr(bo, destSlot, st, ref topSlot);
+                            return;
+                        }
+                        // `left in right` / `left not in right` — membership.
+                        // OP_IN reads left (b) + right (c) and writes the
+                        // BooleanValue result. `not in` negates with the
+                        // existing unary OP_NOT (logical-not of the bool result,
+                        // matching BinaryOperationNodeVisitor's `.Notted()`).
+                        // Operand temps allocated exactly like the generic
+                        // binary path below.
+                        if (kw == Keyword.In || kw == Keyword.NotIn)
+                        {
+                            byte inLhs = AllocTemp(ref topSlot);
+                            CompileExpression(bo.LeftNode, inLhs, st, ref topSlot);
+                            byte inRhs = AllocTemp(ref topSlot);
+                            CompileExpression(bo.RightNode, inRhs, st, ref topSlot);
+                            if (kw == Keyword.In)
+                            {
+                                st.Code.Emit3(Opcode.In, destSlot, inLhs, inRhs);
+                            }
+                            else
+                            {
+                                byte inTmp = AllocTemp(ref topSlot);
+                                st.Code.Emit3(Opcode.In, inTmp, inLhs, inRhs);
+                                st.Code.Emit3(Opcode.Not, destSlot, inTmp, 0);
+                            }
                             return;
                         }
                     }
@@ -8458,12 +9573,9 @@ namespace RaLanguage.Interpreter.IR
                         st.Code.Emit3(Opcode.Spawn, destSlot, spFnSlot, (byte)spArgCount);
                         return;
                     }
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort spRefIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(expr);
-                    st.Code.Emit2(Opcode.NativeDefine, destSlot, spRefIdx);
-                    return;
+                    // Non-call / non-natively-compilable spawn target: not
+                    // IR-lowerable (the visitor used to handle this).
+                    throw new IrCompileException("spawn expression not IR-lowerable");
                 }
 
                 // L9/L10: expression-position asm block (`let r = asm { … }`).
@@ -8473,18 +9585,16 @@ namespace RaLanguage.Interpreter.IR
                     CompileAsmBlock((Parser.Nodes.Asm.AsmBlockNode)expr, destSlot, st, ref topSlot);
                     return;
 
-                // Long-tail expressions routed via OP_NATIVE_DEFINE — the
-                // VM calls the visitor's static Apply directly, never
-                // hitting interpreter._visitors[].
-                case AstNodeType.DestructuringDeclaration:
-                case AstNodeType.Emit:
-                case AstNodeType.ForAwait:
-                case AstNodeType.SuperFor:
-                case AstNodeType.Yield:
+                // L10: `let a = @Name(args)` builds an AnnotationInstanceValue
+                // → OP_ANNOTATION_APPLY (off the OP_NATIVE_DEFINE route). ONLY
+                // AnnotationApplication parks an AnnotationApplicationNode here —
+                // OpAnnotationApply casts DefineRefs[idx] to that exact type, so
+                // any other kind sharing this case would crash with an
+                // InvalidCastException (reached e.g. when a pattern-catch body's
+                // DestructuringDeclaration is run as a scope child via the visitor
+                // — ScopeNodeVisitor evaluates every child in EXPRESSION position).
                 case AstNodeType.AnnotationApplication:
                 {
-                    // L10: `let a = @Name(args)` builds an AnnotationInstanceValue
-                    // → OP_ANNOTATION_APPLY (off the OP_NATIVE_DEFINE route).
                     if (st.DefineRefs.Count > ushort.MaxValue)
                         throw new IrCompileException("DefineRefs overflow (>65535)");
                     ushort aaIdx = (ushort)st.DefineRefs.Count;
@@ -8492,6 +9602,19 @@ namespace RaLanguage.Interpreter.IR
                     st.Code.Emit2(Opcode.AnnotationApply, destSlot, aaIdx);
                     return;
                 }
+
+                // Long-tail statement-shaped kinds appearing in EXPRESSION
+                // position (e.g. a scope/block child evaluated by
+                // ScopeNodeVisitor via Evaluate, not EvaluateStatement). These
+                // have no value-position IR lowering; with OP_NATIVE_DEFINE gone
+                // they are a hard compile failure (no corpus frame reaches here).
+                case AstNodeType.DestructuringDeclaration:
+                case AstNodeType.Emit:
+                case AstNodeType.ForAwait:
+                case AstNodeType.SuperFor:
+                case AstNodeType.Yield:
+                    throw new IrCompileException(
+                        $"statement-shaped node in expression position not IR-lowerable: {expr.NodeType}");
                 case AstNodeType.IsType:
                 {
                     // L10: `x is T` / `x is not T` → OP_IS_TYPE (the same opcode
@@ -8642,30 +9765,49 @@ namespace RaLanguage.Interpreter.IR
                     var fc = (FunctionCallNode)expr;
                     // L10: a "complex" call the plain OP_CALL can't carry — explicit
                     // generic type args (`foo<int>(...)`) OR named args
-                    // (`f(x, name: v)`). Park the FunctionCallNode (it round-trips
-                    // with its GenericTypeArgs + per-arg NameTok) and emit
-                    // OP_CALL_GENERIC — the VM evaluates the arg band, then splits it
-                    // into positionals + a named dict by each ArgNode's NameTok and
-                    // threads {args, named, typeArgs} to FunctionCallExecutor.Invoke
-                    // (the SAME chokepoint the visitor uses). Ref / spread args or a
+                    // (`f(x, name: v)`) OR pass-by-reference args (`f(&x)` —
+                    // parsed as ArgumentNode.IsRef, NOT a Borrow expr). Park the
+                    // FunctionCallNode (it round-trips with its GenericTypeArgs +
+                    // per-arg NameTok + per-arg IsRef) and emit OP_CALL_GENERIC —
+                    // the VM evaluates the arg band, then splits it into positionals
+                    // + a named dict by each ArgNode's NameTok and threads
+                    // {args, named, typeArgs} to FunctionCallExecutor.Invoke (the
+                    // SAME chokepoint the visitor uses). For an IsRef arg the VM
+                    // materialises the value via FunctionCallExecutor.CreateReference-
+                    // FromNode (the EXACT helper EvaluateArguments uses) — so the
+                    // produced ReferenceValue and any downstream type-mismatch error
+                    // are byte-identical to the visitor; the band slot is left null
+                    // (no expr compiled) and overridden in the VM. Spread args or a
                     // >u8 arg-count / DefineRefs index → fall back to the visitor.
                     bool fcHasNamed = false;
-                    foreach (var arg in fc.ArgNodes) if (arg.NameTok != null) { fcHasNamed = true; break; }
-                    if ((fc.GenericTypeArgs != null && fc.GenericTypeArgs.Count > 0) || fcHasNamed)
+                    bool fcHasRef = false;
+                    foreach (var arg in fc.ArgNodes)
+                    {
+                        if (arg.NameTok != null) fcHasNamed = true;
+                        if (arg.IsRef) fcHasRef = true;
+                    }
+                    if ((fc.GenericTypeArgs != null && fc.GenericTypeArgs.Count > 0) || fcHasNamed || fcHasRef)
                     {
                         int gArgCount = fc.ArgNodes.Count;
                         if (gArgCount > byte.MaxValue)
                             throw new IrCompileException("complex call has too many args (>255) -> fallback");
                         foreach (var arg in fc.ArgNodes)
                         {
-                            if (arg.IsRef) throw new IrCompileException("complex call has ref arg -> fallback");
                             if (arg.Expr.NodeType == AstNodeType.Spread) throw new IrCompileException("complex call has spread arg -> fallback");
                         }
                         byte gFnSlot = AllocTemp(ref topSlot);
                         for (int i = 0; i < gArgCount; i++) AllocTemp(ref topSlot);
                         CompileExpression(fc.NodeToCall, gFnSlot, st, ref topSlot);
                         for (int i = 0; i < gArgCount; i++)
+                        {
+                            // IsRef args are materialised in the VM via
+                            // CreateReferenceFromNode (reading the parked ArgNode's
+                            // Expr) — do NOT compile the Expr into the band here, so
+                            // a `&v` arg neither double-evaluates nor leaks the
+                            // plain value into the slot (the VM overrides it).
+                            if (fc.ArgNodes[i].IsRef) continue;
                             CompileExpression(fc.ArgNodes[i].Expr, (byte)(gFnSlot + 1 + i), st, ref topSlot);
+                        }
                         if (st.DefineRefs.Count > byte.MaxValue)
                             throw new IrCompileException("DefineRefs index exceeds u8 for OP_CALL_GENERIC -> fallback");
                         byte gRefIdx = (byte)st.DefineRefs.Count;
@@ -8766,11 +9908,9 @@ namespace RaLanguage.Interpreter.IR
 
                 // L7: expression-position match (`let y = match x { … }`).
                 // Lowers the literal/wildcard subset inline; on a non-lowerable
-                // match, fall back at the EXPRESSION level to OP_NATIVE_DEFINE
-                // (into destSlot) rather than propagating the throw — so the
-                // SURROUNDING statement (e.g. `ret match …`) still lowers. (This
-                // mirrors the long-tail expression-native group above, which
-                // used to carry Match.)
+                // match, roll back and re-propagate so a higher legitimate retry
+                // sees clean state. (There is no OP_NATIVE_DEFINE fallback any
+                // more — the corpus is entirely IR-lowered.)
                 case AstNodeType.Match:
                 {
                     int savedPc = st.Code.Pc;
@@ -8787,12 +9927,77 @@ namespace RaLanguage.Interpreter.IR
                         topSlot = savedTop;
                         if (st.DefineRefs.Count > savedRefs)
                             st.DefineRefs.RemoveRange(savedRefs, st.DefineRefs.Count - savedRefs);
+                        throw;
                     }
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort mRefIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(expr);
-                    st.Code.Emit2(Opcode.NativeDefine, destSlot, mRefIdx);
+                }
+
+                // L11: expression-position if (`let y = if c { … } else { … }`).
+                // Lowers each branch as a block-value; on a non-lowerable branch,
+                // roll back and re-propagate (no OP_NATIVE_DEFINE fallback).
+                // CompileIfExpr emits PushScope before the throwing block-value
+                // compile, so the rollback additionally restores ScopeDepth.
+                case AstNodeType.If:
+                {
+                    int savedPc = st.Code.Pc; byte savedTop = topSlot; int savedRefs = st.DefineRefs.Count; int savedAst = st.AstRefs.Count; int savedScope = st.ScopeDepth;
+                    try { CompileIfExpr((IfNode)expr, destSlot, st, ref topSlot); return; }
+                    catch (IrCompileException)
+                    {
+                        st.Code.Truncate(savedPc); topSlot = savedTop; st.ScopeDepth = savedScope;
+                        if (st.DefineRefs.Count > savedRefs) st.DefineRefs.RemoveRange(savedRefs, st.DefineRefs.Count - savedRefs);
+                        if (st.AstRefs.Count > savedAst) st.AstRefs.RemoveRange(savedAst, st.AstRefs.Count - savedAst);
+                        throw;
+                    }
+                }
+
+                // L11: expression-position try/catch (`let y = try { … } catch …`).
+                // Lowers try + catch bodies as block-values; finally-as-value
+                // stays gated. On a non-lowerable body, roll back and
+                // re-propagate (no OP_NATIVE_DEFINE fallback). The rollback also
+                // restores ScopeDepth (PushScope precedes the throwing
+                // block-value compile).
+                case AstNodeType.Try:
+                {
+                    int savedPc = st.Code.Pc; byte savedTop = topSlot; int savedRefs = st.DefineRefs.Count; int savedAst = st.AstRefs.Count; int savedScope = st.ScopeDepth;
+                    try { CompileTryExpr((Parser.Nodes.Special.TryNode)expr, destSlot, st, ref topSlot); return; }
+                    catch (IrCompileException)
+                    {
+                        st.Code.Truncate(savedPc); topSlot = savedTop; st.ScopeDepth = savedScope;
+                        if (st.DefineRefs.Count > savedRefs) st.DefineRefs.RemoveRange(savedRefs, st.DefineRefs.Count - savedRefs);
+                        if (st.AstRefs.Count > savedAst) st.AstRefs.RemoveRange(savedAst, st.AstRefs.Count - savedAst);
+                        throw;
+                    }
+                }
+
+                // Chained / value-position assignment (`var a = b = 5`, or any
+                // `(x = v)` used as a sub-expression). Ra assignment-as-expression
+                // evaluates to the assigned value: compile the RHS straight into
+                // destSlot, store that slot into the target (the store opcodes read
+                // their source slot without clobbering it — see StoreLocalS /
+                // StoreGlobal in VmExecutor), and leave destSlot holding the value.
+                // Restricted to plain `=`: a compound assignment-as-value yields the
+                // *computed* result, a different shape left on fallback. Names bound
+                // to an active typed accumulator / iter slot also stay on fallback so
+                // the unboxed-promotion bookkeeping isn't bypassed.
+                case AstNodeType.VariableAssignment:
+                {
+                    var vae = (VariableAssignmentNode)expr;
+                    if (vae.AssignmentToken.Type != TokenType.EQ)
+                        throw new IrCompileException("compound assignment as value not yet lowered");
+                    if (st.TypedAccumulators.ContainsKey(vae.Name)
+                        || st.ActiveTypedIters.ContainsKey(vae.Name))
+                        throw new IrCompileException("assignment-as-value to typed-slot binding not lowered");
+                    CompileExpression(vae.ValueNode, destSlot, st, ref topSlot);
+                    if (IsSlotEligible(vae.Binding, vae.BindingKind, st))
+                    {
+                        st.RegisterSlot(vae.Binding.Offset, vae.Name);
+                        st.Code.Emit2(Opcode.StoreLocalS, destSlot, (ushort)vae.Binding.Offset);
+                        return;
+                    }
+                    if (st.AstRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("AstRefs overflow");
+                    ushort vaeRefIdx = (ushort)st.AstRefs.Count;
+                    st.AstRefs.Add(vae);
+                    st.Code.Emit2(Opcode.StoreGlobal, destSlot, vaeRefIdx);
                     return;
                 }
 
@@ -11117,9 +12322,15 @@ namespace RaLanguage.Interpreter.IR
         }
 
         // Compile a List/Set/Tuple literal: lay each element in a
-        // consecutive slot, then emit the corresponding NewX opcode. Spread
-        // expansion (`...x`) is not yet supported — the eligibility check
-        // above rejects literals that contain it.
+        // consecutive slot, then emit the corresponding NewX opcode.
+        //
+        // SPREAD (`[a, ...x, b]`): a runtime-variable splat can't be expressed
+        // by the fixed-count NewX band, so a LIST literal containing a spread is
+        // built INCREMENTALLY — an empty NewList, then OP_LIST_PUSH per plain
+        // element and OP_LIST_EXTEND per spread (append all of the iterable's
+        // items). Set/Map/Tuple literals with a spread still throw → the
+        // CompileAsExpression catch routes them through OP_NATIVE_DEFINE
+        // (out of scope; the corpus cases are all list-spread).
         private static void CompileCollectionLiteral(
             List<AstNode> elements, byte destSlot, Opcode newOp,
             State st, ref byte topSlot)
@@ -11127,9 +12338,50 @@ namespace RaLanguage.Interpreter.IR
             int count = elements.Count;
             if (count > byte.MaxValue)
                 throw new IrCompileException($"{newOp} literal has too many elements (>255)");
-            foreach (var e in elements)
-                if (e.NodeType == AstNodeType.Spread)
+
+            bool hasSpread = false;
+            for (int i = 0; i < count; i++)
+                if (elements[i].NodeType == AstNodeType.Spread) { hasSpread = true; break; }
+
+            if (hasSpread)
+            {
+                // Only LIST literals lower spread incrementally; Set/Map/Tuple
+                // fall back.
+                if (newOp != Opcode.NewList)
                     throw new IrCompileException("collection literal with spread not yet lowered");
+
+                // Build an empty list directly into destSlot. NewList with
+                // count 0 never reads its base operand (the element loop in the
+                // VM handler runs zero times), but the .rac verifier still
+                // requires base to be a valid slot index — so allocate a
+                // throwaway scratch slot for it. destSlot is below topSlot;
+                // every element temp is allocated ABOVE it via AllocTemp, so
+                // destSlot is never clobbered while the list is being filled.
+                byte scratchBase = AllocTemp(ref topSlot);
+                st.Code.Emit3(Opcode.NewList, destSlot, scratchBase, 0);
+
+                for (int i = 0; i < count; i++)
+                {
+                    var el = elements[i];
+                    if (el.NodeType == AstNodeType.Spread)
+                    {
+                        var sp = (Parser.Nodes.Operations.SpreadNode)el;
+                        byte it = AllocTemp(ref topSlot);
+                        CompileExpression(sp.Expression, it, st, ref topSlot);
+                        st.Code.Emit3(Opcode.ListExtend, destSlot, it, 0);
+                    }
+                    else
+                    {
+                        byte slot = AllocTemp(ref topSlot);
+                        CompileExpression(el, slot, st, ref topSlot);
+                        st.Code.Emit3(Opcode.ListPush, destSlot, slot, 0);
+                    }
+                }
+                return;
+            }
+
+            // Fast path: no spread — lay every element in a contiguous band and
+            // emit a single fixed-count NewX.
             byte baseSlot = topSlot;
             for (int i = 0; i < count; i++) AllocTemp(ref topSlot);
             for (int i = 0; i < count; i++)

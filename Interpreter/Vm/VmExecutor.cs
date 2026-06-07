@@ -1115,6 +1115,48 @@ namespace RaLanguage.Interpreter.Vm
                         }
                         break;
                     }
+                    case Opcode.DeleteLocal:
+                    {
+                        // L10: `del name`. Mirrors VariableDeleteNodeVisitor.Apply
+                        // for a single name (the IR emits one DeleteLocal per name
+                        // in a `del a, b`): look the name up, raise the visitor's
+                        // exact "does not exist" error if absent, else remove it.
+                        // `a` is unused; the name lives in the Names pool at imm16.
+                        ushort idx = Encoding.Imm16(instr);
+                        var name = names[idx];
+                        var existing = ctx.SymbolTable!.Get(name);
+                        if (existing == null)
+                        {
+                            var (ds, de) = ResolveSpan(f, pc - 1, ctx);
+                            throw new RaUserError(new Errors.Types.RuntimeError(
+                                ds, de,
+                                $"'{name}' variable does not exist", ctx));
+                        }
+                        ctx.SymbolTable.Remove(name);
+                        break;
+                    }
+                    case Opcode.Sleep:
+                    {
+                        // L10: `retry for N times delay M` inter-attempt delay. The
+                        // delay (ms) is the imm16 payload — NO slot read (see
+                        // Opcode.Sleep for why: a slot-based delay-load would sit in
+                        // the off-CFG catch handler and be DCE'd). The IR gates M to
+                        // a non-negative integer literal in [0, 65535], already the
+                        // exact int RetryNodeVisitor.ExtractRetryInt yields for that
+                        // literal. Thread.Sleep is the SAME blocking call the visitor
+                        // makes between failed attempts — that IS the parity
+                        // behavior. Reaching this op means an attempt remains (the
+                        // visitor's `attempt < retries - 1`); CompileRetry emits it
+                        // only on the retry branch, never on the exhausted/else path.
+                        ushort ms = Encoding.Imm16(instr);
+                        // The visitor only sleeps when delayMs > 0; Thread.Sleep(0)
+                        // is an observational no-op (a thread yield with no state /
+                        // output effect), so guarding it keeps behavior identical
+                        // while matching the visitor's `delayMs > 0` skip.
+                        if (ms > 0)
+                            System.Threading.Thread.Sleep(ms);
+                        break;
+                    }
                     case Opcode.AssignBinding:
                     {
                         byte src = Encoding.A(instr);
@@ -1270,6 +1312,49 @@ namespace RaLanguage.Interpreter.Vm
                         var (val, err) = target.ListAccess(index);
                         if (err != null) throw new RaUserError(err);
                         locals[dst] = val;
+                        break;
+                    }
+                    case Opcode.ListPush:
+                    {
+                        // L10 list-literal incremental build (the plain-element
+                        // counterpart to ListExtend). `a` holds the ListValue
+                        // under construction (just built by NewList); `b` holds
+                        // the single value to append. Mirrors ListNodeVisitor's
+                        // non-spread branch (`elements.Add(val)`) — no copy, so
+                        // the element identity matches the all-native NewList
+                        // band path.
+                        byte pListSlot = Encoding.A(instr);
+                        byte pValSlot = Encoding.B(instr);
+                        var pList = locals[pListSlot];
+                        var pVal = locals[pValSlot];
+                        if (pList == null || pVal == null)
+                            throw new RaUserError(MakeIcError(ctx, "VM: ListPush operand is null"));
+                        ((ListValue)pList).Elements.Add(pVal);
+                        break;
+                    }
+                    case Opcode.ListExtend:
+                    {
+                        // L10 list-literal spread (`[a, ...x, b]`). `a` holds the
+                        // ListValue under construction (just built by NewList);
+                        // `b` holds the iterable being splatted. Mirrors
+                        // ListNodeVisitor's spread branch EXACTLY: the source
+                        // must be a ListValue (ranges materialize to lists, so
+                        // they qualify) — anything else raises the visitor's
+                        // identical "Spread target must be an iterable" error.
+                        // No per-element copy (the visitor does a bare AddRange).
+                        byte listSlot = Encoding.A(instr);
+                        byte srcSlot = Encoding.B(instr);
+                        var listV = locals[listSlot];
+                        var srcV = locals[srcSlot];
+                        if (listV == null || srcV == null)
+                            throw new RaUserError(MakeIcError(ctx, "VM: ListExtend operand is null"));
+                        // The list slot was produced by NewList immediately
+                        // above — defensive cast, never user-reachable as a
+                        // non-list.
+                        var dstList = (ListValue)listV;
+                        if (srcV.Type != RuntimeValueType.List)
+                            throw new RaUserError(MakeIcError(ctx, "Spread target must be an iterable (e.g. list)"));
+                        dstList.Elements.AddRange(((ListValue)srcV).Elements);
                         break;
                     }
                     case Opcode.NullCoal:
@@ -1430,244 +1515,6 @@ namespace RaLanguage.Interpreter.Vm
                         var node = refs[refIdx];
                         var sub = Runtime.FunctionDefinitionHelper.Apply(node, ctx, _interpreter);
                         if (sub.Error != null) throw new RaUserError(sub.Error);
-                        locals[dst] = sub.Value;
-                        break;
-                    }
-
-                    case Opcode.NativeDefine:
-                    {
-                        byte dst = Encoding.A(instr);
-                        ushort refIdx = Encoding.Imm16(instr);
-                        var refs = f.Function.DefineRefs;
-                        if (refIdx >= refs.Length)
-                            throw new RaUserError(MakeIcError(ctx, $"VM: NativeDefine refIdx {refIdx} out of range"));
-                        var node = refs[refIdx];
-                        RuntimeResult sub;
-                        switch (node.NodeType)
-                        {
-                            case AstNodeType.ExtensionDefinition:
-                                sub = Visitors.Extensions.ExtensionDefinitionNodeVisitor.Apply(
-                                    (Parser.Nodes.Classes.ExtensionDefinitionNode)node, ctx);
-                                break;
-                            case AstNodeType.TraitDefinition:
-                                sub = Visitors.Traits.TraitDefinitionNodeVisitor.Apply(
-                                    (Parser.Nodes.Traits.TraitDefinitionNode)node, ctx, _interpreter);
-                                break;
-                            case AstNodeType.StructDefinition:
-                                sub = Visitors.Structs.StructDefinitionNodeVisitor.Apply(
-                                    (Parser.Nodes.Structs.StructDefinitionNode)node, ctx, _interpreter);
-                                break;
-                            case AstNodeType.RecordDefinition:
-                                sub = Visitors.Records.RecordDefinitionNodeVisitor.Apply(
-                                    (Parser.Nodes.Records.RecordDefinitionNode)node, ctx, _interpreter);
-                                break;
-                            case AstNodeType.WithExpression:
-                                sub = await Visitors.Operations.WithExpressionNodeVisitor.Apply(
-                                    (Parser.Nodes.Operations.WithExpressionNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.InterfaceDefinition:
-                                sub = Visitors.Interfaces.InterfaceDefinitionNodeVisitor.Apply(
-                                    (Parser.Nodes.Interfaces.InterfaceDefinitionNode)node, ctx, _interpreter);
-                                break;
-                            case AstNodeType.EnumDefinition:
-                                sub = await Visitors.Enums.EnumDefinitionNodeVisitor.Apply(
-                                    (Parser.Nodes.Enums.EnumDefinitionNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.UsingNamespace:
-                                sub = Visitors.Namespaces.UsingNamespaceNodeVisitor.Apply(
-                                    (Parser.Nodes.Namespaces.UsingNamespaceNode)node, ctx);
-                                break;
-                            case AstNodeType.ClassDefinition:
-                                sub = await Visitors.Classes.ClassDefinitionNodeVisitor.Apply(
-                                    (Parser.Nodes.Classes.ClassDefinitionNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.AnnotationDefinition:
-                                sub = Visitors.Annotations.AnnotationDefinitionNodeVisitor.Apply(
-                                    (Parser.Nodes.Annotations.AnnotationDefinitionNode)node, ctx, _interpreter);
-                                break;
-                            case AstNodeType.NamespaceDeclaration:
-                                sub = await Visitors.Namespaces.NamespaceDeclarationNodeVisitor.Apply(
-                                    (Parser.Nodes.Namespaces.NamespaceDeclarationNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.ImportAll:
-                            case AstNodeType.ImportSelective:
-                            case AstNodeType.ImportAlias:
-                                sub = Visitors.Imports.ImportNodeVisitor.Apply(node, ctx, _interpreter);
-                                break;
-                            case AstNodeType.Match:
-                                sub = await Visitors.Patterns.MatchNodeVisitor.Apply(
-                                    (Parser.Nodes.Patterns.MatchNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.DestructuringDeclaration:
-                                sub = await Visitors.Patterns.DestructuringDeclarationNodeVisitor.Apply(
-                                    (Parser.Nodes.Patterns.DestructuringDeclarationNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.TryUnwrap:
-                                sub = await Visitors.Patterns.TryUnwrapNodeVisitor.Apply(
-                                    (Parser.Nodes.Patterns.TryUnwrapNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.Await:
-                                sub = await Visitors.Async.AwaitNodeVisitor.Apply(
-                                    (Parser.Nodes.Async.AwaitNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.Spawn:
-                                sub = await Visitors.Async.SpawnNodeVisitor.Apply(
-                                    (Parser.Nodes.Async.SpawnNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.Emit:
-                                sub = await Visitors.Async.EmitNodeVisitor.Apply(
-                                    (Parser.Nodes.Async.EmitNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.ForAwait:
-                                sub = await Visitors.Async.ForAwaitNodeVisitor.Apply(
-                                    (Parser.Nodes.Async.ForAwaitNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.Pipeline:
-                                sub = await Visitors.Operations.PipelineNodeVisitor.Apply(
-                                    (Parser.Nodes.Operations.PipelineNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.Borrow:
-                                sub = await Visitors.Operations.BorrowNodeVisitor.Apply(
-                                    (Parser.Nodes.Operations.BorrowNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.DereferenceAssignment:
-                                sub = await Visitors.Operations.DereferenceAssignmentNodeVisitor.Apply(
-                                    (Parser.Nodes.Operations.DereferenceAssignmentNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.Goto:
-                                sub = await Visitors.Special.GotoNodeVisitor.Apply(
-                                    (Parser.Nodes.Special.GotoNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.Label:
-                                sub = await Visitors.Special.LabelNodeVisitor.Apply(
-                                    (Parser.Nodes.Special.LabelNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.SuperFor:
-                                sub = await Visitors.Statements.SuperForNodeVisitor.Apply(
-                                    (Parser.Nodes.Statements.SuperForNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.AsmBlock:
-                                sub = await Visitors.Asm.AsmBlockNodeVisitor.Apply(
-                                    (Parser.Nodes.Asm.AsmBlockNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.RegexLiteral:
-                                sub = await Visitors.Primitives.RegexLiteralNodeVisitor.Apply(
-                                    (Parser.Nodes.Primitives.RegexLiteralNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.FormattedInterpolation:
-                                sub = await Visitors.Primitives.FormattedInterpolationNodeVisitor.Apply(
-                                    (Parser.Nodes.Primitives.FormattedInterpolationNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.Yield:
-                                sub = await Visitors.Iterations.YieldNodeVisitor.Apply(
-                                    (Parser.Nodes.Iterations.YieldNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.AnnotationApplication:
-                                sub = await Visitors.Annotations.AnnotationApplicationNodeVisitor.Apply(
-                                    (Parser.Nodes.Annotations.AnnotationApplicationNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.Switch:
-                                sub = await Visitors.Statements.SwitchNodeVisitor.Apply(
-                                    (Parser.Nodes.Statements.SwitchNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.Try:
-                                sub = await Visitors.Special.TryNodeVisitor.Apply(
-                                    (Parser.Nodes.Special.TryNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.Scope:
-                                sub = await Visitors.Special.ScopeNodeVisitor.Apply(
-                                    (Parser.Nodes.Special.ScopeNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.If:
-                                sub = await Visitors.Statements.IfNodeVisitor.Apply(
-                                    (Parser.Nodes.Statements.IfNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.VariableDeclaration:
-                                sub = await Visitors.Variables.VariableDeclarationNodeVisitor.Apply(
-                                    (Parser.Nodes.Variables.VariableDeclarationNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.VariableAssignment:
-                                sub = await Visitors.Variables.VariableAssignmentNodeVisitor.Apply(
-                                    (Parser.Nodes.Variables.VariableAssignmentNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.BinaryOperation:
-                                sub = await Visitors.Operations.BinaryOperationNodeVisitor.Apply(
-                                    (Parser.Nodes.Operations.BinaryOperationNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.UnaryOperation:
-                                sub = await Visitors.Operations.UnaryOperationNodeVisitor.Apply(
-                                    (Parser.Nodes.Operations.UnaryOperationNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.List:
-                                sub = await Visitors.Primitives.ListNodeVisitor.Apply(
-                                    (Parser.Nodes.Primitives.ListNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.Set:
-                                sub = await Visitors.Primitives.SetNodeVisitor.Apply(
-                                    (Parser.Nodes.Primitives.SetNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.Tuple:
-                                sub = await Visitors.Primitives.TupleNodeVisitor.Apply(
-                                    (Parser.Nodes.Primitives.TupleNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.Map:
-                                sub = await Visitors.Primitives.MapNodeVisitor.Apply(
-                                    (Parser.Nodes.Primitives.MapNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.FunctionCall:
-                                sub = await Visitors.Functions.FunctionCallNodeVisitor.Apply(
-                                    (Parser.Nodes.Functions.FunctionCallNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.Break:
-                                sub = await Visitors.Iterations.BreakNodeVisitor.Apply(
-                                    (Parser.Nodes.Iterations.BreakNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.Continue:
-                                sub = await Visitors.Iterations.ContinueNodeVisitor.Apply(
-                                    (Parser.Nodes.Iterations.ContinueNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.Pass:
-                                sub = await Visitors.Operations.PassNodeVisitor.Apply(
-                                    (Parser.Nodes.Operations.PassNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.Return:
-                                sub = await Visitors.Functions.ReturnNodeVisitor.Apply(
-                                    (Parser.Nodes.Functions.ReturnNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.Throw:
-                                sub = await Visitors.Statements.ThrowNodeVisitor.Apply(
-                                    (Parser.Nodes.Statements.ThrowNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.Retry:
-                                sub = await Visitors.Primitives.RetryNodeVisitor.Apply(
-                                    (Parser.Nodes.Statements.RetryNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.VariableDelete:
-                                sub = await Visitors.Variables.VariableDeleteNodeVisitor.Apply(
-                                    (Parser.Nodes.Variables.VariableDeleteNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.MemberAssignment:
-                                sub = await Visitors.Members.MemberAssignmentNodeVisitor.Apply(
-                                    (Parser.Nodes.Structs.MemberAssignmentNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.ListAssignment:
-                                sub = await Visitors.Variables.ListAssignmentNodeVisitor.Apply(
-                                    (Parser.Nodes.Variables.ListAssignmentNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            case AstNodeType.DelegateDefinition:
-                                sub = Visitors.Functions.DelegateDefinitionNodeVisitor.Apply(
-                                    (Parser.Nodes.Functions.DelegateDefinitionNode)node, ctx);
-                                break;
-                            case AstNodeType.IsType:
-                                sub = await Visitors.Operations.IsTypeNodeVisitor.Apply(
-                                    (Parser.Nodes.Operations.IsTypeNode)node, ctx, _interpreter).ConfigureAwait(false);
-                                break;
-                            default:
-                                throw new RaUserError(MakeIcError(ctx,
-                                    $"VM: NativeDefine unsupported NodeType {node.NodeType}"));
-                        }
-                        if (sub.Error != null) throw new RaUserError(sub.Error);
-                        if (sub.ShouldReturn()) return sub;
                         locals[dst] = sub.Value;
                         break;
                     }
@@ -2065,7 +1912,7 @@ namespace RaLanguage.Interpreter.Vm
                         // stack body (NoInlining async) — keeps the dispatch frame
                         // small for sync-completion deep recursion (M85).
                         locals[Encoding.A(instr)] =
-                            await ExecuteCallGeneric(f, locals, instr, ctx).ConfigureAwait(false);
+                            await ExecuteCallGeneric(f, locals, instr, ctx, _interpreter).ConfigureAwait(false);
                         break;
 
                     // M28.3: fused Call + Ret. Same dispatch logic as OP_CALL
@@ -2373,6 +2220,13 @@ namespace RaLanguage.Interpreter.Vm
                     case Opcode.Le:  { var r = Binary(locals, instr, BinOp.Le);  if (r.Error != null) throw new RaUserError(r.Error); break; }
                     case Opcode.Gt:  { var r = Binary(locals, instr, BinOp.Gt);  if (r.Error != null) throw new RaUserError(r.Error); break; }
                     case Opcode.Ge:  { var r = Binary(locals, instr, BinOp.Ge);  if (r.Error != null) throw new RaUserError(r.Error); break; }
+
+                    // -------- membership --------
+                    // `left in right` → left.InCollection(right). `not in` is
+                    // this op followed by OP_NOT (emitted by the IR compiler).
+                    // Erroring RHS (non-collection) surfaces via RaUserError,
+                    // same as Div / the comparison ops above.
+                    case Opcode.In:  { var r = Binary(locals, instr, BinOp.In);  if (r.Error != null) throw new RaUserError(r.Error); break; }
 
                     // -------- branches --------
                     case Opcode.Jmp:
@@ -2699,6 +2553,29 @@ namespace RaLanguage.Interpreter.Vm
                         // exited before reaching here, naturally overriding both.
                         if (f.PendingFlowKind != 0)
                         {
+                            // L10 nested try/finally: when THIS finally is itself
+                            // inside an enclosing try's finally (imm16 != 0 carries
+                            // the patched forward offset to that enclosing finally's
+                            // entry, `a` its scope depth), the pending return/yield
+                            // must run the enclosing finally BEFORE it is applied —
+                            // matching the visitor, where an inner finally's
+                            // SuccessReturn bubbles to the outer try, whose finally
+                            // runs first. Pop ctx down to the enclosing depth, keep
+                            // the flow stashed, and jump into the enclosing finally;
+                            // its own OP_FINALLY_END re-checks (chaining inner→outer).
+                            short fOffs = Encoding.SImm16(instr);
+                            if (fOffs != 0)
+                            {
+                                byte targetDepth = Encoding.A(instr);
+                                while (f.CtxDepth > targetDepth && ctx.Parent != null)
+                                {
+                                    ctx.SymbolTable?.ReleaseLocalBorrows();
+                                    ctx = ctx.Parent;
+                                    f.CtxDepth--;
+                                }
+                                pc += fOffs;
+                                break;
+                            }
                             byte k = f.PendingFlowKind;
                             var v = f.PendingFlowValue ?? NullValue.Null;
                             f.PendingFlowKind = 0;
@@ -2934,7 +2811,7 @@ namespace RaLanguage.Interpreter.Vm
         [System.Runtime.CompilerServices.MethodImpl(
             System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private static async System.Threading.Tasks.ValueTask<RuntimeValue> ExecuteCallGeneric(
-            VmFrame f, LocalsView locals, uint instr, Context ctx)
+            VmFrame f, LocalsView locals, uint instr, Context ctx, IInterpreter interpreter)
         {
             if (ctx.AreCallsBlocked)
                 throw new RaUserError(MakeIcError(ctx, "function calls are not allowed in this context"));
@@ -2951,14 +2828,36 @@ namespace RaLanguage.Interpreter.Vm
             // Split the contiguous arg band into positionals + named args by each
             // ArgNode's compile-time NameTok (values are runtime, names static) —
             // mirrors FunctionCallNodeVisitor → generic / named / mixed call.
+            // An IsRef arg (`f(&x)` pass-by-reference) was NOT compiled into the
+            // band by the IR compiler — its band slot is null — so materialise it
+            // here via CreateReferenceFromNode (the EXACT helper EvaluateArguments
+            // uses), keeping the produced ReferenceValue + any error byte-identical
+            // to the visitor.
             var argList = RentArgList(argCount);
             System.Collections.Generic.Dictionary<string, RuntimeValue>? named = null;
             for (int i = 0; i < argCount; i++)
             {
-                var a = locals[fnSlot + 1 + i];
-                if (a == null)
-                    throw new RaUserError(MakeIcError(ctx, $"VM: argument {i} slot is null"));
-                var nameTok = gfc.ArgNodes[i].NameTok;
+                var argNode = gfc.ArgNodes[i];
+                RuntimeValue a;
+                if (argNode.IsRef)
+                {
+                    var refRes = await Runtime.Calls.FunctionCallExecutor.CreateReferenceFromNode(
+                        argNode.Expr, ctx, interpreter).ConfigureAwait(false);
+                    if (refRes.Error != null)
+                    {
+                        ReturnArgList(argList);
+                        throw new RaUserError(refRes.Error);
+                    }
+                    a = refRes.Value!;
+                }
+                else
+                {
+                    var slotVal = locals[fnSlot + 1 + i];
+                    if (slotVal == null)
+                        throw new RaUserError(MakeIcError(ctx, $"VM: argument {i} slot is null"));
+                    a = slotVal;
+                }
+                var nameTok = argNode.NameTok;
                 if (nameTok != null)
                 {
                     named ??= new System.Collections.Generic.Dictionary<string, RuntimeValue>(System.StringComparer.Ordinal);
@@ -2998,7 +2897,7 @@ namespace RaLanguage.Interpreter.Vm
             switch (def.Kind)
             {
                 case IR.Defs.TypeDefKind.Enum:
-                    return DefineEnum((IR.Defs.EnumDef)def, ctx, f, pc);
+                    return DefineEnum((IR.Defs.EnumDef)def, ctx, f, pc, interpreter);
                 case IR.Defs.TypeDefKind.Delegate:
                     return DefineDelegate((IR.Defs.DelegateDef)def, ctx, f, pc);
                 case IR.Defs.TypeDefKind.Using:
@@ -3045,21 +2944,33 @@ namespace RaLanguage.Interpreter.Vm
                 // Rebuild a const default as a NumberNode whose CachedValue is
                 // the folded value — NumberNodeVisitor returns CachedValue
                 // verbatim (any type), so field-init evaluates to exactly the
-                // folded const (byte-identical to the visitor's evaluation).
+                // folded const (byte-identical to the visitor's evaluation). A
+                // NON-CONST default lowered to a thunk needs a NON-NULL stub
+                // DefaultValueNode (so construction enters the default branch) — a
+                // PassNode; the thunk is wired below (DefaultCompiledBody) and runs
+                // instead of the stub. Mirrors ReconstructProperty.
                 AstNode? defNode = null;
-                if (fd.DefaultConst != null)
+                if (fd.CompiledDefault != null)
+                    defNode = new Parser.Nodes.Operations.PassNode(s, e);
+                else if (fd.DefaultConst != null)
                 {
                     defNode = new Parser.Nodes.Primitives.NumberNode(
                         new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
                     { CachedValue = fd.DefaultConst };
                 }
-                fields.Add(new Parser.Nodes.Structs.StructFieldDefinitionNode(
+                var fieldNode = new Parser.Nodes.Structs.StructFieldDefinitionNode(
                     fd.IsPublic,
                     new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, fd.Name, s, e),
                     fd.FieldType,
                     defNode,
                     fd.IsStatic, fd.IsAbstract, fd.IsOverride,
-                    (Parser.Nodes.Variables.VariableDeclarationType)fd.DeclKind));
+                    (Parser.Nodes.Variables.VariableDeclarationType)fd.DeclKind);
+                if (fd.CompiledDefault != null)
+                {
+                    fieldNode.DefaultCompiledBody = fd.CompiledDefault;
+                    fieldNode.DefaultIrCompileTried = true;
+                }
+                fields.Add(fieldNode);
             }
 
             var methods = new System.Collections.Generic.List<Parser.Nodes.Structs.StructMethodDefinitionNode>(def.Methods.Length);
@@ -3074,6 +2985,8 @@ namespace RaLanguage.Interpreter.Vm
                 ReconstructWheres(def.Wheres, s, e),
                 ReconstructProperties(def.Properties, s, e),
                 ReconstructEvents(def.Events, s, e));
+            if (def.Annotations.Length > 0)
+                node.Annotations = new System.Collections.Generic.List<Parser.Nodes.Annotations.AnnotationApplicationNode>(def.Annotations);
 
             var result = Visitors.Structs.StructDefinitionNodeVisitor.Apply(node, ctx, interpreter);
             if (result.Error != null) throw new RaUserError(result.Error);
@@ -3145,8 +3058,8 @@ namespace RaLanguage.Interpreter.Vm
 
             var node = new Parser.Nodes.Records.RecordDefinitionNode(
                 new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
-                def.IsPublic, def.IsRefRecord, /*isAbstract*/ false,
-                /*baseType*/ null, /*baseArgs*/ null,
+                def.IsPublic, def.IsRefRecord, def.IsAbstract,
+                def.BaseType, ReconstructConstArgs(def.BaseArgConsts, s, e),
                 primaryFields, methods,
                 ReconstructOperators(def.Operators, s, e),
                 new System.Collections.Generic.List<string>(def.Generics),
@@ -3156,10 +3069,26 @@ namespace RaLanguage.Interpreter.Vm
             // Restore the @derive-controlled auto flags (default true).
             node.AutoEquals = def.AutoEquals;
             node.AutoToString = def.AutoToString;
+            if (def.Annotations.Length > 0)
+                node.Annotations = new System.Collections.Generic.List<Parser.Nodes.Annotations.AnnotationApplicationNode>(def.Annotations);
 
             var result = Visitors.Records.RecordDefinitionNodeVisitor.Apply(node, ctx, interpreter);
             if (result.Error != null) throw new RaUserError(result.Error);
             return result.Value!;
+        }
+
+        // Rebuild const-folded base-ctor args as NumberNodes carrying CachedValue
+        // (NumberNodeVisitor returns CachedValue verbatim) — byte-identical to the
+        // visitor evaluating the original literal base args.
+        private static System.Collections.Generic.List<AstNode>? ReconstructConstArgs(
+            RuntimeValue?[] consts, Lexer.Position s, Lexer.Position e)
+        {
+            if (consts == null || consts.Length == 0) return null;
+            var list = new System.Collections.Generic.List<AstNode>(consts.Length);
+            foreach (var c in consts)
+                list.Add(new Parser.Nodes.Primitives.NumberNode(
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e)) { CachedValue = c });
+            return list;
         }
 
         // Reconstruct a class method (FunctionDefinitionNode) with stub body +
@@ -3287,15 +3216,28 @@ namespace RaLanguage.Interpreter.Vm
                 }
                 accessors.Add(accNode);
             }
+            // A LAZY default lowered to a thunk needs a NON-NULL DefaultValueNode
+            // stub (the lazy first-touch path errors on a null initializer) — a
+            // PassNode, mirroring the computed-accessor stub. The thunk is wired in
+            // below (DefaultCompiledBody) and runs instead of the stub. A const
+            // EAGER default reconstructs as a cached NumberNode.
             AstNode? defNode = null;
-            if (pd.DefaultConst != null)
+            if (pd.CompiledDefault != null)
+                defNode = new Parser.Nodes.Operations.PassNode(s, e);
+            else if (pd.DefaultConst != null)
                 defNode = new Parser.Nodes.Primitives.NumberNode(
                     new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
                 { CachedValue = pd.DefaultConst };
-            return new Parser.Nodes.Properties.PropertyDefinitionNode(
+            var node = new Parser.Nodes.Properties.PropertyDefinitionNode(
                 new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, pd.Name, s, e),
                 pd.PropertyType, defNode, accessors,
                 pd.IsPublic, pd.IsStatic, pd.IsAbstract, pd.IsOverride, pd.IsLazy);
+            if (pd.CompiledDefault != null)
+            {
+                node.DefaultCompiledBody = pd.CompiledDefault;
+                node.DefaultIrCompileTried = true;
+            }
+            return node;
         }
 
         // Shared: reconstruct a property list from PropertyDef[] (empty → empty).
@@ -3360,16 +3302,28 @@ namespace RaLanguage.Interpreter.Vm
             var fields = new System.Collections.Generic.List<Parser.Nodes.Structs.StructFieldDefinitionNode>(def.Fields.Length);
             foreach (var fd in def.Fields)
             {
+                // A NON-CONST default lowered to a thunk needs a NON-NULL stub
+                // DefaultValueNode (PassNode) so construction enters the default
+                // branch; the thunk is wired below (DefaultCompiledBody) and runs
+                // instead of the stub. A const default rebuilds as a cached NumberNode.
                 AstNode? defNode = null;
-                if (fd.DefaultConst != null)
+                if (fd.CompiledDefault != null)
+                    defNode = new Parser.Nodes.Operations.PassNode(s, e);
+                else if (fd.DefaultConst != null)
                     defNode = new Parser.Nodes.Primitives.NumberNode(
                         new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
                     { CachedValue = fd.DefaultConst };
-                fields.Add(new Parser.Nodes.Structs.StructFieldDefinitionNode(
+                var fieldNode = new Parser.Nodes.Structs.StructFieldDefinitionNode(
                     fd.IsPublic,
                     new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, fd.Name, s, e),
                     fd.FieldType, defNode, fd.IsStatic, fd.IsAbstract, fd.IsOverride,
-                    (Parser.Nodes.Variables.VariableDeclarationType)fd.DeclKind));
+                    (Parser.Nodes.Variables.VariableDeclarationType)fd.DeclKind);
+                if (fd.CompiledDefault != null)
+                {
+                    fieldNode.DefaultCompiledBody = fd.CompiledDefault;
+                    fieldNode.DefaultIrCompileTried = true;
+                }
+                fields.Add(fieldNode);
             }
 
             var methods = new System.Collections.Generic.List<Parser.Nodes.Functions.FunctionDefinitionNode>(def.Methods.Length);
@@ -3388,6 +3342,8 @@ namespace RaLanguage.Interpreter.Vm
                 ReconstructWheres(def.Wheres, s, e),
                 ReconstructProperties(def.Properties, s, e),
                 ReconstructEvents(def.Events, s, e));
+            if (def.Annotations.Length > 0)
+                node.Annotations = new System.Collections.Generic.List<Parser.Nodes.Annotations.AnnotationApplicationNode>(def.Annotations);
 
             var task = Visitors.Classes.ClassDefinitionNodeVisitor.Apply(node, ctx, interpreter);
             var result = task.IsCompleted ? task.Result : task.AsTask().GetAwaiter().GetResult();
@@ -3451,7 +3407,11 @@ namespace RaLanguage.Interpreter.Vm
                 new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
                 def.IsPublic, methods, fields,
                 new System.Collections.Generic.List<string>(def.Generics),
-                new System.Collections.Generic.List<Parser.Nodes.Special.WhereConstraintNode>());
+                new System.Collections.Generic.List<Parser.Nodes.Special.WhereConstraintNode>(),
+                ReconstructProperties(def.Properties, s, e),
+                ReconstructEvents(def.Events, s, e));
+            if (def.Annotations.Length > 0)
+                node.Annotations = new System.Collections.Generic.List<Parser.Nodes.Annotations.AnnotationApplicationNode>(def.Annotations);
 
             var result = Visitors.Traits.TraitDefinitionNodeVisitor.Apply(node, ctx, interpreter);
             if (result.Error != null) throw new RaUserError(result.Error);
@@ -3469,13 +3429,18 @@ namespace RaLanguage.Interpreter.Vm
 
             // Extension fields: rebuild a StructFieldDefinitionNode (const default
             // → NumberNode carrying CachedValue, byte-identical to the visitor's
-            // field-init eval) wrapped in an ExtensionFieldDeclaration. Lazy fields
-            // never lower (IrCompiler fell back), so isLazy is always false here.
+            // field-init eval) wrapped in an ExtensionFieldDeclaration. A NON-CONST or
+            // LAZY default lowered to a thunk needs a NON-NULL stub DefaultValueNode (so
+            // the descriptor's DefaultValueNode is set → first-access enters the default
+            // branch) — a PassNode; the thunk runs instead (DefaultCompiledBody, wired
+            // below). isLazy flows from the def so the runtime re-entrancy guard fires.
             var fields = new System.Collections.Generic.List<Parser.Nodes.Classes.ExtensionFieldDeclaration>(def.Fields.Length);
             foreach (var fd in def.Fields)
             {
                 AstNode? defNode = null;
-                if (fd.DefaultConst != null)
+                if (fd.CompiledDefault != null)
+                    defNode = new Parser.Nodes.Operations.PassNode(s, e);
+                else if (fd.DefaultConst != null)
                     defNode = new Parser.Nodes.Primitives.NumberNode(
                         new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
                     { CachedValue = fd.DefaultConst };
@@ -3485,7 +3450,12 @@ namespace RaLanguage.Interpreter.Vm
                     fd.FieldType, defNode,
                     fd.IsStaticField, /*isAbstract*/ false, /*isOverride*/ false,
                     (Parser.Nodes.Variables.VariableDeclarationType)fd.DeclKind);
-                fields.Add(new Parser.Nodes.Classes.ExtensionFieldDeclaration(fieldNode, fd.IsStaticField, /*isLazy*/ false));
+                if (fd.CompiledDefault != null)
+                {
+                    fieldNode.DefaultCompiledBody = fd.CompiledDefault;
+                    fieldNode.DefaultIrCompileTried = true;
+                }
+                fields.Add(new Parser.Nodes.Classes.ExtensionFieldDeclaration(fieldNode, fd.IsStaticField, fd.IsLazy));
             }
 
             // Extension indexers: re-derive the (method, is-setter) tuples pointing
@@ -3502,6 +3472,8 @@ namespace RaLanguage.Interpreter.Vm
                 ReconstructOperators(def.Operators, s, e),
                 ReconstructEvents(def.Events, s, e),
                 indexers, fields, def.IsSealed);
+            if (def.Annotations.Length > 0)
+                node.Annotations = new System.Collections.Generic.List<Parser.Nodes.Annotations.AnnotationApplicationNode>(def.Annotations);
 
             var result = Visitors.Extensions.ExtensionDefinitionNodeVisitor.Apply(node, ctx);
             if (result.Error != null) throw new RaUserError(result.Error);
@@ -3509,10 +3481,11 @@ namespace RaLanguage.Interpreter.Vm
         }
 
         // L5e: reconstruct the InterfaceDefinitionNode (signature nodes + field
-        // nodes) from a flat InterfaceDef and run the SAME visitor Apply →
-        // byte-identical registration + field/method conformance metadata.
-        // Interface methods are SIGNATURES only (no bodies) — nothing to
-        // precompile; fields carry no defaults (defNode stays null).
+        // nodes + contract property/event nodes) from a flat InterfaceDef and run
+        // the SAME visitor Apply → byte-identical registration + field/method
+        // conformance metadata. Interface methods are SIGNATURES only (no bodies)
+        // — nothing to precompile; fields carry no defaults (defNode stays null);
+        // contract properties/events are abstract/protocol members (no bodies).
         [System.Runtime.CompilerServices.MethodImpl(
             System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private static RuntimeValue DefineInterface(IR.Defs.InterfaceDef def, Context ctx, VmFrame f, int pc, IInterpreter interpreter)
@@ -3544,7 +3517,12 @@ namespace RaLanguage.Interpreter.Vm
             var node = new Parser.Nodes.Interfaces.InterfaceDefinitionNode(
                 new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
                 def.IsPublic, methods, fields,
-                new System.Collections.Generic.List<string>(def.Generics));
+                new System.Collections.Generic.List<string>(def.Generics),
+                /*whereConstraints*/ null,
+                ReconstructProperties(def.Properties, s, e),
+                ReconstructEvents(def.Events, s, e));
+            if (def.Annotations.Length > 0)
+                node.Annotations = new System.Collections.Generic.List<Parser.Nodes.Annotations.AnnotationApplicationNode>(def.Annotations);
 
             var result = Visitors.Interfaces.InterfaceDefinitionNodeVisitor.Apply(node, ctx, interpreter);
             if (result.Error != null) throw new RaUserError(result.Error);
@@ -3578,6 +3556,8 @@ namespace RaLanguage.Interpreter.Vm
             var node = new Parser.Nodes.Annotations.AnnotationDefinitionNode(
                 new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
                 def.IsPublic, ps);
+            if (def.Annotations.Length > 0)
+                node.Annotations = new System.Collections.Generic.List<Parser.Nodes.Annotations.AnnotationApplicationNode>(def.Annotations);
 
             var result = Visitors.Annotations.AnnotationDefinitionNodeVisitor.Apply(node, ctx, interpreter);
             if (result.Error != null) throw new RaUserError(result.Error);
@@ -3676,7 +3656,7 @@ namespace RaLanguage.Interpreter.Vm
 
         [System.Runtime.CompilerServices.MethodImpl(
             System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-        private static RuntimeValue DefineEnum(IR.Defs.EnumDef def, Context ctx, VmFrame f, int pc)
+        private static RuntimeValue DefineEnum(IR.Defs.EnumDef def, Context ctx, VmFrame f, int pc, IInterpreter interpreter)
         {
             // Collision check mirrors the visitor (it runs BEFORE building the
             // variants; the lowered variants have no side effects so order is
@@ -3697,11 +3677,25 @@ namespace RaLanguage.Interpreter.Vm
             }
 
             var (s, e) = ResolveSpan(f, pc, ctx);
-            return Runtime.EnumDefOps.BuildAndRegister(
+            var enumTypeValue = Runtime.EnumDefOps.BuildAndRegister(
                 def.Name, variants,
                 new System.Collections.Generic.List<string>(def.Generics),
                 new System.Collections.Generic.List<Parser.Nodes.Special.WhereConstraintNode>(),
                 ctx, s, e);
+
+            // Node-level annotations on the enum: process them exactly as
+            // EnumDefinitionNodeVisitor does after BuildAndRegister (DefineEnum
+            // does not reconstruct an AST node, so there is no node.Annotations to
+            // reattach — run AnnotationProcessor.Process directly for parity).
+            if (def.Annotations.Length > 0)
+            {
+                var target = new Runtime.Annotations.MetadataTarget(
+                    Runtime.Annotations.AnnotationTargetKind.Enum, null, def.Name);
+                var annErr = Runtime.Annotations.AnnotationProcessor.Process(def.Annotations, target, ctx, interpreter);
+                if (annErr != null) throw new RaUserError(annErr);
+            }
+
+            return enumTypeValue;
         }
 
         [System.Runtime.CompilerServices.MethodImpl(
@@ -4870,6 +4864,10 @@ namespace RaLanguage.Interpreter.Vm
                 BinOp.Le   => left.GetComparisonLte(right),
                 BinOp.Gt   => left.GetComparisonGt(right),
                 BinOp.Ge   => left.GetComparisonGte(right),
+                // `left in right` — membership. InCollection returns a
+                // BooleanValue or an IllegalOperation error on a non-collection
+                // RHS (mirrors BinaryOperationNodeVisitor's Keyword.In branch).
+                BinOp.In   => left.InCollection(right),
                 _ => new ValueResult(null, null),
             };
 
@@ -5173,6 +5171,8 @@ namespace RaLanguage.Interpreter.Vm
             Mark(Opcode.SEq); Mark(Opcode.SNe);
             Mark(Opcode.Lt); Mark(Opcode.Le);
             Mark(Opcode.Gt); Mark(Opcode.Ge);
+            // Membership — writes the BooleanValue result into locals[A].
+            Mark(Opcode.In);
             Mark(Opcode.NullCoal);
             // Strings.
             Mark(Opcode.StrConcat); Mark(Opcode.Interp); Mark(Opcode.Fmt);
@@ -5193,7 +5193,6 @@ namespace RaLanguage.Interpreter.Vm
             Mark(Opcode.GetSelf); Mark(Opcode.GetSuper);
             Mark(Opcode.Call); Mark(Opcode.CallKw); Mark(Opcode.CallMethod);
             Mark(Opcode.NewInstance);
-            Mark(Opcode.NativeDefine);
             Mark(Opcode.DefineType);
             // Async.
             Mark(Opcode.Await); Mark(Opcode.Spawn);
@@ -5223,6 +5222,10 @@ namespace RaLanguage.Interpreter.Vm
             // (`<<<`) shares Shl: identical bit pattern, distinct token only.
             Ushr, Rol, Ror,
             Eq, Ne, SEq, SNe, Lt, Le, Gt, Ge,
+            // `in` / membership. `not in` is In + a following unary Not.
+            // Dispatches to RuntimeValue.InCollection (boxed only — no numeric
+            // fast path, since the RHS is always a collection/string).
+            In,
         }
 
         [System.Runtime.CompilerServices.MethodImpl(

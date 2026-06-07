@@ -69,6 +69,10 @@ namespace RaLanguage.Interpreter.Pipeline
             if (topFrame == null) return;
             s.CurrentScope = new ScopeRecord(topFrame, parent: null);
 
+            // Pre-scan the script frame for `del` names so any name del'd at the
+            // top level is bound non-slot before it is declared / read.
+            CollectDeletedNames(root, topFrame.DeletedNames);
+
             Walk(root, s);
 
             s.PopFrame();
@@ -173,6 +177,14 @@ namespace RaLanguage.Interpreter.Pipeline
                 case TypeofNode tof:
                     if (tof.Node != null) Walk(tof.Node, s);
                     return;
+                case IsTypeNode itn:
+                    // `expr is T` — resolve the tested expression so a binding it
+                    // reads (e.g. a match pattern binder `case Ok(n) -> n is T`)
+                    // gets a slot-eligible BindingId, not left Unresolved. Without
+                    // this the IR match compiler can't confirm the binder's slot
+                    // and falls back to OP_NATIVE_DEFINE. TestedType is a type, not
+                    // a value expression — nothing to walk there.
+                    Walk(itn.Expression, s); return;
                 case MemberAccessNode ma:
                     Walk(ma.TargetNode, s); return;
                 case MemberAssignmentNode mas:
@@ -217,6 +229,80 @@ namespace RaLanguage.Interpreter.Pipeline
                 case SuperNode:
                 case EnumDefinitionNode:
                 case InterfaceDefinitionNode:
+                    return;
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Deleted-name pre-scan (frame-local)
+        // ---------------------------------------------------------------------
+
+        // Collect every name that appears in a `del name` statement reachable
+        // within the CURRENT frame's body, WITHOUT descending into nested
+        // function/method/accessor frames (a `del` inside an inner function only
+        // de-slots that inner frame's binding of the name, collected when that
+        // frame is itself opened). Conditionals / loops / try / switch / match
+        // bodies all execute in the same frame, so we descend into them — that is
+        // what makes the de-slot correct across a loop back-edge (a read textually
+        // before a `del` re-executes after it). Run once per frame at frame-open.
+        private static void CollectDeletedNames(AstNode? node, HashSet<string> sink)
+        {
+            if (node == null) return;
+            switch (node)
+            {
+                case VariableDeleteNode del:
+                    foreach (var t in del.Tokens)
+                    {
+                        var n = t.Value?.ToString();
+                        if (!string.IsNullOrEmpty(n)) sink.Add(n!);
+                    }
+                    return;
+
+                // Frame boundaries — do NOT descend (their `del`s belong to their
+                // own frames, scanned when those frames open).
+                case FunctionDefinitionNode:
+                case ClassDefinitionNode:
+                case StructDefinitionNode:
+                case RecordDefinitionNode:
+                case TraitDefinitionNode:
+                case ExtensionDefinitionNode:
+                case EnumDefinitionNode:
+                case InterfaceDefinitionNode:
+                case AnnotationDefinitionNode:
+                    return;
+
+                // Same-frame structural nodes — descend into their bodies.
+                case ScopeNode scope:
+                    foreach (var c in scope.Nodes) CollectDeletedNames(c, sink);
+                    return;
+                case IfNode ifn:
+                    foreach (var c in ifn.Cases) CollectDeletedNames(c.Item2, sink);
+                    if (ifn.ElseCase != null) CollectDeletedNames(ifn.ElseCase.Value.Item1, sink);
+                    return;
+                case ForNode fr: CollectDeletedNames(fr.BodyNode, sink); return;
+                case ForEachNode fe: CollectDeletedNames(fe.BodyNode, sink); return;
+                case ForAwaitNode fa: CollectDeletedNames(fa.BodyNode, sink); return;
+                case WhileNode wn: CollectDeletedNames(wn.BodyNode, sink); return;
+                case DoWhileNode dwn: CollectDeletedNames(dwn.BodyNode, sink); return;
+                case SuperForNode sfn: CollectDeletedNames(sfn.BodyNode, sink); return;
+                case RetryNode rn:
+                    CollectDeletedNames(rn.BodyNode, sink);
+                    if (rn.ElseNode != null) CollectDeletedNames(rn.ElseNode, sink);
+                    return;
+                case TryNode tn:
+                    CollectDeletedNames(tn.TryBody, sink);
+                    if (tn.CatchBody != null) CollectDeletedNames(tn.CatchBody, sink);
+                    if (tn.FinallyBody != null) CollectDeletedNames(tn.FinallyBody, sink);
+                    return;
+                case SwitchNode sw:
+                    foreach (var c in sw.Cases) CollectDeletedNames(c.Body, sink);
+                    return;
+                case MatchNode m:
+                    foreach (var arm in m.Arms) CollectDeletedNames(arm.Body, sink);
+                    return;
+                case LabelNode lbl: CollectDeletedNames(lbl.Statements, sink); return;
+                case Parser.Nodes.Namespaces.NamespaceDeclarationNode nd:
+                    CollectDeletedNames(nd.Body, sink);
                     return;
             }
         }
@@ -335,6 +421,10 @@ namespace RaLanguage.Interpreter.Pipeline
             var savedScope = s.CurrentScope;
             s.CurrentScope = new ScopeRecord(frame, parent: null);
 
+            // Pre-scan THIS function body for `del` names (not descending into
+            // nested frames) so del'd names are bound non-slot in this frame.
+            if (fn.BodyNode != null) CollectDeletedNames(fn.BodyNode, frame.DeletedNames);
+
             // Reserve slot 0 for `self` in method frames.
             if (isMethodFrame) frame.AllocateSlot();
 
@@ -406,8 +496,17 @@ namespace RaLanguage.Interpreter.Pipeline
             var className = cls.NameTok.Value?.ToString();
             if (!string.IsNullOrEmpty(className)) s.AllocateLocalIfAbsent(className!);
 
+            // L10: a field default is framed as a self-bound, zero named-arg method
+            // body (self is implicit slot 0) so a NON-CONST default can be IR-compiled
+            // into an at-construction thunk. WalkMethodLikeBody resolves the body, so
+            // no separate bare Walk is needed. (Const defaults are framed too; harmless
+            // — IrCompiler folds them and ignores the frame.)
             foreach (var field in cls.Fields)
-                if (field.DefaultValueNode != null) Walk(field.DefaultValueNode, s);
+                if (field.DefaultValueNode != null)
+                {
+                    var dpb = WalkMethodLikeBody(field.DefaultValueNode, System.Array.Empty<RaLanguage.Lexer.Tokens.Token>(), s, out int dFrame);
+                    field.DefaultFrameId = dFrame; field.DefaultParamBindings = dpb;
+                }
 
             foreach (var m in cls.Methods) OpenFrameForFunction(m, s, isMethodFrame: true);
 
@@ -454,6 +553,22 @@ namespace RaLanguage.Interpreter.Pipeline
                 op.ParamBindings = paramBindings;
             }
 
+            // L10: frame each extension-field default (self implicit slot 0) so a
+            // NON-CONST or LAZY default can be IR-compiled into a first-touch thunk
+            // (ExtensionDispatch). `self` is the extended instance. Mirrors WalkStruct/
+            // WalkClass; the field node IS a StructFieldDefinitionNode so it carries the
+            // same DefaultFrameId/DefaultParamBindings slots. (Const defaults are framed
+            // too; harmless — IrCompiler folds them and ignores the frame.)
+            foreach (var fieldDecl in ext.Fields)
+            {
+                var field = fieldDecl.Field;
+                if (field.DefaultValueNode != null)
+                {
+                    var dpb = WalkMethodLikeBody(field.DefaultValueNode, System.Array.Empty<RaLanguage.Lexer.Tokens.Token>(), s, out int dFrame);
+                    field.DefaultFrameId = dFrame; field.DefaultParamBindings = dpb;
+                }
+            }
+
             // L10: frame extension property accessor bodies (computed ext properties
             // run via the VM, same as type-member computed properties).
             WalkProperties(ext.Properties, s);
@@ -464,8 +579,14 @@ namespace RaLanguage.Interpreter.Pipeline
             var name = str.NameTok.Value?.ToString();
             if (!string.IsNullOrEmpty(name)) s.AllocateLocalIfAbsent(name!);
 
+            // L10: frame each field default (self implicit slot 0) so a NON-CONST
+            // default can be IR-compiled into an at-construction thunk. See WalkClass.
             foreach (var field in str.Fields)
-                if (field.DefaultValueNode != null) Walk(field.DefaultValueNode, s);
+                if (field.DefaultValueNode != null)
+                {
+                    var dpb = WalkMethodLikeBody(field.DefaultValueNode, System.Array.Empty<RaLanguage.Lexer.Tokens.Token>(), s, out int dFrame);
+                    field.DefaultFrameId = dFrame; field.DefaultParamBindings = dpb;
+                }
 
             foreach (var m in str.Methods)
             {
@@ -524,6 +645,9 @@ namespace RaLanguage.Interpreter.Pipeline
             s.CurrentScope = new ScopeRecord(frame, parent: null);
             frameIdOut = frame.FrameId;
 
+            // Pre-scan this method-like body for `del` names so they bind non-slot.
+            CollectDeletedNames(body, frame.DeletedNames);
+
             frame.AllocateSlot(); // self
             var paramBindings = new BindingId[argToks.Count];
             for (int i = 0; i < argToks.Count; i++)
@@ -548,6 +672,16 @@ namespace RaLanguage.Interpreter.Pipeline
         {
             foreach (var p in props)
             {
+                // L10: a LAZY default initializer is framed as a self-bound, zero
+                // named-arg method body (self is implicit slot 0) so it can be
+                // IR-compiled into a first-touch thunk (PropertyAccessOps).
+                if (p.IsLazy && p.DefaultValueNode != null)
+                {
+                    var dpb = WalkMethodLikeBody(p.DefaultValueNode, System.Array.Empty<RaLanguage.Lexer.Tokens.Token>(), s, out int dFrame);
+                    p.DefaultFrameId = dFrame;
+                    p.DefaultParamBindings = dpb;
+                }
+
                 if (p.Accessors == null) continue;
                 foreach (var acc in p.Accessors)
                 {
@@ -797,6 +931,17 @@ namespace RaLanguage.Interpreter.Pipeline
                 var scope = CurrentScope!;
                 var frame = scope.Frame;
                 int slot = frame.AllocateSlot();
+                // A name del'd somewhere in this frame must never be slot-promoted
+                // (the `del`'s symbol-table Remove has to be observable to every
+                // read). Still consume the slot so non-del'd siblings keep their
+                // slot ids, but bind the NAME to Unresolved → every reference
+                // routes through OP_LOAD_GLOBAL / OP_STORE_GLOBAL, and the
+                // declaration's OP_DECLARE_LOCAL skips slot registration.
+                if (frame.DeletedNames.Contains(name))
+                {
+                    scope.Locals[name] = BindingId.Unresolved;
+                    return BindingId.Unresolved;
+                }
                 if (slot > 0xFFFF) return BindingId.Unresolved;
                 var id = new BindingId(frame.FrameId, slot);
                 scope.Locals[name] = id;
@@ -871,6 +1016,17 @@ namespace RaLanguage.Interpreter.Pipeline
             public int NextSlot;
             public readonly List<ResolvedCapture> Captures = new List<ResolvedCapture>();
             public readonly Dictionary<string, int> CaptureIndexByName = new Dictionary<string, int>(StringComparer.Ordinal);
+
+            // Names that appear in a `del name` statement somewhere in THIS
+            // frame's body (not descending into nested function frames). A
+            // del'd name must be entirely symbol-table-backed — never promoted
+            // to a frame slot — so the `del`'s symbol-table Remove is observable
+            // to every read of that name (including reads textually before the
+            // del that re-execute after it across a loop back-edge). AllocateLocal
+            // and LookupReference force such names to (Unresolved, Unresolved),
+            // routing every access through OP_LOAD_GLOBAL / OP_STORE_GLOBAL.
+            // Collected once per frame at frame-open time (CollectDeletedNames).
+            public readonly HashSet<string> DeletedNames = new HashSet<string>(StringComparer.Ordinal);
 
             // Owning FunctionDefinitionNode, if this frame was opened for one.
             // Null for the script frame and synthetic struct-method frames.

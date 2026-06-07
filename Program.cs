@@ -497,26 +497,27 @@ namespace RaLanguage
                     return;
                 }
 
-                // --parity <file.ra> <Kind[,Kind...] | all>
-                // L0 differential parity oracle (RA_FULL_IR_LOWERING_PLAN §4b).
-                // Runs the file twice — once IR-native, once with the named
-                // AST-node kind(s) forced to the OP_NATIVE_DEFINE visitor
-                // fallback — and asserts byte-identical observable behaviour
-                // (stdout + exit code + error message). Exit 0 = MATCH, 1 =
-                // MISMATCH / usage error. This is the gate every later lowering
-                // phase uses before deleting a fallback.
-                if (args.Length >= 2 && string.Equals(args[0], "--parity", StringComparison.OrdinalIgnoreCase))
-                {
-                    RunParityCli(args[1], args.Length >= 3 ? args[2] : "all");
-                    return;
-                }
-
                 // M35: --dump-ir <file.ra> prints the compiled IR + constant
                 // pool + Names table for the given source. Read-only debug
                 // aid; does not execute the script.
                 if (args.Length == 2 && string.Equals(args[0], "--dump-ir", StringComparison.OrdinalIgnoreCase))
                 {
                     DumpIr(args[1]);
+                    return;
+                }
+
+                // --count-nd <file.ra> compiles a file (same pipeline as
+                // --dump-ir) and prints the TOTAL count of OP_NATIVE_DEFINE
+                // (0x90) across ALL IR frames RECURSIVELY — the top-level
+                // script frame plus every nested function / method / operator
+                // / accessor body. --dump-ir only disassembles the top-level
+                // frame, so nested-body NativeDefine fallbacks are invisible
+                // to it; this flag gives the OP_NATIVE_DEFINE-deletion campaign
+                // an accurate whole-program tally. Read-only: compiles, never
+                // executes the script.
+                if (args.Length == 2 && string.Equals(args[0], "--count-nd", StringComparison.OrdinalIgnoreCase))
+                {
+                    CountNativeDefine(args[1]);
                     return;
                 }
 
@@ -947,12 +948,65 @@ namespace RaLanguage
                 byte b = Encoding.B(instr);
                 byte c = Encoding.C(instr);
                 ushort imm = Encoding.Imm16(instr);
-                // 0x90 is NativeDefine, aliased with the unused MatchBegin —
-                // Enum.ToString() resolves it to "MatchBegin", which hides
-                // residual fallbacks in dumps. Force the meaningful name.
-                string opName = (byte)op == 0x90 ? "NativeDefine" : op.ToString();
+                // 0x90 is the RETIRED OP_NATIVE_DEFINE slot (opcode + handler
+                // deleted; no opcode uses 0x90 any more). It must never appear
+                // in a dump — if it does, a residual AST-exec fallback has
+                // resurfaced. Surface it explicitly as a tripwire rather than an
+                // unmapped numeric byte.
+                string opName = (byte)op == 0x90 ? "NativeDefine(RETIRED)" : op.ToString();
                 Console.WriteLine($"  {pc:0000}: {opName,-18} a={a,-3} b={b,-3} c={c,-3} imm16={imm}");
             }
+        }
+
+        // --count-nd entry point. Mirrors DumpIr's compile pipeline exactly
+        // (lex → parse → derive → resolve → single-use-temp inliner →
+        // InitializeSymbolTable → IrCompiler.CompileScript), then forces every
+        // nested body to its IR form and tallies OP_NATIVE_DEFINE (0x90) across
+        // EVERY reachable frame — not just the top-level script frame --dump-ir
+        // shows. Frame walk reuses RaFunctionPrecompiler (the same FuncDefRefs /
+        // DefineRefs / Children traversal the runtime precompile pass uses);
+        // opcode stepping mirrors the --dump-ir / VM decoder (every entry in
+        // fn.Code is one 32-bit instruction, opcode = low byte). Compile-only:
+        // never executes the script. Prints `ND=<total>` then `frames=<n>`.
+        private static void CountNativeDefine(string path)
+        {
+            if (!File.Exists(path))
+            {
+                Console.WriteLine($"[Ra Language] --count-nd: file not found: {path}");
+                return;
+            }
+            string text = File.ReadAllText(path);
+            var lexer = new Lexer.Lexer(path, text);
+            var (tokens, diag) = lexer.MakeTokens();
+            if (diag.HasErrors) { PrintDiagnostics(diag); return; }
+            var parser = new Parser.Parser(tokens);
+            var parseResult = parser.Parse();
+            if (parseResult.HasErrors) { PrintDiagnostics(parseResult.Diagnostics); return; }
+            DeriveTransformer.Apply(parseResult.Node);
+            Resolver.Resolve(parseResult.Node);
+            // Same semantics-preserving temp inliner --dump-ir runs, so the
+            // counted IR is byte-identical to what the VM would execute.
+            Interpreter.Runtime.Optimizations.SingleUseTempInliner.Apply(parseResult.Node);
+            InitializeSymbolTable();
+            var fn = IrCompiler.CompileScript(parseResult.Node, path);
+
+            // Force every nested function / method / operator / accessor body
+            // to its IR form, then collect the full set of distinct reachable
+            // RaFunction frames (top-level script + all nested bodies). This is
+            // the SAME traversal the runtime's precompile pass uses, so the
+            // frame set is exactly what executes — no over- or under-count.
+            var frames = RaFunctionPrecompiler.CollectReachable(fn);
+
+            long total = 0;
+            foreach (var frame in frames)
+            {
+                var c = frame.Code;
+                for (int i = 0; i < c.Length; i++)
+                    if ((byte)Encoding.DecodeOp(c[i]) == 0x90) total++;
+            }
+
+            Console.WriteLine($"ND={total}");
+            Console.WriteLine($"frames={frames.Count}");
         }
 
         private static void RunMicrobenchmark(bool astPath = false, string[]? customBenches = null)
@@ -1008,126 +1062,6 @@ namespace RaLanguage
 
                 Console.WriteLine($"  {bench}: best={bestMs}ms avg={avgMs:F1}ms avg_ticks={avgTicks:F0} alloc/run={allocPerRunMb:F2}MB");
             }
-        }
-
-        // L0 parity oracle (RA_FULL_IR_LOWERING_PLAN §4b). Compiles + runs a
-        // file twice and diffs the observable transcript: once fully IR-native,
-        // once with the requested AST-node kind(s) forced to the
-        // OP_NATIVE_DEFINE visitor fallback. A MATCH proves the IR lowering is
-        // behaviourally identical to the visitor spec for that program — the
-        // precondition for deleting the fallback in a later migration phase.
-        private static void RunParityCli(string file, string kindsArg)
-        {
-            if (!file.EndsWith(".ra", StringComparison.OrdinalIgnoreCase) || !File.Exists(file))
-            {
-                Console.WriteLine($"[Ra Language] --parity: file not found or not .ra: {file}");
-                Environment.ExitCode = 1;
-                return;
-            }
-
-            // Resolve the kind list. `all` = every fallback-routable kind, i.e.
-            // run the WHOLE program through the visitor layer and compare to the
-            // all-native baseline (the strongest single differential).
-            var kinds = new List<RaLanguage.Parser.Nodes.AstNodeType>();
-            if (string.Equals(kindsArg, "all", StringComparison.OrdinalIgnoreCase))
-            {
-                foreach (RaLanguage.Parser.Nodes.AstNodeType k in Enum.GetValues<RaLanguage.Parser.Nodes.AstNodeType>())
-                    if (IrCompiler.IsFallbackRoutable(k)) kinds.Add(k);
-            }
-            else
-            {
-                foreach (var tok in kindsArg.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                {
-                    if (!Enum.TryParse<RaLanguage.Parser.Nodes.AstNodeType>(tok, ignoreCase: true, out var k))
-                    {
-                        Console.WriteLine($"[Ra Language] --parity: unknown AstNodeType '{tok}'");
-                        Environment.ExitCode = 1;
-                        return;
-                    }
-                    if (!IrCompiler.IsFallbackRoutable(k))
-                    {
-                        Console.WriteLine($"[Ra Language] --parity: '{k}' has no visitor fallback route (not forceable)");
-                        Environment.ExitCode = 1;
-                        return;
-                    }
-                    kinds.Add(k);
-                }
-            }
-
-            string text = File.ReadAllText(file);
-            string baseline = CaptureRun(file, text, null);
-            string forced = CaptureRun(file, text, kinds);
-
-            if (string.Equals(baseline, forced, StringComparison.Ordinal))
-            {
-                Console.WriteLine($"[Ra Language] --parity MATCH: {file} (forced {kinds.Count} kind(s): {kindsArg})");
-                Environment.ExitCode = 0;
-            }
-            else
-            {
-                Console.WriteLine($"[Ra Language] --parity MISMATCH: {file} (forced {kindsArg})");
-                Console.WriteLine(FirstDiff(baseline, forced));
-                Console.WriteLine("--- NATIVE transcript ---");
-                Console.WriteLine(baseline);
-                Console.WriteLine("--- FORCED transcript ---");
-                Console.WriteLine(forced);
-                Environment.ExitCode = 1;
-            }
-        }
-
-        // Runs `Run` with Console captured to a StringWriter and the requested
-        // force-fallback set applied, returning a deterministic transcript:
-        // captured stdout + an [[EXIT n]] line + an [[ERROR msg]] line when the
-        // run returned an Error. Resets the symbol table + IR sub-expression
-        // cache first (so the two runs are independent) and always restores
-        // Console.Out + clears the force set.
-        private static string CaptureRun(string fn, string text, IEnumerable<RaLanguage.Parser.Nodes.AstNodeType>? force)
-        {
-            InitializeSymbolTable();
-            IrExpressionEvaluator.ClearCache();
-            if (force != null) IrCompiler.SetForceFallback(force);
-            else IrCompiler.ClearForceFallback();
-
-            var sw = new StringWriter();
-            var prevOut = Console.Out;
-            int prevExit = Environment.ExitCode;
-            Console.SetOut(sw);
-            Environment.ExitCode = 0;
-            Error? err = null;
-            try
-            {
-                var (_, e) = Run(fn, text);
-                err = e;
-            }
-            catch (Exception ex)
-            {
-                sw.Write($"\n[[HOST-EXCEPTION {ex.GetType().Name}: {ex.Message}]]");
-            }
-            finally
-            {
-                Console.SetOut(prevOut);
-                IrCompiler.ClearForceFallback();
-            }
-
-            int exit = Environment.ExitCode;
-            Environment.ExitCode = prevExit;
-            var t = sw.ToString();
-            t += $"\n[[EXIT {exit}]]";
-            if (err != null) t += $"\n[[ERROR {err.Details}]]";
-            return t;
-        }
-
-        private static string FirstDiff(string a, string b)
-        {
-            var la = a.Replace("\r\n", "\n").Split('\n');
-            var lb = b.Replace("\r\n", "\n").Split('\n');
-            int n = Math.Min(la.Length, lb.Length);
-            for (int i = 0; i < n; i++)
-                if (!string.Equals(la[i], lb[i], StringComparison.Ordinal))
-                    return $"first diff @ line {i + 1}:\n  native: {la[i]}\n  forced: {lb[i]}";
-            if (la.Length != lb.Length)
-                return $"length differs: native={la.Length} lines, forced={lb.Length} lines";
-            return "(transcripts differ only in trailing content)";
         }
 
         // Archive CLI: `--compile <entry.ra> [-o output.rac] [--no-compress]

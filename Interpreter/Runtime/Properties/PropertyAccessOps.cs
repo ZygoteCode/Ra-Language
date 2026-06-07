@@ -100,8 +100,19 @@ namespace RaLanguage.Interpreter.Runtime.Properties
                         var lazyCtx = context.Copy();
                         lazyCtx.SymbolTable!.Set("self", instance);
 
-                        var initResVt = new Interpreter().Visit(desc.DefaultValueNode, lazyCtx);
-                        var initRes = initResVt.IsCompletedSuccessfully ? initResVt.Result : SyncAwait.Get(initResVt);
+                        // L10: run the IR-compiled initializer thunk if the property
+                        // lowered (GetOrCompilePropertyDefault); otherwise AST-walk
+                        // the initializer. desc.SourceNode is the PropertyDefinitionNode.
+                        RuntimeResult initRes;
+                        if (desc.SourceNode.DefaultCompiledBody != null)
+                        {
+                            initRes = SyncAwait.Get(RunCompiledThunk(desc.SourceNode.DefaultCompiledBody, lazyCtx));
+                        }
+                        else
+                        {
+                            var initResVt = new Interpreter().Visit(desc.DefaultValueNode, lazyCtx);
+                            initRes = initResVt.IsCompletedSuccessfully ? initResVt.Result : SyncAwait.Get(initResVt);
+                        }
                         if (initRes.Error != null) return res.Failure(initRes.Error);
 
                         var value = initRes.Value ?? NullValue.Null;
@@ -479,6 +490,33 @@ namespace RaLanguage.Interpreter.Runtime.Properties
             Vm.VmFrame.Return(frame);
             // Surface the OP_RET value through `.Value` so the getter (which reads
             // bodyRes.Value) matches the visitor path; setters/observers ignore it.
+            if (bodyRes.Error == null && bodyRes.FuncReturnValue != null)
+                return new RuntimeResult().Success(bodyRes.FuncReturnValue);
+            return bodyRes;
+        }
+
+        // L10: run an IR-compiled default-init thunk (a self-bound 0-arg RaFunction).
+        // Shared by the LAZY property first-touch path (self bound in `inner`) AND by
+        // eager struct/class FIELD construction (which passes the construction context
+        // verbatim, matching the AST-walk path). Mirrors RunCompiledAccessor — rent the
+        // pooled VM, run, return the host, normalise the OP_RET value through `.Value`
+        // so the caller reads the initializer's result.
+        internal static async ValueTask<RuntimeResult> RunCompiledThunk(RaLanguage.Interpreter.IR.RaFunction compiled, Context inner)
+        {
+            var host = Vm.VmHostPool.Rent();
+            var frame = Vm.VmFrame.Rent(compiled);
+            RuntimeResult bodyRes;
+            var execTask = host.Executor.Execute(frame, inner);
+            if (execTask.IsCompletedSuccessfully)
+            {
+                bodyRes = execTask.Result;
+                Vm.VmHostPool.Return(host);
+            }
+            else
+            {
+                bodyRes = await execTask.ConfigureAwait(false);
+            }
+            Vm.VmFrame.Return(frame);
             if (bodyRes.Error == null && bodyRes.FuncReturnValue != null)
                 return new RuntimeResult().Success(bodyRes.FuncReturnValue);
             return bodyRes;

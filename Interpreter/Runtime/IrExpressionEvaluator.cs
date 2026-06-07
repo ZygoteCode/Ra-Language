@@ -21,8 +21,8 @@ namespace RaLanguage.Interpreter.Runtime
     //   visitor Apply helpers.
     //
     //   EvaluateStatement(...) — statement form. Body compiled via the
-    //   normal CompileStatementWithFallback path so OP_NATIVE_DEFINE
-    //   takes care of long-tail node kinds. Trailing OP_LOAD_NULL + OP_HALT
+    //   normal CompileAsStatement path (every node kind lowers to IR; there
+    //   is no OP_NATIVE_DEFINE fallback). Trailing OP_LOAD_NULL + OP_HALT
     //   produces Value=null; explicit `ret X` inside the body emits OP_RET
     //   which preserves FuncReturnValue + FlowState.Return for the caller
     //   to propagate.

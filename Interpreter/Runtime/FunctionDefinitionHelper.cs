@@ -240,6 +240,58 @@ namespace RaLanguage.Interpreter.Runtime
             return acc.CompiledBody;
         }
 
+        // L10: compile a LAZY property's default initializer to a RaFunction run via
+        // the VM on first touch (PropertyAccessOps). self is implicit (slot 0) and
+        // there are no named args — the initializer only references `self` and other
+        // members. Arrow/expression bodies auto-return; a block `{ }` (ScopeNode)
+        // does not. Mirrors GetOrCompileAccessor.
+        public static RaFunction? GetOrCompilePropertyDefault(Parser.Nodes.Properties.PropertyDefinitionNode p)
+        {
+            if (p.DefaultIrCompileTried) return p.DefaultCompiledBody;
+            p.DefaultIrCompileTried = true;
+            if (p.DefaultValueNode == null || p.DefaultFrameId < 0) return null;
+            bool autoReturn = !(p.DefaultValueNode is Parser.Nodes.Special.ScopeNode);
+            try
+            {
+                p.DefaultCompiledBody = IrCompiler.CompileMethodShape(
+                    name: "prop_default",
+                    frameId: p.DefaultFrameId,
+                    arity: 0,
+                    paramBindings: p.DefaultParamBindings,
+                    argNameToks: new List<RaLanguage.Lexer.Tokens.Token>(),
+                    body: p.DefaultValueNode,
+                    shouldAutoReturn: autoReturn);
+            }
+            catch (IrCompileException ex) { p.DefaultCompiledBody = null; RecordFailure($"prop-default frame={p.DefaultFrameId}: {ex.Message}"); }
+            return p.DefaultCompiledBody;
+        }
+
+        // L10: compile a NON-CONST struct/class field default initializer to a
+        // RaFunction run via the VM EAGERLY at construction (StructTypeValue /
+        // ClassTypeValue field-init). self is implicit (slot 0) and there are no
+        // named args. Arrow/expression bodies auto-return; a block `{ }` (ScopeNode)
+        // does not. Mirrors GetOrCompilePropertyDefault.
+        public static RaFunction? GetOrCompileFieldDefault(Parser.Nodes.Structs.StructFieldDefinitionNode f)
+        {
+            if (f.DefaultIrCompileTried) return f.DefaultCompiledBody;
+            f.DefaultIrCompileTried = true;
+            if (f.DefaultValueNode == null || f.DefaultFrameId < 0) return null;
+            bool autoReturn = !(f.DefaultValueNode is Parser.Nodes.Special.ScopeNode);
+            try
+            {
+                f.DefaultCompiledBody = IrCompiler.CompileMethodShape(
+                    name: "field_default",
+                    frameId: f.DefaultFrameId,
+                    arity: 0,
+                    paramBindings: f.DefaultParamBindings,
+                    argNameToks: new List<RaLanguage.Lexer.Tokens.Token>(),
+                    body: f.DefaultValueNode,
+                    shouldAutoReturn: autoReturn);
+            }
+            catch (IrCompileException ex) { f.DefaultCompiledBody = null; RecordFailure($"field-default frame={f.DefaultFrameId}: {ex.Message}"); }
+            return f.DefaultCompiledBody;
+        }
+
         private static void TryCompileBodyToIr(FunctionValue funcValue, FunctionDefinitionNode node)
         {
             funcValue.CompiledBody = GetOrCompileBody(node);

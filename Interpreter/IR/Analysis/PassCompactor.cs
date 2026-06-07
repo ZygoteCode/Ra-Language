@@ -60,7 +60,6 @@ namespace RaLanguage.Interpreter.IR.Analysis
                         break;
                     case Opcode.JmpFar:
                     case Opcode.ForAwait:
-                    case Opcode.MatchBegin:
                     case Opcode.MatchArm:
                     case Opcode.MatchEnd:
                         return 0; // PC encoding not handled — leave function as-is

@@ -187,7 +187,7 @@ namespace RaLanguage.Interpreter.IR
         NewTuple        = 0x53,   // a (dst), b (base), c (count)
         ListGet         = 0x54,   // a (dst), b (target), c (idx)  → target.ListAccess(idx)
         ListSet         = 0x55,   // a (target), b (idx), c (src)
-        ListPush        = 0x56,   // a (list), b (src)
+        ListPush        = 0x56,   // a (list), b (src) — append one value to list (spread-list incremental build)
         MapGet          = 0x57,   // a (dst), b (map), c (key)
         MapSet          = 0x58,   // a (map), b (key), c (src)
         // 3-address: [op][dst][base][isInclusive]. base..base+2 = start, end, step.
@@ -339,100 +339,22 @@ namespace RaLanguage.Interpreter.IR
         // current symbol table if the def has a name.
         DefineFunction  = 0x8F,
 
-        // [op][dst][refIdx:u16 → DefineRefs]. Dispatches by node.NodeType
-        // to the corresponding visitor's static Apply method. Covers
-        // ExtensionDefinition / TraitDefinition / StructDefinition /
-        // InterfaceDefinition / EnumDefinition / UsingNamespace.
-        // Class/Annotation/Namespace/Import remain on OP_VISIT_AST pending
-        // visitor refactors. Calling Apply directly skips
-        // interpreter._visitors[] dispatch entirely — the AST visitor
-        // array is never indexed.
-        NativeDefine    = 0x90,
+        // 0x90 — RETIRED. Formerly OP_NATIVE_DEFINE (the runtime AST-exec
+        // fallback: dispatch by node.NodeType to a visitor's static Apply for
+        // any construct the IR could not lower). The whole corpus is now ND=0
+        // (every frame is pure IR), so the opcode + its VM handler + the
+        // compiler's fallback-routing have been deleted. 0x90 is a free opcode
+        // value — DO NOT reuse it without auditing the --count-nd / --dump-ir /
+        // RacBytecodeVerifier tripwires that still key off the literal 0x90.
+        // The former 0x90 alias MatchBegin is retired with it.
 
         // --- match / try-unwrap ---
         //
-        // M86 — RESERVED BUT NOT EMITTED. Match expressions currently
-        // route through `Opcode.NativeDefine` to
-        // `Visitors.Patterns.MatchNodeVisitor.Apply`. That path works
-        // correctly (the audit's own observation) but pays the
-        // DefineRefs lookup + visitor dispatch per execution.
-        //
-        // Full IR lowering would replace the visitor path with an
-        // opcode stream of the following shape:
-        //
-        //   MatchBegin scrutinee_slot
-        //     ; scrutinee evaluated by preceding expression IR;
-        //     ; this opcode just records the slot for the arm
-        //     ; chain to consult.
-        //   MatchArm armIdx
-        //     ; pattern-test sub-stream emitted inline. Failure
-        //     ; falls through to the NEXT MatchArm; success
-        //     ; binds the pattern's bindings into the arm scope
-        //     ; (fresh SymbolTable child pushed at MatchArm
-        //     ; entry, popped on success-jump or fall-through).
-        //   <pattern test opcodes>
-        //     ; per-pattern primitives:
-        //     ;   PatLitEq    cmp slot, literal_idx       (literal pattern)
-        //     ;   PatVarBind  binding_name_idx            (variable bind)
-        //     ;   PatVarTag   variant_tag_const_idx       (zero-arity enum variant)
-        //     ;   PatVarPay   variant_tag, payload_dst    (payload-bearing variant)
-        //     ;   PatTupleLen len_imm16                   (tuple shape check)
-        //     ;   PatListLen  len_imm16, has_rest_flag    (list shape check)
-        //     ;   PatStructShape shape_ref_idx            (struct type check)
-        //     ;   PatFieldBind field_name_idx, dst_slot   (struct field extract)
-        //     ;   PatWildcard (no-op success)
-        //   <guard expression IR, if present>
-        //     ; standard expression compilation; result in cmp_slot.
-        //     ; JmpIfNot cmp_slot, next_arm
-        //   <body IR>
-        //     ; standard statement compilation. Falls through to
-        //     ; MatchEnd via Jmp.
-        //   MatchEnd
-        //     ; pops the arm scope, joins all successful arm
-        //     ; targets, finalises the match expression result
-        //     ; in the destination slot. Also surfaces the
-        //     ; "no arm matched" runtime error when reached
-        //     ; via fall-through from the final arm.
-        //
-        // Why deferred (multi-week milestone):
-        //
-        //   1. 7 distinct pattern shapes (Wildcard / Variable /
-        //      Literal / Variant / Tuple / List / Struct), each
-        //      with its own dispatch + binding-extraction
-        //      semantics. Variants and structs alone need
-        //      shape-aware ICs to match the existing MemberAccess
-        //      PIC infrastructure.
-        //   2. Binding scope plumbing — bindings introduced by a
-        //      pattern MUST NOT leak if the pattern eventually
-        //      fails (e.g. nested tuple where the inner element
-        //      doesn't match). The visitor today buffers
-        //      bindings in a list and commits on full match;
-        //      IR-level lowering needs a transactional scope
-        //      pattern (push trial scope → pop on failure).
-        //   3. Guards run AFTER bindings — so the guard's IR
-        //      must compile against the trial scope, which the
-        //      `MatchArm` lowering must establish before the
-        //      guard's `JmpIfNot`.
-        //   4. Body propagation — match bodies can `return` /
-        //      `break` / `continue` / `yield`. The MatchEnd
-        //      lowering must forward those out of the match
-        //      expression's result slot, matching the visitor's
-        //      `SuccessReturn` / `SuccessBreak` / `SuccessContinue`
-        //      / `SuccessYield` semantics.
-        //   5. Dispatch-loop await-point budget (proved by M85's
-        //      revert): adding a new async dispatch case for
-        //      Match would grow `Execute`'s async state machine
-        //      and tip the depth-2000 recursion test over the
-        //      C# stack budget. Any opcode-level Match lowering
-        //      must either (a) compile pattern bodies to slot-
-        //      level IR with no embedded await (already true
-        //      for pure patterns + guards, but bodies can
-        //      await), or (b) use a state-machine-free
-        //      `IValueTaskSource` fast path for the sync case.
-        //
-        // Until those land, NativeDefine routing stays the
-        // contract.
-        MatchBegin      = 0x90,   // _, b (scrutinee)
+        // RESERVED BUT NOT EMITTED. Match expressions lower to the L7
+        // pattern-test opcode family (EnumTagEq / StructShape / TupleShape /
+        // ListShape / … below), not to a MatchArm/MatchEnd stream. These two
+        // values are kept reserved for a possible future structured-match
+        // lowering; nothing emits or dispatches them today.
         MatchArm        = 0x91,   // _, armIdx:u16  jumps on no-match
         MatchEnd        = 0x92,
 
@@ -693,6 +615,25 @@ namespace RaLanguage.Interpreter.IR
         AnnotationApply = 0xF4,   // L10: a (dst), imm16 (DefineRefs idx) — standalone `@Name(args)` value; builds the AnnotationInstanceValue (NativeDefine-shaped)
         SetPendingFlow  = 0xF5,   // L10: a (value slot), b (kind: 1=return 2=yield) — stash a control-flow escape through an enclosing finally; OP_FINALLY_END applies it
         CallGeneric     = 0xF6,   // L10: a (dst), b (fnSlot: callee@fnSlot, args@fnSlot+1..), c (DefineRefs idx of the parked FunctionCallNode) — explicit-generic-type-arg call `foo<int>(...)`; argCount + GenericTypeArgs read from the parked node (With-shaped reads, Call-shaped def)
+        // L10: `left in right` / `left not in right` membership test. Same
+        // operand shape as Eq: a (dst), b (left), c (right) → left.InCollection(
+        // right). `not in` lowers as OP_IN into a temp followed by OP_NOT.
+        // CAN RAISE (InCollection errors on a non-collection RHS) → kept OUT of
+        // every DCE/LICM/GVN pure-eraseable list so its error site stays stable,
+        // exactly like Div / Mod / boxed Ushr. (0xF7 is free; 0xF6 / 0xF9 used.)
+        In              = 0xF7,   // a (dst), b (left), c (right) → left.InCollection(right)
+
+        // L10 — list-literal SPREAD (`[a, ...x, b]`). Appends every element of
+        // the iterable at slot B to the ListValue at slot A (built incrementally
+        // by a preceding NewList + ListPush stream). Mirrors the list-literal
+        // visitor's spread semantics EXACTLY: the spread source must be a
+        // ListValue (ranges materialize to lists eagerly, so they qualify); any
+        // other value raises the visitor's "Spread target must be an iterable
+        // (e.g. list)" RuntimeError. No per-element copy (the visitor does a bare
+        // AddRange). MUTATES the list at A + CAN RAISE → kept OUT of every
+        // DCE/LICM/GVN/CSE pure list and defines no `locals` slot, exactly like
+        // ListPush. (0xF8 was free; 0xF7 is In, 0xF9 is Halt.)
+        ListExtend      = 0xF8,   // a (list), b (iterable) — append all items of iterable to list (spread)
 
         // ---- streams (Streams runtime — see RA_STREAMS_DESIGN.md §10) ----
         // Forward-jump opcode that branches if `locals[a]` is a sync stream
@@ -762,6 +703,42 @@ namespace RaLanguage.Interpreter.IR
         // --- misc ---
         Pass            = 0xF0,
         Delete          = 0xF1,   // a (slot)
+
+        // L10 — `del name` statement (VariableDeleteNode). `a` unused,
+        // nameIdx:imm16 (index into the Names pool). Removes the binding from
+        // the symbol table (ctx.SymbolTable.Remove), raising the visitor's exact
+        // "'<name>' variable does not exist" RuntimeError if the name is absent.
+        // One opcode is emitted per name in a multi-name `del a, b`. MUTATES the
+        // symbol table (a binding-removing side effect) + CAN RAISE → kept OUT of
+        // every DCE/CSE/GVN pure list and defines no `locals` slot; the Resolver
+        // forces every del'd name to be NON-slot-eligible so the Remove is
+        // observable to a subsequent read (which then compiles to OP_LOAD_GLOBAL
+        // and errors after the binding is gone). Also a Memory-SSA aliasing
+        // barrier (a deletion can invalidate cached LoadGlobal lookups).
+        DeleteLocal     = 0xFA,   // a unused, nameIdx:imm16 — remove binding from symbol table, raise if absent
+
+        // L10 — `retry for N times delay M { … }` inter-attempt delay. The delay
+        // (ms) is carried as the imm16 PAYLOAD (layout 2: [op][a:unused][imm16]),
+        // NOT in a slot. Rationale: the only read of a slot-based delay would
+        // live in the EhTable catch handler, which the CFG/SSA does NOT model
+        // (off-CFG) — so a constant delay-load there is invisible to the DCE
+        // solvers and gets erased (LoadConst / LoadIntS64 are both DCE-erasable
+        // in one pass or another), leaving the op reading garbage. Encoding the
+        // value as an immediate removes the separate load entirely, so there is
+        // nothing for DCE to erase. The IR compiler gates M to a non-negative
+        // integer literal in [0, 65535] (the imm16 range); any non-int /
+        // negative / larger / runtime-expression delay falls back to the
+        // RetryNodeVisitor, which carries the exact ExtractRetryInt coercion +
+        // RA error messages AND validates M up-front. The handler calls
+        // System.Threading.Thread.Sleep(ms) — the SAME blocking call the visitor
+        // makes between failed attempts (that IS the parity behavior). It only
+        // sleeps when ms > 0 (mirroring the visitor's `delayMs > 0`). BLOCKING +
+        // SIDE-EFFECTING; defines NO slot, reads NO slot; kept OUT of every
+        // DCE/CSE/GVN/LICM pure list so it is never erased or hoisted. Emitted
+        // only on the retry path (after the attempt-counter increment + the
+        // `attempt < N` check), never on the exhausted/else path — mirroring the
+        // visitor's `if (attempt < retries - 1 && delayMs > 0) Thread.Sleep`.
+        Sleep           = 0xFB,   // _, imm16 (ms) — Thread.Sleep(ms); blocking, side-effecting
 
         // Stop dispatch and return RuntimeResult.Success(locals[a]). Used at
         // the very end of a script body; functions use Ret/RetNull instead.

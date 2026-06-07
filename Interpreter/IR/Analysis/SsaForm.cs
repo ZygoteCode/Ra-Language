@@ -309,9 +309,6 @@ namespace RaLanguage.Interpreter.IR.Analysis
         //     closure capture (Ra's default), can mutate ANY
         //     reachable binding — `x` is aliasable through any
         //     closure that captured it.
-        //   * `NativeDefine` dispatches an AST visitor that mutates
-        //     SymbolEntry values directly (extensions / traits /
-        //     enums / using-namespace), bypassing the VM dispatch.
         //   * `Await` may suspend then resume on a different fiber
         //     whose body mutated shared state.
         //   * EH transfers (`Throw` / catch handler entry) skip
@@ -417,9 +414,14 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 if (o == Opcode.Call || o == Opcode.CallKw
                     || o == Opcode.CallMethod || o == Opcode.TailCall
                     || o == Opcode.Spawn || o == Opcode.NewInstance
-                    || o == Opcode.NativeDefine || o == Opcode.Await
+                    || o == Opcode.Await
                     || o == Opcode.AsmInvoke || o == Opcode.AsmInvokeI
                     || o == Opcode.AnnotationApply || o == Opcode.CallGeneric
+                    // L10: `del name` removes a binding from the symbol table,
+                    // which can invalidate a cached LoadGlobal SymbolEntry the
+                    // SCCP/Memory-SSA solver assumed stable — treat it as an
+                    // aliasing event that ends the eligible straight-line prefix.
+                    || o == Opcode.DeleteLocal
                     || o == Opcode.Throw)
                 {
                     if (pc < firstEvent) firstEvent = pc;
@@ -487,6 +489,8 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Eq: case Opcode.Ne:
                 case Opcode.SEq: case Opcode.SNe:
                 case Opcode.Lt: case Opcode.Le: case Opcode.Gt: case Opcode.Ge:
+                // `in` writes the BooleanValue result into locals[A] (like Eq).
+                case Opcode.In:
                 case Opcode.NullCoal:
                 case Opcode.StrConcat: case Opcode.Interp: case Opcode.Fmt:
                 case Opcode.With:
@@ -504,7 +508,6 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Call: case Opcode.CallKw: case Opcode.CallMethod:
                 case Opcode.CallGeneric:
                 case Opcode.NewInstance:
-                case Opcode.NativeDefine:
                 case Opcode.DefineType:
                 case Opcode.Await: case Opcode.Spawn:
                 case Opcode.AsmInvoke: case Opcode.AsmInvokeI:
@@ -605,6 +608,8 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Eq: case Opcode.Ne:
                 case Opcode.SEq: case Opcode.SNe:
                 case Opcode.Lt: case Opcode.Le: case Opcode.Gt: case Opcode.Ge:
+                // `in` reads B (left) and C (right), same shape as Eq.
+                case Opcode.In:
                 case Opcode.NullCoal:
                 case Opcode.ListGet: case Opcode.MapGet:
                 // M66.5 / M66.6: II 3-address ops read B and C as
@@ -646,6 +651,12 @@ namespace RaLanguage.Interpreter.IR.Analysis
                     break;
                 // LoadIntS64: no operand reads (imm16 only).
                 case Opcode.LoadIntS64:
+                // L10: OP_SLEEP carries the delay (ms) in imm16 — reads NO slot
+                // (A is unused). Defines NO slot (DefinedSlot → default null) and
+                // is blocking + side-effecting, so it is never on any
+                // pure/eraseable list. Listed here (not defaulted) so the imm16
+                // bytes are NOT mis-decoded as B/C slot reads.
+                case Opcode.Sleep:
                 // Pure-immediate / no-operand loaders: encoding is
                 // layout-2 (slot in A, imm16 in B|C), so the
                 // default `yield B,C` fallback would mis-report
@@ -671,7 +682,6 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.DefineFunction:
                 case Opcode.GetSuper:
                 case Opcode.Nameof:
-                case Opcode.NativeDefine:
                 // L5: OP_DEFINE_TYPE carries a TypeDefs index in imm16, not a
                 // slot — reads no locals (the type is built from the descriptor).
                 case Opcode.DefineType:
@@ -684,6 +694,13 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 // read no locals (the place is resolved by name at dispatch).
                 case Opcode.Borrow:
                 case Opcode.BorrowMut:
+                // L10: `del name` — nameIdx in imm16, `a` unused. Reads no
+                // locals (the binding is resolved by name at dispatch). It is a
+                // symbol-table side effect, NOT a slot def (DefinedSlot → null);
+                // it is excluded from every pure list (DCE/CSE/GVN) so it is
+                // never erased, and is a Memory-SSA aliasing barrier (see
+                // BuildMemSsaEligibility (c)).
+                case Opcode.DeleteLocal:
                     break;
                 case Opcode.Move:
                 case Opcode.Alias:
@@ -798,10 +815,16 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 }
                 case Opcode.ListSet:
                 case Opcode.ListPush:
+                // L10 ListExtend has the SAME shape as ListPush: mutates the
+                // list at A, reads the iterable at B, no C operand. Like
+                // ListPush it defines no `locals` slot (see DefinedSlot — both
+                // fall to default → null) since it mutates a heap object, not
+                // the register.
+                case Opcode.ListExtend:
                 case Opcode.MapSet:
                     yield return (Encoding.A(instr), true);
                     yield return (Encoding.B(instr), true);
-                    if (op != Opcode.ListPush) yield return (Encoding.C(instr), true);
+                    if (op != Opcode.ListPush && op != Opcode.ListExtend) yield return (Encoding.C(instr), true);
                     break;
                 case Opcode.Call:
                 case Opcode.Spawn:

@@ -23,7 +23,8 @@ namespace RaLanguage.Interpreter.Archive
     //     DerefRefs / SuperRefs / FuncDefRefs / DefineRefs / AstRefs)
     //   * every EH table entry: 0 <= StartPc < EndPc <= Code.Length,
     //     CatchPc/FinallyPc each in [0, Code.Length) when non-negative,
-    //     CatchSlot < SlotCount; no two entries partially overlap
+    //     CatchSlot < LocalCount (a locals[] temp, not a named frame slot);
+    //     no two entries partially overlap
     //   * recursive validation of nested function bodies (Children[])
     //
     // The verifier runs before any VM dispatch — a fail-fast guard
@@ -145,6 +146,11 @@ namespace RaLanguage.Interpreter.Archive
                         CheckSlot(a, local, pc, opName, "a", diags, path);
                         // signed imm16 — payload value, not an index, no bound check
                         break;
+                    // L10: OP_SLEEP carries the delay (ms) in imm16 as a payload
+                    // value (0..65535), and `a` is unused. No slot / index bound
+                    // check applies — mirrors the LoadIntS64 imm16-payload shape.
+                    case Opcode.Sleep:
+                        break;
 
                     // ----- Variables / bindings -----
                     case Opcode.LoadGlobal:
@@ -155,6 +161,11 @@ namespace RaLanguage.Interpreter.Archive
                     case Opcode.Borrow:
                     case Opcode.BorrowMut:
                         CheckSlot(a, local, pc, opName, "a", diags, path);
+                        CheckIndex(imm16, nameLen, pc, opName, "name", diags, path);
+                        break;
+                    // L10: `del name` — nameIdx in imm16, `a` unused (always 0).
+                    // Validate only the name-pool index.
+                    case Opcode.DeleteLocal:
                         CheckIndex(imm16, nameLen, pc, opName, "name", diags, path);
                         break;
                     case Opcode.LoadBuiltin:
@@ -196,11 +207,17 @@ namespace RaLanguage.Interpreter.Archive
                         CheckIndex(imm16, astRefsLen, pc, opName, "AstRefs", diags, path);
                         // The declared slot identifier is held in
                         // DeclSlotByAstRef[imm16]; we cross-check that
-                        // the slot is in range.
+                        // the slot is in range. A value of -1 is the legitimate
+                        // "no frame slot" sentinel for a declaration that was NOT
+                        // slot-promoted (BuildDeclSlotByAstRef defaults to -1; e.g.
+                        // a name del'd elsewhere in the frame is bound symbol-table
+                        // only). The VM's DeclareLocal handler guards `slot >= 0`,
+                        // so -1 just skips the slot cache — only the UPPER bound is
+                        // a real corruption.
                         if (imm16 < declSlotLen && fn.DeclSlotByAstRef != null)
                         {
                             int declSlot = fn.DeclSlotByAstRef[imm16];
-                            if (declSlot < 0 || declSlot >= slot)
+                            if (declSlot >= slot)
                                 diags.Add(new RacVerifyDiagnostic(path, pc, opName,
                                     $"DeclSlotByAstRef[{imm16}] = {declSlot} is outside [0, SlotCount={slot})"));
                         }
@@ -276,6 +293,8 @@ namespace RaLanguage.Interpreter.Archive
                     case Opcode.Le:
                     case Opcode.Gt:
                     case Opcode.Ge:
+                    // `in` — a (dst) + b (left) + c (right), 3-address like Eq.
+                    case Opcode.In:
                     case Opcode.NullCoal:
                     case Opcode.StrConcat:
                     case Opcode.Ushr:
@@ -410,6 +429,12 @@ namespace RaLanguage.Interpreter.Archive
                         CheckSlot(a, local, pc, opName, "a (list)", diags, path);
                         CheckSlot(effB, local, pc, opName, "b (src)", diags, path);
                         break;
+                    case Opcode.ListExtend:
+                        // L10 list-spread: same operand validation as ListPush —
+                        // A is the list under construction, B is the iterable.
+                        CheckSlot(a, local, pc, opName, "a (list)", diags, path);
+                        CheckSlot(effB, local, pc, opName, "b (iterable)", diags, path);
+                        break;
                     case Opcode.Range:
                         CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
                         CheckSlot(effB, local, pc, opName, "base", diags, path);
@@ -467,13 +492,10 @@ namespace RaLanguage.Interpreter.Archive
                         CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
                         CheckIndex(imm16, funcDefLen, pc, opName, "FuncDefRefs", diags, path);
                         break;
-                    case Opcode.NativeDefine:
-                        CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
-                        CheckIndex(imm16, defineLen, pc, opName, "DefineRefs", diags, path);
-                        break;
                     case Opcode.AsmInvoke:
                         // L9 — [dst:a][defineRefIdx:imm16]. The parked AsmBlockNode
-                        // (pure text) lives in DefineRefs; same shape as NativeDefine.
+                        // (pure text) lives in DefineRefs; same shape as the parked
+                        // AnnotationApply / AsmInvokeI ops.
                         CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
                         CheckIndex(imm16, defineLen, pc, opName, "DefineRefs", diags, path);
                         break;
@@ -563,11 +585,11 @@ namespace RaLanguage.Interpreter.Archive
                         break;
 
                     // ----- Reserved / not-yet-emitted -----
-                    // (MatchBegin shares 0x90 with NativeDefine — match
-                    // arms compile through NativeDefine + MatchNodeVisitor.
-                    // The MatchBegin / MatchArm / MatchEnd opcodes are
-                    // declared in the IR but never reached at this
-                    // value because OP_NATIVE_DEFINE wins the switch.)
+                    // (MatchArm / MatchEnd are declared in the IR but never
+                    // emitted — match expressions lower to the L7 pattern-test
+                    // opcodes, not these. 0x90, the old OP_NATIVE_DEFINE, has
+                    // been retired; a .rac carrying it now trips the `default`
+                    // "unknown opcode" diagnostic below.)
                     case Opcode.JmpFar:
                     case Opcode.MatchArm:
                     case Opcode.MatchEnd:
@@ -641,9 +663,16 @@ namespace RaLanguage.Interpreter.Archive
                             diags.Add(new RacVerifyDiagnostic(path, eh.FinallyPc, opName,
                                 $"FinallyPc {eh.FinallyPc} >= Code.Length {codeLen}"));
                     }
-                    if (slot > 0 && eh.CatchSlot >= slot)
+                    // CatchSlot indexes the `locals[]` temp register array (it is
+                    // an AllocTemp result in IrCompiler, populated via
+                    // OP_SET_LOCAL_DIRECT then read as locals[CatchSlot] at catch
+                    // entry), NOT the named-frame-slot space. Bound it against
+                    // LocalCount, not SlotCount — the two are distinct spaces, and
+                    // a try/catch whose body lowers to IR routinely has a CatchSlot
+                    // above SlotCount (e.g. few named slots, many temps).
+                    if (local > 0 && eh.CatchSlot >= local)
                         diags.Add(new RacVerifyDiagnostic(path, eh.StartPc, opName,
-                            $"CatchSlot {eh.CatchSlot} >= SlotCount {slot}"));
+                            $"CatchSlot {eh.CatchSlot} >= LocalCount {local}"));
                     if (eh.ScopeDepth < 0)
                         diags.Add(new RacVerifyDiagnostic(path, eh.StartPc, opName,
                             $"ScopeDepth {eh.ScopeDepth} negative"));

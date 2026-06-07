@@ -15,6 +15,16 @@ namespace RaLanguage.Parser.Nodes.Structs
         public AstNode? DefaultValueNode { get; }
         public VariableDeclarationType DeclarationType { get; }
 
+        // L10: resolver-populated metadata for IR compilation of a NON-CONST field
+        // default initializer (mirrors PropertyDefinitionNode's lazy-default fields).
+        // The initializer is compiled to a self-bound 0-arg RaFunction run via the
+        // VM eagerly at CONSTRUCTION (StructTypeValue / ClassTypeValue field-init);
+        // `self` is the implicit slot 0. Const defaults fold to DefaultConst instead.
+        public int DefaultFrameId { get; set; } = -1;
+        public RaLanguage.Interpreter.Pipeline.BindingId[]? DefaultParamBindings { get; set; }
+        public RaLanguage.Interpreter.IR.RaFunction? DefaultCompiledBody { get; set; }
+        public bool DefaultIrCompileTried { get; set; }
+
         public StructFieldDefinitionNode(
             bool isPublic, 
             Token nameTok, 

@@ -257,9 +257,14 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Mul:
                 case Opcode.Shl:
                 case Opcode.Shr:
-                case Opcode.Ushr:
-                case Opcode.Rol:
-                case Opcode.Ror:
+                // Boxed Ushr / Rol / Ror are NOT pure — on an arbitrary-
+                // precision `number` (and Ushr on a negative) they raise a
+                // user-visible RuntimeError ("no fixed bit-width to rotate
+                // within" / "no canonical unsigned bit pattern"). A dead
+                // `1 <<<< 4` MUST still execute to surface that error,
+                // exactly like Div / Mod above. (The typed UshrII/RolII/RorII
+                // variants stay eligible — they only run on confirmed in-range
+                // Int64 operands and deopt to the boxed form otherwise.)
                 case Opcode.BAnd:
                 case Opcode.BOr:
                 case Opcode.BXor:

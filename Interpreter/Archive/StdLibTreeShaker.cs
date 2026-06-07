@@ -399,7 +399,12 @@ namespace RaLanguage.Interpreter.Archive
         // does; new node kinds that the shaker can't see are still
         // tolerated because the top-level classifier will have tainted
         // the containing module before we reach here.
-        private static IEnumerable<AstNode?> EnumerateChildren(AstNode n)
+        // Complete structural child enumeration. Exposed (internal) so other
+        // analysis passes — e.g. the IR match compiler's binder-use scan — can
+        // share this single maintained walker instead of duplicating it (a
+        // partial copy that misses a node type silently breaks any caller that
+        // relies on completeness).
+        internal static IEnumerable<AstNode?> EnumerateChildren(AstNode n)
         {
             switch (n)
             {

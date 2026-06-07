@@ -41,6 +41,11 @@ namespace RaLanguage.Interpreter.IR.Defs
     public abstract class TypeDef
     {
         public abstract TypeDefKind Kind { get; }
+
+        // Node-level annotation applications (@Ann on the type/decl). Reattached
+        // to the reconstructed node so the def visitor's AnnotationProcessor runs.
+        public Parser.Nodes.Annotations.AnnotationApplicationNode[] Annotations { get; set; }
+            = System.Array.Empty<Parser.Nodes.Annotations.AnnotationApplicationNode>();
     }
 
     // A single enum variant, fully resolved: its name, declaration ordinal, the
@@ -123,8 +128,10 @@ namespace RaLanguage.Interpreter.IR.Defs
     }
 
     // L5e — a struct field, fully flat (no AST). Const-foldable defaults are
-    // captured as a const RuntimeValue (null = no default); a non-constant
-    // default makes IrCompiler fall back to the visitor.
+    // captured as a const RuntimeValue (null = no default); a NON-CONST default is
+    // compiled to a self-bound 0-arg thunk (`CompiledDefault`) run at construction.
+    // A default that won't IR-compile makes IrCompiler fall back to the visitor.
+    // (Used by both struct + class — ClassDef.Fields is StructFieldDef[].)
     public sealed class StructFieldDef
     {
         public readonly string Name;
@@ -135,12 +142,15 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly bool IsOverride;
         public readonly int DeclKind;                  // (int)VariableDeclarationType
         public readonly Values.RuntimeValue? DefaultConst; // folded literal default, or null
+        public readonly RaFunction? CompiledDefault;   // non-const default-init thunk (null = const / no default)
 
         public StructFieldDef(string name, TypeDescriptor? fieldType, bool isPublic, bool isStatic,
-            bool isAbstract, bool isOverride, int declKind, Values.RuntimeValue? defaultConst)
+            bool isAbstract, bool isOverride, int declKind, Values.RuntimeValue? defaultConst,
+            RaFunction? compiledDefault = null)
         {
             Name = name; FieldType = fieldType; IsPublic = isPublic; IsStatic = isStatic;
             IsAbstract = isAbstract; IsOverride = isOverride; DeclKind = declKind; DefaultConst = defaultConst;
+            CompiledDefault = compiledDefault;
         }
     }
 
@@ -256,8 +266,10 @@ namespace RaLanguage.Interpreter.IR.Defs
 
     // L10 property widening: an AUTO (stored) property `prop Name: T [= const]
     // { get; set; }`. Flat: name + type + flags + a const-folded default (null =
-    // none) + the accessor list. Lazy / computed / custom-body / non-const-default
-    // / abstract properties make IrCompiler fall back (the visitor still handles
+    // none) + the accessor list. Computed / custom-body accessors compile their
+    // bodies to RaFunctions; a LAZY default compiles its initializer to a
+    // self-bound 0-arg thunk (`CompiledDefault`). Non-const EAGER default /
+    // annotated properties make IrCompiler fall back (the visitor still handles
     // them — their bodies AST-walk). Reconstructed into a PropertyDefinitionNode;
     // auto-property ACCESS is field-slot access, which already lowers.
     public sealed class PropertyDef
@@ -271,14 +283,16 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly bool IsLazy;
         public readonly Values.RuntimeValue? DefaultConst; // folded literal default, or null
         public readonly PropertyAccessorDef[] Accessors;
+        public readonly RaFunction? CompiledDefault; // lazy default-init thunk (null = non-lazy / const default)
 
         public PropertyDef(string name, TypeDescriptor? propertyType, bool isPublic, bool isStatic,
             bool isAbstract, bool isOverride, bool isLazy, Values.RuntimeValue? defaultConst,
-            PropertyAccessorDef[] accessors)
+            PropertyAccessorDef[] accessors, RaFunction? compiledDefault = null)
         {
             Name = name; PropertyType = propertyType; IsPublic = isPublic; IsStatic = isStatic;
             IsAbstract = isAbstract; IsOverride = isOverride; IsLazy = isLazy; DefaultConst = defaultConst;
             Accessors = accessors ?? Array.Empty<PropertyAccessorDef>();
+            CompiledDefault = compiledDefault;
         }
     }
 
@@ -390,11 +404,15 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly WhereConstraintDef[] Wheres;
         public readonly PropertyDef[] Properties;
         public readonly EventDef[] Events;
+        public readonly TypeDescriptor? BaseType;
+        public readonly Values.RuntimeValue?[] BaseArgConsts; // const-folded base-ctor args (record class : Base(args))
+        public readonly bool IsAbstract;
 
         public RecordDef(string name, bool isPublic, bool isRefRecord, bool autoEquals, bool autoToString,
             string[] generics, RecordPrimaryFieldDef[] primaryFields, StructMethodDef[] methods,
             OperatorDef[]? operators = null, WhereConstraintDef[]? wheres = null, PropertyDef[]? properties = null,
-            EventDef[]? events = null)
+            EventDef[]? events = null,
+            TypeDescriptor? baseType = null, Values.RuntimeValue?[]? baseArgConsts = null, bool isAbstract = false)
         {
             Name = name; IsPublic = isPublic; IsRefRecord = isRefRecord;
             AutoEquals = autoEquals; AutoToString = autoToString;
@@ -405,6 +423,9 @@ namespace RaLanguage.Interpreter.IR.Defs
             Wheres = wheres ?? Array.Empty<WhereConstraintDef>();
             Properties = properties ?? Array.Empty<PropertyDef>();
             Events = events ?? Array.Empty<EventDef>();
+            BaseType = baseType;
+            BaseArgConsts = baseArgConsts ?? System.Array.Empty<Values.RuntimeValue?>();
+            IsAbstract = isAbstract;
         }
     }
 
@@ -538,8 +559,10 @@ namespace RaLanguage.Interpreter.IR.Defs
     }
 
     // `trait Name { fn provided() {..}  fn required(); }` lowered FLAT. First
-    // sub-stage: methods (provided + abstract) + fields; fallback on
-    // properties / events / where-constraints / annotations / param-defaults.
+    // sub-stage: methods (provided + abstract) + fields. L10 widening: contract
+    // properties + events (abstract/protocol members, no bodies) lower via the
+    // shared property/event helpers. Fallback on where-constraints / annotations
+    // / param-defaults.
     public sealed class TraitDef : TypeDef
     {
         public override TypeDefKind Kind => TypeDefKind.Trait;
@@ -549,13 +572,18 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly string[] Generics;
         public readonly StructFieldDef[] Fields;
         public readonly TraitMethodDef[] Methods;
+        public readonly PropertyDef[] Properties;
+        public readonly EventDef[] Events;
 
-        public TraitDef(string name, bool isPublic, string[] generics, StructFieldDef[] fields, TraitMethodDef[] methods)
+        public TraitDef(string name, bool isPublic, string[] generics, StructFieldDef[] fields, TraitMethodDef[] methods,
+            PropertyDef[]? properties = null, EventDef[]? events = null)
         {
             Name = name; IsPublic = isPublic;
             Generics = generics ?? Array.Empty<string>();
             Fields = fields ?? Array.Empty<StructFieldDef>();
             Methods = methods ?? Array.Empty<TraitMethodDef>();
+            Properties = properties ?? Array.Empty<PropertyDef>();
+            Events = events ?? Array.Empty<EventDef>();
         }
     }
 
@@ -563,23 +591,29 @@ namespace RaLanguage.Interpreter.IR.Defs
     // StructFieldDefinitionNodes wrapped with the extension-only `IsStaticField`
     // (storage on the type, not the instance) + `IsLazy` (first-touch eval)
     // flags. Const-foldable defaults are captured as a const RuntimeValue (null =
-    // no default); a non-const default OR a lazy field makes IrCompiler fall back
-    // to the visitor (lazy fields rely on the live AST default + re-entrancy
-    // semantics). Reconstructed into an ExtensionFieldDeclaration.
+    // no default); a NON-CONST or LAZY default is compiled to a self-bound 0-arg
+    // thunk (`CompiledDefault`) run on first field-access (ExtensionDispatch),
+    // exactly mirroring the struct/class field-default thunk. A default that won't
+    // IR-compile makes IrCompiler fall back to the visitor. Reconstructed into an
+    // ExtensionFieldDeclaration.
     public sealed class ExtensionFieldDef
     {
         public readonly string Name;
         public readonly TypeDescriptor? FieldType;
         public readonly bool IsPublic;
         public readonly bool IsStaticField;
+        public readonly bool IsLazy;                   // first-touch eval (carried so reconstruction restores the flag)
         public readonly int DeclKind;                  // (int)VariableDeclarationType
         public readonly Values.RuntimeValue? DefaultConst; // folded literal default, or null
+        public readonly RaFunction? CompiledDefault;   // non-const/lazy default-init thunk (null = const / no default)
 
         public ExtensionFieldDef(string name, TypeDescriptor? fieldType, bool isPublic, bool isStaticField,
-            int declKind, Values.RuntimeValue? defaultConst)
+            int declKind, Values.RuntimeValue? defaultConst, bool isLazy = false,
+            RaFunction? compiledDefault = null)
         {
             Name = name; FieldType = fieldType; IsPublic = isPublic; IsStaticField = isStaticField;
-            DeclKind = declKind; DefaultConst = defaultConst;
+            DeclKind = declKind; DefaultConst = defaultConst; IsLazy = isLazy;
+            CompiledDefault = compiledDefault;
         }
     }
 
@@ -605,9 +639,10 @@ namespace RaLanguage.Interpreter.IR.Defs
 
     // `extend T { fn ... }` lowered FLAT. Extension methods are
     // FunctionDefinitionNodes → reuse ClassMethodDef. Methods / operators /
-    // properties / events / fields / indexers all lower; a non-const-default OR
-    // lazy ext-field, or an un-compilable indexer/method/operator body, makes
-    // IrCompiler fall back to the visitor.
+    // properties / events / fields / indexers all lower; a non-const or lazy
+    // ext-field default lowers via a first-touch thunk (CompiledDefault). Only a
+    // field default that won't IR-compile, or an un-compilable indexer/method/
+    // operator body, makes IrCompiler fall back to the visitor.
     public sealed class ExtensionDef : TypeDef
     {
         public override TypeDefKind Kind => TypeDefKind.Extension;
@@ -659,11 +694,13 @@ namespace RaLanguage.Interpreter.IR.Defs
     // `interface Name { fn sig(); var field: T }` lowered FLAT. Interface methods
     // are signatures only (no bodies → no RaFunction), fields reuse the struct
     // field descriptor (interface fields can't have defaults, so DefaultConst is
-    // always null). First sub-stage: methods + fields + simple generics. Falls
-    // back on properties / events / annotations / where-constraints. The handler
-    // reconstructs the InterfaceDefinitionNode (signature + field nodes) and runs
-    // the SAME InterfaceDefinitionNodeVisitor.Apply → byte-identical registration
-    // + conformance metadata.
+    // always null). First sub-stage: methods + fields + simple generics. L10
+    // widening: contract properties + events (abstract/protocol members, no
+    // bodies) lower via the shared property/event helpers. Falls back on
+    // annotations / where-constraints. The handler reconstructs the
+    // InterfaceDefinitionNode (signature + field + property + event nodes) and
+    // runs the SAME InterfaceDefinitionNodeVisitor.Apply → byte-identical
+    // registration + conformance metadata.
     public sealed class InterfaceDef : TypeDef
     {
         public override TypeDefKind Kind => TypeDefKind.Interface;
@@ -673,13 +710,18 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly string[] Generics;
         public readonly StructFieldDef[] Fields;       // reuses the struct field descriptor
         public readonly InterfaceMethodDef[] Methods;
+        public readonly PropertyDef[] Properties;
+        public readonly EventDef[] Events;
 
-        public InterfaceDef(string name, bool isPublic, string[] generics, StructFieldDef[] fields, InterfaceMethodDef[] methods)
+        public InterfaceDef(string name, bool isPublic, string[] generics, StructFieldDef[] fields, InterfaceMethodDef[] methods,
+            PropertyDef[]? properties = null, EventDef[]? events = null)
         {
             Name = name; IsPublic = isPublic;
             Generics = generics ?? Array.Empty<string>();
             Fields = fields ?? Array.Empty<StructFieldDef>();
             Methods = methods ?? Array.Empty<InterfaceMethodDef>();
+            Properties = properties ?? Array.Empty<PropertyDef>();
+            Events = events ?? Array.Empty<EventDef>();
         }
     }
 

@@ -33,6 +33,15 @@ namespace RaLanguage.Parser.Nodes.Properties
         public bool IsOverride { get; }
         public bool IsLazy { get; }
 
+        // L10: resolver-populated metadata for IR compilation of the LAZY default
+        // initializer (mirrors PropertyAccessorNode's accessor-body fields). The
+        // initializer is compiled to a self-bound 0-arg RaFunction run via the VM
+        // on first touch (PropertyAccessOps); `self` is the implicit slot 0.
+        public int DefaultFrameId { get; set; } = -1;
+        public RaLanguage.Interpreter.Pipeline.BindingId[]? DefaultParamBindings { get; set; }
+        public RaLanguage.Interpreter.IR.RaFunction? DefaultCompiledBody { get; set; }
+        public bool DefaultIrCompileTried { get; set; }
+
         public PropertyDefinitionNode(
             Token nameTok,
             TypeDescriptor? propertyType,
