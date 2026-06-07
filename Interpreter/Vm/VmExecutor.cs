@@ -2998,7 +2998,7 @@ namespace RaLanguage.Interpreter.Vm
             switch (def.Kind)
             {
                 case IR.Defs.TypeDefKind.Enum:
-                    return DefineEnum((IR.Defs.EnumDef)def, ctx, f, pc);
+                    return DefineEnum((IR.Defs.EnumDef)def, ctx, f, pc, interpreter);
                 case IR.Defs.TypeDefKind.Delegate:
                     return DefineDelegate((IR.Defs.DelegateDef)def, ctx, f, pc);
                 case IR.Defs.TypeDefKind.Using:
@@ -3074,6 +3074,8 @@ namespace RaLanguage.Interpreter.Vm
                 ReconstructWheres(def.Wheres, s, e),
                 ReconstructProperties(def.Properties, s, e),
                 ReconstructEvents(def.Events, s, e));
+            if (def.Annotations.Length > 0)
+                node.Annotations = new System.Collections.Generic.List<Parser.Nodes.Annotations.AnnotationApplicationNode>(def.Annotations);
 
             var result = Visitors.Structs.StructDefinitionNodeVisitor.Apply(node, ctx, interpreter);
             if (result.Error != null) throw new RaUserError(result.Error);
@@ -3156,6 +3158,8 @@ namespace RaLanguage.Interpreter.Vm
             // Restore the @derive-controlled auto flags (default true).
             node.AutoEquals = def.AutoEquals;
             node.AutoToString = def.AutoToString;
+            if (def.Annotations.Length > 0)
+                node.Annotations = new System.Collections.Generic.List<Parser.Nodes.Annotations.AnnotationApplicationNode>(def.Annotations);
 
             var result = Visitors.Records.RecordDefinitionNodeVisitor.Apply(node, ctx, interpreter);
             if (result.Error != null) throw new RaUserError(result.Error);
@@ -3415,6 +3419,8 @@ namespace RaLanguage.Interpreter.Vm
                 ReconstructWheres(def.Wheres, s, e),
                 ReconstructProperties(def.Properties, s, e),
                 ReconstructEvents(def.Events, s, e));
+            if (def.Annotations.Length > 0)
+                node.Annotations = new System.Collections.Generic.List<Parser.Nodes.Annotations.AnnotationApplicationNode>(def.Annotations);
 
             var task = Visitors.Classes.ClassDefinitionNodeVisitor.Apply(node, ctx, interpreter);
             var result = task.IsCompleted ? task.Result : task.AsTask().GetAwaiter().GetResult();
@@ -3479,6 +3485,8 @@ namespace RaLanguage.Interpreter.Vm
                 def.IsPublic, methods, fields,
                 new System.Collections.Generic.List<string>(def.Generics),
                 new System.Collections.Generic.List<Parser.Nodes.Special.WhereConstraintNode>());
+            if (def.Annotations.Length > 0)
+                node.Annotations = new System.Collections.Generic.List<Parser.Nodes.Annotations.AnnotationApplicationNode>(def.Annotations);
 
             var result = Visitors.Traits.TraitDefinitionNodeVisitor.Apply(node, ctx, interpreter);
             if (result.Error != null) throw new RaUserError(result.Error);
@@ -3529,6 +3537,8 @@ namespace RaLanguage.Interpreter.Vm
                 ReconstructOperators(def.Operators, s, e),
                 ReconstructEvents(def.Events, s, e),
                 indexers, fields, def.IsSealed);
+            if (def.Annotations.Length > 0)
+                node.Annotations = new System.Collections.Generic.List<Parser.Nodes.Annotations.AnnotationApplicationNode>(def.Annotations);
 
             var result = Visitors.Extensions.ExtensionDefinitionNodeVisitor.Apply(node, ctx);
             if (result.Error != null) throw new RaUserError(result.Error);
@@ -3572,6 +3582,8 @@ namespace RaLanguage.Interpreter.Vm
                 new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
                 def.IsPublic, methods, fields,
                 new System.Collections.Generic.List<string>(def.Generics));
+            if (def.Annotations.Length > 0)
+                node.Annotations = new System.Collections.Generic.List<Parser.Nodes.Annotations.AnnotationApplicationNode>(def.Annotations);
 
             var result = Visitors.Interfaces.InterfaceDefinitionNodeVisitor.Apply(node, ctx, interpreter);
             if (result.Error != null) throw new RaUserError(result.Error);
@@ -3605,6 +3617,8 @@ namespace RaLanguage.Interpreter.Vm
             var node = new Parser.Nodes.Annotations.AnnotationDefinitionNode(
                 new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
                 def.IsPublic, ps);
+            if (def.Annotations.Length > 0)
+                node.Annotations = new System.Collections.Generic.List<Parser.Nodes.Annotations.AnnotationApplicationNode>(def.Annotations);
 
             var result = Visitors.Annotations.AnnotationDefinitionNodeVisitor.Apply(node, ctx, interpreter);
             if (result.Error != null) throw new RaUserError(result.Error);
@@ -3703,7 +3717,7 @@ namespace RaLanguage.Interpreter.Vm
 
         [System.Runtime.CompilerServices.MethodImpl(
             System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-        private static RuntimeValue DefineEnum(IR.Defs.EnumDef def, Context ctx, VmFrame f, int pc)
+        private static RuntimeValue DefineEnum(IR.Defs.EnumDef def, Context ctx, VmFrame f, int pc, IInterpreter interpreter)
         {
             // Collision check mirrors the visitor (it runs BEFORE building the
             // variants; the lowered variants have no side effects so order is
@@ -3724,11 +3738,25 @@ namespace RaLanguage.Interpreter.Vm
             }
 
             var (s, e) = ResolveSpan(f, pc, ctx);
-            return Runtime.EnumDefOps.BuildAndRegister(
+            var enumTypeValue = Runtime.EnumDefOps.BuildAndRegister(
                 def.Name, variants,
                 new System.Collections.Generic.List<string>(def.Generics),
                 new System.Collections.Generic.List<Parser.Nodes.Special.WhereConstraintNode>(),
                 ctx, s, e);
+
+            // Node-level annotations on the enum: process them exactly as
+            // EnumDefinitionNodeVisitor does after BuildAndRegister (DefineEnum
+            // does not reconstruct an AST node, so there is no node.Annotations to
+            // reattach — run AnnotationProcessor.Process directly for parity).
+            if (def.Annotations.Length > 0)
+            {
+                var target = new Runtime.Annotations.MetadataTarget(
+                    Runtime.Annotations.AnnotationTargetKind.Enum, null, def.Name);
+                var annErr = Runtime.Annotations.AnnotationProcessor.Process(def.Annotations, target, ctx, interpreter);
+                if (annErr != null) throw new RaUserError(annErr);
+            }
+
+            return enumTypeValue;
         }
 
         [System.Runtime.CompilerServices.MethodImpl(

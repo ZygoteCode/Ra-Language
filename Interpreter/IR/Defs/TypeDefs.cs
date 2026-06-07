@@ -41,6 +41,11 @@ namespace RaLanguage.Interpreter.IR.Defs
     public abstract class TypeDef
     {
         public abstract TypeDefKind Kind { get; }
+
+        // Node-level annotation applications (@Ann on the type/decl). Reattached
+        // to the reconstructed node so the def visitor's AnnotationProcessor runs.
+        public Parser.Nodes.Annotations.AnnotationApplicationNode[] Annotations { get; set; }
+            = System.Array.Empty<Parser.Nodes.Annotations.AnnotationApplicationNode>();
     }
 
     // A single enum variant, fully resolved: its name, declaration ordinal, the

@@ -2332,7 +2332,6 @@ namespace RaLanguage.Interpreter.IR
         private static bool TryBuildEnumDef(Parser.Nodes.Enums.EnumDefinitionNode node, out Defs.EnumDef def)
         {
             def = null!;
-            if (node.HasAnnotations) return false;
             if (node.WhereConstraints != null && node.WhereConstraints.Count > 0) return false;
 
             string enumName = node.NameTok.Value?.ToString() ?? "";
@@ -2377,6 +2376,7 @@ namespace RaLanguage.Interpreter.IR
                 ? System.Array.Empty<string>()
                 : node.GenericTypeParams.ToArray();
             def = new Defs.EnumDef(enumName, generics, variants);
+            def.Annotations = node.Annotations != null ? node.Annotations.ToArray() : System.Array.Empty<Parser.Nodes.Annotations.AnnotationApplicationNode>();
             return true;
         }
 
@@ -2428,7 +2428,6 @@ namespace RaLanguage.Interpreter.IR
         private static bool TryBuildStructDef(Parser.Nodes.Structs.StructDefinitionNode node, out Defs.StructDef def)
         {
             def = null!;
-            if (node.HasAnnotations) return false;
             // L10: operators + where-constraints + auto-properties + events lowered (captured below).
 
             string name = node.NameTok.Value?.ToString() ?? "";
@@ -2461,6 +2460,7 @@ namespace RaLanguage.Interpreter.IR
                 ? System.Array.Empty<string>()
                 : node.GenericTypeParams.ToArray();
             def = new Defs.StructDef(name, node.IsPublic, generics, fields, methods, operators, wheres, properties, events);
+            def.Annotations = node.Annotations != null ? node.Annotations.ToArray() : System.Array.Empty<Parser.Nodes.Annotations.AnnotationApplicationNode>();
             return true;
         }
 
@@ -2657,7 +2657,6 @@ namespace RaLanguage.Interpreter.IR
         private static bool TryBuildRecordDef(Parser.Nodes.Records.RecordDefinitionNode node, out Defs.RecordDef def)
         {
             def = null!;
-            if (node.HasAnnotations) return false;
             // L10: inheritance (base-class + const-folded base-ctor args) + abstract +
             // operators + where-constraints + auto-properties + events lowered (captured below).
 
@@ -2700,6 +2699,7 @@ namespace RaLanguage.Interpreter.IR
             def = new Defs.RecordDef(name, node.IsPublic, node.IsRefRecord,
                 node.AutoEquals, node.AutoToString, generics, pfields, methods, operators, wheres, properties, events,
                 baseType: node.BaseType, baseArgConsts: baseArgConsts, isAbstract: node.IsAbstract);
+            def.Annotations = node.Annotations != null ? node.Annotations.ToArray() : System.Array.Empty<Parser.Nodes.Annotations.AnnotationApplicationNode>();
             return true;
         }
 
@@ -2713,7 +2713,6 @@ namespace RaLanguage.Interpreter.IR
         {
             def = null!;
             if (node.IsStatic) return false;   // static semantics → fallback (abstract is now lowered)
-            if (node.HasAnnotations) return false;
             // L10: inheritance (base/interfaces/traits) + operators + where + auto-properties + events + abstract lowered.
 
             string name = node.NameTok.Value?.ToString() ?? "";
@@ -2753,6 +2752,7 @@ namespace RaLanguage.Interpreter.IR
                 : node.WithTraits.ToArray();
             def = new Defs.ClassDef(name, node.IsPublic, generics, fields, methods, operators, wheres, properties, events,
                 node.BaseType, ifaces, traits, node.IsAbstract);
+            def.Annotations = node.Annotations != null ? node.Annotations.ToArray() : System.Array.Empty<Parser.Nodes.Annotations.AnnotationApplicationNode>();
             return true;
         }
 
@@ -2820,7 +2820,6 @@ namespace RaLanguage.Interpreter.IR
         private static bool TryBuildTraitDef(Parser.Nodes.Traits.TraitDefinitionNode node, out Defs.TraitDef def)
         {
             def = null!;
-            if (node.HasAnnotations) return false;
             if (node.WhereConstraints != null && node.WhereConstraints.Count > 0) return false;
             if (node.Properties != null && node.Properties.Count > 0) return false;
             if (node.Events != null && node.Events.Count > 0) return false;
@@ -2850,6 +2849,7 @@ namespace RaLanguage.Interpreter.IR
                 ? System.Array.Empty<string>()
                 : node.GenericTypeParams.ToArray();
             def = new Defs.TraitDef(name, node.IsPublic, generics, fields, methods);
+            def.Annotations = node.Annotations != null ? node.Annotations.ToArray() : System.Array.Empty<Parser.Nodes.Annotations.AnnotationApplicationNode>();
             return true;
         }
 
@@ -2893,7 +2893,6 @@ namespace RaLanguage.Interpreter.IR
         private static bool TryBuildInterfaceDef(Parser.Nodes.Interfaces.InterfaceDefinitionNode node, out Defs.InterfaceDef def)
         {
             def = null!;
-            if (node.HasAnnotations) return false;
             if (node.WhereConstraints != null && node.WhereConstraints.Count > 0) return false;
             if (node.Properties != null && node.Properties.Count > 0) return false;
             if (node.Events != null && node.Events.Count > 0) return false;
@@ -2929,6 +2928,7 @@ namespace RaLanguage.Interpreter.IR
                 ? System.Array.Empty<string>()
                 : node.GenericTypeParams.ToArray();
             def = new Defs.InterfaceDef(name, node.IsPublic, generics, fields, methods);
+            def.Annotations = node.Annotations != null ? node.Annotations.ToArray() : System.Array.Empty<Parser.Nodes.Annotations.AnnotationApplicationNode>();
             return true;
         }
 
@@ -2939,7 +2939,6 @@ namespace RaLanguage.Interpreter.IR
         private static bool TryBuildAnnotationDef(Parser.Nodes.Annotations.AnnotationDefinitionNode node, out Defs.AnnotationDef def)
         {
             def = null!;
-            if (node.HasAnnotations) return false; // meta-annotations → fallback
             string name = node.Name;
             if (string.IsNullOrWhiteSpace(name)) return false;
 
@@ -2954,6 +2953,7 @@ namespace RaLanguage.Interpreter.IR
             }
 
             def = new Defs.AnnotationDef(name, node.IsPublic, ps);
+            def.Annotations = node.Annotations != null ? node.Annotations.ToArray() : System.Array.Empty<Parser.Nodes.Annotations.AnnotationApplicationNode>();
             return true;
         }
 
@@ -3044,7 +3044,6 @@ namespace RaLanguage.Interpreter.IR
         private static bool TryBuildExtensionDef(Parser.Nodes.Classes.ExtensionDefinitionNode node, out Defs.ExtensionDef def)
         {
             def = null!;
-            if (node.HasAnnotations) return false;
             // L10: extension operators + properties + events + fields + indexers lowered (captured below).
             if (node.TargetType == null) return false;
 
@@ -3071,6 +3070,7 @@ namespace RaLanguage.Interpreter.IR
             if (!TryBuildIndexerDefs(node.Methods, node.Indexers, out var indexers)) return false;
 
             def = new Defs.ExtensionDef(node.TargetType, node.IsPublic, node.IsSealed, methods, operators, properties, events, fields, indexers);
+            def.Annotations = node.Annotations != null ? node.Annotations.ToArray() : System.Array.Empty<Parser.Nodes.Annotations.AnnotationApplicationNode>();
             return true;
         }
 
