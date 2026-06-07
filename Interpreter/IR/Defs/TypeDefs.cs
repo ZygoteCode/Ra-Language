@@ -591,23 +591,29 @@ namespace RaLanguage.Interpreter.IR.Defs
     // StructFieldDefinitionNodes wrapped with the extension-only `IsStaticField`
     // (storage on the type, not the instance) + `IsLazy` (first-touch eval)
     // flags. Const-foldable defaults are captured as a const RuntimeValue (null =
-    // no default); a non-const default OR a lazy field makes IrCompiler fall back
-    // to the visitor (lazy fields rely on the live AST default + re-entrancy
-    // semantics). Reconstructed into an ExtensionFieldDeclaration.
+    // no default); a NON-CONST or LAZY default is compiled to a self-bound 0-arg
+    // thunk (`CompiledDefault`) run on first field-access (ExtensionDispatch),
+    // exactly mirroring the struct/class field-default thunk. A default that won't
+    // IR-compile makes IrCompiler fall back to the visitor. Reconstructed into an
+    // ExtensionFieldDeclaration.
     public sealed class ExtensionFieldDef
     {
         public readonly string Name;
         public readonly TypeDescriptor? FieldType;
         public readonly bool IsPublic;
         public readonly bool IsStaticField;
+        public readonly bool IsLazy;                   // first-touch eval (carried so reconstruction restores the flag)
         public readonly int DeclKind;                  // (int)VariableDeclarationType
         public readonly Values.RuntimeValue? DefaultConst; // folded literal default, or null
+        public readonly RaFunction? CompiledDefault;   // non-const/lazy default-init thunk (null = const / no default)
 
         public ExtensionFieldDef(string name, TypeDescriptor? fieldType, bool isPublic, bool isStaticField,
-            int declKind, Values.RuntimeValue? defaultConst)
+            int declKind, Values.RuntimeValue? defaultConst, bool isLazy = false,
+            RaFunction? compiledDefault = null)
         {
             Name = name; FieldType = fieldType; IsPublic = isPublic; IsStaticField = isStaticField;
-            DeclKind = declKind; DefaultConst = defaultConst;
+            DeclKind = declKind; DefaultConst = defaultConst; IsLazy = isLazy;
+            CompiledDefault = compiledDefault;
         }
     }
 
@@ -633,9 +639,10 @@ namespace RaLanguage.Interpreter.IR.Defs
 
     // `extend T { fn ... }` lowered FLAT. Extension methods are
     // FunctionDefinitionNodes → reuse ClassMethodDef. Methods / operators /
-    // properties / events / fields / indexers all lower; a non-const-default OR
-    // lazy ext-field, or an un-compilable indexer/method/operator body, makes
-    // IrCompiler fall back to the visitor.
+    // properties / events / fields / indexers all lower; a non-const or lazy
+    // ext-field default lowers via a first-touch thunk (CompiledDefault). Only a
+    // field default that won't IR-compile, or an un-compilable indexer/method/
+    // operator body, makes IrCompiler fall back to the visitor.
     public sealed class ExtensionDef : TypeDef
     {
         public override TypeDefKind Kind => TypeDefKind.Extension;

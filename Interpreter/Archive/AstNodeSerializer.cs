@@ -3824,8 +3824,9 @@ namespace RaLanguage.Interpreter.Archive
 
         // v9: an ExtensionFieldDef — name + type + flags (public / static-storage) +
         // decl kind + const default. Like the struct field pool but carries the
-        // extension-only static-storage flag (no abstract/override; lazy never
-        // lowers). Trailing pool gated on v9+; v8 archives keep none.
+        // extension-only static-storage flag (no abstract/override). v15 appends the
+        // lazy flag + the NON-CONST/LAZY default-init thunk. Trailing pool gated on
+        // v9+; v8 archives keep none.
         private static void WriteExtensionFieldDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.ExtensionFieldDef fld)
         {
             w.WriteString(fld.Name);
@@ -3835,6 +3836,15 @@ namespace RaLanguage.Interpreter.Archive
             w.WriteI32(fld.DeclKind);
             if (fld.DefaultConst == null) w.WriteU8(0);
             else { w.WriteU8(1); ModuleBytecodeIo.SerializeConst(w, fld.DefaultConst, WriterPool); }
+            // V15: the lazy flag + the NON-CONST/LAZY default-init thunk (null = const /
+            // no default). Pre-V15 ext-fields had neither (lazy + non-const fell back to
+            // NativeDefine), so the absence reconstructs to a non-lazy, no-thunk field.
+            if (WriterVersion >= ModuleBytecodeIo.PayloadVersion_V15)
+            {
+                w.WriteU8(fld.IsLazy ? (byte)1 : (byte)0);
+                if (fld.CompiledDefault == null) w.WriteU8(0);
+                else { w.WriteU8(1); ModuleBytecodeIo.SerializeRaFunction(w, fld.CompiledDefault, WriterPool); }
+            }
         }
 
         private static RaLanguage.Interpreter.IR.Defs.ExtensionFieldDef ReadExtensionFieldDef(RacBinaryReader r)
@@ -3845,8 +3855,17 @@ namespace RaLanguage.Interpreter.Archive
             int declKind = r.ReadI32();
             RaLanguage.Interpreter.Values.RuntimeValue? defConst =
                 r.ReadU8() != 0 ? ModuleBytecodeIo.DeserializeConst(r, ReaderPool) : null;
+            // V15: the lazy flag + the NON-CONST/LAZY default-init thunk (absent in
+            // < V15 → non-lazy, no thunk).
+            bool isLazy = false;
+            RaLanguage.Interpreter.IR.RaFunction? compiledDefault = null;
+            if (ReaderVersion >= ModuleBytecodeIo.PayloadVersion_V15)
+            {
+                isLazy = r.ReadU8() != 0;
+                compiledDefault = r.ReadU8() != 0 ? ModuleBytecodeIo.DeserializeRaFunction(r, ReaderPool) : null;
+            }
             return new RaLanguage.Interpreter.IR.Defs.ExtensionFieldDef(
-                fName, fType, (fflags & 1) != 0, (fflags & 2) != 0, declKind, defConst);
+                fName, fType, (fflags & 1) != 0, (fflags & 2) != 0, declKind, defConst, isLazy, compiledDefault);
         }
 
         private static void WriteExtensionFieldDefs(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.ExtensionFieldDef[] fields)

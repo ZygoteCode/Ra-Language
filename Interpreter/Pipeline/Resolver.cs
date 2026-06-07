@@ -553,6 +553,22 @@ namespace RaLanguage.Interpreter.Pipeline
                 op.ParamBindings = paramBindings;
             }
 
+            // L10: frame each extension-field default (self implicit slot 0) so a
+            // NON-CONST or LAZY default can be IR-compiled into a first-touch thunk
+            // (ExtensionDispatch). `self` is the extended instance. Mirrors WalkStruct/
+            // WalkClass; the field node IS a StructFieldDefinitionNode so it carries the
+            // same DefaultFrameId/DefaultParamBindings slots. (Const defaults are framed
+            // too; harmless — IrCompiler folds them and ignores the frame.)
+            foreach (var fieldDecl in ext.Fields)
+            {
+                var field = fieldDecl.Field;
+                if (field.DefaultValueNode != null)
+                {
+                    var dpb = WalkMethodLikeBody(field.DefaultValueNode, System.Array.Empty<RaLanguage.Lexer.Tokens.Token>(), s, out int dFrame);
+                    field.DefaultFrameId = dFrame; field.DefaultParamBindings = dpb;
+                }
+            }
+
             // L10: frame extension property accessor bodies (computed ext properties
             // run via the VM, same as type-member computed properties).
             WalkProperties(ext.Properties, s);

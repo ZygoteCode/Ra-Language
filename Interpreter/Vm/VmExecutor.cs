@@ -3600,13 +3600,18 @@ namespace RaLanguage.Interpreter.Vm
 
             // Extension fields: rebuild a StructFieldDefinitionNode (const default
             // → NumberNode carrying CachedValue, byte-identical to the visitor's
-            // field-init eval) wrapped in an ExtensionFieldDeclaration. Lazy fields
-            // never lower (IrCompiler fell back), so isLazy is always false here.
+            // field-init eval) wrapped in an ExtensionFieldDeclaration. A NON-CONST or
+            // LAZY default lowered to a thunk needs a NON-NULL stub DefaultValueNode (so
+            // the descriptor's DefaultValueNode is set → first-access enters the default
+            // branch) — a PassNode; the thunk runs instead (DefaultCompiledBody, wired
+            // below). isLazy flows from the def so the runtime re-entrancy guard fires.
             var fields = new System.Collections.Generic.List<Parser.Nodes.Classes.ExtensionFieldDeclaration>(def.Fields.Length);
             foreach (var fd in def.Fields)
             {
                 AstNode? defNode = null;
-                if (fd.DefaultConst != null)
+                if (fd.CompiledDefault != null)
+                    defNode = new Parser.Nodes.Operations.PassNode(s, e);
+                else if (fd.DefaultConst != null)
                     defNode = new Parser.Nodes.Primitives.NumberNode(
                         new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
                     { CachedValue = fd.DefaultConst };
@@ -3616,7 +3621,12 @@ namespace RaLanguage.Interpreter.Vm
                     fd.FieldType, defNode,
                     fd.IsStaticField, /*isAbstract*/ false, /*isOverride*/ false,
                     (Parser.Nodes.Variables.VariableDeclarationType)fd.DeclKind);
-                fields.Add(new Parser.Nodes.Classes.ExtensionFieldDeclaration(fieldNode, fd.IsStaticField, /*isLazy*/ false));
+                if (fd.CompiledDefault != null)
+                {
+                    fieldNode.DefaultCompiledBody = fd.CompiledDefault;
+                    fieldNode.DefaultIrCompileTried = true;
+                }
+                fields.Add(new Parser.Nodes.Classes.ExtensionFieldDeclaration(fieldNode, fd.IsStaticField, fd.IsLazy));
             }
 
             // Extension indexers: re-derive the (method, is-setter) tuples pointing

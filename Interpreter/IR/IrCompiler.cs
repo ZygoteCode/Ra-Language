@@ -3184,11 +3184,11 @@ namespace RaLanguage.Interpreter.IR
             for (int i = 0; i < node.Methods.Count; i++)
                 if (!TryBuildClassMethodDef(node.Methods[i], out methods[i])) return false;
 
-            // Extension fields: mirror the struct-field flat capture. A lazy field
-            // relies on the live AST default (evaluated on first touch with `self`
-            // bound) + re-entrancy gating, so it falls back. A non-const default
-            // (instance-state expr, list literal, …) falls back exactly like a
-            // struct field's non-const default. Const / absent defaults lower.
+            // Extension fields: mirror the struct-field flat capture. A const /
+            // absent default lowers directly; a NON-CONST default (instance-state
+            // expr, list literal, …) OR a LAZY field compiles to a first-touch thunk
+            // (run with `self` bound on first access, with the re-entrancy guard for
+            // lazy in ExtensionDispatch). A default that won't IR-compile falls back.
             if (!TryBuildExtensionFieldDefs(node.Fields, out var fields)) return false;
 
             // Extension indexers: the get/set bodies ARE FunctionDefinitionNodes
@@ -3215,18 +3215,30 @@ namespace RaLanguage.Interpreter.IR
             for (int i = 0; i < fields.Count; i++)
             {
                 var decl = fields[i];
-                // Lazy ext-fields defer their default eval (reading `self`) until
-                // first read, with a re-entrancy guard — keep them on the AST path.
-                if (decl.IsLazy) { result = null!; return false; }
                 var fld = decl.Field;
                 if (fld.HasAnnotations) { result = null!; return false; }
+                // L10: a const non-lazy default folds to DefaultConst (unchanged). A
+                // NON-CONST or LAZY default compiles to a self-bound 0-arg thunk run on
+                // first field-access (the SAME GetOrCompileFieldDefault struct/class
+                // fields run, with `self` bound to the extended instance) — covering
+                // both the eager-on-first-read non-const case and the lazy case (the
+                // re-entrancy guard lives in ExtensionDispatch). A lazy field always
+                // takes the thunk path (its default is never const-folded, so first
+                // read keeps observing instance state). A default that won't IR-compile
+                // → fall back to the visitor.
                 RuntimeValue? defConst = null;
-                if (fld.DefaultValueNode != null && !TryFoldFieldDefaultConst(fld.DefaultValueNode, out defConst))
-                { result = null!; return false; } // non-const default → fallback
+                RaFunction? fldThunk = null;
+                bool needsThunk = decl.IsLazy ||
+                    (fld.DefaultValueNode != null && !TryFoldFieldDefaultConst(fld.DefaultValueNode, out defConst));
+                if (needsThunk)
+                {
+                    fldThunk = Runtime.FunctionDefinitionHelper.GetOrCompileFieldDefault(fld);
+                    if (fldThunk == null) { result = null!; return false; } // non-const/lazy default that won't IR-compile → fallback
+                }
                 result[i] = new Defs.ExtensionFieldDef(
                     fld.NameTok.Value?.ToString() ?? "", fld.FieldType,
                     fld.IsPublic, decl.IsStaticField,
-                    (int)fld.DeclarationType, defConst);
+                    (int)fld.DeclarationType, defConst, decl.IsLazy, fldThunk);
             }
             return true;
         }
