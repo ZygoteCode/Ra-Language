@@ -725,6 +725,9 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Eq: case Opcode.Ne:
                 case Opcode.SEq: case Opcode.SNe:
                 case Opcode.Lt: case Opcode.Le: case Opcode.Gt: case Opcode.Ge:
+                // `in` writes locals[A] (a defines-A classification, like Eq /
+                // Div — NOT a purity claim; In is excluded from IsHoistEligibleOp).
+                case Opcode.In:
                 case Opcode.AddFF: case Opcode.SubFF:
                 case Opcode.MulFF: case Opcode.DivFF:
                 case Opcode.LtFF: case Opcode.LeFF:

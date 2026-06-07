@@ -487,6 +487,8 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Eq: case Opcode.Ne:
                 case Opcode.SEq: case Opcode.SNe:
                 case Opcode.Lt: case Opcode.Le: case Opcode.Gt: case Opcode.Ge:
+                // `in` writes the BooleanValue result into locals[A] (like Eq).
+                case Opcode.In:
                 case Opcode.NullCoal:
                 case Opcode.StrConcat: case Opcode.Interp: case Opcode.Fmt:
                 case Opcode.With:
@@ -605,6 +607,8 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Eq: case Opcode.Ne:
                 case Opcode.SEq: case Opcode.SNe:
                 case Opcode.Lt: case Opcode.Le: case Opcode.Gt: case Opcode.Ge:
+                // `in` reads B (left) and C (right), same shape as Eq.
+                case Opcode.In:
                 case Opcode.NullCoal:
                 case Opcode.ListGet: case Opcode.MapGet:
                 // M66.5 / M66.6: II 3-address ops read B and C as

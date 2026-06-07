@@ -276,6 +276,8 @@ namespace RaLanguage.Interpreter.Archive
                     case Opcode.Le:
                     case Opcode.Gt:
                     case Opcode.Ge:
+                    // `in` — a (dst) + b (left) + c (right), 3-address like Eq.
+                    case Opcode.In:
                     case Opcode.NullCoal:
                     case Opcode.StrConcat:
                     case Opcode.Ushr:

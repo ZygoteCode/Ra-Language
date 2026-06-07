@@ -693,6 +693,13 @@ namespace RaLanguage.Interpreter.IR
         AnnotationApply = 0xF4,   // L10: a (dst), imm16 (DefineRefs idx) — standalone `@Name(args)` value; builds the AnnotationInstanceValue (NativeDefine-shaped)
         SetPendingFlow  = 0xF5,   // L10: a (value slot), b (kind: 1=return 2=yield) — stash a control-flow escape through an enclosing finally; OP_FINALLY_END applies it
         CallGeneric     = 0xF6,   // L10: a (dst), b (fnSlot: callee@fnSlot, args@fnSlot+1..), c (DefineRefs idx of the parked FunctionCallNode) — explicit-generic-type-arg call `foo<int>(...)`; argCount + GenericTypeArgs read from the parked node (With-shaped reads, Call-shaped def)
+        // L10: `left in right` / `left not in right` membership test. Same
+        // operand shape as Eq: a (dst), b (left), c (right) → left.InCollection(
+        // right). `not in` lowers as OP_IN into a temp followed by OP_NOT.
+        // CAN RAISE (InCollection errors on a non-collection RHS) → kept OUT of
+        // every DCE/LICM/GVN pure-eraseable list so its error site stays stable,
+        // exactly like Div / Mod / boxed Ushr. (0xF7 is free; 0xF6 / 0xF9 used.)
+        In              = 0xF7,   // a (dst), b (left), c (right) → left.InCollection(right)
 
         // ---- streams (Streams runtime — see RA_STREAMS_DESIGN.md §10) ----
         // Forward-jump opcode that branches if `locals[a]` is a sync stream

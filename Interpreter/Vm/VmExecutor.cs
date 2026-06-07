@@ -2374,6 +2374,13 @@ namespace RaLanguage.Interpreter.Vm
                     case Opcode.Gt:  { var r = Binary(locals, instr, BinOp.Gt);  if (r.Error != null) throw new RaUserError(r.Error); break; }
                     case Opcode.Ge:  { var r = Binary(locals, instr, BinOp.Ge);  if (r.Error != null) throw new RaUserError(r.Error); break; }
 
+                    // -------- membership --------
+                    // `left in right` → left.InCollection(right). `not in` is
+                    // this op followed by OP_NOT (emitted by the IR compiler).
+                    // Erroring RHS (non-collection) surfaces via RaUserError,
+                    // same as Div / the comparison ops above.
+                    case Opcode.In:  { var r = Binary(locals, instr, BinOp.In);  if (r.Error != null) throw new RaUserError(r.Error); break; }
+
                     // -------- branches --------
                     case Opcode.Jmp:
                     {
@@ -4925,6 +4932,10 @@ namespace RaLanguage.Interpreter.Vm
                 BinOp.Le   => left.GetComparisonLte(right),
                 BinOp.Gt   => left.GetComparisonGt(right),
                 BinOp.Ge   => left.GetComparisonGte(right),
+                // `left in right` — membership. InCollection returns a
+                // BooleanValue or an IllegalOperation error on a non-collection
+                // RHS (mirrors BinaryOperationNodeVisitor's Keyword.In branch).
+                BinOp.In   => left.InCollection(right),
                 _ => new ValueResult(null, null),
             };
 
@@ -5228,6 +5239,8 @@ namespace RaLanguage.Interpreter.Vm
             Mark(Opcode.SEq); Mark(Opcode.SNe);
             Mark(Opcode.Lt); Mark(Opcode.Le);
             Mark(Opcode.Gt); Mark(Opcode.Ge);
+            // Membership — writes the BooleanValue result into locals[A].
+            Mark(Opcode.In);
             Mark(Opcode.NullCoal);
             // Strings.
             Mark(Opcode.StrConcat); Mark(Opcode.Interp); Mark(Opcode.Fmt);
@@ -5278,6 +5291,10 @@ namespace RaLanguage.Interpreter.Vm
             // (`<<<`) shares Shl: identical bit pattern, distinct token only.
             Ushr, Rol, Ror,
             Eq, Ne, SEq, SNe, Lt, Le, Gt, Ge,
+            // `in` / membership. `not in` is In + a following unary Not.
+            // Dispatches to RuntimeValue.InCollection (boxed only — no numeric
+            // fast path, since the RHS is always a collection/string).
+            In,
         }
 
         [System.Runtime.CompilerServices.MethodImpl(

@@ -8533,6 +8533,31 @@ namespace RaLanguage.Interpreter.IR
                             CompileShortCircuitOr(bo, destSlot, st, ref topSlot);
                             return;
                         }
+                        // `left in right` / `left not in right` — membership.
+                        // OP_IN reads left (b) + right (c) and writes the
+                        // BooleanValue result. `not in` negates with the
+                        // existing unary OP_NOT (logical-not of the bool result,
+                        // matching BinaryOperationNodeVisitor's `.Notted()`).
+                        // Operand temps allocated exactly like the generic
+                        // binary path below.
+                        if (kw == Keyword.In || kw == Keyword.NotIn)
+                        {
+                            byte inLhs = AllocTemp(ref topSlot);
+                            CompileExpression(bo.LeftNode, inLhs, st, ref topSlot);
+                            byte inRhs = AllocTemp(ref topSlot);
+                            CompileExpression(bo.RightNode, inRhs, st, ref topSlot);
+                            if (kw == Keyword.In)
+                            {
+                                st.Code.Emit3(Opcode.In, destSlot, inLhs, inRhs);
+                            }
+                            else
+                            {
+                                byte inTmp = AllocTemp(ref topSlot);
+                                st.Code.Emit3(Opcode.In, inTmp, inLhs, inRhs);
+                                st.Code.Emit3(Opcode.Not, destSlot, inTmp, 0);
+                            }
+                            return;
+                        }
                     }
                     // M27.1 — Compile-time constant folding for literal arithmetic.
                     // Pure `+`, `-`, `*` over two suffix-free NumberValue literals
