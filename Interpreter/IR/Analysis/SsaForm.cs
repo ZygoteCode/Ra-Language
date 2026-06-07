@@ -420,6 +420,11 @@ namespace RaLanguage.Interpreter.IR.Analysis
                     || o == Opcode.NativeDefine || o == Opcode.Await
                     || o == Opcode.AsmInvoke || o == Opcode.AsmInvokeI
                     || o == Opcode.AnnotationApply || o == Opcode.CallGeneric
+                    // L10: `del name` removes a binding from the symbol table,
+                    // which can invalidate a cached LoadGlobal SymbolEntry the
+                    // SCCP/Memory-SSA solver assumed stable — treat it as an
+                    // aliasing event that ends the eligible straight-line prefix.
+                    || o == Opcode.DeleteLocal
                     || o == Opcode.Throw)
                 {
                     if (pc < firstEvent) firstEvent = pc;
@@ -688,6 +693,13 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 // read no locals (the place is resolved by name at dispatch).
                 case Opcode.Borrow:
                 case Opcode.BorrowMut:
+                // L10: `del name` — nameIdx in imm16, `a` unused. Reads no
+                // locals (the binding is resolved by name at dispatch). It is a
+                // symbol-table side effect, NOT a slot def (DefinedSlot → null);
+                // it is excluded from every pure list (DCE/CSE/GVN) so it is
+                // never erased, and is a Memory-SSA aliasing barrier (see
+                // BuildMemSsaEligibility (c)).
+                case Opcode.DeleteLocal:
                     break;
                 case Opcode.Move:
                 case Opcode.Alias:

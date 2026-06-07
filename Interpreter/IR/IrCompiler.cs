@@ -4218,6 +4218,27 @@ namespace RaLanguage.Interpreter.IR
                     return true;
                 }
 
+                case AstNodeType.VariableDelete:
+                {
+                    // `del a, b, ...` — emit one OP_DELETE_LOCAL per name. Each
+                    // removes the binding from the symbol table (raising if the
+                    // name is absent), mirroring VariableDeleteNodeVisitor.Apply.
+                    // The Resolver has already forced every del'd name to be
+                    // NON-slot-eligible (DelNames), so a subsequent read compiles
+                    // to OP_LOAD_GLOBAL and correctly errors after the Remove.
+                    var del = (VariableDeleteNode)stmt;
+                    foreach (var tok in del.Tokens)
+                    {
+                        var delName = tok.Value?.ToString();
+                        if (string.IsNullOrEmpty(delName))
+                            throw new IrCompileException("del with empty name");
+                        ushort nameIdx = st.Names.Add(delName);
+                        // `a` unused; nameIdx in imm16.
+                        st.Code.Emit2(Opcode.DeleteLocal, 0, nameIdx);
+                    }
+                    return true;
+                }
+
                 default:
                     if (strict)
                         throw new IrCompileException($"unsupported statement in compiled body: {stmt.NodeType}");

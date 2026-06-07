@@ -782,6 +782,19 @@ namespace RaLanguage.Interpreter.IR
         Pass            = 0xF0,
         Delete          = 0xF1,   // a (slot)
 
+        // L10 — `del name` statement (VariableDeleteNode). `a` unused,
+        // nameIdx:imm16 (index into the Names pool). Removes the binding from
+        // the symbol table (ctx.SymbolTable.Remove), raising the visitor's exact
+        // "'<name>' variable does not exist" RuntimeError if the name is absent.
+        // One opcode is emitted per name in a multi-name `del a, b`. MUTATES the
+        // symbol table (a binding-removing side effect) + CAN RAISE → kept OUT of
+        // every DCE/CSE/GVN pure list and defines no `locals` slot; the Resolver
+        // forces every del'd name to be NON-slot-eligible so the Remove is
+        // observable to a subsequent read (which then compiles to OP_LOAD_GLOBAL
+        // and errors after the binding is gone). Also a Memory-SSA aliasing
+        // barrier (a deletion can invalidate cached LoadGlobal lookups).
+        DeleteLocal     = 0xFA,   // a unused, nameIdx:imm16 — remove binding from symbol table, raise if absent
+
         // Stop dispatch and return RuntimeResult.Success(locals[a]). Used at
         // the very end of a script body; functions use Ret/RetNull instead.
         Halt            = 0xF9,   // a (result slot)

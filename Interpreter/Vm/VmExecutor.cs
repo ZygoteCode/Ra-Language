@@ -1115,6 +1115,26 @@ namespace RaLanguage.Interpreter.Vm
                         }
                         break;
                     }
+                    case Opcode.DeleteLocal:
+                    {
+                        // L10: `del name`. Mirrors VariableDeleteNodeVisitor.Apply
+                        // for a single name (the IR emits one DeleteLocal per name
+                        // in a `del a, b`): look the name up, raise the visitor's
+                        // exact "does not exist" error if absent, else remove it.
+                        // `a` is unused; the name lives in the Names pool at imm16.
+                        ushort idx = Encoding.Imm16(instr);
+                        var name = names[idx];
+                        var existing = ctx.SymbolTable!.Get(name);
+                        if (existing == null)
+                        {
+                            var (ds, de) = ResolveSpan(f, pc - 1, ctx);
+                            throw new RaUserError(new Errors.Types.RuntimeError(
+                                ds, de,
+                                $"'{name}' variable does not exist", ctx));
+                        }
+                        ctx.SymbolTable.Remove(name);
+                        break;
+                    }
                     case Opcode.AssignBinding:
                     {
                         byte src = Encoding.A(instr);
