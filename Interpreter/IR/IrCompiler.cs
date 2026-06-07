@@ -8510,11 +8510,75 @@ namespace RaLanguage.Interpreter.IR
                     // Unary `+` is a pure identity (the visitor leaves the operand
                     // value untouched — no `case TokenType.PLUS` in its switch), so
                     // a leading `+` on any number/expr compiles straight into the
-                    // destination slot. Distinct from DOUBLE_PLUS (`++`), which
-                    // mutates and is handled elsewhere.
+                    // destination slot. Distinct from DOUBLE_PLUS (`++`), handled
+                    // by the inc/dec branch just below.
                     if (un.OpTok.Type == TokenType.PLUS)
                     {
                         CompileExpression(un.Node, destSlot, st, ref topSlot);
+                        return;
+                    }
+                    // `i++` / `i--` (postfix, IsLeft==false) and `++i` / `--i`
+                    // (prefix, IsLeft==true) on a *simple variable*. Mirrors
+                    // UnaryOperationNodeVisitor: both carry the side-effect
+                    // `i = i ± 1`; the EXPRESSION value is the OLD value for the
+                    // postfix form and the NEW value for the prefix form (as a
+                    // bare statement it lands in scratch and is discarded). Only a
+                    // bare VariableAccess target is lowered here — the parser only
+                    // ever builds postfix `++`/`--` after a plain identifier, and
+                    // member/index/other prefix targets are deliberately left to
+                    // fall through to MapUnary (which throws → OP_NATIVE_DEFINE
+                    // fallback). Store-back mirrors the VariableAssignment-as-value
+                    // case: StoreLocalS for a slot-bound binding, else StoreGlobal
+                    // via a synthesized `=` VariableAssignmentNode through
+                    // AssignmentHelper. Reuses that case's typed-accumulator /
+                    // active-iter guard so the unboxed-promotion bookkeeping for a
+                    // promoted slot is never silently bypassed.
+                    if ((un.OpTok.Type == TokenType.DOUBLE_PLUS || un.OpTok.Type == TokenType.DOUBLE_MINUS)
+                        && un.Node is Parser.Nodes.Variables.VariableAccessNode incVa)
+                    {
+                        if (st.TypedAccumulators.ContainsKey(incVa.Name)
+                            || st.ActiveTypedIters.ContainsKey(incVa.Name))
+                            throw new IrCompileException("inc/dec of typed-slot binding not lowered");
+
+                        bool isInc = un.OpTok.Type == TokenType.DOUBLE_PLUS;
+                        // Postfix: OLD value is the expression result → goes in
+                        // destSlot, the NEW value is stored back from a temp.
+                        // Prefix: NEW value is the expression result → goes in
+                        // destSlot (stored back from there), OLD value parked in a
+                        // temp. Either way the constant `1` and the "other" value
+                        // live in temps ABOVE destSlot so they never clobber it.
+                        byte oneSlot = AllocTemp(ref topSlot);
+                        ushort oneIdx = st.Consts.Add(NumberValue.One);
+                        byte otherSlot = AllocTemp(ref topSlot);
+                        byte oldSlot, newSlot;
+                        if (un.IsLeft) { oldSlot = otherSlot; newSlot = destSlot; }
+                        else           { oldSlot = destSlot;  newSlot = otherSlot; }
+
+                        CompileExpression(incVa, oldSlot, st, ref topSlot);
+                        st.Code.Emit2(Opcode.LoadConst, oneSlot, oneIdx);
+                        st.Code.Emit3(isInc ? Opcode.Add : Opcode.Sub, newSlot, oldSlot, oneSlot);
+
+                        if (IsSlotEligible(incVa.Binding, incVa.BindingKind, st))
+                        {
+                            st.RegisterSlot(incVa.Binding.Offset, incVa.Name);
+                            st.Code.Emit2(Opcode.StoreLocalS, newSlot, (ushort)incVa.Binding.Offset);
+                        }
+                        else
+                        {
+                            if (st.AstRefs.Count > ushort.MaxValue)
+                                throw new IrCompileException("AstRefs overflow");
+                            // Synthesize `incVa.Name = <new>` so OP_STORE_GLOBAL's
+                            // AssignmentHelper path (which keys off node.Name +
+                            // node.AssignmentToken only — never node.ValueNode) can
+                            // commit the write with full coerce/type-check parity.
+                            var eqTok = new Lexer.Tokens.Token(
+                                TokenType.EQ, null, incVa.VarNameTok.PositionStart);
+                            var storeNode = new Parser.Nodes.Variables.VariableAssignmentNode(
+                                incVa.VarNameTok, eqTok, incVa);
+                            ushort incRefIdx = (ushort)st.AstRefs.Count;
+                            st.AstRefs.Add(storeNode);
+                            st.Code.Emit2(Opcode.StoreGlobal, newSlot, incRefIdx);
+                        }
                         return;
                     }
                     // M27.1 — Fold `-<constexpr>` at compile time when the subtree is
