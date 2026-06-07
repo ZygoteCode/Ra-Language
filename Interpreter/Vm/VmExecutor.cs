@@ -2769,6 +2769,29 @@ namespace RaLanguage.Interpreter.Vm
                         // exited before reaching here, naturally overriding both.
                         if (f.PendingFlowKind != 0)
                         {
+                            // L10 nested try/finally: when THIS finally is itself
+                            // inside an enclosing try's finally (imm16 != 0 carries
+                            // the patched forward offset to that enclosing finally's
+                            // entry, `a` its scope depth), the pending return/yield
+                            // must run the enclosing finally BEFORE it is applied —
+                            // matching the visitor, where an inner finally's
+                            // SuccessReturn bubbles to the outer try, whose finally
+                            // runs first. Pop ctx down to the enclosing depth, keep
+                            // the flow stashed, and jump into the enclosing finally;
+                            // its own OP_FINALLY_END re-checks (chaining inner→outer).
+                            short fOffs = Encoding.SImm16(instr);
+                            if (fOffs != 0)
+                            {
+                                byte targetDepth = Encoding.A(instr);
+                                while (f.CtxDepth > targetDepth && ctx.Parent != null)
+                                {
+                                    ctx.SymbolTable?.ReleaseLocalBorrows();
+                                    ctx = ctx.Parent;
+                                    f.CtxDepth--;
+                                }
+                                pc += fOffs;
+                                break;
+                            }
                             byte k = f.PendingFlowKind;
                             var v = f.PendingFlowValue ?? NullValue.Null;
                             f.PendingFlowKind = 0;

@@ -8425,19 +8425,22 @@ namespace RaLanguage.Interpreter.IR
             if (node.FinallyBody != null)
             {
                 // try/catch bodies: a `return` is now lowered (routed THROUGH the
-                // finally via OP_SET_PENDING_FLOW). `break`/`continue` need the
-                // enclosing loop's jump target (not threaded here); `yield` may be
-                // destined for an enclosing match/switch arm (the finally would
-                // wrongly turn it into a fn-return); and a nested try-WITH-finally
-                // would need multi-finally return routing — all three fall back
-                // (ContainsControlEscape with allowReturn = true catches the first
-                // two, ContainsTryWithFinally the third). The finally body itself
-                // must stay escape-free (ContainsControlEscape, all escapes).
+                // finally via OP_SET_PENDING_FLOW), INCLUDING a return that escapes
+                // a nested try-WITH-finally — the inner OP_FINALLY_END chains the
+                // pending flow into the enclosing finally (see CompileTryFinally),
+                // so ContainsTryWithFinally no longer gates. `break`/`continue` need
+                // the enclosing loop's jump target (not threaded here) and `yield`
+                // may be destined for an enclosing match/switch arm (the finally
+                // would wrongly turn it into a fn-return) — both still fall back
+                // (ContainsControlEscape with allowReturn = true catches them in any
+                // nesting). The finally body may itself `return` (its OP_RET, or a
+                // route into a further-enclosing finally, overrides the stash —
+                // matching the visitor's finally-supersedes rule), so the finally
+                // gate also allows return; only break/continue/yield in a finally
+                // fall back (they need loop/arm targets the finally cannot see).
                 if (!ContainsControlEscape(node.TryBody, allowReturn: true)
                     && !ContainsControlEscape(node.CatchBody, allowReturn: true)
-                    && !ContainsTryWithFinally(node.TryBody)
-                    && !ContainsTryWithFinally(node.CatchBody)
-                    && !ContainsControlEscape(node.FinallyBody))
+                    && !ContainsControlEscape(node.FinallyBody, allowReturn: true))
                 {
                     CompileTryFinally(node, st, ref topSlot, scratchSlot);
                     return;
@@ -8555,10 +8558,33 @@ namespace RaLanguage.Interpreter.IR
             foreach (var j in fctx.ToFinally) st.Code.PatchJumpToHere(j);
             st.FinallyContexts.Pop();
             fctxPopped = true;
+            // L10 nested try/finally: after popping THIS context, the new top (if
+            // any) is the ENCLOSING try's finally. A return/yield that escaped the
+            // inner try/catch is, at this point, stashed as a pending flow; its
+            // OP_FINALLY_END must run the enclosing finally FIRST (mirroring the
+            // visitor, where the inner SuccessReturn bubbles to the outer try whose
+            // finally runs before the value is handed back). We emit the inner
+            // OP_FINALLY_END as a *conditional router*: when a flow is pending it
+            // pops ctx down to the enclosing depth (its `a` operand) and jumps into
+            // the enclosing finally (its imm16, patched below via the enclosing
+            // fctx.ToFinally). With NO enclosing finally we emit the plain form
+            // (imm16 = 0 → OP_FINALLY_END returns/re-raises as the outermost level).
+            FinallyContext? enclosing = st.FinallyContexts.Count > 0 ? st.FinallyContexts.Peek() : null;
             EmitPushScope(st);
             CompileBodyStrictInline(node.FinallyBody!, st, ref topSlot, scratchSlot);
             EmitPopScope(st);
-            st.Code.Emit3(Opcode.FinallyEnd, 0, 0, 0);
+            if (enclosing != null)
+            {
+                if ((uint)enclosing.ScopeDepth > byte.MaxValue)
+                    throw new IrCompileException("nested finally scope depth exceeds 255 -> fallback");
+                int fendPc = st.Code.Pc;
+                st.Code.Emit2(Opcode.FinallyEnd, (byte)enclosing.ScopeDepth, 0);
+                enclosing.ToFinally.Add(fendPc);
+            }
+            else
+            {
+                st.Code.Emit3(Opcode.FinallyEnd, 0, 0, 0);
+            }
 
             // --- EhTable --- (skip empty regions: a zero-instruction body — e.g.
             // `catch (e) { pass; }` — cannot fault, and the verifier rejects an
