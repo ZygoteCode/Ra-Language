@@ -3266,6 +3266,24 @@ namespace RaLanguage.Interpreter.IR
                     }
                     val = new Values.Primitives.StringValue(sb.ToString()); return true;
                 }
+                // Negative / unary-plus numeric default: `= -1`, `= -3.5`, `= +7`.
+                // The parser renders `-1` as UnaryOperation(MINUS, NumberNode), so a
+                // bare literal default with a sign never reaches the NumberNode case
+                // above. Recurse to fold the operand (reusing the NumberNode path),
+                // then negate (unary `-`) or pass through (unary `+`) the resulting
+                // NumberValue. Non-numeric operands stay on fallback. Negation uses
+                // `BigNumber.Zero - v.Value` — the same idiom as TryConstEvalNumber —
+                // which preserves the numeric scale (so `-3.5` stays decimal-class).
+                case UnaryOperationNode un
+                    when un.OpTok.Type == TokenType.MINUS || un.OpTok.Type == TokenType.PLUS:
+                {
+                    if (!TryFoldFieldDefaultConst(un.Node, out var inner)) return false;
+                    if (inner is not Values.Primitives.NumberValue nv) return false;
+                    val = un.OpTok.Type == TokenType.MINUS
+                        ? Values.Primitives.NumberValue.OfBigNumber(BigNumber.Zero - nv.Value)
+                        : nv;
+                    return true;
+                }
                 default:
                     return false;
             }
@@ -8469,6 +8487,16 @@ namespace RaLanguage.Interpreter.IR
                 case AstNodeType.UnaryOperation:
                 {
                     var un = (UnaryOperationNode)expr;
+                    // Unary `+` is a pure identity (the visitor leaves the operand
+                    // value untouched — no `case TokenType.PLUS` in its switch), so
+                    // a leading `+` on any number/expr compiles straight into the
+                    // destination slot. Distinct from DOUBLE_PLUS (`++`), which
+                    // mutates and is handled elsewhere.
+                    if (un.OpTok.Type == TokenType.PLUS)
+                    {
+                        CompileExpression(un.Node, destSlot, st, ref topSlot);
+                        return;
+                    }
                     // M27.1 — Fold `-<constexpr>` at compile time when the subtree is
                     // a pure-arithmetic literal expression. Mirrors the BinaryOperation
                     // folder so `-(2*3)` collapses to LoadConst(-6).
@@ -9354,6 +9382,39 @@ namespace RaLanguage.Interpreter.IR
                     if (st.DefineRefs.Count > ushort.MaxValue) throw new IrCompileException("DefineRefs overflow (>65535)");
                     ushort tryRefIdx = (ushort)st.DefineRefs.Count; st.DefineRefs.Add(expr);
                     st.Code.Emit2(Opcode.NativeDefine, destSlot, tryRefIdx);
+                    return;
+                }
+
+                // Chained / value-position assignment (`var a = b = 5`, or any
+                // `(x = v)` used as a sub-expression). Ra assignment-as-expression
+                // evaluates to the assigned value: compile the RHS straight into
+                // destSlot, store that slot into the target (the store opcodes read
+                // their source slot without clobbering it — see StoreLocalS /
+                // StoreGlobal in VmExecutor), and leave destSlot holding the value.
+                // Restricted to plain `=`: a compound assignment-as-value yields the
+                // *computed* result, a different shape left on fallback. Names bound
+                // to an active typed accumulator / iter slot also stay on fallback so
+                // the unboxed-promotion bookkeeping isn't bypassed.
+                case AstNodeType.VariableAssignment:
+                {
+                    var vae = (VariableAssignmentNode)expr;
+                    if (vae.AssignmentToken.Type != TokenType.EQ)
+                        throw new IrCompileException("compound assignment as value not yet lowered");
+                    if (st.TypedAccumulators.ContainsKey(vae.Name)
+                        || st.ActiveTypedIters.ContainsKey(vae.Name))
+                        throw new IrCompileException("assignment-as-value to typed-slot binding not lowered");
+                    CompileExpression(vae.ValueNode, destSlot, st, ref topSlot);
+                    if (IsSlotEligible(vae.Binding, vae.BindingKind, st))
+                    {
+                        st.RegisterSlot(vae.Binding.Offset, vae.Name);
+                        st.Code.Emit2(Opcode.StoreLocalS, destSlot, (ushort)vae.Binding.Offset);
+                        return;
+                    }
+                    if (st.AstRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("AstRefs overflow");
+                    ushort vaeRefIdx = (ushort)st.AstRefs.Count;
+                    st.AstRefs.Add(vae);
+                    st.Code.Emit2(Opcode.StoreGlobal, destSlot, vaeRefIdx);
                     return;
                 }
 
