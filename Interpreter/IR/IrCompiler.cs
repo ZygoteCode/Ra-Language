@@ -334,6 +334,111 @@ namespace RaLanguage.Interpreter.IR
         private static bool IsForcedFallback(AstNodeType t)
             => s_forceFallbackKinds.Count != 0 && s_forceFallbackKinds.Contains(t);
 
+        // The set of ZERO-ARITY enum-variant names declared ANYWHERE in the
+        // program being compiled, plus the built-in nullary variant `None`.
+        // Used by the match pattern compiler to disambiguate a bare-identifier
+        // pattern (`case None`, `case Empty`, or a positional subpattern like
+        // `Ok(None)`) between a zero-arity VARIANT TEST and a fresh BINDING —
+        // mirroring the visitor's TryMatchVariableOrZeroArityVariant, but
+        // decided up-front so the lowering can emit EnumTagEq (member-name
+        // compare, the same operation the visitor's branch-1 uses) for a
+        // variant and a DeclareLocal for a binding.
+        //
+        // `s_variantNamesReady` gates use: it is set true only once
+        // CompileScript has scanned the whole program. CompileScript always
+        // runs before any lazy CompileFunction (functions compile on first
+        // call, during execution of the already-compiled top-level body), so
+        // the set is populated for every function body too. When NOT ready
+        // (exotic tooling that compiles a function in isolation), the match
+        // compiler stays conservative: a bare-identifier pattern is lowered
+        // only as a CONFIRMED local binding, else it falls back — never
+        // silently treated as an always-match no-op.
+        private static readonly HashSet<string> s_zeroArityVariantNames = new(StringComparer.Ordinal);
+        private static bool s_variantNamesReady;
+
+        // Populate s_zeroArityVariantNames from every EnumDefinitionNode in the
+        // program AST. Cheap one-shot walk run by CompileScript.
+        private static void CollectZeroArityVariantNames(AstNode? root)
+        {
+            s_zeroArityVariantNames.Clear();
+            // Built-in nullary ADT variant. Result.Ok / Result.Err carry a
+            // payload, so they are NOT nullary; Option.None is.
+            s_zeroArityVariantNames.Add("None");
+            CollectZeroArityVariantNamesWalk(root);
+            s_variantNamesReady = true;
+        }
+
+        // Focused walk: descends the statement-bearing containers an enum can
+        // be declared in (top-level list/scope, function & method bodies, the
+        // control-flow / try bodies, match arms). Completeness is NOT required
+        // for soundness — the match compiler's bare-identifier disambiguation
+        // is 3-way (confirmed binding / known variant / else→fallback), so a
+        // missed enum only costs coverage (that pattern falls back), never
+        // correctness. Hence the conservative `default: do nothing`.
+        private static void CollectZeroArityVariantNamesWalk(AstNode? node)
+        {
+            if (node == null) return;
+            switch (node)
+            {
+                case Parser.Nodes.Enums.EnumDefinitionNode ed:
+                    foreach (var variant in ed.Variants)
+                        if (!variant.HasPayload)
+                            s_zeroArityVariantNames.Add(variant.Name);
+                    return;
+                case Parser.Nodes.Primitives.ListNode lst:
+                    foreach (var c in lst.ElementNodes) CollectZeroArityVariantNamesWalk(c);
+                    return;
+                case Parser.Nodes.Special.ScopeNode sc:
+                    foreach (var c in sc.Nodes) CollectZeroArityVariantNamesWalk(c);
+                    return;
+                case Parser.Nodes.Functions.FunctionDefinitionNode fdn:
+                    CollectZeroArityVariantNamesWalk(fdn.BodyNode);
+                    return;
+                case Parser.Nodes.Classes.ClassDefinitionNode cls:
+                    foreach (var m in cls.Methods) CollectZeroArityVariantNamesWalk(m.BodyNode);
+                    return;
+                case Parser.Nodes.Structs.StructDefinitionNode str:
+                    foreach (var m in str.Methods) CollectZeroArityVariantNamesWalk(m.BodyNode);
+                    return;
+                case Parser.Nodes.Records.RecordDefinitionNode rec:
+                    foreach (var m in rec.Methods) CollectZeroArityVariantNamesWalk(m.BodyNode);
+                    return;
+                case Parser.Nodes.Statements.IfNode ifn:
+                    foreach (var cs in ifn.Cases) CollectZeroArityVariantNamesWalk(cs.Expr);
+                    if (ifn.ElseCase.HasValue) CollectZeroArityVariantNamesWalk(ifn.ElseCase.Value.Expr);
+                    return;
+                case Parser.Nodes.Statements.WhileNode wn:
+                    CollectZeroArityVariantNamesWalk(wn.BodyNode);
+                    return;
+                case Parser.Nodes.Statements.DoWhileNode dw:
+                    CollectZeroArityVariantNamesWalk(dw.BodyNode);
+                    return;
+                case Parser.Nodes.Statements.ForNode forn:
+                    CollectZeroArityVariantNamesWalk(forn.BodyNode);
+                    return;
+                case Parser.Nodes.Statements.ForEachNode fe:
+                    CollectZeroArityVariantNamesWalk(fe.BodyNode);
+                    return;
+                case Parser.Nodes.Special.TryNode tn:
+                    CollectZeroArityVariantNamesWalk(tn.TryBody);
+                    CollectZeroArityVariantNamesWalk(tn.CatchBody);
+                    CollectZeroArityVariantNamesWalk(tn.FinallyBody);
+                    return;
+                case Parser.Nodes.Patterns.MatchNode mn:
+                    foreach (var arm in mn.Arms) CollectZeroArityVariantNamesWalk(arm.Body);
+                    return;
+                default:
+                    return;
+            }
+        }
+
+        // True iff `name` is known to be a zero-arity enum variant somewhere in
+        // the program (so a bare-identifier pattern of this name is a VARIANT
+        // TEST, never a binding) — only meaningful once the program-wide scan
+        // has run.
+        private static bool IsKnownZeroArityVariant(string name)
+            => s_variantNamesReady && s_zeroArityVariantNames.Contains(name);
+
         // Exposed so the harness can reject a requested kind that has no
         // visitor route (EmitFallback would hard-error on it).
         public static bool IsFallbackRoutable(AstNodeType t) => HasNativeDefineRoute(t);
@@ -345,6 +450,10 @@ namespace RaLanguage.Interpreter.IR
             fn.MutatedNames = CollectMutatedNames(root);
             fn.HasImports = AstContainsImport(root);
             fn.CalleeMutatedNames = CollectCalleeMutatedNames(root);
+            // Program-wide scan for zero-arity enum-variant names, consumed by
+            // the match pattern compiler to tell a variant TEST from a binding.
+            // Runs here (whole program in hand) before any lazy CompileFunction.
+            CollectZeroArityVariantNames(root);
 
             var st = new State();
             st.FrameId = 0;
@@ -4556,37 +4665,47 @@ namespace RaLanguage.Interpreter.IR
                         break;
                     case Parser.Nodes.Patterns.VariablePatternNode vp:
                     {
-                        // Lower a variable pattern ONLY when it is a confirmed
-                        // BINDING: the guard/body must reference the name through a
-                        // slot-eligible LOCAL access. The Resolver resolves a real
-                        // binding ref to a Local slot; a zero-arity variant ref
-                        // (`case None`) resolves to Global/enum — so the variant
-                        // disambiguation falls out for free (no Local ref → fall
-                        // back). An unused binding also can't be confirmed → fall
-                        // back. The matched slot is where the arm body reads it.
+                        // A variable pattern is either a BINDING or a zero-arity
+                        // variant TEST (`case None`). Resolve the same 3 ways as a
+                        // subpattern (see GuardLeafSubpattern):
+                        //  1) confirmed local binding → bind; it is an
+                        //     unconditional CATCH-ALL when unguarded;
+                        //  2) known zero-arity variant → an EnumTagEq tag test
+                        //     (refutable, NOT a catch-all);
+                        //  3) else (unused, unknown) → fall back to the visitor.
                         int bslot = FindMatchBindingSlot(vp.Name, arm.Guard, arm.Body, st);
-                        if (bslot < 0)
+                        if (bslot >= 0)
+                        {
+                            if (bslot > maxBindingSlot) maxBindingSlot = bslot;
+                            // A binding arm with no guard always matches → catch-all.
+                            if (arm.Guard == null && catchAllIdx < 0) catchAllIdx = i;
+                        }
+                        else if (IsKnownZeroArityVariant(vp.Name))
+                        {
+                            if (st.Names.Add(vp.Name) > byte.MaxValue)
+                                throw new IrCompileException("match: variant name index out of 8-bit range -> fallback");
+                            // refutable tag test — never a catch-all.
+                        }
+                        else
+                        {
                             throw new IrCompileException("match: unconfirmable variable binding -> fallback");
-                        if (bslot > maxBindingSlot) maxBindingSlot = bslot;
-                        // A variable arm with no guard always matches → catch-all.
-                        if (arm.Guard == null && catchAllIdx < 0) catchAllIdx = i;
+                        }
                         break;
                     }
                     case Parser.Nodes.Patterns.VariantPatternNode vap:
                     {
                         // Variant lowering (`case Ok(v)` / `case Some(x)` / `case
                         // Pair(a, b)` / `case Enum.Variant(..)` / record-positional
-                        // `case Point(x, y)`): inferred OR explicit enum, payload
-                        // subpatterns limited to wildcards + confirmed variable
-                        // bindings. Everything else falls back to the visitor.
-                        //  - zero-arity `case None` is a VariablePatternNode, not
-                        //    this node; a parenless variant here would have null
-                        //    SubPatterns -> defer.
-                        //  - nested/literal/tuple/struct subpatterns -> defer.
-                        if (vap.SubPatterns == null)
-                            throw new IrCompileException("match: parenless variant pattern -> fallback");
+                        // `case Point(x, y)` / nested `case Ok(Some(x))`): inferred
+                        // OR explicit enum; payload subpatterns are validated
+                        // recursively by GuardLeafSubpattern. A PARENLESS qualified
+                        // variant (`case Token.Eof`, SubPatterns == null) is a
+                        // zero-arity tag test (EnumNameEq + EnumTagEq + arity-0).
+                        // The bare parenless form (`case None`) is a
+                        // VariablePatternNode, handled above.
+                        int subCount = vap.SubPatterns?.Count ?? 0;
                         // EnumPayload's payload index rides the 8-bit C operand.
-                        if (vap.SubPatterns.Count > byte.MaxValue)
+                        if (subCount > byte.MaxValue)
                             throw new IrCompileException("match: variant payload arity out of 8-bit range -> fallback");
                         // The tag name (and, for an explicit `Enum.Variant`, the
                         // enum-type name) must index into the 8-bit C operand of
@@ -4595,8 +4714,9 @@ namespace RaLanguage.Interpreter.IR
                             throw new IrCompileException("match: variant name index out of 8-bit range -> fallback");
                         if (vap.EnumName != null && st.Names.Add(vap.EnumName) > byte.MaxValue)
                             throw new IrCompileException("match: enum name index out of 8-bit range -> fallback");
-                        foreach (var sub in vap.SubPatterns)
-                            GuardLeafSubpattern(sub, arm.Guard, arm.Body, st, ref maxBindingSlot);
+                        if (vap.SubPatterns != null)
+                            foreach (var sub in vap.SubPatterns)
+                                GuardLeafSubpattern(sub, arm.Guard, arm.Body, st, ref maxBindingSlot);
                         // A variant pattern TESTS the tag — it is never a catch-all;
                         // exhaustiveness still needs a trailing wildcard/variable arm.
                         break;
@@ -4832,9 +4952,23 @@ namespace RaLanguage.Interpreter.IR
 
                 if (isBinding)
                 {
-                    // Bind the whole scrutinee to the variable, in the arm scope.
                     var vp = (Parser.Nodes.Patterns.VariablePatternNode)arm.Pattern;
-                    EmitMatchBinding(vp.Name, scrutSlot, arm.Guard, arm.Body, node, st);
+                    int bslot = FindMatchBindingSlot(vp.Name, arm.Guard, arm.Body, st);
+                    if (bslot >= 0)
+                    {
+                        // Bind the whole scrutinee to the variable, in the arm scope.
+                        EmitMatchBinding(vp.Name, scrutSlot, arm.Guard, arm.Body, node, st);
+                    }
+                    else
+                    {
+                        // Zero-arity variant TEST (`case None`): refutable
+                        // member-name compare, mirroring the visitor's branch-1.
+                        // No binding, no arity guard (see EmitLeafSubpattern).
+                        int nameIdx = st.Names.Add(vp.Name);
+                        byte tagSlot = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.EnumTagEq, tagSlot, scrutSlot, (byte)nameIdx);
+                        skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, tagSlot));
+                    }
                 }
                 else if (isVariant)
                 {
@@ -4859,19 +4993,22 @@ namespace RaLanguage.Interpreter.IR
                     int nameIdx = st.Names.Add(vap.VariantName); // interned; <=255 (guard-checked)
                     st.Code.Emit3(Opcode.EnumTagEq, tagSlot, scrutSlot, (byte)nameIdx);
                     skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, tagSlot));
-                    var subs = vap.SubPatterns!;
+                    var subs = vap.SubPatterns; // null for a parenless `Token.Eof`
+                    int subCount = subs?.Count ?? 0;
                     // 2) Arity guard: once the tag matches, the scrutinee's
                     //    payload/primary-field count MUST equal the pattern arity,
                     //    else the visitor raises a precise error — MatchArity
                     //    reproduces it exactly (else a wrong-arity pattern would
                     //    silently mis-bind). Reached only when the tag matched.
-                    st.Code.Emit3(Opcode.MatchArity, 0, scrutSlot, (byte)subs.Count);
-                    // 3) Extract each payload/field slot, match its leaf subpattern
-                    //    (bind / literal-test / ignore `_`). Reached only when the
-                    //    tag matched, so EnumPayload extraction is safe.
-                    for (int s = 0; s < subs.Count; s++)
+                    //    For a parenless qualified variant (arity 0) this also
+                    //    enforces "no payload", matching the visitor.
+                    st.Code.Emit3(Opcode.MatchArity, 0, scrutSlot, (byte)subCount);
+                    // 3) Extract each payload/field slot, match its (possibly
+                    //    nested) subpattern. Reached only when the tag matched, so
+                    //    EnumPayload extraction is safe.
+                    for (int s = 0; s < subCount; s++)
                     {
-                        if (subs[s] is Parser.Nodes.Patterns.WildcardPatternNode) continue;
+                        if (subs![s] is Parser.Nodes.Patterns.WildcardPatternNode) continue;
                         byte paySlot = AllocTemp(ref topSlot);
                         st.Code.Emit3(Opcode.EnumPayload, paySlot, scrutSlot, (byte)s);
                         EmitLeafSubpattern(subs[s], paySlot, skips, arm.Guard, arm.Body, node, st, ref topSlot);
@@ -5164,12 +5301,14 @@ namespace RaLanguage.Interpreter.IR
             st.Code.Emit2(Opcode.DeclareLocal, valueSlot, declRefIdx);
         }
 
-        // Guard-phase: confirm a LEAF subpattern (wildcard / confirmed-variable
-        // binding / lowerable literal) is lowerable and track its binding slot.
-        // Throws IrCompileException (→ fallback) for any nested/complex subpattern
-        // (tuple/list/struct/variant inside a tuple/list/struct/variant element).
-        // Shared by tuple elements, list elements, struct fields, and variant
-        // payload subpatterns.
+        // Guard-phase: confirm a subpattern is lowerable and track its binding
+        // slot(s). RECURSIVE — a nested tuple / variant / struct / list / map
+        // subpattern (`((a,b),(c,d))`, `Ok(Some(x))`) is the same logic applied
+        // to its sub-elements, so the emitter can extract + recurse with the
+        // existing shape/extract opcodes. Throws IrCompileException (→ fallback)
+        // for any genuinely-unlowerable shape. Shared by tuple elements, list
+        // elements, struct fields, variant payload, and map values. (Name kept
+        // for the many call sites; it is no longer leaf-only.)
         private static void GuardLeafSubpattern(Parser.Nodes.Patterns.PatternNode sub,
                                                 AstNode? guard, AstNode? body, State st, ref int maxBindingSlot)
         {
@@ -5179,25 +5318,115 @@ namespace RaLanguage.Interpreter.IR
                     break;
                 case Parser.Nodes.Patterns.VariablePatternNode vp:
                 {
+                    // Disambiguate binding vs. zero-arity variant TEST the same
+                    // 3 ways the top-level arm does (and the visitor's runtime
+                    // TryMatchVariableOrZeroArityVariant resolves):
+                    //  1) a CONFIRMED local binding (body/guard reads it through
+                    //     a Local slot) — a zero-arity variant ref resolves to a
+                    //     Global/enum constructor, never a Local, so a Local slot
+                    //     PROVES a binding;
+                    //  2) a KNOWN zero-arity variant name — a refutable tag test
+                    //     (no binding), lowered via EnumTagEq (member-name
+                    //     compare = the visitor's branch-1/2 semantics);
+                    //  3) otherwise (unused, not a known variant) — can't tell a
+                    //     stray binding from a variant the scan missed, so fall
+                    //     back to the visitor (sound; only costs coverage).
                     int s = FindMatchBindingSlot(vp.Name, guard, body, st);
-                    if (s < 0)
-                        throw new IrCompileException("match: unconfirmable subpattern binding -> fallback");
-                    if (s > maxBindingSlot) maxBindingSlot = s;
-                    break;
+                    if (s >= 0) { if (s > maxBindingSlot) maxBindingSlot = s; break; }
+                    if (IsKnownZeroArityVariant(vp.Name)) break;
+                    throw new IrCompileException("match: unconfirmable subpattern binding -> fallback");
                 }
                 case Parser.Nodes.Patterns.LiteralPatternNode lp:
                     if (!IsLowerableMatchLiteral(lp.Expression))
                         throw new IrCompileException("match: non-trivial subpattern literal -> fallback");
+                    break;
+                case Parser.Nodes.Patterns.TuplePatternNode tup:
+                    if (tup.Elements.Count > byte.MaxValue)
+                        throw new IrCompileException("match: nested tuple arity out of 8-bit range -> fallback");
+                    foreach (var e in tup.Elements)
+                        GuardLeafSubpattern(e, guard, body, st, ref maxBindingSlot);
+                    break;
+                case Parser.Nodes.Patterns.VariantPatternNode vap:
+                {
+                    int subArity = vap.SubPatterns?.Count ?? 0;
+                    if (subArity > byte.MaxValue)
+                        throw new IrCompileException("match: nested variant arity out of 8-bit range -> fallback");
+                    if (st.Names.Add(vap.VariantName) > byte.MaxValue)
+                        throw new IrCompileException("match: nested variant name index out of 8-bit range -> fallback");
+                    if (vap.EnumName != null && st.Names.Add(vap.EnumName) > byte.MaxValue)
+                        throw new IrCompileException("match: nested enum name index out of 8-bit range -> fallback");
+                    if (vap.SubPatterns != null)
+                        foreach (var s2 in vap.SubPatterns)
+                            GuardLeafSubpattern(s2, guard, body, st, ref maxBindingSlot);
+                    break;
+                }
+                case Parser.Nodes.Patterns.StructPatternNode spat:
+                {
+                    if (st.Names.Add(spat.StructName) > byte.MaxValue)
+                        throw new IrCompileException("match: nested struct name index out of 8-bit range -> fallback");
+                    foreach (var (fieldName, fieldPattern) in spat.Fields)
+                    {
+                        if (st.Names.Add(fieldName) > byte.MaxValue)
+                            throw new IrCompileException("match: nested struct field name index out of 8-bit range -> fallback");
+                        if (fieldPattern == null)
+                        {
+                            // shorthand `{ x }` binds the field name; require it
+                            // be a confirmed binding (no no-op shorthand binds).
+                            int fs = FindMatchBindingSlot(fieldName, guard, body, st);
+                            if (fs < 0)
+                                throw new IrCompileException("match: unconfirmable nested struct field binding -> fallback");
+                            if (fs > maxBindingSlot) maxBindingSlot = fs;
+                        }
+                        else GuardLeafSubpattern(fieldPattern, guard, body, st, ref maxBindingSlot);
+                    }
+                    break;
+                }
+                case Parser.Nodes.Patterns.ListPatternNode lpat:
+                {
+                    int prefixN = lpat.Rest != null ? lpat.RestIndex : lpat.Elements.Count;
+                    int suffixN = lpat.Rest != null ? lpat.Elements.Count - lpat.RestIndex : 0;
+                    if (lpat.Elements.Count > 0x7F)
+                        throw new IrCompileException("match: nested list arity out of 7-bit range -> fallback");
+                    if (lpat.Rest != null && (prefixN > 0x0F || suffixN > 0x0F))
+                        throw new IrCompileException("match: nested list prefix/suffix out of 4-bit range -> fallback");
+                    foreach (var e in lpat.Elements)
+                        GuardLeafSubpattern(e, guard, body, st, ref maxBindingSlot);
+                    if (lpat.Rest != null && lpat.Rest.BindName != null)
+                    {
+                        int rs = FindMatchBindingSlot(lpat.Rest.BindName, guard, body, st);
+                        if (rs < 0)
+                            throw new IrCompileException("match: unconfirmable nested list-rest binding -> fallback");
+                        if (rs > maxBindingSlot) maxBindingSlot = rs;
+                    }
+                    break;
+                }
+                // Non-binding bool-testable subpatterns (`(0..9, y)`, `(<5, _)`):
+                // reuse the existing eager-bool-test path. Guarded recursively.
+                case Parser.Nodes.Patterns.RangePatternNode _:
+                case Parser.Nodes.Patterns.RelationalPatternNode _:
+                case Parser.Nodes.Patterns.OrPatternNode _:
+                case Parser.Nodes.Patterns.AndPatternNode _:
+                case Parser.Nodes.Patterns.NotPatternNode _:
+                    GuardBoolPatternTest(sub);
                     break;
                 default:
                     throw new IrCompileException("match: nested/complex subpattern -> fallback");
             }
         }
 
-        // Emit-phase: match a LEAF subpattern against the value already in
-        // `valueSlot`. Variable → DECLARE-bind in the arm scope; literal → Eq +
-        // JmpIfNot onto `skips` (the arm's no-match cleanup); wildcard → nothing.
-        // The pattern shape was already confirmed lowerable by GuardLeafSubpattern.
+        // Emit-phase: match a subpattern against the value already in
+        // `valueSlot`. RECURSIVE — mirrors GuardLeafSubpattern:
+        //   * wildcard            → nothing;
+        //   * variable BINDING    → DECLARE-bind in the arm scope;
+        //   * variable VARIANT    → EnumTagEq tag test (member-name compare)
+        //                           onto `skips` — no binding (a `Ok(None)`-style
+        //                           nullary variant payload);
+        //   * literal             → Eq + JmpIfNot onto `skips`;
+        //   * tuple/variant/struct/list/bool-test → the same shape-test + extract
+        //                           opcodes the top-level arm uses, recursing into
+        //                           sub-elements.
+        // A failing shape/tag/literal jumps to `skips` (the arm's no-match
+        // cleanup). The shape was confirmed lowerable by GuardLeafSubpattern.
         private static void EmitLeafSubpattern(Parser.Nodes.Patterns.PatternNode sub, byte valueSlot,
                                                List<int> skips, AstNode? guard, AstNode? body,
                                                AstNode node, State st, ref byte topSlot)
@@ -5207,8 +5436,30 @@ namespace RaLanguage.Interpreter.IR
                 case Parser.Nodes.Patterns.WildcardPatternNode _:
                     break;
                 case Parser.Nodes.Patterns.VariablePatternNode vp:
-                    EmitMatchBinding(vp.Name, valueSlot, guard, body, node, st);
+                {
+                    // A confirmed local binding binds; a known zero-arity variant
+                    // is a refutable tag test (member-name compare + arity-0),
+                    // exactly the disambiguation GuardLeafSubpattern admitted.
+                    int s = FindMatchBindingSlot(vp.Name, guard, body, st);
+                    if (s >= 0)
+                    {
+                        EmitMatchBinding(vp.Name, valueSlot, guard, body, node, st);
+                        break;
+                    }
+                    // Known zero-arity variant TEST (`case None`, `Ok(None)`):
+                    // a pure member-name compare, mirroring the visitor's
+                    // branch-1 (TryMatchVariableOrZeroArityVariant returns
+                    // `ev.MemberName == name` when the scrutinee's enum type
+                    // declares `name` as a zero-arity variant). No binding and
+                    // NO arity guard — the visitor does not arity-check this
+                    // path, so neither do we (avoids a throw-vs-no-match
+                    // divergence on a contrived same-name payload collision).
+                    int nameIdx = st.Names.Add(vp.Name);
+                    byte tagSlot = AllocTemp(ref topSlot);
+                    st.Code.Emit3(Opcode.EnumTagEq, tagSlot, valueSlot, (byte)nameIdx);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, tagSlot));
                     break;
+                }
                 case Parser.Nodes.Patterns.LiteralPatternNode lp:
                 {
                     byte litSlot = AllocTemp(ref topSlot);
@@ -5216,6 +5467,106 @@ namespace RaLanguage.Interpreter.IR
                     byte condSlot = AllocTemp(ref topSlot);
                     st.Code.Emit3(Opcode.Eq, condSlot, valueSlot, litSlot);
                     skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, condSlot));
+                    break;
+                }
+                case Parser.Nodes.Patterns.TuplePatternNode tup:
+                {
+                    byte shapeSlot = AllocTemp(ref topSlot);
+                    st.Code.Emit3(Opcode.TupleShape, shapeSlot, valueSlot, (byte)tup.Elements.Count);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, shapeSlot));
+                    for (int i = 0; i < tup.Elements.Count; i++)
+                    {
+                        if (tup.Elements[i] is Parser.Nodes.Patterns.WildcardPatternNode) continue;
+                        byte elemSlot = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.EnumPayload, elemSlot, valueSlot, (byte)i);
+                        EmitLeafSubpattern(tup.Elements[i], elemSlot, skips, guard, body, node, st, ref topSlot);
+                    }
+                    break;
+                }
+                case Parser.Nodes.Patterns.VariantPatternNode vap:
+                {
+                    int subArity = vap.SubPatterns?.Count ?? 0;
+                    if (vap.EnumName != null)
+                    {
+                        byte enmSlot = AllocTemp(ref topSlot);
+                        int enmIdx = st.Names.Add(vap.EnumName);
+                        st.Code.Emit3(Opcode.EnumNameEq, enmSlot, valueSlot, (byte)enmIdx);
+                        skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, enmSlot));
+                    }
+                    byte tagSlot = AllocTemp(ref topSlot);
+                    int nameIdx = st.Names.Add(vap.VariantName);
+                    st.Code.Emit3(Opcode.EnumTagEq, tagSlot, valueSlot, (byte)nameIdx);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, tagSlot));
+                    st.Code.Emit3(Opcode.MatchArity, 0, valueSlot, (byte)subArity);
+                    if (vap.SubPatterns != null)
+                        for (int i = 0; i < vap.SubPatterns.Count; i++)
+                        {
+                            if (vap.SubPatterns[i] is Parser.Nodes.Patterns.WildcardPatternNode) continue;
+                            byte paySlot = AllocTemp(ref topSlot);
+                            st.Code.Emit3(Opcode.EnumPayload, paySlot, valueSlot, (byte)i);
+                            EmitLeafSubpattern(vap.SubPatterns[i], paySlot, skips, guard, body, node, st, ref topSlot);
+                        }
+                    break;
+                }
+                case Parser.Nodes.Patterns.StructPatternNode spat:
+                {
+                    byte shapeSlot = AllocTemp(ref topSlot);
+                    int snameIdx = st.Names.Add(spat.StructName);
+                    st.Code.Emit3(Opcode.StructShape, shapeSlot, valueSlot, (byte)snameIdx);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, shapeSlot));
+                    foreach (var (fieldName, fieldPattern) in spat.Fields)
+                    {
+                        byte fSlot = AllocTemp(ref topSlot);
+                        int fIdx = st.Names.Add(fieldName);
+                        st.Code.Emit3(Opcode.StructFieldGet, fSlot, valueSlot, (byte)fIdx);
+                        if (fieldPattern == null)
+                            EmitMatchBinding(fieldName, fSlot, guard, body, node, st);
+                        else
+                            EmitLeafSubpattern(fieldPattern, fSlot, skips, guard, body, node, st, ref topSlot);
+                    }
+                    break;
+                }
+                case Parser.Nodes.Patterns.ListPatternNode lpat:
+                {
+                    int prefixN = lpat.Rest != null ? lpat.RestIndex : lpat.Elements.Count;
+                    int suffixN = lpat.Rest != null ? lpat.Elements.Count - lpat.RestIndex : 0;
+                    byte shapeSlot = AllocTemp(ref topSlot);
+                    int modeAndLen = (lpat.Rest != null ? 0x80 : 0) | lpat.Elements.Count;
+                    st.Code.Emit3(Opcode.ListShape, shapeSlot, valueSlot, (byte)modeAndLen);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, shapeSlot));
+                    for (int i = 0; i < prefixN; i++)
+                    {
+                        if (lpat.Elements[i] is Parser.Nodes.Patterns.WildcardPatternNode) continue;
+                        byte elemSlot = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.EnumPayload, elemSlot, valueSlot, (byte)i);
+                        EmitLeafSubpattern(lpat.Elements[i], elemSlot, skips, guard, body, node, st, ref topSlot);
+                    }
+                    for (int i = 0; i < suffixN; i++)
+                    {
+                        var pat = lpat.Elements[prefixN + i];
+                        if (pat is Parser.Nodes.Patterns.WildcardPatternNode) continue;
+                        byte elemSlot = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.ListElemBack, elemSlot, valueSlot, (byte)(suffixN - i));
+                        EmitLeafSubpattern(pat, elemSlot, skips, guard, body, node, st, ref topSlot);
+                    }
+                    if (lpat.Rest != null && lpat.Rest.BindName != null)
+                    {
+                        byte restSlot = AllocTemp(ref topSlot);
+                        int packed = (prefixN << 4) | suffixN;
+                        st.Code.Emit3(Opcode.ListRestSlice, restSlot, valueSlot, (byte)packed);
+                        EmitMatchBinding(lpat.Rest.BindName, restSlot, guard, body, node, st);
+                    }
+                    break;
+                }
+                // Non-binding bool-testable subpattern → eager bool test, skip on false.
+                case Parser.Nodes.Patterns.RangePatternNode _:
+                case Parser.Nodes.Patterns.RelationalPatternNode _:
+                case Parser.Nodes.Patterns.OrPatternNode _:
+                case Parser.Nodes.Patterns.AndPatternNode _:
+                case Parser.Nodes.Patterns.NotPatternNode _:
+                {
+                    byte cond = EmitBoolPatternTest(sub, valueSlot, st, ref topSlot);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, cond));
                     break;
                 }
             }
@@ -5518,10 +5869,16 @@ namespace RaLanguage.Interpreter.IR
             }
         }
 
-        // L7: emit one arrow (`=>`) switch arm body. A block body (`{ … }`) runs
-        // its statements and the arm value is null (LoadNull dest); an expression
-        // body evaluates straight into dest. The caller emits the trailing Jmp to
-        // the switch end (arrow arms never fall through).
+        // L7: emit one arrow (`=>`) switch / match arm body. A block body (`{ … }`)
+        // runs its statements and the arm value is null (LoadNull dest); an
+        // expression body evaluates straight into dest. A bare STATEMENT body
+        // (`case 2 -> picked = 22`, a `VariableAssignment` / `MemberAssignment` /
+        // `ListAssignment` / `VariableDeclaration`) is run as a statement and the
+        // arm value is null — matching the visitor in STATEMENT-position match,
+        // the only place such arms occur (an expr-position assignment arm whose
+        // VALUE is consumed would differ, and the parity oracle would catch it).
+        // The caller emits the trailing Jmp to the end (arrow arms never fall
+        // through).
         private static void EmitArrowBody(AstNode body, byte destSlot, byte bodyScratch, State st, ref byte topSlot)
         {
             // An arrow block is parsed as a ListNode whose ElementNodes are run
@@ -5539,6 +5896,16 @@ namespace RaLanguage.Interpreter.IR
             {
                 st.Code.Emit3(Opcode.LoadNull, destSlot, 0, 0);
                 CompileBodyStrictInline(body, st, ref topSlot, bodyScratch);
+            }
+            else if (body.NodeType == AstNodeType.VariableAssignment
+                  || body.NodeType == AstNodeType.MemberAssignment
+                  || body.NodeType == AstNodeType.ListAssignment
+                  || body.NodeType == AstNodeType.VariableDeclaration)
+            {
+                // Statement-shaped arm body: run it as a statement; arm value null.
+                st.Code.Emit3(Opcode.LoadNull, destSlot, 0, 0);
+                if (!TryCompileStatement(body, st, ref topSlot, bodyScratch, strict: true))
+                    throw new IrCompileException($"arrow stmt body not compilable: {body.NodeType}");
             }
             else
             {
