@@ -2545,26 +2545,39 @@ namespace RaLanguage.Interpreter.IR
             return result;
         }
 
-        // L10 property widening (auto-only): build a FLAT PropertyDef, or false to
-        // fall back. AUTO (stored) properties have no accessor bodies — their
-        // get/set synthesize field access (which already lowers). Custom-body /
-        // computed / lazy / abstract / non-const-default / annotated properties
-        // fall back (their bodies AST-walk via the visitor — accessor-body IR is a
-        // later increment). Shared by struct/record/class lowering.
+        // L10 property widening: build a FLAT PropertyDef, or false to fall back.
+        // AUTO (stored) properties have no accessor bodies — their get/set
+        // synthesize field access (which already lowers). Custom-body / computed
+        // accessors compile their bodies; a LAZY default compiles its initializer
+        // into a first-touch thunk. Non-const EAGER default / annotated properties
+        // fall back (their bodies AST-walk via the visitor). Shared by
+        // struct/record/class lowering.
         private static bool TryBuildPropertyDef(Parser.Nodes.Properties.PropertyDefinitionNode p, out Defs.PropertyDef pd)
         {
             pd = null!;
             if (p.HasAnnotations) return false;
-            if (p.IsLazy) return false;       // lazy: DefaultValueNode eval'd on first touch (AST)
             // L10 abstract: an abstract property is auto-accessor (no bodies, no
             // backing — PropertyBuilder returns hasBacking=false for IsAbstract).
             // The accessor loop below already handles bodyless accessors; the
             // IsAbstract flag is captured into PropertyDef so the visitor refuses
             // instantiation / requires an override.
 
+            // L10 lazy: a LAZY default initializer compiles to a self-bound 0-arg
+            // thunk (the SAME GetOrCompilePropertyDefault PropertyAccessOps runs on
+            // first touch). A lazy default that won't IR-compile → fallback. A
+            // non-const EAGER default still falls back (separate gate).
             RuntimeValue? defConst = null;
-            if (p.DefaultValueNode != null && !TryFoldFieldDefaultConst(p.DefaultValueNode, out defConst))
-                return false; // non-const default → fallback
+            RaFunction? compiledDefault = null;
+            if (p.DefaultValueNode != null)
+            {
+                if (p.IsLazy)
+                {
+                    compiledDefault = Runtime.FunctionDefinitionHelper.GetOrCompilePropertyDefault(p);
+                    if (compiledDefault == null) return false; // lazy default that won't IR-compile → fallback
+                }
+                else if (!TryFoldFieldDefaultConst(p.DefaultValueNode, out defConst))
+                    return false; // non-const EAGER default → still fallback (separate gate)
+            }
 
             var accessors = (p.Accessors == null || p.Accessors.Count == 0)
                 ? System.Array.Empty<Defs.PropertyAccessorDef>()
@@ -2587,7 +2600,7 @@ namespace RaLanguage.Interpreter.IR
 
             pd = new Defs.PropertyDef(
                 p.NameTok.Value?.ToString() ?? "", p.PropertyType, p.IsPublic, p.IsStatic,
-                p.IsAbstract, p.IsOverride, p.IsLazy, defConst, accessors);
+                p.IsAbstract, p.IsOverride, p.IsLazy, defConst, accessors, compiledDefault);
             return true;
         }
 

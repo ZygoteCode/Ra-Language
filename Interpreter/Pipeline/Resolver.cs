@@ -548,6 +548,16 @@ namespace RaLanguage.Interpreter.Pipeline
         {
             foreach (var p in props)
             {
+                // L10: a LAZY default initializer is framed as a self-bound, zero
+                // named-arg method body (self is implicit slot 0) so it can be
+                // IR-compiled into a first-touch thunk (PropertyAccessOps).
+                if (p.IsLazy && p.DefaultValueNode != null)
+                {
+                    var dpb = WalkMethodLikeBody(p.DefaultValueNode, System.Array.Empty<RaLanguage.Lexer.Tokens.Token>(), s, out int dFrame);
+                    p.DefaultFrameId = dFrame;
+                    p.DefaultParamBindings = dpb;
+                }
+
                 if (p.Accessors == null) continue;
                 foreach (var acc in p.Accessors)
                 {

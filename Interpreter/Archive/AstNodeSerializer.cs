@@ -3233,6 +3233,12 @@ namespace RaLanguage.Interpreter.Archive
                 if (a.Body == null) w.WriteU8(0);
                 else { w.WriteU8(1); ModuleBytecodeIo.SerializeRaFunction(w, a.Body, WriterPool); }
             }
+            // V11: the LAZY default-init thunk (null = non-lazy / const default).
+            if (WriterVersion >= ModuleBytecodeIo.PayloadVersion_V11)
+            {
+                if (p.CompiledDefault == null) w.WriteU8(0);
+                else { w.WriteU8(1); ModuleBytecodeIo.SerializeRaFunction(w, p.CompiledDefault, WriterPool); }
+            }
         }
 
         private static RaLanguage.Interpreter.IR.Defs.PropertyDef ReadPropertyDef(RacBinaryReader r)
@@ -3253,9 +3259,15 @@ namespace RaLanguage.Interpreter.Archive
                     r.ReadU8() != 0 ? ModuleBytecodeIo.DeserializeRaFunction(r, ReaderPool) : null;
                 accessors[i] = new RaLanguage.Interpreter.IR.Defs.PropertyAccessorDef(k, v, body);
             }
+            // V11: the LAZY default-init thunk (absent in < V11 → null).
+            RaLanguage.Interpreter.IR.RaFunction? compiledDefault = null;
+            if (ReaderVersion >= ModuleBytecodeIo.PayloadVersion_V11)
+            {
+                compiledDefault = r.ReadU8() != 0 ? ModuleBytecodeIo.DeserializeRaFunction(r, ReaderPool) : null;
+            }
             return new RaLanguage.Interpreter.IR.Defs.PropertyDef(
                 name, ptype, (pflags & 1) != 0, (pflags & 2) != 0, (pflags & 4) != 0,
-                (pflags & 8) != 0, (pflags & 16) != 0, defConst, accessors);
+                (pflags & 8) != 0, (pflags & 16) != 0, defConst, accessors, compiledDefault);
         }
 
         // Trailing PropertyDef[] pool — v8+ only. v7 archives keep none.

@@ -256,8 +256,10 @@ namespace RaLanguage.Interpreter.IR.Defs
 
     // L10 property widening: an AUTO (stored) property `prop Name: T [= const]
     // { get; set; }`. Flat: name + type + flags + a const-folded default (null =
-    // none) + the accessor list. Lazy / computed / custom-body / non-const-default
-    // / abstract properties make IrCompiler fall back (the visitor still handles
+    // none) + the accessor list. Computed / custom-body accessors compile their
+    // bodies to RaFunctions; a LAZY default compiles its initializer to a
+    // self-bound 0-arg thunk (`CompiledDefault`). Non-const EAGER default /
+    // annotated properties make IrCompiler fall back (the visitor still handles
     // them — their bodies AST-walk). Reconstructed into a PropertyDefinitionNode;
     // auto-property ACCESS is field-slot access, which already lowers.
     public sealed class PropertyDef
@@ -271,14 +273,16 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly bool IsLazy;
         public readonly Values.RuntimeValue? DefaultConst; // folded literal default, or null
         public readonly PropertyAccessorDef[] Accessors;
+        public readonly RaFunction? CompiledDefault; // lazy default-init thunk (null = non-lazy / const default)
 
         public PropertyDef(string name, TypeDescriptor? propertyType, bool isPublic, bool isStatic,
             bool isAbstract, bool isOverride, bool isLazy, Values.RuntimeValue? defaultConst,
-            PropertyAccessorDef[] accessors)
+            PropertyAccessorDef[] accessors, RaFunction? compiledDefault = null)
         {
             Name = name; PropertyType = propertyType; IsPublic = isPublic; IsStatic = isStatic;
             IsAbstract = isAbstract; IsOverride = isOverride; IsLazy = isLazy; DefaultConst = defaultConst;
             Accessors = accessors ?? Array.Empty<PropertyAccessorDef>();
+            CompiledDefault = compiledDefault;
         }
     }
 

@@ -3301,15 +3301,28 @@ namespace RaLanguage.Interpreter.Vm
                 }
                 accessors.Add(accNode);
             }
+            // A LAZY default lowered to a thunk needs a NON-NULL DefaultValueNode
+            // stub (the lazy first-touch path errors on a null initializer) — a
+            // PassNode, mirroring the computed-accessor stub. The thunk is wired in
+            // below (DefaultCompiledBody) and runs instead of the stub. A const
+            // EAGER default reconstructs as a cached NumberNode.
             AstNode? defNode = null;
-            if (pd.DefaultConst != null)
+            if (pd.CompiledDefault != null)
+                defNode = new Parser.Nodes.Operations.PassNode(s, e);
+            else if (pd.DefaultConst != null)
                 defNode = new Parser.Nodes.Primitives.NumberNode(
                     new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
                 { CachedValue = pd.DefaultConst };
-            return new Parser.Nodes.Properties.PropertyDefinitionNode(
+            var node = new Parser.Nodes.Properties.PropertyDefinitionNode(
                 new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, pd.Name, s, e),
                 pd.PropertyType, defNode, accessors,
                 pd.IsPublic, pd.IsStatic, pd.IsAbstract, pd.IsOverride, pd.IsLazy);
+            if (pd.CompiledDefault != null)
+            {
+                node.DefaultCompiledBody = pd.CompiledDefault;
+                node.DefaultIrCompileTried = true;
+            }
+            return node;
         }
 
         // Shared: reconstruct a property list from PropertyDef[] (empty → empty).
