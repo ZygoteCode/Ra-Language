@@ -2940,14 +2940,16 @@ namespace RaLanguage.Interpreter.IR
         }
 
         // L5e: build a FLAT TraitDef, or false to fall back. First sub-stage:
-        // methods (provided + abstract/required) + fields; fallback on
-        // properties / events / where-constraints / annotations.
+        // methods (provided + abstract/required) + fields. L10 widening: contract
+        // properties + events (abstract/protocol members, no bodies) lower via the
+        // shared TryBuildPropertyDefs/TryBuildEventDefs helpers. Fallback on
+        // where-constraints / annotations.
         private static bool TryBuildTraitDef(Parser.Nodes.Traits.TraitDefinitionNode node, out Defs.TraitDef def)
         {
             def = null!;
             if (node.WhereConstraints != null && node.WhereConstraints.Count > 0) return false;
-            if (node.Properties != null && node.Properties.Count > 0) return false;
-            if (node.Events != null && node.Events.Count > 0) return false;
+            if (!TryBuildPropertyDefs(node.Properties, out var properties)) return false;
+            if (!TryBuildEventDefs(node.Events, out var events)) return false;
 
             string name = node.NameTok.Value?.ToString() ?? "";
             if (string.IsNullOrWhiteSpace(name)) return false;
@@ -2973,7 +2975,7 @@ namespace RaLanguage.Interpreter.IR
             var generics = (node.GenericTypeParams == null || node.GenericTypeParams.Count == 0)
                 ? System.Array.Empty<string>()
                 : node.GenericTypeParams.ToArray();
-            def = new Defs.TraitDef(name, node.IsPublic, generics, fields, methods);
+            def = new Defs.TraitDef(name, node.IsPublic, generics, fields, methods, properties, events);
             def.Annotations = node.Annotations != null ? node.Annotations.ToArray() : System.Array.Empty<Parser.Nodes.Annotations.AnnotationApplicationNode>();
             return true;
         }
@@ -3009,8 +3011,10 @@ namespace RaLanguage.Interpreter.IR
         // L5e: build a FLAT InterfaceDef, or false to fall back. Interface methods
         // are pure SIGNATURES (no bodies → no precompiled RaFunction); fields
         // reuse the struct field descriptor (interface fields can't carry defaults
-        // → DefaultConst stays null). Fallback on annotations (on the interface, a
-        // method, or a field) / properties / events / where-constraints / a field
+        // → DefaultConst stays null). L10 widening: contract properties + events
+        // (abstract/protocol members, no bodies) lower via the shared
+        // TryBuildPropertyDefs/TryBuildEventDefs helpers. Fallback on annotations
+        // (on the interface, a method, or a field) / where-constraints / a field
         // that declares a default value (the visitor rejects those — fall back so
         // it surfaces the identical error directly). Invalid-but-default-free
         // fields (final/let/no-type) still lower: the reconstructed node re-runs
@@ -3019,8 +3023,8 @@ namespace RaLanguage.Interpreter.IR
         {
             def = null!;
             if (node.WhereConstraints != null && node.WhereConstraints.Count > 0) return false;
-            if (node.Properties != null && node.Properties.Count > 0) return false;
-            if (node.Events != null && node.Events.Count > 0) return false;
+            if (!TryBuildPropertyDefs(node.Properties, out var properties)) return false;
+            if (!TryBuildEventDefs(node.Events, out var events)) return false;
 
             string name = node.NameTok.Value?.ToString() ?? "";
             if (string.IsNullOrWhiteSpace(name)) return false;
@@ -3052,7 +3056,7 @@ namespace RaLanguage.Interpreter.IR
             var generics = (node.GenericTypeParams == null || node.GenericTypeParams.Count == 0)
                 ? System.Array.Empty<string>()
                 : node.GenericTypeParams.ToArray();
-            def = new Defs.InterfaceDef(name, node.IsPublic, generics, fields, methods);
+            def = new Defs.InterfaceDef(name, node.IsPublic, generics, fields, methods, properties, events);
             def.Annotations = node.Annotations != null ? node.Annotations.ToArray() : System.Array.Empty<Parser.Nodes.Annotations.AnnotationApplicationNode>();
             return true;
         }

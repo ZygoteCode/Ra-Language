@@ -3732,6 +3732,13 @@ namespace RaLanguage.Interpreter.Archive
             foreach (var fld in def.Fields) WriteFieldDef(w, fld);
             w.WriteI32(def.Methods.Length);
             foreach (var m in def.Methods) WriteTraitMethodDef(w, m);
+            // V14: contract properties + events. Gated so pre-V14 trait archives
+            // (which wrote NO property/event bytes) keep their layout.
+            if (WriterVersion >= ModuleBytecodeIo.PayloadVersion_V14)
+            {
+                WritePropertyDefs(w, def.Properties);
+                WriteEventDefs(w, def.Events);
+            }
             if (WriterVersion >= ModuleBytecodeIo.PayloadVersion_V12)
             {
                 w.WriteI32(def.Annotations.Length);
@@ -3752,7 +3759,15 @@ namespace RaLanguage.Interpreter.Archive
             if (mn < 0 || mn > 4_000_000) throw new System.IO.InvalidDataException($"rac: trait method count {mn} out of range");
             var methods = new RaLanguage.Interpreter.IR.Defs.TraitMethodDef[mn];
             for (int i = 0; i < mn; i++) methods[i] = ReadTraitMethodDef(r);
-            var def = new RaLanguage.Interpreter.IR.Defs.TraitDef(name, isPublic, generics, fields, methods);
+            // V14: contract properties + events (pre-V14 archives wrote none).
+            var properties = System.Array.Empty<RaLanguage.Interpreter.IR.Defs.PropertyDef>();
+            var events = System.Array.Empty<RaLanguage.Interpreter.IR.Defs.EventDef>();
+            if (ReaderVersion >= ModuleBytecodeIo.PayloadVersion_V14)
+            {
+                properties = ReadPropertyDefs(r);
+                events = ReadEventDefs(r);
+            }
+            var def = new RaLanguage.Interpreter.IR.Defs.TraitDef(name, isPublic, generics, fields, methods, properties, events);
             if (ReaderVersion >= ModuleBytecodeIo.PayloadVersion_V12)
             {
                 int an = r.ReadI32();
@@ -3913,6 +3928,13 @@ namespace RaLanguage.Interpreter.Archive
             foreach (var fld in def.Fields) WriteFieldDef(w, fld);
             w.WriteI32(def.Methods.Length);
             foreach (var m in def.Methods) WriteInterfaceMethodDef(w, m);
+            // V14: contract properties + events. Gated so pre-V14 interface
+            // archives (which wrote NO property/event bytes) keep their layout.
+            if (WriterVersion >= ModuleBytecodeIo.PayloadVersion_V14)
+            {
+                WritePropertyDefs(w, def.Properties);
+                WriteEventDefs(w, def.Events);
+            }
             if (WriterVersion >= ModuleBytecodeIo.PayloadVersion_V12)
             {
                 w.WriteI32(def.Annotations.Length);
@@ -3933,7 +3955,15 @@ namespace RaLanguage.Interpreter.Archive
             if (mn < 0 || mn > 4_000_000) throw new System.IO.InvalidDataException($"rac: interface method count {mn} out of range");
             var methods = new RaLanguage.Interpreter.IR.Defs.InterfaceMethodDef[mn];
             for (int i = 0; i < mn; i++) methods[i] = ReadInterfaceMethodDef(r);
-            var def = new RaLanguage.Interpreter.IR.Defs.InterfaceDef(name, isPublic, generics, fields, methods);
+            // V14: contract properties + events (pre-V14 archives wrote none).
+            var properties = System.Array.Empty<RaLanguage.Interpreter.IR.Defs.PropertyDef>();
+            var events = System.Array.Empty<RaLanguage.Interpreter.IR.Defs.EventDef>();
+            if (ReaderVersion >= ModuleBytecodeIo.PayloadVersion_V14)
+            {
+                properties = ReadPropertyDefs(r);
+                events = ReadEventDefs(r);
+            }
+            var def = new RaLanguage.Interpreter.IR.Defs.InterfaceDef(name, isPublic, generics, fields, methods, properties, events);
             if (ReaderVersion >= ModuleBytecodeIo.PayloadVersion_V12)
             {
                 int an = r.ReadI32();

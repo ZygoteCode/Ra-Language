@@ -3558,7 +3558,9 @@ namespace RaLanguage.Interpreter.Vm
                 new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
                 def.IsPublic, methods, fields,
                 new System.Collections.Generic.List<string>(def.Generics),
-                new System.Collections.Generic.List<Parser.Nodes.Special.WhereConstraintNode>());
+                new System.Collections.Generic.List<Parser.Nodes.Special.WhereConstraintNode>(),
+                ReconstructProperties(def.Properties, s, e),
+                ReconstructEvents(def.Events, s, e));
             if (def.Annotations.Length > 0)
                 node.Annotations = new System.Collections.Generic.List<Parser.Nodes.Annotations.AnnotationApplicationNode>(def.Annotations);
 
@@ -3620,10 +3622,11 @@ namespace RaLanguage.Interpreter.Vm
         }
 
         // L5e: reconstruct the InterfaceDefinitionNode (signature nodes + field
-        // nodes) from a flat InterfaceDef and run the SAME visitor Apply →
-        // byte-identical registration + field/method conformance metadata.
-        // Interface methods are SIGNATURES only (no bodies) — nothing to
-        // precompile; fields carry no defaults (defNode stays null).
+        // nodes + contract property/event nodes) from a flat InterfaceDef and run
+        // the SAME visitor Apply → byte-identical registration + field/method
+        // conformance metadata. Interface methods are SIGNATURES only (no bodies)
+        // — nothing to precompile; fields carry no defaults (defNode stays null);
+        // contract properties/events are abstract/protocol members (no bodies).
         [System.Runtime.CompilerServices.MethodImpl(
             System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private static RuntimeValue DefineInterface(IR.Defs.InterfaceDef def, Context ctx, VmFrame f, int pc, IInterpreter interpreter)
@@ -3655,7 +3658,10 @@ namespace RaLanguage.Interpreter.Vm
             var node = new Parser.Nodes.Interfaces.InterfaceDefinitionNode(
                 new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
                 def.IsPublic, methods, fields,
-                new System.Collections.Generic.List<string>(def.Generics));
+                new System.Collections.Generic.List<string>(def.Generics),
+                /*whereConstraints*/ null,
+                ReconstructProperties(def.Properties, s, e),
+                ReconstructEvents(def.Events, s, e));
             if (def.Annotations.Length > 0)
                 node.Annotations = new System.Collections.Generic.List<Parser.Nodes.Annotations.AnnotationApplicationNode>(def.Annotations);
 

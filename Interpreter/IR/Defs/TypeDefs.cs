@@ -559,8 +559,10 @@ namespace RaLanguage.Interpreter.IR.Defs
     }
 
     // `trait Name { fn provided() {..}  fn required(); }` lowered FLAT. First
-    // sub-stage: methods (provided + abstract) + fields; fallback on
-    // properties / events / where-constraints / annotations / param-defaults.
+    // sub-stage: methods (provided + abstract) + fields. L10 widening: contract
+    // properties + events (abstract/protocol members, no bodies) lower via the
+    // shared property/event helpers. Fallback on where-constraints / annotations
+    // / param-defaults.
     public sealed class TraitDef : TypeDef
     {
         public override TypeDefKind Kind => TypeDefKind.Trait;
@@ -570,13 +572,18 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly string[] Generics;
         public readonly StructFieldDef[] Fields;
         public readonly TraitMethodDef[] Methods;
+        public readonly PropertyDef[] Properties;
+        public readonly EventDef[] Events;
 
-        public TraitDef(string name, bool isPublic, string[] generics, StructFieldDef[] fields, TraitMethodDef[] methods)
+        public TraitDef(string name, bool isPublic, string[] generics, StructFieldDef[] fields, TraitMethodDef[] methods,
+            PropertyDef[]? properties = null, EventDef[]? events = null)
         {
             Name = name; IsPublic = isPublic;
             Generics = generics ?? Array.Empty<string>();
             Fields = fields ?? Array.Empty<StructFieldDef>();
             Methods = methods ?? Array.Empty<TraitMethodDef>();
+            Properties = properties ?? Array.Empty<PropertyDef>();
+            Events = events ?? Array.Empty<EventDef>();
         }
     }
 
@@ -680,11 +687,13 @@ namespace RaLanguage.Interpreter.IR.Defs
     // `interface Name { fn sig(); var field: T }` lowered FLAT. Interface methods
     // are signatures only (no bodies → no RaFunction), fields reuse the struct
     // field descriptor (interface fields can't have defaults, so DefaultConst is
-    // always null). First sub-stage: methods + fields + simple generics. Falls
-    // back on properties / events / annotations / where-constraints. The handler
-    // reconstructs the InterfaceDefinitionNode (signature + field nodes) and runs
-    // the SAME InterfaceDefinitionNodeVisitor.Apply → byte-identical registration
-    // + conformance metadata.
+    // always null). First sub-stage: methods + fields + simple generics. L10
+    // widening: contract properties + events (abstract/protocol members, no
+    // bodies) lower via the shared property/event helpers. Falls back on
+    // annotations / where-constraints. The handler reconstructs the
+    // InterfaceDefinitionNode (signature + field + property + event nodes) and
+    // runs the SAME InterfaceDefinitionNodeVisitor.Apply → byte-identical
+    // registration + conformance metadata.
     public sealed class InterfaceDef : TypeDef
     {
         public override TypeDefKind Kind => TypeDefKind.Interface;
@@ -694,13 +703,18 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly string[] Generics;
         public readonly StructFieldDef[] Fields;       // reuses the struct field descriptor
         public readonly InterfaceMethodDef[] Methods;
+        public readonly PropertyDef[] Properties;
+        public readonly EventDef[] Events;
 
-        public InterfaceDef(string name, bool isPublic, string[] generics, StructFieldDef[] fields, InterfaceMethodDef[] methods)
+        public InterfaceDef(string name, bool isPublic, string[] generics, StructFieldDef[] fields, InterfaceMethodDef[] methods,
+            PropertyDef[]? properties = null, EventDef[]? events = null)
         {
             Name = name; IsPublic = isPublic;
             Generics = generics ?? Array.Empty<string>();
             Fields = fields ?? Array.Empty<StructFieldDef>();
             Methods = methods ?? Array.Empty<InterfaceMethodDef>();
+            Properties = properties ?? Array.Empty<PropertyDef>();
+            Events = events ?? Array.Empty<EventDef>();
         }
     }
 
