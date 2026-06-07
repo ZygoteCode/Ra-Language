@@ -1272,6 +1272,49 @@ namespace RaLanguage.Interpreter.Vm
                         locals[dst] = val;
                         break;
                     }
+                    case Opcode.ListPush:
+                    {
+                        // L10 list-literal incremental build (the plain-element
+                        // counterpart to ListExtend). `a` holds the ListValue
+                        // under construction (just built by NewList); `b` holds
+                        // the single value to append. Mirrors ListNodeVisitor's
+                        // non-spread branch (`elements.Add(val)`) — no copy, so
+                        // the element identity matches the all-native NewList
+                        // band path.
+                        byte pListSlot = Encoding.A(instr);
+                        byte pValSlot = Encoding.B(instr);
+                        var pList = locals[pListSlot];
+                        var pVal = locals[pValSlot];
+                        if (pList == null || pVal == null)
+                            throw new RaUserError(MakeIcError(ctx, "VM: ListPush operand is null"));
+                        ((ListValue)pList).Elements.Add(pVal);
+                        break;
+                    }
+                    case Opcode.ListExtend:
+                    {
+                        // L10 list-literal spread (`[a, ...x, b]`). `a` holds the
+                        // ListValue under construction (just built by NewList);
+                        // `b` holds the iterable being splatted. Mirrors
+                        // ListNodeVisitor's spread branch EXACTLY: the source
+                        // must be a ListValue (ranges materialize to lists, so
+                        // they qualify) — anything else raises the visitor's
+                        // identical "Spread target must be an iterable" error.
+                        // No per-element copy (the visitor does a bare AddRange).
+                        byte listSlot = Encoding.A(instr);
+                        byte srcSlot = Encoding.B(instr);
+                        var listV = locals[listSlot];
+                        var srcV = locals[srcSlot];
+                        if (listV == null || srcV == null)
+                            throw new RaUserError(MakeIcError(ctx, "VM: ListExtend operand is null"));
+                        // The list slot was produced by NewList immediately
+                        // above — defensive cast, never user-reachable as a
+                        // non-list.
+                        var dstList = (ListValue)listV;
+                        if (srcV.Type != RuntimeValueType.List)
+                            throw new RaUserError(MakeIcError(ctx, "Spread target must be an iterable (e.g. list)"));
+                        dstList.Elements.AddRange(((ListValue)srcV).Elements);
+                        break;
+                    }
                     case Opcode.NullCoal:
                     {
                         byte dst = Encoding.A(instr);

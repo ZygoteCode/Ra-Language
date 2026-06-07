@@ -412,6 +412,12 @@ namespace RaLanguage.Interpreter.Archive
                         CheckSlot(a, local, pc, opName, "a (list)", diags, path);
                         CheckSlot(effB, local, pc, opName, "b (src)", diags, path);
                         break;
+                    case Opcode.ListExtend:
+                        // L10 list-spread: same operand validation as ListPush —
+                        // A is the list under construction, B is the iterable.
+                        CheckSlot(a, local, pc, opName, "a (list)", diags, path);
+                        CheckSlot(effB, local, pc, opName, "b (iterable)", diags, path);
+                        break;
                     case Opcode.Range:
                         CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
                         CheckSlot(effB, local, pc, opName, "base", diags, path);

@@ -802,10 +802,16 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 }
                 case Opcode.ListSet:
                 case Opcode.ListPush:
+                // L10 ListExtend has the SAME shape as ListPush: mutates the
+                // list at A, reads the iterable at B, no C operand. Like
+                // ListPush it defines no `locals` slot (see DefinedSlot — both
+                // fall to default → null) since it mutates a heap object, not
+                // the register.
+                case Opcode.ListExtend:
                 case Opcode.MapSet:
                     yield return (Encoding.A(instr), true);
                     yield return (Encoding.B(instr), true);
-                    if (op != Opcode.ListPush) yield return (Encoding.C(instr), true);
+                    if (op != Opcode.ListPush && op != Opcode.ListExtend) yield return (Encoding.C(instr), true);
                     break;
                 case Opcode.Call:
                 case Opcode.Spawn:

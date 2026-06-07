@@ -11764,9 +11764,15 @@ namespace RaLanguage.Interpreter.IR
         }
 
         // Compile a List/Set/Tuple literal: lay each element in a
-        // consecutive slot, then emit the corresponding NewX opcode. Spread
-        // expansion (`...x`) is not yet supported — the eligibility check
-        // above rejects literals that contain it.
+        // consecutive slot, then emit the corresponding NewX opcode.
+        //
+        // SPREAD (`[a, ...x, b]`): a runtime-variable splat can't be expressed
+        // by the fixed-count NewX band, so a LIST literal containing a spread is
+        // built INCREMENTALLY — an empty NewList, then OP_LIST_PUSH per plain
+        // element and OP_LIST_EXTEND per spread (append all of the iterable's
+        // items). Set/Map/Tuple literals with a spread still throw → the
+        // CompileAsExpression catch routes them through OP_NATIVE_DEFINE
+        // (out of scope; the corpus cases are all list-spread).
         private static void CompileCollectionLiteral(
             List<AstNode> elements, byte destSlot, Opcode newOp,
             State st, ref byte topSlot)
@@ -11774,9 +11780,50 @@ namespace RaLanguage.Interpreter.IR
             int count = elements.Count;
             if (count > byte.MaxValue)
                 throw new IrCompileException($"{newOp} literal has too many elements (>255)");
-            foreach (var e in elements)
-                if (e.NodeType == AstNodeType.Spread)
+
+            bool hasSpread = false;
+            for (int i = 0; i < count; i++)
+                if (elements[i].NodeType == AstNodeType.Spread) { hasSpread = true; break; }
+
+            if (hasSpread)
+            {
+                // Only LIST literals lower spread incrementally; Set/Map/Tuple
+                // fall back.
+                if (newOp != Opcode.NewList)
                     throw new IrCompileException("collection literal with spread not yet lowered");
+
+                // Build an empty list directly into destSlot. NewList with
+                // count 0 never reads its base operand (the element loop in the
+                // VM handler runs zero times), but the .rac verifier still
+                // requires base to be a valid slot index — so allocate a
+                // throwaway scratch slot for it. destSlot is below topSlot;
+                // every element temp is allocated ABOVE it via AllocTemp, so
+                // destSlot is never clobbered while the list is being filled.
+                byte scratchBase = AllocTemp(ref topSlot);
+                st.Code.Emit3(Opcode.NewList, destSlot, scratchBase, 0);
+
+                for (int i = 0; i < count; i++)
+                {
+                    var el = elements[i];
+                    if (el.NodeType == AstNodeType.Spread)
+                    {
+                        var sp = (Parser.Nodes.Operations.SpreadNode)el;
+                        byte it = AllocTemp(ref topSlot);
+                        CompileExpression(sp.Expression, it, st, ref topSlot);
+                        st.Code.Emit3(Opcode.ListExtend, destSlot, it, 0);
+                    }
+                    else
+                    {
+                        byte slot = AllocTemp(ref topSlot);
+                        CompileExpression(el, slot, st, ref topSlot);
+                        st.Code.Emit3(Opcode.ListPush, destSlot, slot, 0);
+                    }
+                }
+                return;
+            }
+
+            // Fast path: no spread — lay every element in a contiguous band and
+            // emit a single fixed-count NewX.
             byte baseSlot = topSlot;
             for (int i = 0; i < count; i++) AllocTemp(ref topSlot);
             for (int i = 0; i < count; i++)

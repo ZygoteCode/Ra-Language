@@ -187,7 +187,7 @@ namespace RaLanguage.Interpreter.IR
         NewTuple        = 0x53,   // a (dst), b (base), c (count)
         ListGet         = 0x54,   // a (dst), b (target), c (idx)  → target.ListAccess(idx)
         ListSet         = 0x55,   // a (target), b (idx), c (src)
-        ListPush        = 0x56,   // a (list), b (src)
+        ListPush        = 0x56,   // a (list), b (src) — append one value to list (spread-list incremental build)
         MapGet          = 0x57,   // a (dst), b (map), c (key)
         MapSet          = 0x58,   // a (map), b (key), c (src)
         // 3-address: [op][dst][base][isInclusive]. base..base+2 = start, end, step.
@@ -700,6 +700,18 @@ namespace RaLanguage.Interpreter.IR
         // every DCE/LICM/GVN pure-eraseable list so its error site stays stable,
         // exactly like Div / Mod / boxed Ushr. (0xF7 is free; 0xF6 / 0xF9 used.)
         In              = 0xF7,   // a (dst), b (left), c (right) → left.InCollection(right)
+
+        // L10 — list-literal SPREAD (`[a, ...x, b]`). Appends every element of
+        // the iterable at slot B to the ListValue at slot A (built incrementally
+        // by a preceding NewList + ListPush stream). Mirrors the list-literal
+        // visitor's spread semantics EXACTLY: the spread source must be a
+        // ListValue (ranges materialize to lists eagerly, so they qualify); any
+        // other value raises the visitor's "Spread target must be an iterable
+        // (e.g. list)" RuntimeError. No per-element copy (the visitor does a bare
+        // AddRange). MUTATES the list at A + CAN RAISE → kept OUT of every
+        // DCE/LICM/GVN/CSE pure list and defines no `locals` slot, exactly like
+        // ListPush. (0xF8 was free; 0xF7 is In, 0xF9 is Halt.)
+        ListExtend      = 0xF8,   // a (list), b (iterable) — append all items of iterable to list (spread)
 
         // ---- streams (Streams runtime — see RA_STREAMS_DESIGN.md §10) ----
         // Forward-jump opcode that branches if `locals[a]` is a sync stream
