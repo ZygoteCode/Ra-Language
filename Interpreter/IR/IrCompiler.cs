@@ -3453,15 +3453,17 @@ namespace RaLanguage.Interpreter.IR
                     return true;
                 }
 
+                // `retry for N times [delay M] { body } [else {...}]`. The only
+                // node tagged AstNodeType.Retry is RetryNode — there is no bare
+                // `retry` keyword (the parser always requires `for ... times`).
+                // CompileRetry composes the loop counter + EhTable machinery and
+                // self-throws IrCompileException for the cases it leaves to the
+                // visitor (non-literal/negative/too-large count, `delay`, a body/
+                // else control escape), routing the whole statement to OP_NATIVE_
+                // DEFINE via CompileStatementWithFallback.
                 case AstNodeType.Retry:
-                {
-                    var loop = NearestRealLoop(st);
-                    if (loop == null)
-                        throw new IrCompileException("`retry` outside loop");
-                    EmitPopsDownTo(st, loop.BaselineScopeDepth);
-                    st.Code.EmitBackwardJump(Opcode.Jmp, 0, loop.RetryTargetPc);
+                    CompileRetry((Parser.Nodes.Statements.RetryNode)stmt, st, ref topSlot, scratchSlot);
                     return true;
-                }
 
                 case AstNodeType.Return:
                 {
@@ -8327,6 +8329,150 @@ namespace RaLanguage.Interpreter.IR
                     && ReferenceEquals(st.FinallyContexts.Peek(), fctx))
                     st.FinallyContexts.Pop();
             }
+        }
+
+        // L10: lower `retry for N times [delay M] { body } [else { eBody }]` —
+        // compose the loop counter (boxed NumberValue arithmetic) with the
+        // try/catch EhTable machinery; no new opcode. Mirrors RetryNodeVisitor:
+        //   * Evaluate N (= the literal attempt count). The body runs up to N
+        //     times; the FIRST attempt that completes WITHOUT error wins and the
+        //     retry stops. An attempt that throws is retried until N is reached.
+        //   * If every attempt fails, the `else` branch runs (its value is
+        //     discarded — `retry` is a statement); with NO `else`, the LAST
+        //     attempt's error is re-raised (OP_THROW catchSlot).
+        //   * N == 0 runs NO body at all: just the `else` (if present), else NOP.
+        //
+        // Gates (fall back to the visitor otherwise):
+        //   * N (CountNode) AND, when present, M (DelayNode) must be non-negative
+        //     foldable integer literals. A runtime / non-int / negative / too-large
+        //     count is left to the visitor, which carries the exact ExtractRetryInt
+        //     coercion + RA error messages ("retry count is too large", "delay
+        //     cannot be negative", …). A negative literal also falls back so the
+        //     visitor surfaces "retry count cannot be negative" at runtime (a
+        //     compile error here would be wrong — it must be a runtime failure).
+        //   * `delay M` cannot be expressed in IR (no sleep opcode; the visitor
+        //     calls Thread.Sleep directly, and routing through the Ra `sleep`
+        //     builtin would need it in scope + would change validation), so any
+        //     `delay` form falls back. test_retry_times R5 exercises this.
+        //   * A control-flow escape (return / break / continue / yield) in the body
+        //     or else — the visitor returns those out of the retry immediately
+        //     (SuccessReturn/Break/Continue/Yield), which this lowering does not
+        //     intercept — falls back. A try-WITH-finally in either body also falls
+        //     back (finally routing is not threaded here). A plain `throw` is fine
+        //     (the EhTable catches it → that attempt failed).
+        //
+        //   <load N as box>                       (only the count; N>=1 path)
+        //   attempt = 0 (boxed NumberValue)
+        //   loop_top:
+        //     PushScope                            (fresh body scope per attempt — matches context.Copy())
+        //     body_start: [BODY]                   EhTable [body_start..body_end] -> catch_pc, errSlot, depth=D
+        //     body_end:
+        //     PopScope
+        //     Jmp done                             // body succeeded -> stop
+        //   catch_pc:                              (error in errSlot; ctx popped to D)
+        //     attempt = attempt + 1
+        //     Lt cmp, attempt, N
+        //     JmpIf cmp -> loop_top                // attempts remain -> retry
+        //   exhausted:                             // every attempt failed
+        //     [else: PushScope; [ELSE]; PopScope]  OR  [no else: Throw errSlot]
+        //   done:
+        private static void CompileRetry(Parser.Nodes.Statements.RetryNode node, State st, ref byte topSlot, byte scratchSlot)
+        {
+            // Gate 1: the attempt count must be a non-negative foldable literal.
+            if (!TryGetLiteralLong(node.CountNode, out long countLit))
+                throw new IrCompileException("retry count not a foldable literal -> fallback");
+            if (countLit < 0 || countLit > int.MaxValue)
+                throw new IrCompileException("retry count out of range -> fallback (visitor surfaces the runtime error)");
+
+            // Gate 2: `delay` has no IR lowering (no sleep opcode) — fall back.
+            if (node.DelayNode != null)
+                throw new IrCompileException("retry `delay` not IR-lowerable -> fallback");
+
+            // Gate 3: control-flow escapes / try-with-finally in body or else are
+            // not routed through this lowering — fall back to the visitor.
+            if (ContainsControlEscape(node.BodyNode) || ContainsControlEscape(node.ElseNode)
+                || ContainsTryWithFinally(node.BodyNode) || ContainsTryWithFinally(node.ElseNode))
+                throw new IrCompileException("retry body/else has a control escape or try/finally -> fallback");
+
+            // N == 0: no body runs at all. Just the else branch (value discarded),
+            // or nothing. No error is ever raised.
+            if (countLit == 0)
+            {
+                if (node.ElseNode != null)
+                    CompileBodyScoped(node.ElseNode, st, ref topSlot, scratchSlot);
+                MarkAllTypedAccsDirty(st);
+                return;
+            }
+
+            byte errSlot = AllocTemp(ref topSlot);
+
+            // attempt counter in a typed-Int64 slot (LongValid) so AddII / LtII
+            // operate directly on the long register file. N is a literal that fit
+            // a non-negative int, so attempt/one/count never overflow or box. NB:
+            // these MUST be typed longs — a boxed NumberValue here would be misread
+            // by the LtII the rewriter fuses, since the II opcodes read LongLocals.
+            byte attemptSlot = AllocTemp(ref topSlot);
+            st.Code.Emit2(Opcode.LoadIntS64, attemptSlot, 0); // attempt = 0
+
+            byte oneSlot = AllocTemp(ref topSlot);
+            st.Code.Emit2(Opcode.LoadIntS64, oneSlot, 1); // step = 1
+
+            byte countSlot = AllocTemp(ref topSlot);
+            EmitLiteralLongLoad(countLit, countSlot, st, ref topSlot); // N
+
+            int scopeDepthAtBody = st.ScopeDepth;
+            int loopTopPc = st.Code.Pc;
+
+            // --- attempt body (own scope, like CompileTry's try body) ---
+            EmitPushScope(st);
+            int bodyStartPc = st.Code.Pc;
+            CompileBodyStrictInline(node.BodyNode, st, ref topSlot, scratchSlot);
+            int bodyEndPc = st.Code.Pc;
+            EmitPopScope(st);
+
+            int doneJmp = st.Code.EmitForwardJump(Opcode.Jmp); // body succeeded -> done
+
+            // --- catch handler: the attempt raised; the error is in errSlot and
+            // the VM has popped ctx back to scopeDepthAtBody. ---
+            int catchPc = st.Code.Pc;
+            // attempt += 1  (typed long)
+            st.Code.Emit3(Opcode.AddII, attemptSlot, attemptSlot, oneSlot);
+            // if attempt < N: retry (backward jump to loop_top)
+            byte cmpSlot = AllocTemp(ref topSlot);
+            st.Code.Emit3(Opcode.LtII, cmpSlot, attemptSlot, countSlot);
+            st.Code.EmitBackwardJump(Opcode.JmpIf, cmpSlot, loopTopPc);
+
+            // --- exhausted: every attempt failed ---
+            if (node.ElseNode != null)
+            {
+                CompileBodyScoped(node.ElseNode, st, ref topSlot, scratchSlot);
+            }
+            else
+            {
+                // No else: re-raise the LAST attempt's error (matches the
+                // visitor's `res.Failure(lastError)`).
+                st.Code.Emit3(Opcode.Throw, errSlot, 0, 0);
+            }
+
+            st.Code.PatchJumpToHere(doneJmp);
+
+            // EhTable: a fault anywhere in [bodyStart..bodyEnd] routes to catchPc
+            // with the error bound into errSlot, after popping ctx to the depth
+            // BEFORE the per-attempt PushScope. Skip an empty (cannot-fault) body
+            // region — the verifier rejects Start>=End — in which case the body
+            // never throws, the success Jmp always fires, and catch/exhausted are
+            // simply dead code.
+            if (bodyEndPc > bodyStartPc)
+            {
+                st.EhTable.Add(new ExceptionHandler(
+                    start: bodyStartPc, end: bodyEndPc,
+                    catchPc: catchPc, finallyPc: -1,
+                    catchSlot: errSlot, scopeDepth: scopeDepthAtBody));
+            }
+
+            // The body ran an unknown number of times (or the else ran instead);
+            // conservatively re-dirty every typed accumulator.
+            MarkAllTypedAccsDirty(st);
         }
 
         // L10: does `n` contain a control-flow escape (return / break / continue
