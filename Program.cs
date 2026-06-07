@@ -520,6 +520,21 @@ namespace RaLanguage
                     return;
                 }
 
+                // --count-nd <file.ra> compiles a file (same pipeline as
+                // --dump-ir) and prints the TOTAL count of OP_NATIVE_DEFINE
+                // (0x90) across ALL IR frames RECURSIVELY — the top-level
+                // script frame plus every nested function / method / operator
+                // / accessor body. --dump-ir only disassembles the top-level
+                // frame, so nested-body NativeDefine fallbacks are invisible
+                // to it; this flag gives the OP_NATIVE_DEFINE-deletion campaign
+                // an accurate whole-program tally. Read-only: compiles, never
+                // executes the script.
+                if (args.Length == 2 && string.Equals(args[0], "--count-nd", StringComparison.OrdinalIgnoreCase))
+                {
+                    CountNativeDefine(args[1]);
+                    return;
+                }
+
                 // M54: --dump-cfg <file.ra> prints the control-flow graph
                 // for the compiled script body.
                 if (args.Length == 2 && string.Equals(args[0], "--dump-cfg", StringComparison.OrdinalIgnoreCase))
@@ -953,6 +968,57 @@ namespace RaLanguage
                 string opName = (byte)op == 0x90 ? "NativeDefine" : op.ToString();
                 Console.WriteLine($"  {pc:0000}: {opName,-18} a={a,-3} b={b,-3} c={c,-3} imm16={imm}");
             }
+        }
+
+        // --count-nd entry point. Mirrors DumpIr's compile pipeline exactly
+        // (lex → parse → derive → resolve → single-use-temp inliner →
+        // InitializeSymbolTable → IrCompiler.CompileScript), then forces every
+        // nested body to its IR form and tallies OP_NATIVE_DEFINE (0x90) across
+        // EVERY reachable frame — not just the top-level script frame --dump-ir
+        // shows. Frame walk reuses RaFunctionPrecompiler (the same FuncDefRefs /
+        // DefineRefs / Children traversal the runtime precompile pass uses);
+        // opcode stepping mirrors the --dump-ir / VM decoder (every entry in
+        // fn.Code is one 32-bit instruction, opcode = low byte). Compile-only:
+        // never executes the script. Prints `ND=<total>` then `frames=<n>`.
+        private static void CountNativeDefine(string path)
+        {
+            if (!File.Exists(path))
+            {
+                Console.WriteLine($"[Ra Language] --count-nd: file not found: {path}");
+                return;
+            }
+            string text = File.ReadAllText(path);
+            var lexer = new Lexer.Lexer(path, text);
+            var (tokens, diag) = lexer.MakeTokens();
+            if (diag.HasErrors) { PrintDiagnostics(diag); return; }
+            var parser = new Parser.Parser(tokens);
+            var parseResult = parser.Parse();
+            if (parseResult.HasErrors) { PrintDiagnostics(parseResult.Diagnostics); return; }
+            DeriveTransformer.Apply(parseResult.Node);
+            Resolver.Resolve(parseResult.Node);
+            // Same semantics-preserving temp inliner --dump-ir runs, so the
+            // counted IR is byte-identical to what the VM would execute.
+            Interpreter.Runtime.Optimizations.SingleUseTempInliner.Apply(parseResult.Node);
+            InitializeSymbolTable();
+            var fn = IrCompiler.CompileScript(parseResult.Node, path);
+
+            // Force every nested function / method / operator / accessor body
+            // to its IR form, then collect the full set of distinct reachable
+            // RaFunction frames (top-level script + all nested bodies). This is
+            // the SAME traversal the runtime's precompile pass uses, so the
+            // frame set is exactly what executes — no over- or under-count.
+            var frames = RaFunctionPrecompiler.CollectReachable(fn);
+
+            long total = 0;
+            foreach (var frame in frames)
+            {
+                var c = frame.Code;
+                for (int i = 0; i < c.Length; i++)
+                    if ((byte)Encoding.DecodeOp(c[i]) == 0x90) total++;
+            }
+
+            Console.WriteLine($"ND={total}");
+            Console.WriteLine($"frames={frames.Count}");
         }
 
         private static void RunMicrobenchmark(bool astPath = false, string[]? customBenches = null)

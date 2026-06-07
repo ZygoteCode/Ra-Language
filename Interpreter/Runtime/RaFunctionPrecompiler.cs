@@ -34,6 +34,24 @@ namespace RaLanguage.Interpreter.Runtime
             WalkFunction(script, visited);
         }
 
+        // Diagnostic helper (mirrors PrecompileChildren). Forces every nested
+        // body to its IR form AND returns the full set of distinct RaFunction
+        // frames reachable from `script` — the top-level script frame plus
+        // every nested function / method / operator / accessor body that
+        // compiled successfully. `visited` is exactly that set after the walk
+        // (WalkFunction.Add is called once per compiled frame), so the caller
+        // can iterate every frame's `Code` for whole-program opcode audits
+        // (e.g. the `--count-nd` recursive OP_NATIVE_DEFINE tally). Frames
+        // whose IR compile failed never get a RaFunction and so are absent —
+        // identical reachability to the runtime's own precompile pass.
+        public static HashSet<RaFunction> CollectReachable(RaFunction script)
+        {
+            var visited = new HashSet<RaFunction>();
+            if (script == null) return visited;
+            WalkFunction(script, visited);
+            return visited;
+        }
+
         private static void WalkFunction(RaFunction fn, HashSet<RaFunction> visited)
         {
             if (fn == null || !visited.Add(fn)) return;
