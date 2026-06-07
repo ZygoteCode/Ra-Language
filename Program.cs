@@ -497,20 +497,6 @@ namespace RaLanguage
                     return;
                 }
 
-                // --parity <file.ra> <Kind[,Kind...] | all>
-                // L0 differential parity oracle (RA_FULL_IR_LOWERING_PLAN §4b).
-                // Runs the file twice — once IR-native, once with the named
-                // AST-node kind(s) forced to the OP_NATIVE_DEFINE visitor
-                // fallback — and asserts byte-identical observable behaviour
-                // (stdout + exit code + error message). Exit 0 = MATCH, 1 =
-                // MISMATCH / usage error. This is the gate every later lowering
-                // phase uses before deleting a fallback.
-                if (args.Length >= 2 && string.Equals(args[0], "--parity", StringComparison.OrdinalIgnoreCase))
-                {
-                    RunParityCli(args[1], args.Length >= 3 ? args[2] : "all");
-                    return;
-                }
-
                 // M35: --dump-ir <file.ra> prints the compiled IR + constant
                 // pool + Names table for the given source. Read-only debug
                 // aid; does not execute the script.
@@ -962,10 +948,12 @@ namespace RaLanguage
                 byte b = Encoding.B(instr);
                 byte c = Encoding.C(instr);
                 ushort imm = Encoding.Imm16(instr);
-                // 0x90 is NativeDefine, aliased with the unused MatchBegin —
-                // Enum.ToString() resolves it to "MatchBegin", which hides
-                // residual fallbacks in dumps. Force the meaningful name.
-                string opName = (byte)op == 0x90 ? "NativeDefine" : op.ToString();
+                // 0x90 is the RETIRED OP_NATIVE_DEFINE slot (opcode + handler
+                // deleted; no opcode uses 0x90 any more). It must never appear
+                // in a dump — if it does, a residual AST-exec fallback has
+                // resurfaced. Surface it explicitly as a tripwire rather than an
+                // unmapped numeric byte.
+                string opName = (byte)op == 0x90 ? "NativeDefine(RETIRED)" : op.ToString();
                 Console.WriteLine($"  {pc:0000}: {opName,-18} a={a,-3} b={b,-3} c={c,-3} imm16={imm}");
             }
         }
@@ -1074,126 +1062,6 @@ namespace RaLanguage
 
                 Console.WriteLine($"  {bench}: best={bestMs}ms avg={avgMs:F1}ms avg_ticks={avgTicks:F0} alloc/run={allocPerRunMb:F2}MB");
             }
-        }
-
-        // L0 parity oracle (RA_FULL_IR_LOWERING_PLAN §4b). Compiles + runs a
-        // file twice and diffs the observable transcript: once fully IR-native,
-        // once with the requested AST-node kind(s) forced to the
-        // OP_NATIVE_DEFINE visitor fallback. A MATCH proves the IR lowering is
-        // behaviourally identical to the visitor spec for that program — the
-        // precondition for deleting the fallback in a later migration phase.
-        private static void RunParityCli(string file, string kindsArg)
-        {
-            if (!file.EndsWith(".ra", StringComparison.OrdinalIgnoreCase) || !File.Exists(file))
-            {
-                Console.WriteLine($"[Ra Language] --parity: file not found or not .ra: {file}");
-                Environment.ExitCode = 1;
-                return;
-            }
-
-            // Resolve the kind list. `all` = every fallback-routable kind, i.e.
-            // run the WHOLE program through the visitor layer and compare to the
-            // all-native baseline (the strongest single differential).
-            var kinds = new List<RaLanguage.Parser.Nodes.AstNodeType>();
-            if (string.Equals(kindsArg, "all", StringComparison.OrdinalIgnoreCase))
-            {
-                foreach (RaLanguage.Parser.Nodes.AstNodeType k in Enum.GetValues<RaLanguage.Parser.Nodes.AstNodeType>())
-                    if (IrCompiler.IsFallbackRoutable(k)) kinds.Add(k);
-            }
-            else
-            {
-                foreach (var tok in kindsArg.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                {
-                    if (!Enum.TryParse<RaLanguage.Parser.Nodes.AstNodeType>(tok, ignoreCase: true, out var k))
-                    {
-                        Console.WriteLine($"[Ra Language] --parity: unknown AstNodeType '{tok}'");
-                        Environment.ExitCode = 1;
-                        return;
-                    }
-                    if (!IrCompiler.IsFallbackRoutable(k))
-                    {
-                        Console.WriteLine($"[Ra Language] --parity: '{k}' has no visitor fallback route (not forceable)");
-                        Environment.ExitCode = 1;
-                        return;
-                    }
-                    kinds.Add(k);
-                }
-            }
-
-            string text = File.ReadAllText(file);
-            string baseline = CaptureRun(file, text, null);
-            string forced = CaptureRun(file, text, kinds);
-
-            if (string.Equals(baseline, forced, StringComparison.Ordinal))
-            {
-                Console.WriteLine($"[Ra Language] --parity MATCH: {file} (forced {kinds.Count} kind(s): {kindsArg})");
-                Environment.ExitCode = 0;
-            }
-            else
-            {
-                Console.WriteLine($"[Ra Language] --parity MISMATCH: {file} (forced {kindsArg})");
-                Console.WriteLine(FirstDiff(baseline, forced));
-                Console.WriteLine("--- NATIVE transcript ---");
-                Console.WriteLine(baseline);
-                Console.WriteLine("--- FORCED transcript ---");
-                Console.WriteLine(forced);
-                Environment.ExitCode = 1;
-            }
-        }
-
-        // Runs `Run` with Console captured to a StringWriter and the requested
-        // force-fallback set applied, returning a deterministic transcript:
-        // captured stdout + an [[EXIT n]] line + an [[ERROR msg]] line when the
-        // run returned an Error. Resets the symbol table + IR sub-expression
-        // cache first (so the two runs are independent) and always restores
-        // Console.Out + clears the force set.
-        private static string CaptureRun(string fn, string text, IEnumerable<RaLanguage.Parser.Nodes.AstNodeType>? force)
-        {
-            InitializeSymbolTable();
-            IrExpressionEvaluator.ClearCache();
-            if (force != null) IrCompiler.SetForceFallback(force);
-            else IrCompiler.ClearForceFallback();
-
-            var sw = new StringWriter();
-            var prevOut = Console.Out;
-            int prevExit = Environment.ExitCode;
-            Console.SetOut(sw);
-            Environment.ExitCode = 0;
-            Error? err = null;
-            try
-            {
-                var (_, e) = Run(fn, text);
-                err = e;
-            }
-            catch (Exception ex)
-            {
-                sw.Write($"\n[[HOST-EXCEPTION {ex.GetType().Name}: {ex.Message}]]");
-            }
-            finally
-            {
-                Console.SetOut(prevOut);
-                IrCompiler.ClearForceFallback();
-            }
-
-            int exit = Environment.ExitCode;
-            Environment.ExitCode = prevExit;
-            var t = sw.ToString();
-            t += $"\n[[EXIT {exit}]]";
-            if (err != null) t += $"\n[[ERROR {err.Details}]]";
-            return t;
-        }
-
-        private static string FirstDiff(string a, string b)
-        {
-            var la = a.Replace("\r\n", "\n").Split('\n');
-            var lb = b.Replace("\r\n", "\n").Split('\n');
-            int n = Math.Min(la.Length, lb.Length);
-            for (int i = 0; i < n; i++)
-                if (!string.Equals(la[i], lb[i], StringComparison.Ordinal))
-                    return $"first diff @ line {i + 1}:\n  native: {la[i]}\n  forced: {lb[i]}";
-            if (la.Length != lb.Length)
-                return $"length differs: native={la.Length} lines, forced={lb.Length} lines";
-            return "(transcripts differ only in trailing content)";
         }
 
         // Archive CLI: `--compile <entry.ra> [-o output.rac] [--no-compress]

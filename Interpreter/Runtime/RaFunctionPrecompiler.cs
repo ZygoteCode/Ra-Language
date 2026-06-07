@@ -145,9 +145,9 @@ namespace RaLanguage.Interpreter.Runtime
                     // Interface methods are bare signatures — no bodies to compile.
                     break;
                 case FunctionDefinitionNode fdef:
-                    // DefineRefs may carry standalone fn definitions
-                    // (e.g. lowered patterns / lambdas surfacing as
-                    // NativeDefine entries).
+                    // DefineRefs (the parked-node pool for OP_WITH /
+                    // OP_CALL_GENERIC / OP_ASM_INVOKE / OP_ANNOTATION_APPLY) may
+                    // carry standalone fn definitions surfaced by those nodes.
                     PrecompileFunctionNode(fdef, visited);
                     break;
                 default:

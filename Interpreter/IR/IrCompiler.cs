@@ -306,34 +306,6 @@ namespace RaLanguage.Interpreter.IR
             }
         }
 
-        // ---- L0 parity-oracle support (RA_FULL_IR_LOWERING_PLAN §4b) ----
-        //
-        // When a node kind is in this set, CompileStatementWithFallback
-        // refuses to lower it natively and emits OP_NATIVE_DEFINE instead
-        // (provided the kind has a HasNativeDefineRoute). This lets a
-        // differential harness run the SAME program twice — native vs
-        // visitor-fallback — and assert byte-identical observable behaviour,
-        // which is the gate that lets later phases delete a fallback safely.
-        //
-        // Empty in every normal compile; a single `Count != 0` check gates
-        // the hot path, so there is zero cost when unused. Process-global +
-        // set/cleared by the harness around each run; never touched by the
-        // production CLI / archive paths.
-        private static readonly HashSet<AstNodeType> s_forceFallbackKinds = new();
-
-        public static void SetForceFallback(System.Collections.Generic.IEnumerable<AstNodeType> kinds)
-        {
-            s_forceFallbackKinds.Clear();
-            foreach (var k in kinds) s_forceFallbackKinds.Add(k);
-        }
-
-        public static void ClearForceFallback() => s_forceFallbackKinds.Clear();
-
-        [System.Runtime.CompilerServices.MethodImpl(
-            System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
-        private static bool IsForcedFallback(AstNodeType t)
-            => s_forceFallbackKinds.Count != 0 && s_forceFallbackKinds.Contains(t);
-
         // The set of ZERO-ARITY enum-variant names declared ANYWHERE in the
         // program being compiled, plus the built-in nullary variant `None`.
         // Used by the match pattern compiler to disambiguate a bare-identifier
@@ -439,10 +411,6 @@ namespace RaLanguage.Interpreter.IR
         private static bool IsKnownZeroArityVariant(string name)
             => s_variantNamesReady && s_zeroArityVariantNames.Contains(name);
 
-        // Exposed so the harness can reject a requested kind that has no
-        // visitor route (EmitFallback would hard-error on it).
-        public static bool IsFallbackRoutable(AstNodeType t) => HasNativeDefineRoute(t);
-
         public static RaFunction CompileScript(AstNode root, string sourceName)
         {
             var fn = new RaFunction(sourceName ?? "<script>");
@@ -464,7 +432,7 @@ namespace RaLanguage.Interpreter.IR
 
             foreach (var stmt in statements)
             {
-                CompileStatementWithFallback(stmt, st, ScratchSlot);
+                CompileStatementOrThrow(stmt, st, ScratchSlot);
             }
 
             st.Code.Emit3(Opcode.Halt, ScratchSlot, 0, 0);
@@ -1440,30 +1408,22 @@ namespace RaLanguage.Interpreter.IR
             int savedPc = st.Code.Pc;
             int savedAstRefs = st.AstRefs.Count;
             int savedScopeDepth = st.ScopeDepth;
-            bool emitted = false;
             try
             {
                 CompileExpression(node, retSlot, st, ref topSlot);
                 if (topSlot > st.MaxTempUsed) st.MaxTempUsed = topSlot;
-                emitted = true;
             }
             catch (IrCompileException)
             {
-                // Roll back partial emit and route via OP_NATIVE_DEFINE.
+                // Roll back partial emit and re-propagate: there is no
+                // OP_NATIVE_DEFINE fallback any more, so an unlowerable
+                // expression is a hard compile failure. A higher legitimate
+                // retry (if any) sees clean state thanks to the rollback.
                 st.Code.Truncate(savedPc);
                 if (st.AstRefs.Count > savedAstRefs)
                     st.AstRefs.RemoveRange(savedAstRefs, st.AstRefs.Count - savedAstRefs);
                 st.ScopeDepth = savedScopeDepth;
-            }
-
-            if (!emitted)
-            {
-                if (st.DefineRefs.Count > ushort.MaxValue)
-                    throw new IrCompileException("DefineRefs overflow during CompileAsExpression");
-                ushort refIdx = (ushort)st.DefineRefs.Count;
-                st.DefineRefs.Add(node);
-                st.Code.Emit2(Opcode.NativeDefine, retSlot, refIdx);
-                if (topSlot > st.MaxTempUsed) st.MaxTempUsed = topSlot;
+                throw;
             }
 
             st.Code.Emit3(Opcode.Halt, retSlot, 0, 0);
@@ -1488,7 +1448,7 @@ namespace RaLanguage.Interpreter.IR
             st.StringInitBindings.UnionWith(CollectStringInitBindingNames(node));
             const byte ScratchSlot = 0;
 
-            CompileStatementWithFallback(node, st, ScratchSlot);
+            CompileStatementOrThrow(node, st, ScratchSlot);
 
             // Trailing terminator: load null + halt (Value=null, no
             // FuncReturnValue set). Explicit `ret X` inside the body emits
@@ -1613,8 +1573,8 @@ namespace RaLanguage.Interpreter.IR
                 catch (IrCompileException)
                 {
                     // Roll back any partial emit before falling through to the
-                    // block-form path (which uses CompileStatementWithFallback
-                    // — strictly more permissive at the cost of losing the
+                    // block-form path (CompileStatementOrThrow per statement —
+                    // strictly more permissive at the cost of losing the
                     // auto-return value).
                     st.Code.Truncate(savedPc);
                     if (st.AstRefs.Count > savedAstRefs)
@@ -1626,11 +1586,11 @@ namespace RaLanguage.Interpreter.IR
             if (body is ScopeNode sc)
             {
                 foreach (var stmt in sc.Nodes)
-                    CompileStatementWithFallback(stmt, st, ScratchSlot);
+                    CompileStatementOrThrow(stmt, st, ScratchSlot);
             }
             else if (body != null)
             {
-                CompileStatementWithFallback(body, st, ScratchSlot);
+                CompileStatementOrThrow(body, st, ScratchSlot);
             }
 
             // Default trailing terminator: load null into the scratch slot
@@ -2019,7 +1979,6 @@ namespace RaLanguage.Interpreter.IR
                     case Opcode.Typeof:
                     case Opcode.Nameof:
                     case Opcode.DefineFunction:
-                    case Opcode.NativeDefine:
                     case Opcode.Await:
                     case Opcode.Spawn:
                     case Opcode.NullCoal:
@@ -2316,118 +2275,22 @@ namespace RaLanguage.Interpreter.IR
             }
         }
 
-        private static void CompileStatementWithFallback(AstNode stmt, State st, byte scratchSlot)
+        // Compile a single statement that MUST lower to IR. Replaces the old
+        // CompileStatementWithFallback: with OP_NATIVE_DEFINE deleted there is
+        // no visitor fallback, so a kind TryCompileStatement cannot natively
+        // lower (returns false) or throws while lowering is a hard compile
+        // failure. Every caller is a top-level statement loop (CompileScript,
+        // CompileMethodShape body, CompileAsStatement) or the non-strict bare
+        // `{ }` Scope child loop — none retry speculatively, so no local
+        // rollback is needed (the whole RaFunction is abandoned on failure, or
+        // an outer rollback truncates past this statement). The corpus is
+        // entirely ND=0, so this never fires for any corpus frame.
+        private static void CompileStatementOrThrow(AstNode stmt, State st, byte scratchSlot)
         {
-            int savedPc = st.Code.Pc;
-            int savedAstRefs = st.AstRefs.Count;
-            int savedScopeDepth = st.ScopeDepth;
             byte topSlot = 1;
-
-            try
-            {
-                // L0 parity oracle: when this kind is force-flagged, skip the
-                // native path so the statement rolls back to OP_NATIVE_DEFINE.
-                // Nothing was emitted yet, so the rollback below is a no-op.
-                if (!IsForcedFallback(stmt.NodeType)
-                    && TryCompileStatement(stmt, st, ref topSlot, scratchSlot, strict: false))
-                {
-                    if (topSlot > st.MaxTempUsed) st.MaxTempUsed = topSlot;
-                    return;
-                }
-            }
-            catch (IrCompileException)
-            {
-                // intentional: fall through and fallback
-            }
-
-            // rollback tentative state
-            st.Code.Truncate(savedPc);
-            if (st.AstRefs.Count > savedAstRefs)
-                st.AstRefs.RemoveRange(savedAstRefs, st.AstRefs.Count - savedAstRefs);
-            st.ScopeDepth = savedScopeDepth;
-            EmitFallback(stmt, st, scratchSlot);
-        }
-
-        // Rollback emits OP_NATIVE_DEFINE for every node kind that has a
-        // registered Apply dispatch in VmExecutor. Anything else is a hard
-        // failure: there is no AST-walker fallback any more.
-        private static void EmitFallback(AstNode node, State st, byte scratchSlot)
-        {
-            if (!HasNativeDefineRoute(node.NodeType))
-                throw new IrCompileException(
-                    $"no NATIVE_DEFINE route for node {node.NodeType}; wire VmExecutor.OP_NATIVE_DEFINE first");
-            if (st.DefineRefs.Count > ushort.MaxValue)
-                throw new IrCompileException("DefineRefs overflow (>65535)");
-            ushort refIdx = (ushort)st.DefineRefs.Count;
-            st.DefineRefs.Add(node);
-            st.Code.Emit2(Opcode.NativeDefine, scratchSlot, refIdx);
-        }
-
-        // Mirrors VmExecutor's OP_NATIVE_DEFINE switch. Keep in sync when
-        // adding a new dispatch case there.
-        private static bool HasNativeDefineRoute(AstNodeType t)
-        {
-            switch (t)
-            {
-                case AstNodeType.ExtensionDefinition:
-                case AstNodeType.TraitDefinition:
-                case AstNodeType.StructDefinition:
-                case AstNodeType.RecordDefinition:
-                case AstNodeType.InterfaceDefinition:
-                case AstNodeType.EnumDefinition:
-                case AstNodeType.UsingNamespace:
-                case AstNodeType.ClassDefinition:
-                case AstNodeType.AnnotationDefinition:
-                case AstNodeType.DelegateDefinition:
-                case AstNodeType.NamespaceDeclaration:
-                case AstNodeType.ImportAll:
-                case AstNodeType.ImportSelective:
-                case AstNodeType.ImportAlias:
-                case AstNodeType.Match:
-                case AstNodeType.DestructuringDeclaration:
-                case AstNodeType.TryUnwrap:
-                case AstNodeType.Await:
-                case AstNodeType.Spawn:
-                case AstNodeType.Emit:
-                case AstNodeType.ForAwait:
-                case AstNodeType.Pipeline:
-                case AstNodeType.Borrow:
-                case AstNodeType.DereferenceAssignment:
-                case AstNodeType.Goto:
-                case AstNodeType.Label:
-                case AstNodeType.SuperFor:
-                case AstNodeType.AsmBlock:
-                case AstNodeType.RegexLiteral:
-                case AstNodeType.FormattedInterpolation:
-                case AstNodeType.Yield:
-                case AstNodeType.AnnotationApplication:
-                case AstNodeType.Switch:
-                case AstNodeType.Try:
-                case AstNodeType.Scope:
-                case AstNodeType.If:
-                case AstNodeType.VariableDeclaration:
-                case AstNodeType.VariableAssignment:
-                case AstNodeType.Break:
-                case AstNodeType.Continue:
-                case AstNodeType.Pass:
-                case AstNodeType.Return:
-                case AstNodeType.Throw:
-                case AstNodeType.Retry:
-                case AstNodeType.BinaryOperation:
-                case AstNodeType.UnaryOperation:
-                case AstNodeType.List:
-                case AstNodeType.Set:
-                case AstNodeType.Tuple:
-                case AstNodeType.Map:
-                case AstNodeType.FunctionCall:
-                case AstNodeType.VariableDelete:
-                case AstNodeType.MemberAssignment:
-                case AstNodeType.ListAssignment:
-                case AstNodeType.WithExpression:
-                    return true;
-                default:
-                    return false;
-            }
+            if (!TryCompileStatement(stmt, st, ref topSlot, scratchSlot, strict: false))
+                throw new IrCompileException($"statement not IR-lowerable: {stmt.NodeType}");
+            if (topSlot > st.MaxTempUsed) st.MaxTempUsed = topSlot;
         }
 
         // L5: build a FLAT EnumDef from an enum declaration, or return false to
@@ -3405,7 +3268,7 @@ namespace RaLanguage.Interpreter.IR
                     {
                         EmitPushScope(st);
                         foreach (var child in sc.Nodes)
-                            CompileStatementWithFallback(child, st, scratchSlot);
+                            CompileStatementOrThrow(child, st, scratchSlot);
                         EmitPopScope(st);
                         return true;
                     }
@@ -3469,10 +3332,10 @@ namespace RaLanguage.Interpreter.IR
                 // node tagged AstNodeType.Retry is RetryNode — there is no bare
                 // `retry` keyword (the parser always requires `for ... times`).
                 // CompileRetry composes the loop counter + EhTable machinery and
-                // self-throws IrCompileException for the cases it leaves to the
-                // visitor (non-literal/negative/too-large count, `delay`, a body/
-                // else control escape), routing the whole statement to OP_NATIVE_
-                // DEFINE via CompileStatementWithFallback.
+                // self-throws IrCompileException for the cases it cannot lower
+                // (non-literal/negative/too-large count, `delay`, a body/else
+                // control escape). With OP_NATIVE_DEFINE deleted those throws
+                // propagate as a hard compile failure (no corpus retry hits this).
                 case AstNodeType.Retry:
                     CompileRetry((Parser.Nodes.Statements.RetryNode)stmt, st, ref topSlot, scratchSlot);
                     return true;
@@ -3540,14 +3403,15 @@ namespace RaLanguage.Interpreter.IR
                 // constant-integer literals (and with no annotations / where-
                 // constraints) lower to a FLAT EnumDef descriptor + OP_DEFINE_TYPE
                 // — no AST in the `.rac`. Anything outside that flat subset
-                // throws → CompileStatementWithFallback emits OP_NATIVE_DEFINE so
-                // the visitor handles it (value side effects, exotic types,
-                // annotations, generics-with-constraints, …).
+                // (value side effects, exotic types, annotations,
+                // generics-with-constraints, …) throws IrCompileException; with
+                // OP_NATIVE_DEFINE gone that is a hard compile failure (the whole
+                // corpus stays inside the flat subset).
                 case AstNodeType.EnumDefinition:
                 {
                     var en = (Parser.Nodes.Enums.EnumDefinitionNode)stmt;
                     if (!TryBuildEnumDef(en, out var edef))
-                        throw new IrCompileException("enum not flat-lowerable -> fallback");
+                        throw new IrCompileException("enum not flat-lowerable");
                     if (st.TypeDefs.Count > ushort.MaxValue)
                         throw new IrCompileException("TypeDefs overflow (>65535)");
                     ushort tdIdx = (ushort)st.TypeDefs.Count;
@@ -3779,12 +3643,7 @@ namespace RaLanguage.Interpreter.IR
                         if (st.DefineRefs.Count > dSavedRefs)
                             st.DefineRefs.RemoveRange(dSavedRefs, st.DefineRefs.Count - dSavedRefs);
                     }
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort ddRefIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(stmt);
-                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, ddRefIdx);
-                    return true;
+                    throw new IrCompileException("destructuring-declaration not IR-lowerable");
                 }
 
                 // L8 — `emit x` (statement, sync). Evaluate the value, emit
@@ -3811,12 +3670,7 @@ namespace RaLanguage.Interpreter.IR
                         if (st.DefineRefs.Count > eSavedRefs)
                             st.DefineRefs.RemoveRange(eSavedRefs, st.DefineRefs.Count - eSavedRefs);
                     }
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort emRefIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(stmt);
-                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, emRefIdx);
-                    return true;
+                    throw new IrCompileException("emit statement not IR-lowerable");
                 }
 
                 // L8 — `for await x in stream { body }` (statement form). Lowered
@@ -3886,12 +3740,7 @@ namespace RaLanguage.Interpreter.IR
                         if (st.DefineRefs.Count > faSavedRefs)
                             st.DefineRefs.RemoveRange(faSavedRefs, st.DefineRefs.Count - faSavedRefs);
                     }
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort faRefIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(stmt);
-                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, faRefIdx);
-                    return true;
+                    throw new IrCompileException("for-await statement not IR-lowerable");
                 }
 
                 // Native registrations + long-tail expressions / statements.
@@ -3912,12 +3761,9 @@ namespace RaLanguage.Interpreter.IR
                         st.Code.EmitBackwardJump(Opcode.Jmp, 0, gtTarget.Pc);
                         return true;
                     }
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort gtRefIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(stmt);
-                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, gtRefIdx);
-                    return true;
+                    // Forward / undefined goto target: not IR-lowerable (the
+                    // visitor used to raise RA0401 here via OP_NATIVE_DEFINE).
+                    throw new IrCompileException("forward/undefined goto not IR-lowerable");
                 }
                 // L10: `LABEL: <rest of block>`. The parser folds the rest of the
                 // enclosing block into the label's ScopeNode body. Lower it like a
@@ -3959,12 +3805,7 @@ namespace RaLanguage.Interpreter.IR
                         if (st.DefineRefs.Count > lSavedRefs)
                             st.DefineRefs.RemoveRange(lSavedRefs, st.DefineRefs.Count - lSavedRefs);
                     }
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort lblRefIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(stmt);
-                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, lblRefIdx);
-                    return true;
+                    throw new IrCompileException("label body not IR-lowerable");
                 }
                 case AstNodeType.AsmBlock:
                     CompileAsmBlock((Parser.Nodes.Asm.AsmBlockNode)stmt, scratchSlot, st, ref topSlot);
@@ -4014,12 +3855,9 @@ namespace RaLanguage.Interpreter.IR
                                 st.DefineRefs.RemoveRange(ySavedRefs, st.DefineRefs.Count - ySavedRefs);
                         }
                     }
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort yRefIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(stmt);
-                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, yRefIdx);
-                    return true;
+                    // Reached when the yield value expr can't lower (or a bare
+                    // `yield` with no expression, which the IR does not lower).
+                    throw new IrCompileException("yield statement not IR-lowerable");
                 }
                 case AstNodeType.AnnotationApplication:
                 {
@@ -4056,12 +3894,7 @@ namespace RaLanguage.Interpreter.IR
                         if (st.DefineRefs.Count > savedRefs)
                             st.DefineRefs.RemoveRange(savedRefs, st.DefineRefs.Count - savedRefs);
                     }
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort swStmtRefIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(stmt);
-                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, swStmtRefIdx);
-                    return true;
+                    throw new IrCompileException("switch statement not IR-lowerable");
                 }
 
                 // L7: statement-position match — lower the literal/wildcard
@@ -4089,12 +3922,7 @@ namespace RaLanguage.Interpreter.IR
                         if (st.DefineRefs.Count > savedRefs)
                             st.DefineRefs.RemoveRange(savedRefs, st.DefineRefs.Count - savedRefs);
                     }
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort mStmtRefIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(stmt);
-                    st.Code.Emit2(Opcode.NativeDefine, scratchSlot, mStmtRefIdx);
-                    return true;
+                    throw new IrCompileException("match statement not IR-lowerable");
                 }
 
                 case AstNodeType.VariableAssignment:
@@ -4278,13 +4106,12 @@ namespace RaLanguage.Interpreter.IR
         // branch exit.
         //
         // M21.1: dropped the BodyContainsUnsupported pre-checks. Strict-mode
-        // TryCompileStatement already emits OP_NATIVE_DEFINE for the long
-        // tail (Match, Switch, Try, Await, AnnotationApplication, etc.), so
-        // pre-rejecting them throws away native lowering of the if scaffold
-        // for no gain. Anything strict-mode genuinely can't express still
-        // throws IrCompileException, which the outer
-        // CompileStatementWithFallback catches and routes the whole If
-        // through OP_NATIVE_DEFINE → IfNodeVisitor.Apply.
+        // TryCompileStatement natively lowers the long tail (Match, Switch,
+        // Try, Await, AnnotationApplication, etc.), so pre-rejecting them throws
+        // away native lowering of the if scaffold for no gain. Anything
+        // strict-mode genuinely can't express still throws IrCompileException,
+        // which now propagates as a hard compile failure (OP_NATIVE_DEFINE and
+        // its visitor fallback are gone; the corpus never reaches this).
         private static void CompileIf(IfNode node, State st, ref byte topSlot, byte scratchSlot)
         {
             var endJumps = new List<int>();
@@ -6369,9 +6196,9 @@ namespace RaLanguage.Interpreter.IR
                 return;
             }
 
-            // Interpolated: try OP_ASM_INVOKE_I; roll back + NativeDefine on any
-            // limit hit (DefineRefs idx > u8, temp-band overflow) or an
-            // un-lowerable %{…} expression.
+            // Interpolated: try OP_ASM_INVOKE_I; on any limit hit (DefineRefs
+            // idx > u8, temp-band overflow) or an un-lowerable %{…} expression,
+            // roll back and fail — there is no OP_NATIVE_DEFINE fallback.
             int savedPc = st.Code.Pc;
             byte savedTop = topSlot;
             int savedRefs = st.DefineRefs.Count;
@@ -6384,11 +6211,7 @@ namespace RaLanguage.Interpreter.IR
             topSlot = savedTop;
             if (st.DefineRefs.Count > savedRefs)
                 st.DefineRefs.RemoveRange(savedRefs, st.DefineRefs.Count - savedRefs);
-            if (st.DefineRefs.Count > ushort.MaxValue)
-                throw new IrCompileException("DefineRefs overflow (>65535)");
-            ushort ndIdx = (ushort)st.DefineRefs.Count;
-            st.DefineRefs.Add(node);
-            st.Code.Emit2(Opcode.NativeDefine, dst, ndIdx);
+            throw new IrCompileException("interpolated asm block not IR-lowerable");
         }
 
         // Emit OP_ASM_INVOKE_I for an interpolated asm block, or return false to
@@ -6637,8 +6460,8 @@ namespace RaLanguage.Interpreter.IR
         {
             // M21.1: pre-check dropped — strict-mode CompileBodyStrictInline
             // raises IrCompileException directly when a body child genuinely
-            // cannot lower, and the outer CompileStatementWithFallback rolls
-            // back and routes the whole While through OP_NATIVE_DEFINE.
+            // cannot lower; that now propagates as a hard compile failure
+            // (OP_NATIVE_DEFINE + visitor fallback are gone).
             // M22.1: constant-fold a literal condition. `while false {}`
             // emits nothing; `while true {}` drops the cond + exit jump.
             bool? whileFolded = TryFoldCondition(node.ConditionNode);
@@ -8487,12 +8310,10 @@ namespace RaLanguage.Interpreter.IR
                     CompileTryFinally(node, st, ref topSlot, scratchSlot);
                     return;
                 }
-                if (st.DefineRefs.Count > ushort.MaxValue)
-                    throw new IrCompileException("DefineRefs overflow");
-                ushort refIdx = (ushort)st.DefineRefs.Count;
-                st.DefineRefs.Add(node);
-                st.Code.Emit2(Opcode.NativeDefine, scratchSlot, refIdx);
-                return;
+                // A break/continue/yield escaping a try/finally body needs a
+                // loop/arm target the finally lowering cannot see: not
+                // IR-lowerable (the visitor used to handle this).
+                throw new IrCompileException("try/finally with control-flow escape not IR-lowerable");
             }
             // M21.1: pre-checks dropped — strict-mode body compile raises
             // IrCompileException directly when needed.
@@ -9752,12 +9573,9 @@ namespace RaLanguage.Interpreter.IR
                         st.Code.Emit3(Opcode.Spawn, destSlot, spFnSlot, (byte)spArgCount);
                         return;
                     }
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort spRefIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(expr);
-                    st.Code.Emit2(Opcode.NativeDefine, destSlot, spRefIdx);
-                    return;
+                    // Non-call / non-natively-compilable spawn target: not
+                    // IR-lowerable (the visitor used to handle this).
+                    throw new IrCompileException("spawn expression not IR-lowerable");
                 }
 
                 // L9/L10: expression-position asm block (`let r = asm { … }`).
@@ -9785,25 +9603,18 @@ namespace RaLanguage.Interpreter.IR
                     return;
                 }
 
-                // Long-tail expressions routed via OP_NATIVE_DEFINE — the
-                // VM calls the visitor's static Apply directly, never
-                // hitting interpreter._visitors[]. These kinds appear in
-                // expression position when a scope/block child is evaluated by
-                // ScopeNodeVisitor (which uses Evaluate, not EvaluateStatement);
-                // each has a registered OP_NATIVE_DEFINE dispatch in VmExecutor.
+                // Long-tail statement-shaped kinds appearing in EXPRESSION
+                // position (e.g. a scope/block child evaluated by
+                // ScopeNodeVisitor via Evaluate, not EvaluateStatement). These
+                // have no value-position IR lowering; with OP_NATIVE_DEFINE gone
+                // they are a hard compile failure (no corpus frame reaches here).
                 case AstNodeType.DestructuringDeclaration:
                 case AstNodeType.Emit:
                 case AstNodeType.ForAwait:
                 case AstNodeType.SuperFor:
                 case AstNodeType.Yield:
-                {
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort ndExprIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(expr);
-                    st.Code.Emit2(Opcode.NativeDefine, destSlot, ndExprIdx);
-                    return;
-                }
+                    throw new IrCompileException(
+                        $"statement-shaped node in expression position not IR-lowerable: {expr.NodeType}");
                 case AstNodeType.IsType:
                 {
                     // L10: `x is T` / `x is not T` → OP_IS_TYPE (the same opcode
@@ -10097,11 +9908,9 @@ namespace RaLanguage.Interpreter.IR
 
                 // L7: expression-position match (`let y = match x { … }`).
                 // Lowers the literal/wildcard subset inline; on a non-lowerable
-                // match, fall back at the EXPRESSION level to OP_NATIVE_DEFINE
-                // (into destSlot) rather than propagating the throw — so the
-                // SURROUNDING statement (e.g. `ret match …`) still lowers. (This
-                // mirrors the long-tail expression-native group above, which
-                // used to carry Match.)
+                // match, roll back and re-propagate so a higher legitimate retry
+                // sees clean state. (There is no OP_NATIVE_DEFINE fallback any
+                // more — the corpus is entirely IR-lowered.)
                 case AstNodeType.Match:
                 {
                     int savedPc = st.Code.Pc;
@@ -10118,21 +9927,15 @@ namespace RaLanguage.Interpreter.IR
                         topSlot = savedTop;
                         if (st.DefineRefs.Count > savedRefs)
                             st.DefineRefs.RemoveRange(savedRefs, st.DefineRefs.Count - savedRefs);
+                        throw;
                     }
-                    if (st.DefineRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort mRefIdx = (ushort)st.DefineRefs.Count;
-                    st.DefineRefs.Add(expr);
-                    st.Code.Emit2(Opcode.NativeDefine, destSlot, mRefIdx);
-                    return;
                 }
 
                 // L11: expression-position if (`let y = if c { … } else { … }`).
                 // Lowers each branch as a block-value; on a non-lowerable branch,
-                // fall back at the EXPRESSION level to OP_NATIVE_DEFINE (into
-                // destSlot) — mirroring the Match case. (CompileIfExpr emits
-                // PushScope before the throwing block-value compile, so the
-                // rollback additionally restores ScopeDepth.)
+                // roll back and re-propagate (no OP_NATIVE_DEFINE fallback).
+                // CompileIfExpr emits PushScope before the throwing block-value
+                // compile, so the rollback additionally restores ScopeDepth.
                 case AstNodeType.If:
                 {
                     int savedPc = st.Code.Pc; byte savedTop = topSlot; int savedRefs = st.DefineRefs.Count; int savedAst = st.AstRefs.Count; int savedScope = st.ScopeDepth;
@@ -10142,19 +9945,16 @@ namespace RaLanguage.Interpreter.IR
                         st.Code.Truncate(savedPc); topSlot = savedTop; st.ScopeDepth = savedScope;
                         if (st.DefineRefs.Count > savedRefs) st.DefineRefs.RemoveRange(savedRefs, st.DefineRefs.Count - savedRefs);
                         if (st.AstRefs.Count > savedAst) st.AstRefs.RemoveRange(savedAst, st.AstRefs.Count - savedAst);
+                        throw;
                     }
-                    if (st.DefineRefs.Count > ushort.MaxValue) throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort ifRefIdx = (ushort)st.DefineRefs.Count; st.DefineRefs.Add(expr);
-                    st.Code.Emit2(Opcode.NativeDefine, destSlot, ifRefIdx);
-                    return;
                 }
 
                 // L11: expression-position try/catch (`let y = try { … } catch …`).
                 // Lowers try + catch bodies as block-values; finally-as-value
-                // stays gated. On a non-lowerable body, fall back at the
-                // EXPRESSION level to OP_NATIVE_DEFINE (mirroring Match). The
-                // rollback also restores ScopeDepth (PushScope precedes the
-                // throwing block-value compile).
+                // stays gated. On a non-lowerable body, roll back and
+                // re-propagate (no OP_NATIVE_DEFINE fallback). The rollback also
+                // restores ScopeDepth (PushScope precedes the throwing
+                // block-value compile).
                 case AstNodeType.Try:
                 {
                     int savedPc = st.Code.Pc; byte savedTop = topSlot; int savedRefs = st.DefineRefs.Count; int savedAst = st.AstRefs.Count; int savedScope = st.ScopeDepth;
@@ -10164,11 +9964,8 @@ namespace RaLanguage.Interpreter.IR
                         st.Code.Truncate(savedPc); topSlot = savedTop; st.ScopeDepth = savedScope;
                         if (st.DefineRefs.Count > savedRefs) st.DefineRefs.RemoveRange(savedRefs, st.DefineRefs.Count - savedRefs);
                         if (st.AstRefs.Count > savedAst) st.AstRefs.RemoveRange(savedAst, st.AstRefs.Count - savedAst);
+                        throw;
                     }
-                    if (st.DefineRefs.Count > ushort.MaxValue) throw new IrCompileException("DefineRefs overflow (>65535)");
-                    ushort tryRefIdx = (ushort)st.DefineRefs.Count; st.DefineRefs.Add(expr);
-                    st.Code.Emit2(Opcode.NativeDefine, destSlot, tryRefIdx);
-                    return;
                 }
 
                 // Chained / value-position assignment (`var a = b = 5`, or any

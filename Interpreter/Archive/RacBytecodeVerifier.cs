@@ -492,13 +492,10 @@ namespace RaLanguage.Interpreter.Archive
                         CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
                         CheckIndex(imm16, funcDefLen, pc, opName, "FuncDefRefs", diags, path);
                         break;
-                    case Opcode.NativeDefine:
-                        CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
-                        CheckIndex(imm16, defineLen, pc, opName, "DefineRefs", diags, path);
-                        break;
                     case Opcode.AsmInvoke:
                         // L9 — [dst:a][defineRefIdx:imm16]. The parked AsmBlockNode
-                        // (pure text) lives in DefineRefs; same shape as NativeDefine.
+                        // (pure text) lives in DefineRefs; same shape as the parked
+                        // AnnotationApply / AsmInvokeI ops.
                         CheckSlot(a, local, pc, opName, "a (dst)", diags, path);
                         CheckIndex(imm16, defineLen, pc, opName, "DefineRefs", diags, path);
                         break;
@@ -588,11 +585,11 @@ namespace RaLanguage.Interpreter.Archive
                         break;
 
                     // ----- Reserved / not-yet-emitted -----
-                    // (MatchBegin shares 0x90 with NativeDefine — match
-                    // arms compile through NativeDefine + MatchNodeVisitor.
-                    // The MatchBegin / MatchArm / MatchEnd opcodes are
-                    // declared in the IR but never reached at this
-                    // value because OP_NATIVE_DEFINE wins the switch.)
+                    // (MatchArm / MatchEnd are declared in the IR but never
+                    // emitted — match expressions lower to the L7 pattern-test
+                    // opcodes, not these. 0x90, the old OP_NATIVE_DEFINE, has
+                    // been retired; a .rac carrying it now trips the `default`
+                    // "unknown opcode" diagnostic below.)
                     case Opcode.JmpFar:
                     case Opcode.MatchArm:
                     case Opcode.MatchEnd:

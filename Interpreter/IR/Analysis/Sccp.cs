@@ -590,7 +590,6 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Call: case Opcode.CallKw: case Opcode.CallMethod:
                 case Opcode.CallGeneric:                       // L10 — generic call, write A (impure, never folded)
                 case Opcode.NewInstance:
-                case Opcode.NativeDefine:
                 case Opcode.DefineType:
                 case Opcode.Await: case Opcode.Spawn:
                 case Opcode.AsmInvoke: case Opcode.AsmInvokeI: // L9/L10 — write A (impure, never folded)

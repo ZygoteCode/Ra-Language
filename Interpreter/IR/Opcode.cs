@@ -339,100 +339,22 @@ namespace RaLanguage.Interpreter.IR
         // current symbol table if the def has a name.
         DefineFunction  = 0x8F,
 
-        // [op][dst][refIdx:u16 → DefineRefs]. Dispatches by node.NodeType
-        // to the corresponding visitor's static Apply method. Covers
-        // ExtensionDefinition / TraitDefinition / StructDefinition /
-        // InterfaceDefinition / EnumDefinition / UsingNamespace.
-        // Class/Annotation/Namespace/Import remain on OP_VISIT_AST pending
-        // visitor refactors. Calling Apply directly skips
-        // interpreter._visitors[] dispatch entirely — the AST visitor
-        // array is never indexed.
-        NativeDefine    = 0x90,
+        // 0x90 — RETIRED. Formerly OP_NATIVE_DEFINE (the runtime AST-exec
+        // fallback: dispatch by node.NodeType to a visitor's static Apply for
+        // any construct the IR could not lower). The whole corpus is now ND=0
+        // (every frame is pure IR), so the opcode + its VM handler + the
+        // compiler's fallback-routing have been deleted. 0x90 is a free opcode
+        // value — DO NOT reuse it without auditing the --count-nd / --dump-ir /
+        // RacBytecodeVerifier tripwires that still key off the literal 0x90.
+        // The former 0x90 alias MatchBegin is retired with it.
 
         // --- match / try-unwrap ---
         //
-        // M86 — RESERVED BUT NOT EMITTED. Match expressions currently
-        // route through `Opcode.NativeDefine` to
-        // `Visitors.Patterns.MatchNodeVisitor.Apply`. That path works
-        // correctly (the audit's own observation) but pays the
-        // DefineRefs lookup + visitor dispatch per execution.
-        //
-        // Full IR lowering would replace the visitor path with an
-        // opcode stream of the following shape:
-        //
-        //   MatchBegin scrutinee_slot
-        //     ; scrutinee evaluated by preceding expression IR;
-        //     ; this opcode just records the slot for the arm
-        //     ; chain to consult.
-        //   MatchArm armIdx
-        //     ; pattern-test sub-stream emitted inline. Failure
-        //     ; falls through to the NEXT MatchArm; success
-        //     ; binds the pattern's bindings into the arm scope
-        //     ; (fresh SymbolTable child pushed at MatchArm
-        //     ; entry, popped on success-jump or fall-through).
-        //   <pattern test opcodes>
-        //     ; per-pattern primitives:
-        //     ;   PatLitEq    cmp slot, literal_idx       (literal pattern)
-        //     ;   PatVarBind  binding_name_idx            (variable bind)
-        //     ;   PatVarTag   variant_tag_const_idx       (zero-arity enum variant)
-        //     ;   PatVarPay   variant_tag, payload_dst    (payload-bearing variant)
-        //     ;   PatTupleLen len_imm16                   (tuple shape check)
-        //     ;   PatListLen  len_imm16, has_rest_flag    (list shape check)
-        //     ;   PatStructShape shape_ref_idx            (struct type check)
-        //     ;   PatFieldBind field_name_idx, dst_slot   (struct field extract)
-        //     ;   PatWildcard (no-op success)
-        //   <guard expression IR, if present>
-        //     ; standard expression compilation; result in cmp_slot.
-        //     ; JmpIfNot cmp_slot, next_arm
-        //   <body IR>
-        //     ; standard statement compilation. Falls through to
-        //     ; MatchEnd via Jmp.
-        //   MatchEnd
-        //     ; pops the arm scope, joins all successful arm
-        //     ; targets, finalises the match expression result
-        //     ; in the destination slot. Also surfaces the
-        //     ; "no arm matched" runtime error when reached
-        //     ; via fall-through from the final arm.
-        //
-        // Why deferred (multi-week milestone):
-        //
-        //   1. 7 distinct pattern shapes (Wildcard / Variable /
-        //      Literal / Variant / Tuple / List / Struct), each
-        //      with its own dispatch + binding-extraction
-        //      semantics. Variants and structs alone need
-        //      shape-aware ICs to match the existing MemberAccess
-        //      PIC infrastructure.
-        //   2. Binding scope plumbing — bindings introduced by a
-        //      pattern MUST NOT leak if the pattern eventually
-        //      fails (e.g. nested tuple where the inner element
-        //      doesn't match). The visitor today buffers
-        //      bindings in a list and commits on full match;
-        //      IR-level lowering needs a transactional scope
-        //      pattern (push trial scope → pop on failure).
-        //   3. Guards run AFTER bindings — so the guard's IR
-        //      must compile against the trial scope, which the
-        //      `MatchArm` lowering must establish before the
-        //      guard's `JmpIfNot`.
-        //   4. Body propagation — match bodies can `return` /
-        //      `break` / `continue` / `yield`. The MatchEnd
-        //      lowering must forward those out of the match
-        //      expression's result slot, matching the visitor's
-        //      `SuccessReturn` / `SuccessBreak` / `SuccessContinue`
-        //      / `SuccessYield` semantics.
-        //   5. Dispatch-loop await-point budget (proved by M85's
-        //      revert): adding a new async dispatch case for
-        //      Match would grow `Execute`'s async state machine
-        //      and tip the depth-2000 recursion test over the
-        //      C# stack budget. Any opcode-level Match lowering
-        //      must either (a) compile pattern bodies to slot-
-        //      level IR with no embedded await (already true
-        //      for pure patterns + guards, but bodies can
-        //      await), or (b) use a state-machine-free
-        //      `IValueTaskSource` fast path for the sync case.
-        //
-        // Until those land, NativeDefine routing stays the
-        // contract.
-        MatchBegin      = 0x90,   // _, b (scrutinee)
+        // RESERVED BUT NOT EMITTED. Match expressions lower to the L7
+        // pattern-test opcode family (EnumTagEq / StructShape / TupleShape /
+        // ListShape / … below), not to a MatchArm/MatchEnd stream. These two
+        // values are kept reserved for a possible future structured-match
+        // lowering; nothing emits or dispatches them today.
         MatchArm        = 0x91,   // _, armIdx:u16  jumps on no-match
         MatchEnd        = 0x92,
 

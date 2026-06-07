@@ -1188,7 +1188,6 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.CallGeneric:
                 case Opcode.NewInstance:
                 case Opcode.With:
-                case Opcode.NativeDefine:
                 case Opcode.DefineType:
                 case Opcode.Await: case Opcode.Spawn:
                 case Opcode.AsmInvoke: case Opcode.AsmInvokeI: // L9/L10 — write A (impure; not DCE-erasable)

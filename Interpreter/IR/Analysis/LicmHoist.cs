@@ -560,17 +560,11 @@ namespace RaLanguage.Interpreter.IR.Analysis
                         case Opcode.AssignBinding:
                         case Opcode.DeclareLocal:
                             return true;
-                        // Opaque AST-visitor dispatch. A NativeDefine runs an
-                        // arbitrary node visitor (while-let / for-let loop
-                        // control flags, try-catch bindings, finally bodies, …)
-                        // that mutates SymbolEntries BY NAME at runtime — writes
-                        // that never surface in the AST-derived `MutatedNames`.
-                        // Hoisting a LoadLocalS across it is unsound: e.g. a
-                        // `while let … { … }` reloads its synthetic loop flag via
-                        // LoadLocalS each iteration; the NativeDefine body sets
-                        // that flag false to terminate, so hoisting the reload
-                        // out of the loop spins forever. Refuse for ANY binding.
-                        case Opcode.NativeDefine:
+                        // Opaque ops that can mutate SymbolEntries BY NAME at
+                        // runtime — writes that never surface in the AST-derived
+                        // `MutatedNames`. Hoisting a LoadLocalS across one is
+                        // unsound (the reload could be the only thing observing a
+                        // by-name mutation), so refuse for ANY binding.
                         case Opcode.DefineType:
                         case Opcode.AsmInvoke: case Opcode.AsmInvokeI: // L9/L10 — native exec, arbitrary side effects
                         case Opcode.AnnotationApply: // L10 — re-enters the VM (arg eval)
@@ -754,7 +748,6 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.CallGeneric:
                 case Opcode.NewInstance:
                 case Opcode.With:
-                case Opcode.NativeDefine:
                 case Opcode.DefineType:
                 case Opcode.Await: case Opcode.Spawn:
                 case Opcode.AsmInvoke: case Opcode.AsmInvokeI:

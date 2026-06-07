@@ -309,9 +309,6 @@ namespace RaLanguage.Interpreter.IR.Analysis
         //     closure capture (Ra's default), can mutate ANY
         //     reachable binding — `x` is aliasable through any
         //     closure that captured it.
-        //   * `NativeDefine` dispatches an AST visitor that mutates
-        //     SymbolEntry values directly (extensions / traits /
-        //     enums / using-namespace), bypassing the VM dispatch.
         //   * `Await` may suspend then resume on a different fiber
         //     whose body mutated shared state.
         //   * EH transfers (`Throw` / catch handler entry) skip
@@ -417,7 +414,7 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 if (o == Opcode.Call || o == Opcode.CallKw
                     || o == Opcode.CallMethod || o == Opcode.TailCall
                     || o == Opcode.Spawn || o == Opcode.NewInstance
-                    || o == Opcode.NativeDefine || o == Opcode.Await
+                    || o == Opcode.Await
                     || o == Opcode.AsmInvoke || o == Opcode.AsmInvokeI
                     || o == Opcode.AnnotationApply || o == Opcode.CallGeneric
                     // L10: `del name` removes a binding from the symbol table,
@@ -511,7 +508,6 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.Call: case Opcode.CallKw: case Opcode.CallMethod:
                 case Opcode.CallGeneric:
                 case Opcode.NewInstance:
-                case Opcode.NativeDefine:
                 case Opcode.DefineType:
                 case Opcode.Await: case Opcode.Spawn:
                 case Opcode.AsmInvoke: case Opcode.AsmInvokeI:
@@ -686,7 +682,6 @@ namespace RaLanguage.Interpreter.IR.Analysis
                 case Opcode.DefineFunction:
                 case Opcode.GetSuper:
                 case Opcode.Nameof:
-                case Opcode.NativeDefine:
                 // L5: OP_DEFINE_TYPE carries a TypeDefs index in imm16, not a
                 // slot — reads no locals (the type is built from the descriptor).
                 case Opcode.DefineType:
