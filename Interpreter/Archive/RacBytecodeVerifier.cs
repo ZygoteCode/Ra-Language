@@ -146,6 +146,11 @@ namespace RaLanguage.Interpreter.Archive
                         CheckSlot(a, local, pc, opName, "a", diags, path);
                         // signed imm16 — payload value, not an index, no bound check
                         break;
+                    // L10: OP_SLEEP carries the delay (ms) in imm16 as a payload
+                    // value (0..65535), and `a` is unused. No slot / index bound
+                    // check applies — mirrors the LoadIntS64 imm16-payload shape.
+                    case Opcode.Sleep:
+                        break;
 
                     // ----- Variables / bindings -----
                     case Opcode.LoadGlobal:

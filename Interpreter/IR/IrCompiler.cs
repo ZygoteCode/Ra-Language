@@ -8677,9 +8677,27 @@ namespace RaLanguage.Interpreter.IR
             if (countLit < 0 || countLit > int.MaxValue)
                 throw new IrCompileException("retry count out of range -> fallback (visitor surfaces the runtime error)");
 
-            // Gate 2: `delay` has no IR lowering (no sleep opcode) — fall back.
-            if (node.DelayNode != null)
-                throw new IrCompileException("retry `delay` not IR-lowerable -> fallback");
+            // Gate 2: `delay M` lowers via OP_SLEEP (0xFB), but M MUST be a
+            // non-negative foldable integer literal in [0, 65535] — the imm16
+            // range OP_SLEEP carries the delay in. A literal matches how the count
+            // is validated at COMPILE time, so a non-int / negative / larger /
+            // runtime-expression `delay` falls back to the visitor — which carries
+            // the exact ExtractRetryInt coercion + RA error messages ("delay must
+            // be a non-negative integer", "delay cannot be negative", "delay is
+            // too large", …) AND evaluates/validates M up-front, before the first
+            // attempt. Falling back therefore preserves byte-exact parity for
+            // every non-literal delay form. (Encoding the delay as an immediate —
+            // rather than a slot read in the off-CFG catch handler — is what keeps
+            // the lowered form DCE-safe; see Opcode.Sleep.)
+            bool hasDelay = node.DelayNode != null;
+            long delayLit = 0;
+            if (hasDelay)
+            {
+                if (!TryGetLiteralLong(node.DelayNode!, out delayLit))
+                    throw new IrCompileException("retry `delay` not a foldable integer literal -> fallback (visitor coerces + validates up-front)");
+                if (delayLit < 0 || delayLit > ushort.MaxValue)
+                    throw new IrCompileException("retry `delay` out of imm16 range -> fallback (visitor validates + sleeps)");
+            }
 
             // Gate 3: control-flow escapes / try-with-finally in body or else are
             // not routed through this lowering — fall back to the visitor.
@@ -8713,6 +8731,12 @@ namespace RaLanguage.Interpreter.IR
             byte countSlot = AllocTemp(ref topSlot);
             EmitLiteralLongLoad(countLit, countSlot, st, ref topSlot); // N
 
+            // `delay M`: nothing to load up-front — the (compile-time-validated)
+            // delay literal is baked into the OP_SLEEP immediate emitted on the
+            // retry branch below. The visitor evaluates a *literal* M to the same
+            // constant regardless of when, so there is no observable difference in
+            // evaluation timing for the literal forms this path accepts.
+
             int scopeDepthAtBody = st.ScopeDepth;
             int loopTopPc = st.Code.Pc;
 
@@ -8733,7 +8757,29 @@ namespace RaLanguage.Interpreter.IR
             // if attempt < N: retry (backward jump to loop_top)
             byte cmpSlot = AllocTemp(ref topSlot);
             st.Code.Emit3(Opcode.LtII, cmpSlot, attemptSlot, countSlot);
-            st.Code.EmitBackwardJump(Opcode.JmpIf, cmpSlot, loopTopPc);
+            if (!hasDelay)
+            {
+                // No `delay`: the retry branch is just the back-jump (unchanged).
+                st.Code.EmitBackwardJump(Opcode.JmpIf, cmpSlot, loopTopPc);
+            }
+            else
+            {
+                // `delay M`: on the retry branch (attempt < N) sleep BEFORE the
+                // back-jump — mirroring the visitor's `if (attempt < retries - 1
+                // && delayMs > 0) Thread.Sleep(delayMs)` between failed attempts.
+                // On the exhausted branch (attempt >= N) skip the sleep entirely
+                // (the visitor's last failing attempt runs the else / re-raises
+                // WITHOUT sleeping). The delay (ms) rides in the OP_SLEEP imm16.
+                // Lower as:
+                //   JmpIfNot cmp -> afterSleep   (attempt >= N: skip sleep)
+                //   OP_SLEEP imm16=M             (attempt <  N: inter-attempt delay)
+                //   Jmp -> loop_top              (retry)
+                //   afterSleep:                  (falls into exhausted/else)
+                int skipSleepJmp = st.Code.EmitForwardJump(Opcode.JmpIfNot, cmpSlot);
+                st.Code.Emit2(Opcode.Sleep, 0, (ushort)delayLit);
+                st.Code.EmitBackwardJump(Opcode.Jmp, 0, loopTopPc);
+                st.Code.PatchJumpToHere(skipSleepJmp);
+            }
 
             // --- exhausted: every attempt failed ---
             if (node.ElseNode != null)

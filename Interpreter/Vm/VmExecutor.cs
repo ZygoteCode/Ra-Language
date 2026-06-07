@@ -1135,6 +1135,28 @@ namespace RaLanguage.Interpreter.Vm
                         ctx.SymbolTable.Remove(name);
                         break;
                     }
+                    case Opcode.Sleep:
+                    {
+                        // L10: `retry for N times delay M` inter-attempt delay. The
+                        // delay (ms) is the imm16 payload — NO slot read (see
+                        // Opcode.Sleep for why: a slot-based delay-load would sit in
+                        // the off-CFG catch handler and be DCE'd). The IR gates M to
+                        // a non-negative integer literal in [0, 65535], already the
+                        // exact int RetryNodeVisitor.ExtractRetryInt yields for that
+                        // literal. Thread.Sleep is the SAME blocking call the visitor
+                        // makes between failed attempts — that IS the parity
+                        // behavior. Reaching this op means an attempt remains (the
+                        // visitor's `attempt < retries - 1`); CompileRetry emits it
+                        // only on the retry branch, never on the exhausted/else path.
+                        ushort ms = Encoding.Imm16(instr);
+                        // The visitor only sleeps when delayMs > 0; Thread.Sleep(0)
+                        // is an observational no-op (a thread yield with no state /
+                        // output effect), so guarding it keeps behavior identical
+                        // while matching the visitor's `delayMs > 0` skip.
+                        if (ms > 0)
+                            System.Threading.Thread.Sleep(ms);
+                        break;
+                    }
                     case Opcode.AssignBinding:
                     {
                         byte src = Encoding.A(instr);

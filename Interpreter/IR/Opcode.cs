@@ -795,6 +795,29 @@ namespace RaLanguage.Interpreter.IR
         // barrier (a deletion can invalidate cached LoadGlobal lookups).
         DeleteLocal     = 0xFA,   // a unused, nameIdx:imm16 — remove binding from symbol table, raise if absent
 
+        // L10 — `retry for N times delay M { … }` inter-attempt delay. The delay
+        // (ms) is carried as the imm16 PAYLOAD (layout 2: [op][a:unused][imm16]),
+        // NOT in a slot. Rationale: the only read of a slot-based delay would
+        // live in the EhTable catch handler, which the CFG/SSA does NOT model
+        // (off-CFG) — so a constant delay-load there is invisible to the DCE
+        // solvers and gets erased (LoadConst / LoadIntS64 are both DCE-erasable
+        // in one pass or another), leaving the op reading garbage. Encoding the
+        // value as an immediate removes the separate load entirely, so there is
+        // nothing for DCE to erase. The IR compiler gates M to a non-negative
+        // integer literal in [0, 65535] (the imm16 range); any non-int /
+        // negative / larger / runtime-expression delay falls back to the
+        // RetryNodeVisitor, which carries the exact ExtractRetryInt coercion +
+        // RA error messages AND validates M up-front. The handler calls
+        // System.Threading.Thread.Sleep(ms) — the SAME blocking call the visitor
+        // makes between failed attempts (that IS the parity behavior). It only
+        // sleeps when ms > 0 (mirroring the visitor's `delayMs > 0`). BLOCKING +
+        // SIDE-EFFECTING; defines NO slot, reads NO slot; kept OUT of every
+        // DCE/CSE/GVN/LICM pure list so it is never erased or hoisted. Emitted
+        // only on the retry path (after the attempt-counter increment + the
+        // `attempt < N` check), never on the exhausted/else path — mirroring the
+        // visitor's `if (attempt < retries - 1 && delayMs > 0) Thread.Sleep`.
+        Sleep           = 0xFB,   // _, imm16 (ms) — Thread.Sleep(ms); blocking, side-effecting
+
         // Stop dispatch and return RuntimeResult.Success(locals[a]). Used at
         // the very end of a script body; functions use Ret/RetNull instead.
         Halt            = 0xF9,   // a (result slot)

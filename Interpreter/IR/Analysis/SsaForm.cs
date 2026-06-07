@@ -655,6 +655,12 @@ namespace RaLanguage.Interpreter.IR.Analysis
                     break;
                 // LoadIntS64: no operand reads (imm16 only).
                 case Opcode.LoadIntS64:
+                // L10: OP_SLEEP carries the delay (ms) in imm16 — reads NO slot
+                // (A is unused). Defines NO slot (DefinedSlot → default null) and
+                // is blocking + side-effecting, so it is never on any
+                // pure/eraseable list. Listed here (not defaulted) so the imm16
+                // bytes are NOT mis-decoded as B/C slot reads.
+                case Opcode.Sleep:
                 // Pure-immediate / no-operand loaders: encoding is
                 // layout-2 (slot in A, imm16 in B|C), so the
                 // default `yield B,C` fallback would mis-report
