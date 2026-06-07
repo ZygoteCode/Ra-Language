@@ -10,6 +10,70 @@ Baseline at branch start: ~**89%** of the test corpus fully de-AST'd (0 NativeDe
 `IrCompiler.cs`. Suite green throughout (graceful AST-walking fallback keeps the
 language 100% functional at every step).
 
+---
+
+## PROGRESS LOG + ACCURATE REMAINING (recursive audit, branch HEAD 659e5ee)
+
+Cleared this branch (14 commits, all green, parity MATCH, .rac round-trips, full
+suite 281/281 + 3067 assertions at every step): record-class inheritance + abstract
+records, lazy properties, **if/try-as-expression** (biggest, ~22 top-level ND),
+node-level annotations (V12), match-pattern subset, unary-plus/chained-assign/
+negative-literal defaults, **OP_IN (0xF7)** in/not-in, **OP_LIST_EXTEND (0xF8)**
+list-spread (+ wired the dormant ListPush), non-const struct/class field defaults
+(V13, construction thunk), interface/trait properties+events (V14), postfix/prefix
+++/-- (+ C-style for, transitively), **OP_DELETE_LOCAL (0xFA)** del. Plus latent
+bugs fixed: DCE erasing dead boxed rotates/shifts (silenced throws), struct-
+serializer field-dedup (dropped thunks on load), 2 RacBytecodeVerifier false-
+positives (DeclSlot=-1 sentinel, CatchSlot vs LocalCount).
+
+**METHODOLOGY CORRECTION (important):** `--dump-ir` prints ONLY the top-level
+script frame; ND inside fn/method BODIES is invisible to it. A recursive all-frames
+audit (walk FuncDefRefs + DefineRefs + Children, count opcode 0x90) is the true
+measure. Top-level grep says 7 ND / 4 files; **recursive truth = 47 ND / 21 files.**
+The cleared constructs above lower wherever they appear (scope-independent IrCompiler
+changes) — but other constructs' nested-body instances were never counted.
+
+**REMAINING: 47 ND in 21 files, by category (sorted, recursive count):**
+1. `match-unused-bind` (13, 11 files) — an arm binds a payload/binder var UNUSED in
+   that arm body (`case Ok(n) -> "x"`, n dead): variant/struct/list/bare/`is T as n`.
+   `case Ok(n) -> n` (used) lowers. Biggest single lever.
+2. `match-stmt-destructure` (6, 6 files) — statement-position `match` (value discarded)
+   with a binding/destructure arm (`match x { case Ok(n) -> s = n }`). Literal/wildcard
+   stmt-match lowers.
+3. `retry-statement` (6, 1 file) — `retry for N times [delay M] { … } [else { … }]`
+   not IR-lowered at all.
+4. `match-multiparam-adt` (~4, 3) — match on a 2+-type-param ADT (`Result<int,string>`,
+   `Two<A,B>`) with destructure arms. Single-param (`Option<T>`) lowers.
+5. `if-let / while-let binding` (~4, 1) — `if let PAT = e {…}` / `while let` with any
+   binding pattern (distinct from match-expr lowering).
+6. `or-pattern-with-binds` (2, 2) — `case L(x) | R(x) -> x`. Pure-literal or-patterns lower.
+7. `nonconst-ext-field-default` (2, 1) — `extend C { var d = self.base*2 / = [1,2,3] }`.
+8. `lazy-ext-field` (2, 1) — `extend C { pub lazy var d = … }`.
+9. `nested-try-finally` (2, 2) — outer try WITH finally whose body has an inner try
+   ALSO with finally. Inner-finally-only inside try/catch lowers.
+10. `nested-match-in-arm` (1) — `match` directly as an arm body (flatten removes it).
+11. `null-pattern` (1) — `case null ->` in a nullable/union match.
+12. `ret-in-finally` (1) — `ret` originating INSIDE a `finally` (ret-in-try lowers).
+13. `catch-variant-pattern` (1) — `catch (NotFound(path))` destructure (= the flagged
+    pre-existing Try parity bug).
+14. `ref-param-call` (1) — call site passing `&x` into `fn(p: ref)` (borrow+deref lower;
+    only the ref-arg call site falls back — needs ref-arg call infra).
+
+~33 of 47 are pattern-matching completeness gaps → a focused match-lowering pass is
+the dominant lever. Then retry, try/finally edges, ext-field defaults, ref-param.
+Clearing all 14 empties every reachable `Emit(OP_NATIVE_DEFINE)` site → enables the
+deletion.
+
+**DELETION SCOPE (re-scoped from phase 6 after investigation):** deleting
+OP_NATIVE_DEFINE = remove the VmExecutor case (~1500) + the ~60 IrCompiler refs
+(EmitFallback / CompileStatementWithFallback / HasNativeDefineRoute /
+IsFallbackRoutable / rollback) + the Opcode.cs def. **KEEP** IrExpressionEvaluator
+(shared by 10 files — annotations, contracts, calls — NOT NativeDefine-exclusive),
+**KEEP** DefineRefs (shared with parked-node opcodes OP_WITH/OP_CALL_GENERIC/
+OP_ASM_INVOKE/OP_IS_TYPE), **KEEP** the visitors (reconstruct-on-load DefineType runs
+them). Gated on recursive-ND = 0 (the fallback wrapper becomes a hard-error once the
+opcode is gone, so EVERY construct must lower first).
+
 Each row: **[impact]** (ND ops it clears) · **[effort]** S/M/L/XL · **[risk]** lo/med/hi.
 Workflow per row (proven): descriptor/opcode → four-pillar model (SSA/SCCP/IrRewriter/
 LICM/verifier) → reconstruct → `.rac` serialize (self-versioned pool) → build →
