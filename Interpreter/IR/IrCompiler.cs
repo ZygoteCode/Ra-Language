@@ -1768,7 +1768,11 @@ namespace RaLanguage.Interpreter.IR
                 case Opcode.LoadIntS64:
                 case Opcode.Add: case Opcode.Sub: case Opcode.Mul:
                 case Opcode.Shl: case Opcode.Shr:
-                case Opcode.Ushr: case Opcode.Rol: case Opcode.Ror:
+                // Boxed Ushr / Rol / Ror deliberately EXCLUDED — they raise a
+                // user-visible RuntimeError on an arbitrary-precision `number`
+                // (Ushr also on a negative). Erasing a dead one (e.g. the
+                // discarded `1 <<<< 4` in `try { 1 <<<< 4; … }`) would silence
+                // that throw. The typed II variants below stay eligible.
                 case Opcode.BAnd: case Opcode.BOr: case Opcode.BXor:
                 case Opcode.AddNN: case Opcode.SubNN: case Opcode.MulNN:
                 case Opcode.AddII: case Opcode.SubII: case Opcode.MulII:
@@ -4158,6 +4162,129 @@ namespace RaLanguage.Interpreter.IR
         {
             foreach (var name in st.TypedAccumulators.Keys)
                 st.DirtyTypedAccs.Add(name);
+        }
+
+        // L11: compile a block (or bare expr) so its VALUE lands in destSlot.
+        // Ra block-value semantics: a block's value is its LAST expression;
+        // earlier elements run as statements. A bare (non-block) body compiles
+        // as a value expression directly. Does NOT push its own scope — callers
+        // scope each branch/body. Throws IrCompileException on anything
+        // non-lowerable, so the caller rolls the whole expression back to the
+        // OP_NATIVE_DEFINE fallback.
+        private static void CompileBlockValue(AstNode body, byte destSlot, State st, ref byte topSlot, byte scratch)
+        {
+            if (body.NodeType != AstNodeType.Scope && body.NodeType != AstNodeType.List)
+            {
+                CompileExpression(body, destSlot, st, ref topSlot);
+                return;
+            }
+            var nodes = body is ScopeNode sc
+                ? sc.Nodes
+                : ((Parser.Nodes.Primitives.ListNode)body).ElementNodes;
+            if (nodes.Count == 0) { st.Code.Emit3(Opcode.LoadNull, destSlot, 0, 0); return; }
+            for (int i = 0; i < nodes.Count - 1; i++)
+                if (!TryCompileStatement(nodes[i], st, ref topSlot, scratch, strict: true))
+                    throw new IrCompileException($"block-value stmt not compilable: {nodes[i].NodeType}");
+            var last = nodes[nodes.Count - 1];
+            // Last element: try as a value-expression; if it isn't one, run it as
+            // a statement and the block value is null (matches the visitor, whose
+            // RuntimeResult.Value for a non-expression statement is null).
+            int savedPc = st.Code.Pc;
+            byte savedTop = topSlot;
+            int savedRefs = st.DefineRefs.Count;
+            int savedAst = st.AstRefs.Count;
+            try
+            {
+                CompileExpression(last, destSlot, st, ref topSlot);
+            }
+            catch (IrCompileException)
+            {
+                st.Code.Truncate(savedPc);
+                topSlot = savedTop;
+                if (st.DefineRefs.Count > savedRefs) st.DefineRefs.RemoveRange(savedRefs, st.DefineRefs.Count - savedRefs);
+                if (st.AstRefs.Count > savedAst) st.AstRefs.RemoveRange(savedAst, st.AstRefs.Count - savedAst);
+                if (!TryCompileStatement(last, st, ref topSlot, scratch, strict: true))
+                    throw new IrCompileException($"block-value last stmt not compilable: {last.NodeType}");
+                st.Code.Emit3(Opcode.LoadNull, destSlot, 0, 0);
+            }
+        }
+
+        // L11: value-producing if (`let x = if c { … } else { … }`). Mirrors
+        // CompileIf, but each branch body lands its VALUE in destSlot via
+        // CompileBlockValue. No matching branch (and no else) → null, matching
+        // the visitor (IfNodeVisitor returns a null RuntimeValue when nothing
+        // fires). Each branch runs in its own scope.
+        private static void CompileIfExpr(IfNode node, byte destSlot, State st, ref byte topSlot)
+        {
+            byte scratch = AllocTemp(ref topSlot);
+            var endJumps = new List<int>();
+            for (int i = 0; i < node.Cases.Count; i++)
+            {
+                var (cond, body, _srn) = node.Cases[i];
+                bool? folded = TryFoldCondition(cond);
+                if (folded == true)
+                {
+                    EmitPushScope(st); CompileBlockValue(body, destSlot, st, ref topSlot, scratch); EmitPopScope(st);
+                    // remaining elif / else branches statically dead — drop.
+                    foreach (var j in endJumps) st.Code.PatchJumpToHere(j);
+                    MarkAllTypedAccsDirty(st);
+                    return;
+                }
+                if (folded == false) continue;
+                byte condSlot = AllocTemp(ref topSlot);
+                CompileExpression(cond, condSlot, st, ref topSlot);
+                int skipJmp = st.Code.EmitForwardJump(Opcode.JmpIfNot, condSlot);
+                EmitPushScope(st); CompileBlockValue(body, destSlot, st, ref topSlot, scratch); EmitPopScope(st);
+                endJumps.Add(st.Code.EmitForwardJump(Opcode.Jmp));
+                st.Code.PatchJumpToHere(skipJmp);
+            }
+            if (node.ElseCase.HasValue)
+            {
+                var (elseBody, _srn2) = node.ElseCase.Value;
+                EmitPushScope(st); CompileBlockValue(elseBody, destSlot, st, ref topSlot, scratch); EmitPopScope(st);
+            }
+            else
+            {
+                st.Code.Emit3(Opcode.LoadNull, destSlot, 0, 0); // no matching branch → null
+            }
+            foreach (var j in endJumps) st.Code.PatchJumpToHere(j);
+            MarkAllTypedAccsDirty(st);
+        }
+
+        // L11: value-producing try/catch (`let x = try { … } catch (e) { … }`).
+        // Mirrors the no-finally CompileTry path, landing both the try and the
+        // catch body's VALUE in destSlot via CompileBlockValue. A finally clause
+        // as a value stays gated → fallback (CompileTryFinally is statement-only
+        // and finally-value routing isn't lowered).
+        private static void CompileTryExpr(Parser.Nodes.Special.TryNode node, byte destSlot, State st, ref byte topSlot)
+        {
+            if (node.FinallyBody != null) throw new IrCompileException("try-expr with finally -> fallback");
+            if (node.CatchBody == null) throw new IrCompileException("try-expr without catch -> fallback");
+            byte catchSlot = AllocTemp(ref topSlot);
+            byte scratch = AllocTemp(ref topSlot);
+            int scopeDepthAtTry = st.ScopeDepth;
+            EmitPushScope(st);
+            int tryStartPc = st.Code.Pc;
+            CompileBlockValue(node.TryBody, destSlot, st, ref topSlot, scratch);
+            int tryEndPc = st.Code.Pc;
+            EmitPopScope(st);
+            int afterCatchJmp = st.Code.EmitForwardJump(Opcode.Jmp);
+            int catchPc = st.Code.Pc;
+            EmitPushScope(st);
+            if (node.CatchVarTok != null)
+            {
+                string varName = node.CatchVarTok.Value!.ToString()!;
+                ushort nameIdx = st.Names.Add(varName);
+                st.Code.Emit2(Opcode.SetLocalDirect, catchSlot, nameIdx);
+            }
+            CompileBlockValue(node.CatchBody, destSlot, st, ref topSlot, scratch);
+            EmitPopScope(st);
+            st.Code.PatchJumpToHere(afterCatchJmp);
+            st.EhTable.Add(new ExceptionHandler(
+                start: tryStartPc, end: tryEndPc,
+                catchPc: catchPc, finallyPc: -1,
+                catchSlot: catchSlot, scopeDepth: scopeDepthAtTry));
+            MarkAllTypedAccsDirty(st);
         }
 
         // L7 (first cut): expression-switch lowering. A switch where EVERY case
@@ -8816,6 +8943,50 @@ namespace RaLanguage.Interpreter.IR
                     ushort mRefIdx = (ushort)st.DefineRefs.Count;
                     st.DefineRefs.Add(expr);
                     st.Code.Emit2(Opcode.NativeDefine, destSlot, mRefIdx);
+                    return;
+                }
+
+                // L11: expression-position if (`let y = if c { … } else { … }`).
+                // Lowers each branch as a block-value; on a non-lowerable branch,
+                // fall back at the EXPRESSION level to OP_NATIVE_DEFINE (into
+                // destSlot) — mirroring the Match case. (CompileIfExpr emits
+                // PushScope before the throwing block-value compile, so the
+                // rollback additionally restores ScopeDepth.)
+                case AstNodeType.If:
+                {
+                    int savedPc = st.Code.Pc; byte savedTop = topSlot; int savedRefs = st.DefineRefs.Count; int savedAst = st.AstRefs.Count; int savedScope = st.ScopeDepth;
+                    try { CompileIfExpr((IfNode)expr, destSlot, st, ref topSlot); return; }
+                    catch (IrCompileException)
+                    {
+                        st.Code.Truncate(savedPc); topSlot = savedTop; st.ScopeDepth = savedScope;
+                        if (st.DefineRefs.Count > savedRefs) st.DefineRefs.RemoveRange(savedRefs, st.DefineRefs.Count - savedRefs);
+                        if (st.AstRefs.Count > savedAst) st.AstRefs.RemoveRange(savedAst, st.AstRefs.Count - savedAst);
+                    }
+                    if (st.DefineRefs.Count > ushort.MaxValue) throw new IrCompileException("DefineRefs overflow (>65535)");
+                    ushort ifRefIdx = (ushort)st.DefineRefs.Count; st.DefineRefs.Add(expr);
+                    st.Code.Emit2(Opcode.NativeDefine, destSlot, ifRefIdx);
+                    return;
+                }
+
+                // L11: expression-position try/catch (`let y = try { … } catch …`).
+                // Lowers try + catch bodies as block-values; finally-as-value
+                // stays gated. On a non-lowerable body, fall back at the
+                // EXPRESSION level to OP_NATIVE_DEFINE (mirroring Match). The
+                // rollback also restores ScopeDepth (PushScope precedes the
+                // throwing block-value compile).
+                case AstNodeType.Try:
+                {
+                    int savedPc = st.Code.Pc; byte savedTop = topSlot; int savedRefs = st.DefineRefs.Count; int savedAst = st.AstRefs.Count; int savedScope = st.ScopeDepth;
+                    try { CompileTryExpr((Parser.Nodes.Special.TryNode)expr, destSlot, st, ref topSlot); return; }
+                    catch (IrCompileException)
+                    {
+                        st.Code.Truncate(savedPc); topSlot = savedTop; st.ScopeDepth = savedScope;
+                        if (st.DefineRefs.Count > savedRefs) st.DefineRefs.RemoveRange(savedRefs, st.DefineRefs.Count - savedRefs);
+                        if (st.AstRefs.Count > savedAst) st.AstRefs.RemoveRange(savedAst, st.AstRefs.Count - savedAst);
+                    }
+                    if (st.DefineRefs.Count > ushort.MaxValue) throw new IrCompileException("DefineRefs overflow (>65535)");
+                    ushort tryRefIdx = (ushort)st.DefineRefs.Count; st.DefineRefs.Add(expr);
+                    st.Code.Emit2(Opcode.NativeDefine, destSlot, tryRefIdx);
                     return;
                 }
 
