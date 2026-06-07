@@ -6196,6 +6196,48 @@ namespace RaLanguage.Interpreter.IR
                     }
                     return;
                 }
+                // L10: variant destructure. The desugared head of a PATTERN-catch
+                // body (`catch (NotFound(path)) { … }`) is a `let NotFound(path) =
+                // $$catch$N` DestructuringDeclaration whose pattern is a variant.
+                // Mirrors the match compiler's variant arm (CompileMatchExpr ~5115
+                // and EmitLeafSubpattern ~5755): optional EnumNameEq gate, the
+                // polymorphic EnumTagEq tag test (skip→DestructureFail on a wrong
+                // variant — byte-identical err.Details to the visitor's RA0404),
+                // MatchArity, then EnumPayload-extract each sub recursively. A
+                // refutable variant in a plain `let X(..) = e` would have been
+                // parse-rejected, so on the let-destructure path the only producer
+                // is the catch desugaring (the visitor re-raises on no-match —
+                // which the DestructureFail skip reproduces).
+                case Parser.Nodes.Patterns.VariantPatternNode vp:
+                {
+                    int subArity = vp.SubPatterns?.Count ?? 0;
+                    if (subArity > byte.MaxValue)
+                        throw new IrCompileException("destructure: variant arity -> fallback");
+                    if (vp.EnumName != null)
+                    {
+                        if (st.Names.Add(vp.EnumName) > byte.MaxValue)
+                            throw new IrCompileException("destructure: enum name index -> fallback");
+                        byte enmSlot = AllocTemp(ref topSlot);
+                        int enmIdx = st.Names.Add(vp.EnumName);
+                        st.Code.Emit3(Opcode.EnumNameEq, enmSlot, valueSlot, (byte)enmIdx);
+                        skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, enmSlot));
+                    }
+                    if (st.Names.Add(vp.VariantName) > byte.MaxValue)
+                        throw new IrCompileException("destructure: variant name index -> fallback");
+                    byte tagSlot = AllocTemp(ref topSlot);
+                    int nameIdx = st.Names.Add(vp.VariantName);
+                    st.Code.Emit3(Opcode.EnumTagEq, tagSlot, valueSlot, (byte)nameIdx);
+                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, tagSlot));
+                    st.Code.Emit3(Opcode.MatchArity, 0, valueSlot, (byte)subArity);
+                    if (vp.SubPatterns != null)
+                        for (int i = 0; i < vp.SubPatterns.Count; i++)
+                        {
+                            byte paySlot = AllocTemp(ref topSlot);
+                            st.Code.Emit3(Opcode.EnumPayload, paySlot, valueSlot, (byte)i);
+                            EmitDestructure(vp.SubPatterns[i], paySlot, skips, st, ref topSlot);
+                        }
+                    return;
+                }
                 case Parser.Nodes.Patterns.ListPatternNode lp:
                 {
                     int prefixN = lp.Rest != null ? lp.RestIndex : lp.Elements.Count;
@@ -9725,23 +9767,41 @@ namespace RaLanguage.Interpreter.IR
                     CompileAsmBlock((Parser.Nodes.Asm.AsmBlockNode)expr, destSlot, st, ref topSlot);
                     return;
 
-                // Long-tail expressions routed via OP_NATIVE_DEFINE — the
-                // VM calls the visitor's static Apply directly, never
-                // hitting interpreter._visitors[].
-                case AstNodeType.DestructuringDeclaration:
-                case AstNodeType.Emit:
-                case AstNodeType.ForAwait:
-                case AstNodeType.SuperFor:
-                case AstNodeType.Yield:
+                // L10: `let a = @Name(args)` builds an AnnotationInstanceValue
+                // → OP_ANNOTATION_APPLY (off the OP_NATIVE_DEFINE route). ONLY
+                // AnnotationApplication parks an AnnotationApplicationNode here —
+                // OpAnnotationApply casts DefineRefs[idx] to that exact type, so
+                // any other kind sharing this case would crash with an
+                // InvalidCastException (reached e.g. when a pattern-catch body's
+                // DestructuringDeclaration is run as a scope child via the visitor
+                // — ScopeNodeVisitor evaluates every child in EXPRESSION position).
                 case AstNodeType.AnnotationApplication:
                 {
-                    // L10: `let a = @Name(args)` builds an AnnotationInstanceValue
-                    // → OP_ANNOTATION_APPLY (off the OP_NATIVE_DEFINE route).
                     if (st.DefineRefs.Count > ushort.MaxValue)
                         throw new IrCompileException("DefineRefs overflow (>65535)");
                     ushort aaIdx = (ushort)st.DefineRefs.Count;
                     st.DefineRefs.Add(expr);
                     st.Code.Emit2(Opcode.AnnotationApply, destSlot, aaIdx);
+                    return;
+                }
+
+                // Long-tail expressions routed via OP_NATIVE_DEFINE — the
+                // VM calls the visitor's static Apply directly, never
+                // hitting interpreter._visitors[]. These kinds appear in
+                // expression position when a scope/block child is evaluated by
+                // ScopeNodeVisitor (which uses Evaluate, not EvaluateStatement);
+                // each has a registered OP_NATIVE_DEFINE dispatch in VmExecutor.
+                case AstNodeType.DestructuringDeclaration:
+                case AstNodeType.Emit:
+                case AstNodeType.ForAwait:
+                case AstNodeType.SuperFor:
+                case AstNodeType.Yield:
+                {
+                    if (st.DefineRefs.Count > ushort.MaxValue)
+                        throw new IrCompileException("DefineRefs overflow (>65535)");
+                    ushort ndExprIdx = (ushort)st.DefineRefs.Count;
+                    st.DefineRefs.Add(expr);
+                    st.Code.Emit2(Opcode.NativeDefine, destSlot, ndExprIdx);
                     return;
                 }
                 case AstNodeType.IsType:
