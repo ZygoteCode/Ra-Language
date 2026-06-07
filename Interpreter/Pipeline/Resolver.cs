@@ -406,8 +406,17 @@ namespace RaLanguage.Interpreter.Pipeline
             var className = cls.NameTok.Value?.ToString();
             if (!string.IsNullOrEmpty(className)) s.AllocateLocalIfAbsent(className!);
 
+            // L10: a field default is framed as a self-bound, zero named-arg method
+            // body (self is implicit slot 0) so a NON-CONST default can be IR-compiled
+            // into an at-construction thunk. WalkMethodLikeBody resolves the body, so
+            // no separate bare Walk is needed. (Const defaults are framed too; harmless
+            // — IrCompiler folds them and ignores the frame.)
             foreach (var field in cls.Fields)
-                if (field.DefaultValueNode != null) Walk(field.DefaultValueNode, s);
+                if (field.DefaultValueNode != null)
+                {
+                    var dpb = WalkMethodLikeBody(field.DefaultValueNode, System.Array.Empty<RaLanguage.Lexer.Tokens.Token>(), s, out int dFrame);
+                    field.DefaultFrameId = dFrame; field.DefaultParamBindings = dpb;
+                }
 
             foreach (var m in cls.Methods) OpenFrameForFunction(m, s, isMethodFrame: true);
 
@@ -464,8 +473,14 @@ namespace RaLanguage.Interpreter.Pipeline
             var name = str.NameTok.Value?.ToString();
             if (!string.IsNullOrEmpty(name)) s.AllocateLocalIfAbsent(name!);
 
+            // L10: frame each field default (self implicit slot 0) so a NON-CONST
+            // default can be IR-compiled into an at-construction thunk. See WalkClass.
             foreach (var field in str.Fields)
-                if (field.DefaultValueNode != null) Walk(field.DefaultValueNode, s);
+                if (field.DefaultValueNode != null)
+                {
+                    var dpb = WalkMethodLikeBody(field.DefaultValueNode, System.Array.Empty<RaLanguage.Lexer.Tokens.Token>(), s, out int dFrame);
+                    field.DefaultFrameId = dFrame; field.DefaultParamBindings = dpb;
+                }
 
             foreach (var m in str.Methods)
             {

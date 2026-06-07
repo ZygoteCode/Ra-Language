@@ -1090,7 +1090,14 @@ namespace RaLanguage.Interpreter.Values.Primitives
 
                 if (field.DefaultValueNode != null)
                 {
-                    var initRes = await new Interpreter().Visit(field.DefaultValueNode, context);
+                    // L10: a NON-CONST default lowered to a thunk (IR) runs via the VM
+                    // in the SAME context the AST-walk used (semantics identical). A
+                    // const / non-lowered default AST-walks the initializer.
+                    RuntimeResult initRes;
+                    if (field.DefaultCompiledBody != null)
+                        initRes = await PropertyAccessOps.RunCompiledThunk(field.DefaultCompiledBody, context);
+                    else
+                        initRes = await new Interpreter().Visit(field.DefaultValueNode, context);
                     if (initRes.Error == null && initRes.Value != null)
                         value = initRes.Value;
                 }

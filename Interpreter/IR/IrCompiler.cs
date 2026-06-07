@@ -2552,13 +2552,21 @@ namespace RaLanguage.Interpreter.IR
             {
                 var fld = node.Fields[i];
                 if (fld.HasAnnotations) return false;
+                // L10: const default folds to DefaultConst (unchanged); a NON-CONST
+                // default compiles to a self-bound 0-arg thunk run at construction
+                // (the SAME GetOrCompileFieldDefault the struct field-init runs). A
+                // default that won't IR-compile → fall back to the visitor.
                 RuntimeValue? defConst = null;
+                RaFunction? fldThunk = null;
                 if (fld.DefaultValueNode != null && !TryFoldFieldDefaultConst(fld.DefaultValueNode, out defConst))
-                    return false; // non-constant field default → fallback to the visitor
+                {
+                    fldThunk = Runtime.FunctionDefinitionHelper.GetOrCompileFieldDefault(fld);
+                    if (fldThunk == null) return false; // non-const default that won't IR-compile → fallback to the visitor
+                }
                 fields[i] = new Defs.StructFieldDef(
                     fld.NameTok.Value?.ToString() ?? "", fld.FieldType,
                     fld.IsPublic, fld.IsStatic, fld.IsAbstract, fld.IsOverride,
-                    (int)fld.DeclarationType, defConst);
+                    (int)fld.DeclarationType, defConst, fldThunk);
             }
 
             var methods = new Defs.StructMethodDef[node.Methods.Count];
@@ -2837,13 +2845,21 @@ namespace RaLanguage.Interpreter.IR
             {
                 var fld = node.Fields[i];
                 if (fld.HasAnnotations) return false;
+                // L10: const default folds to DefaultConst (unchanged); a NON-CONST
+                // default compiles to a self-bound 0-arg thunk run at construction
+                // (the SAME GetOrCompileFieldDefault the class field-init runs). A
+                // default that won't IR-compile → fall back to the visitor.
                 RuntimeValue? defConst = null;
+                RaFunction? fldThunk = null;
                 if (fld.DefaultValueNode != null && !TryFoldFieldDefaultConst(fld.DefaultValueNode, out defConst))
-                    return false;
+                {
+                    fldThunk = Runtime.FunctionDefinitionHelper.GetOrCompileFieldDefault(fld);
+                    if (fldThunk == null) return false; // non-const default that won't IR-compile → fallback
+                }
                 fields[i] = new Defs.StructFieldDef(
                     fld.NameTok.Value?.ToString() ?? "", fld.FieldType,
                     fld.IsPublic, fld.IsStatic, fld.IsAbstract, fld.IsOverride,
-                    (int)fld.DeclarationType, defConst);
+                    (int)fld.DeclarationType, defConst, fldThunk);
             }
 
             var methods = new Defs.ClassMethodDef[node.Methods.Count];

@@ -106,7 +106,7 @@ namespace RaLanguage.Interpreter.Runtime.Properties
                         RuntimeResult initRes;
                         if (desc.SourceNode.DefaultCompiledBody != null)
                         {
-                            initRes = SyncAwait.Get(RunCompiledDefault(desc.SourceNode.DefaultCompiledBody, lazyCtx));
+                            initRes = SyncAwait.Get(RunCompiledThunk(desc.SourceNode.DefaultCompiledBody, lazyCtx));
                         }
                         else
                         {
@@ -495,11 +495,13 @@ namespace RaLanguage.Interpreter.Runtime.Properties
             return bodyRes;
         }
 
-        // L10: run a LAZY property's IR-compiled initializer thunk (self bound in
-        // `inner`). Mirrors RunCompiledAccessor — rent the pooled VM, run, return the
-        // host, normalise the OP_RET value through `.Value` so the first-touch caller
-        // reads the initializer's result.
-        private static async ValueTask<RuntimeResult> RunCompiledDefault(RaLanguage.Interpreter.IR.RaFunction compiled, Context inner)
+        // L10: run an IR-compiled default-init thunk (a self-bound 0-arg RaFunction).
+        // Shared by the LAZY property first-touch path (self bound in `inner`) AND by
+        // eager struct/class FIELD construction (which passes the construction context
+        // verbatim, matching the AST-walk path). Mirrors RunCompiledAccessor — rent the
+        // pooled VM, run, return the host, normalise the OP_RET value through `.Value`
+        // so the caller reads the initializer's result.
+        internal static async ValueTask<RuntimeResult> RunCompiledThunk(RaLanguage.Interpreter.IR.RaFunction compiled, Context inner)
         {
             var host = Vm.VmHostPool.Rent();
             var frame = Vm.VmFrame.Rent(compiled);

@@ -3056,17 +3056,10 @@ namespace RaLanguage.Interpreter.Archive
             WriteStringList(w, new List<string>(def.Generics));
 
             w.WriteI32(def.Fields.Length);
-            foreach (var fld in def.Fields)
-            {
-                w.WriteString(fld.Name);
-                WriteOptTd(w, fld.FieldType);
-                byte fflags = (byte)((fld.IsPublic ? 1 : 0) | (fld.IsStatic ? 2 : 0)
-                    | (fld.IsAbstract ? 4 : 0) | (fld.IsOverride ? 8 : 0));
-                w.WriteU8(fflags);
-                w.WriteI32(fld.DeclKind);
-                if (fld.DefaultConst == null) w.WriteU8(0);
-                else { w.WriteU8(1); ModuleBytecodeIo.SerializeConst(w, fld.DefaultConst, WriterPool); }
-            }
+            // Shared WriteFieldDef carries the V13 non-const default-init thunk
+            // (gated on WriterVersion); the byte layout is identical to the former
+            // inline loop for pre-V13 fields.
+            foreach (var fld in def.Fields) WriteFieldDef(w, fld);
 
             w.WriteI32(def.Methods.Length);
             foreach (var m in def.Methods) WriteMethodDef(w, m);
@@ -3368,18 +3361,9 @@ namespace RaLanguage.Interpreter.Archive
             int fn = r.ReadI32();
             if (fn < 0 || fn > 4_000_000) throw new System.IO.InvalidDataException($"rac: struct field count {fn} out of range");
             var fields = new RaLanguage.Interpreter.IR.Defs.StructFieldDef[fn];
-            for (int i = 0; i < fn; i++)
-            {
-                string fName = r.ReadString() ?? "";
-                var fType = ReadOptTd(r);
-                byte fflags = r.ReadU8();
-                int declKind = r.ReadI32();
-                RaLanguage.Interpreter.Values.RuntimeValue? defConst =
-                    r.ReadU8() != 0 ? ModuleBytecodeIo.DeserializeConst(r, ReaderPool) : null;
-                fields[i] = new RaLanguage.Interpreter.IR.Defs.StructFieldDef(
-                    fName, fType, (fflags & 1) != 0, (fflags & 2) != 0, (fflags & 4) != 0, (fflags & 8) != 0,
-                    declKind, defConst);
-            }
+            // Shared ReadFieldDef reads the V13 non-const default-init thunk (gated
+            // on ReaderVersion); identical to the former inline loop for pre-V13.
+            for (int i = 0; i < fn; i++) fields[i] = ReadFieldDef(r);
 
             int mn = r.ReadI32();
             if (mn < 0 || mn > 4_000_000) throw new System.IO.InvalidDataException($"rac: struct method count {mn} out of range");
@@ -3505,6 +3489,12 @@ namespace RaLanguage.Interpreter.Archive
             w.WriteI32(fld.DeclKind);
             if (fld.DefaultConst == null) w.WriteU8(0);
             else { w.WriteU8(1); ModuleBytecodeIo.SerializeConst(w, fld.DefaultConst, WriterPool); }
+            // V13: the NON-CONST default-init thunk (null = const / no default).
+            if (WriterVersion >= ModuleBytecodeIo.PayloadVersion_V13)
+            {
+                if (fld.CompiledDefault == null) w.WriteU8(0);
+                else { w.WriteU8(1); ModuleBytecodeIo.SerializeRaFunction(w, fld.CompiledDefault, WriterPool); }
+            }
         }
 
         private static RaLanguage.Interpreter.IR.Defs.StructFieldDef ReadFieldDef(RacBinaryReader r)
@@ -3515,9 +3505,13 @@ namespace RaLanguage.Interpreter.Archive
             int declKind = r.ReadI32();
             RaLanguage.Interpreter.Values.RuntimeValue? defConst =
                 r.ReadU8() != 0 ? ModuleBytecodeIo.DeserializeConst(r, ReaderPool) : null;
+            // V13: the NON-CONST default-init thunk (absent in < V13 → null).
+            RaLanguage.Interpreter.IR.RaFunction? compiledDefault = null;
+            if (ReaderVersion >= ModuleBytecodeIo.PayloadVersion_V13)
+                compiledDefault = r.ReadU8() != 0 ? ModuleBytecodeIo.DeserializeRaFunction(r, ReaderPool) : null;
             return new RaLanguage.Interpreter.IR.Defs.StructFieldDef(
                 fName, fType, (fflags & 1) != 0, (fflags & 2) != 0, (fflags & 4) != 0, (fflags & 8) != 0,
-                declKind, defConst);
+                declKind, defConst, compiledDefault);
         }
 
         private static void WriteClassMethodDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.ClassMethodDef m)

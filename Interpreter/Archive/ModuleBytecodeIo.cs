@@ -76,7 +76,7 @@ namespace RaLanguage.Interpreter.Archive
         //     v3 payloads keep loading unchanged; their callees pay
         //     the lazy compile once on first invocation, exactly as
         //     before.
-        public const ushort PayloadVersion = 12;
+        public const ushort PayloadVersion = 13;
         public const ushort PayloadVersion_V1 = 1;
         public const ushort PayloadVersion_V2 = 2;
         public const ushort PayloadVersion_V3 = 3;
@@ -120,6 +120,11 @@ namespace RaLanguage.Interpreter.Archive
         // load unchanged (annotated type/extension/annotation decls fell back to
         // NativeDefine).
         public const ushort PayloadVersion_V12 = 12;
+        // V13: non-const struct/class field defaults — StructFieldDef gains a
+        // CompiledDefault RaFunction (the non-const initializer lowered to a self-
+        // bound 0-arg thunk run at construction). Gated on ver >= V13, so V12 archives
+        // load unchanged (non-const eager field defaults fell back to NativeDefine).
+        public const ushort PayloadVersion_V13 = 13;
 
         public static byte[] Serialize(RaFunction root, SharedConstPoolBuilder? sharedPool = null)
         {
@@ -132,7 +137,7 @@ namespace RaLanguage.Interpreter.Archive
             // const inlines. Older wire versions (v1 / v2 / v3) are
             // still ACCEPTED by Deserialize for backward read.
             bool emitPool = sharedPool != null && sharedPool.Finalised && sharedPool.Pooled > 0;
-            ushort ver = PayloadVersion_V12;
+            ushort ver = PayloadVersion_V13;
             w.WriteU16(ver);
             w.WriteU16(0);
             // Stash the writer pool + version in thread-local state so
@@ -165,7 +170,8 @@ namespace RaLanguage.Interpreter.Archive
                 && ver != PayloadVersion_V5 && ver != PayloadVersion_V6
                 && ver != PayloadVersion_V7 && ver != PayloadVersion_V8
                 && ver != PayloadVersion_V9 && ver != PayloadVersion_V10
-                && ver != PayloadVersion_V11 && ver != PayloadVersion_V12)
+                && ver != PayloadVersion_V11 && ver != PayloadVersion_V12
+                && ver != PayloadVersion_V13)
                 throw new InvalidDataException($"rac: ModuleBytecode version {ver} not supported");
             ushort reserved = r.ReadU16();
             if (reserved != 0)

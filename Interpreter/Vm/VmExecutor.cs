@@ -3095,21 +3095,33 @@ namespace RaLanguage.Interpreter.Vm
                 // Rebuild a const default as a NumberNode whose CachedValue is
                 // the folded value — NumberNodeVisitor returns CachedValue
                 // verbatim (any type), so field-init evaluates to exactly the
-                // folded const (byte-identical to the visitor's evaluation).
+                // folded const (byte-identical to the visitor's evaluation). A
+                // NON-CONST default lowered to a thunk needs a NON-NULL stub
+                // DefaultValueNode (so construction enters the default branch) — a
+                // PassNode; the thunk is wired below (DefaultCompiledBody) and runs
+                // instead of the stub. Mirrors ReconstructProperty.
                 AstNode? defNode = null;
-                if (fd.DefaultConst != null)
+                if (fd.CompiledDefault != null)
+                    defNode = new Parser.Nodes.Operations.PassNode(s, e);
+                else if (fd.DefaultConst != null)
                 {
                     defNode = new Parser.Nodes.Primitives.NumberNode(
                         new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
                     { CachedValue = fd.DefaultConst };
                 }
-                fields.Add(new Parser.Nodes.Structs.StructFieldDefinitionNode(
+                var fieldNode = new Parser.Nodes.Structs.StructFieldDefinitionNode(
                     fd.IsPublic,
                     new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, fd.Name, s, e),
                     fd.FieldType,
                     defNode,
                     fd.IsStatic, fd.IsAbstract, fd.IsOverride,
-                    (Parser.Nodes.Variables.VariableDeclarationType)fd.DeclKind));
+                    (Parser.Nodes.Variables.VariableDeclarationType)fd.DeclKind);
+                if (fd.CompiledDefault != null)
+                {
+                    fieldNode.DefaultCompiledBody = fd.CompiledDefault;
+                    fieldNode.DefaultIrCompileTried = true;
+                }
+                fields.Add(fieldNode);
             }
 
             var methods = new System.Collections.Generic.List<Parser.Nodes.Structs.StructMethodDefinitionNode>(def.Methods.Length);
@@ -3441,16 +3453,28 @@ namespace RaLanguage.Interpreter.Vm
             var fields = new System.Collections.Generic.List<Parser.Nodes.Structs.StructFieldDefinitionNode>(def.Fields.Length);
             foreach (var fd in def.Fields)
             {
+                // A NON-CONST default lowered to a thunk needs a NON-NULL stub
+                // DefaultValueNode (PassNode) so construction enters the default
+                // branch; the thunk is wired below (DefaultCompiledBody) and runs
+                // instead of the stub. A const default rebuilds as a cached NumberNode.
                 AstNode? defNode = null;
-                if (fd.DefaultConst != null)
+                if (fd.CompiledDefault != null)
+                    defNode = new Parser.Nodes.Operations.PassNode(s, e);
+                else if (fd.DefaultConst != null)
                     defNode = new Parser.Nodes.Primitives.NumberNode(
                         new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e))
                     { CachedValue = fd.DefaultConst };
-                fields.Add(new Parser.Nodes.Structs.StructFieldDefinitionNode(
+                var fieldNode = new Parser.Nodes.Structs.StructFieldDefinitionNode(
                     fd.IsPublic,
                     new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, fd.Name, s, e),
                     fd.FieldType, defNode, fd.IsStatic, fd.IsAbstract, fd.IsOverride,
-                    (Parser.Nodes.Variables.VariableDeclarationType)fd.DeclKind));
+                    (Parser.Nodes.Variables.VariableDeclarationType)fd.DeclKind);
+                if (fd.CompiledDefault != null)
+                {
+                    fieldNode.DefaultCompiledBody = fd.CompiledDefault;
+                    fieldNode.DefaultIrCompileTried = true;
+                }
+                fields.Add(fieldNode);
             }
 
             var methods = new System.Collections.Generic.List<Parser.Nodes.Functions.FunctionDefinitionNode>(def.Methods.Length);

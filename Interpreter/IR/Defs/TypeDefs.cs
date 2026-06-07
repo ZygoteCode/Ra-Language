@@ -128,8 +128,10 @@ namespace RaLanguage.Interpreter.IR.Defs
     }
 
     // L5e — a struct field, fully flat (no AST). Const-foldable defaults are
-    // captured as a const RuntimeValue (null = no default); a non-constant
-    // default makes IrCompiler fall back to the visitor.
+    // captured as a const RuntimeValue (null = no default); a NON-CONST default is
+    // compiled to a self-bound 0-arg thunk (`CompiledDefault`) run at construction.
+    // A default that won't IR-compile makes IrCompiler fall back to the visitor.
+    // (Used by both struct + class — ClassDef.Fields is StructFieldDef[].)
     public sealed class StructFieldDef
     {
         public readonly string Name;
@@ -140,12 +142,15 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly bool IsOverride;
         public readonly int DeclKind;                  // (int)VariableDeclarationType
         public readonly Values.RuntimeValue? DefaultConst; // folded literal default, or null
+        public readonly RaFunction? CompiledDefault;   // non-const default-init thunk (null = const / no default)
 
         public StructFieldDef(string name, TypeDescriptor? fieldType, bool isPublic, bool isStatic,
-            bool isAbstract, bool isOverride, int declKind, Values.RuntimeValue? defaultConst)
+            bool isAbstract, bool isOverride, int declKind, Values.RuntimeValue? defaultConst,
+            RaFunction? compiledDefault = null)
         {
             Name = name; FieldType = fieldType; IsPublic = isPublic; IsStatic = isStatic;
             IsAbstract = isAbstract; IsOverride = isOverride; DeclKind = declKind; DefaultConst = defaultConst;
+            CompiledDefault = compiledDefault;
         }
     }
 
