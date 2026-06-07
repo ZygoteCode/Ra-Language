@@ -4731,7 +4731,17 @@ namespace RaLanguage.Interpreter.IR
                         //     unconditional CATCH-ALL when unguarded;
                         //  2) known zero-arity variant → an EnumTagEq tag test
                         //     (refutable, NOT a catch-all);
-                        //  3) else (unused, unknown) → fall back to the visitor.
+                        //  3) else (a lowercase identifier that is NOT a known
+                        //     zero-arity variant) → a BINDING. The zero-arity-variant
+                        //     set is program-complete (the CompileScript scan), so
+                        //     "not a known variant" PROVES this is a binding. If its
+                        //     value is never read in guard/body (the complete
+                        //     FindVarAccessByName scan finds no access → slot -1 AND
+                        //     MatchBinderIsProvablyUnused), the bind has no
+                        //     observable effect → treat it as a catch-all that binds
+                        //     NOTHING (a wildcard); when unguarded it always matches.
+                        //     If the name IS read but only out-of-frame (captured by
+                        //     a nested closure → not slot-eligible), fall back.
                         int bslot = FindMatchBindingSlot(vp.Name, arm.Guard, arm.Body, st);
                         if (bslot >= 0)
                         {
@@ -4745,8 +4755,16 @@ namespace RaLanguage.Interpreter.IR
                                 throw new IrCompileException("match: variant name index out of 8-bit range -> fallback");
                             // refutable tag test — never a catch-all.
                         }
+                        else if (MatchBinderIsProvablyUnused(vp.Name, arm.Guard, arm.Body))
+                        {
+                            // Unused binding ≡ wildcard catch-all (no bind, no
+                            // slot to reserve). Unguarded → always matches.
+                            if (arm.Guard == null && catchAllIdx < 0) catchAllIdx = i;
+                        }
                         else
                         {
+                            // Name IS used but the slot isn't a frame-local (e.g.
+                            // captured by a nested closure) → keep the safe fallback.
                             throw new IrCompileException("match: unconfirmable variable binding -> fallback");
                         }
                         break;
@@ -4806,11 +4824,18 @@ namespace RaLanguage.Interpreter.IR
                                 throw new IrCompileException("match: struct field name index out of 8-bit range -> fallback");
                             if (fieldPattern == null)
                             {
-                                // shorthand: bind the field name itself
+                                // shorthand: bind the field name itself. An UNUSED
+                                // shorthand bind (no read of the field name) has no
+                                // effect → skip it (acts as `{ x: _ }`); the field
+                                // name was already interned above so the shape test
+                                // still requires the field to exist.
                                 int fs = FindMatchBindingSlot(fieldName, arm.Guard, arm.Body, st);
-                                if (fs < 0)
+                                if (fs >= 0)
+                                {
+                                    if (fs > maxBindingSlot) maxBindingSlot = fs;
+                                }
+                                else if (!MatchBinderIsProvablyUnused(fieldName, arm.Guard, arm.Body))
                                     throw new IrCompileException("match: unconfirmable struct field binding -> fallback");
-                                if (fs > maxBindingSlot) maxBindingSlot = fs;
                             }
                             else
                             {
@@ -4833,13 +4858,18 @@ namespace RaLanguage.Interpreter.IR
                             throw new IrCompileException("match: list prefix/suffix out of 4-bit range -> fallback");
                         foreach (var sub in lpat.Elements)
                             GuardLeafSubpattern(sub, arm.Guard, arm.Body, st, ref maxBindingSlot);
-                        // A named `..rest` binds the captured middle as a list.
+                        // A named `..rest` binds the captured middle as a list. An
+                        // UNUSED rest bind (rest name never read) has no effect →
+                        // skip it (ListShape still enforces the prefix/suffix arity).
                         if (lpat.Rest != null && lpat.Rest.BindName != null)
                         {
                             int rs = FindMatchBindingSlot(lpat.Rest.BindName, arm.Guard, arm.Body, st);
-                            if (rs < 0)
+                            if (rs >= 0)
+                            {
+                                if (rs > maxBindingSlot) maxBindingSlot = rs;
+                            }
+                            else if (!MatchBinderIsProvablyUnused(lpat.Rest.BindName, arm.Guard, arm.Body))
                                 throw new IrCompileException("match: unconfirmable list-rest binding -> fallback");
-                            if (rs > maxBindingSlot) maxBindingSlot = rs;
                         }
                         // A list pattern TESTS the shape — never a catch-all.
                         break;
@@ -4866,14 +4896,18 @@ namespace RaLanguage.Interpreter.IR
                     case Parser.Nodes.Patterns.TypePatternNode tpn:
                     {
                         // `case is T [as v]`: a runtime type test + optional binder.
-                        // Always lowerable (the type test is the IsType opcode); a
-                        // binder must be a confirmed Local use, else fall back.
+                        // Always lowerable (the type test is the IsType opcode); an
+                        // UNUSED `as v` binder (v never read) has no effect → the
+                        // IsType test still runs, the bind is skipped (≡ `case is T`).
                         if (tpn.BinderName != null)
                         {
                             int ts = FindMatchBindingSlot(tpn.BinderName, arm.Guard, arm.Body, st);
-                            if (ts < 0)
+                            if (ts >= 0)
+                            {
+                                if (ts > maxBindingSlot) maxBindingSlot = ts;
+                            }
+                            else if (!MatchBinderIsProvablyUnused(tpn.BinderName, arm.Guard, arm.Body))
                                 throw new IrCompileException("match: unconfirmable is-type binder -> fallback");
-                            if (ts > maxBindingSlot) maxBindingSlot = ts;
                         }
                         // A type pattern TESTS the type — never a catch-all.
                         break;
@@ -5018,7 +5052,7 @@ namespace RaLanguage.Interpreter.IR
                         // Bind the whole scrutinee to the variable, in the arm scope.
                         EmitMatchBinding(vp.Name, scrutSlot, arm.Guard, arm.Body, node, st);
                     }
-                    else
+                    else if (IsKnownZeroArityVariant(vp.Name))
                     {
                         // Zero-arity variant TEST (`case None`): refutable
                         // member-name compare, mirroring the visitor's branch-1.
@@ -5028,6 +5062,9 @@ namespace RaLanguage.Interpreter.IR
                         st.Code.Emit3(Opcode.EnumTagEq, tagSlot, scrutSlot, (byte)nameIdx);
                         skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, tagSlot));
                     }
+                    // else: an UNUSED binding (slot -1, not a known variant) ≡ a
+                    // wildcard catch-all — no tag test, no bind, no skip (it always
+                    // matches). Mirrors the guard-phase third branch.
                 }
                 else if (isVariant)
                 {
@@ -5108,9 +5145,16 @@ namespace RaLanguage.Interpreter.IR
                     {
                         byte fSlot = AllocTemp(ref topSlot);
                         int fIdx = st.Names.Add(fieldName);
+                        // Always extract: StructFieldGet reproduces the visitor's
+                        // "no field 'f'" error if absent, even for an unused bind.
                         st.Code.Emit3(Opcode.StructFieldGet, fSlot, scrutSlot, (byte)fIdx);
                         if (fieldPattern == null)
-                            EmitMatchBinding(fieldName, fSlot, arm.Guard, arm.Body, node, st);
+                        {
+                            // shorthand bind — skip when unused (slot -1), mirroring
+                            // the guard phase (an unused bind has no effect).
+                            if (FindMatchBindingSlot(fieldName, arm.Guard, arm.Body, st) >= 0)
+                                EmitMatchBinding(fieldName, fSlot, arm.Guard, arm.Body, node, st);
+                        }
                         else
                             EmitLeafSubpattern(fieldPattern, fSlot, skips, arm.Guard, arm.Body, node, st, ref topSlot);
                     }
@@ -5144,7 +5188,10 @@ namespace RaLanguage.Interpreter.IR
                         EmitLeafSubpattern(pat, elemSlot, skips, arm.Guard, arm.Body, node, st, ref topSlot);
                     }
                     // Named `..rest` → bind the captured middle as a fresh list.
-                    if (lpat.Rest != null && lpat.Rest.BindName != null)
+                    // Skip entirely when the bind is unused (slot -1): no slice,
+                    // no bind (mirrors the guard phase — no observable effect).
+                    if (lpat.Rest != null && lpat.Rest.BindName != null
+                        && FindMatchBindingSlot(lpat.Rest.BindName, arm.Guard, arm.Body, st) >= 0)
                     {
                         byte restSlot = AllocTemp(ref topSlot);
                         int packed = (prefixN << 4) | suffixN;
@@ -5199,7 +5246,9 @@ namespace RaLanguage.Interpreter.IR
                     st.Code.Emit3WideC(Opcode.IsType, cond, scrutSlot, refIdx);
                     skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, cond));
                     // `as v`: bind the (type-narrowed) scrutinee to the binder.
-                    if (tpn.BinderName != null)
+                    // Skip when unused (slot -1), mirroring the guard phase.
+                    if (tpn.BinderName != null
+                        && FindMatchBindingSlot(tpn.BinderName, arm.Guard, arm.Body, st) >= 0)
                         EmitMatchBinding(tpn.BinderName, scrutSlot, arm.Guard, arm.Body, node, st);
                 }
                 else if (arm.Pattern is Parser.Nodes.Patterns.AliasPatternNode apat)
@@ -5324,8 +5373,11 @@ namespace RaLanguage.Interpreter.IR
         // slot-eligible Local (the Resolver's pattern-binding slot), its offset is
         // returned — this is the slot the body reads, so storing the scrutinee
         // there makes the binding visible. A variant ref (`case None`) resolves to
-        // Global/enum (not slot-eligible Local) → -1 → fallback; an unused binding
-        // has no access → -1 → fallback.
+        // Global/enum (not slot-eligible Local) → -1; a binding used only by a
+        // nested closure resolves to an out-of-frame slot → -1; a genuinely unused
+        // binding has no access at all → -1. The -1 cases are disambiguated by the
+        // caller via MatchBinderIsProvablyUnused (occurs-nowhere ⇒ skip the bind;
+        // occurs-but-not-slot-local ⇒ fall back to the visitor).
         private static int FindMatchBindingSlot(string name, AstNode? guard, AstNode? body, State st)
         {
             var acc = FindVarAccessByName(guard, name) ?? FindVarAccessByName(body, name);
@@ -5333,6 +5385,18 @@ namespace RaLanguage.Interpreter.IR
             if (!IsSlotEligible(acc.Binding, acc.BindingKind, st)) return -1;
             return acc.Binding.Offset;
         }
+
+        // True iff the match pattern binder `name` is PROVABLY never read in the
+        // guard or body — i.e. the COMPLETE subtree walk (FindVarAccessByName,
+        // which descends every child incl. nested fn/lambda bodies) finds zero
+        // VariableAccess to it. Only then is dropping the bind (treating the
+        // binder as a wildcard) semantically a no-op. When the name DOES occur but
+        // FindMatchBindingSlot still returns -1 (e.g. captured by a nested closure
+        // → out-of-frame slot, or otherwise not slot-eligible), this returns FALSE
+        // so the caller falls back to the visitor instead of unsoundly skipping a
+        // bind a closure still needs.
+        private static bool MatchBinderIsProvablyUnused(string name, AstNode? guard, AstNode? body)
+            => FindVarAccessByName(guard, name) == null && FindVarAccessByName(body, name) == null;
 
         // L7: emit the DECLARE of one match pattern binding `<name>`, bound to the
         // value already in `valueSlot`, at the slot the arm body/guard resolved the
@@ -5387,12 +5451,20 @@ namespace RaLanguage.Interpreter.IR
                     //  2) a KNOWN zero-arity variant name — a refutable tag test
                     //     (no binding), lowered via EnumTagEq (member-name
                     //     compare = the visitor's branch-1/2 semantics);
-                    //  3) otherwise (unused, not a known variant) — can't tell a
-                    //     stray binding from a variant the scan missed, so fall
-                    //     back to the visitor (sound; only costs coverage).
+                    //  3) otherwise (a lowercase identifier that is NOT a known
+                    //     zero-arity variant) — a BINDING whose value is UNUSED
+                    //     (DCE'd, no slot). The variant set is program-complete, so
+                    //     in a SUBPATTERN position (where the identifier can only be
+                    //     a binder or a variant) "not a variant" PROVES a binding.
+                    //     An unused bind has no effect → treat it as a wildcard
+                    //     (shape already matched by the parent; nothing to extract).
                     int s = FindMatchBindingSlot(vp.Name, guard, body, st);
                     if (s >= 0) { if (s > maxBindingSlot) maxBindingSlot = s; break; }
                     if (IsKnownZeroArityVariant(vp.Name)) break;
+                    // Unused binder ≡ wildcard (no bind, no slot). Only when the
+                    // name is PROVABLY never read; a used-but-out-of-frame binder
+                    // (captured by a nested closure) still falls back.
+                    if (MatchBinderIsProvablyUnused(vp.Name, guard, body)) break;
                     throw new IrCompileException("match: unconfirmable subpattern binding -> fallback");
                 }
                 case Parser.Nodes.Patterns.LiteralPatternNode lp:
@@ -5429,12 +5501,17 @@ namespace RaLanguage.Interpreter.IR
                             throw new IrCompileException("match: nested struct field name index out of 8-bit range -> fallback");
                         if (fieldPattern == null)
                         {
-                            // shorthand `{ x }` binds the field name; require it
-                            // be a confirmed binding (no no-op shorthand binds).
+                            // shorthand `{ x }` binds the field name; an UNUSED
+                            // shorthand bind (field name never read) is a no-op →
+                            // skip it (the field name is interned above, so the
+                            // field existence is still enforced at extract time).
                             int fs = FindMatchBindingSlot(fieldName, guard, body, st);
-                            if (fs < 0)
+                            if (fs >= 0)
+                            {
+                                if (fs > maxBindingSlot) maxBindingSlot = fs;
+                            }
+                            else if (!MatchBinderIsProvablyUnused(fieldName, guard, body))
                                 throw new IrCompileException("match: unconfirmable nested struct field binding -> fallback");
-                            if (fs > maxBindingSlot) maxBindingSlot = fs;
                         }
                         else GuardLeafSubpattern(fieldPattern, guard, body, st, ref maxBindingSlot);
                     }
@@ -5452,10 +5529,15 @@ namespace RaLanguage.Interpreter.IR
                         GuardLeafSubpattern(e, guard, body, st, ref maxBindingSlot);
                     if (lpat.Rest != null && lpat.Rest.BindName != null)
                     {
+                        // UNUSED `..rest` bind (rest name never read) is a no-op →
+                        // skip it (ListShape still enforces prefix/suffix arity).
                         int rs = FindMatchBindingSlot(lpat.Rest.BindName, guard, body, st);
-                        if (rs < 0)
+                        if (rs >= 0)
+                        {
+                            if (rs > maxBindingSlot) maxBindingSlot = rs;
+                        }
+                        else if (!MatchBinderIsProvablyUnused(lpat.Rest.BindName, guard, body))
                             throw new IrCompileException("match: unconfirmable nested list-rest binding -> fallback");
-                        if (rs > maxBindingSlot) maxBindingSlot = rs;
                     }
                     break;
                 }
@@ -5505,18 +5587,24 @@ namespace RaLanguage.Interpreter.IR
                         EmitMatchBinding(vp.Name, valueSlot, guard, body, node, st);
                         break;
                     }
-                    // Known zero-arity variant TEST (`case None`, `Ok(None)`):
-                    // a pure member-name compare, mirroring the visitor's
-                    // branch-1 (TryMatchVariableOrZeroArityVariant returns
-                    // `ev.MemberName == name` when the scrutinee's enum type
-                    // declares `name` as a zero-arity variant). No binding and
-                    // NO arity guard — the visitor does not arity-check this
-                    // path, so neither do we (avoids a throw-vs-no-match
-                    // divergence on a contrived same-name payload collision).
-                    int nameIdx = st.Names.Add(vp.Name);
-                    byte tagSlot = AllocTemp(ref topSlot);
-                    st.Code.Emit3(Opcode.EnumTagEq, tagSlot, valueSlot, (byte)nameIdx);
-                    skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, tagSlot));
+                    if (IsKnownZeroArityVariant(vp.Name))
+                    {
+                        // Known zero-arity variant TEST (`case None`, `Ok(None)`):
+                        // a pure member-name compare, mirroring the visitor's
+                        // branch-1 (TryMatchVariableOrZeroArityVariant returns
+                        // `ev.MemberName == name` when the scrutinee's enum type
+                        // declares `name` as a zero-arity variant). No binding and
+                        // NO arity guard — the visitor does not arity-check this
+                        // path, so neither do we (avoids a throw-vs-no-match
+                        // divergence on a contrived same-name payload collision).
+                        int nameIdx = st.Names.Add(vp.Name);
+                        byte tagSlot = AllocTemp(ref topSlot);
+                        st.Code.Emit3(Opcode.EnumTagEq, tagSlot, valueSlot, (byte)nameIdx);
+                        skips.Add(st.Code.EmitForwardJump(Opcode.JmpIfNot, tagSlot));
+                    }
+                    // else: an UNUSED binding (slot -1, not a known variant) ≡ a
+                    // wildcard — the parent already extracted+shape-tested this
+                    // value; binding it to a DCE'd name is a no-op. Nothing to emit.
                     break;
                 }
                 case Parser.Nodes.Patterns.LiteralPatternNode lp:
@@ -5577,9 +5665,15 @@ namespace RaLanguage.Interpreter.IR
                     {
                         byte fSlot = AllocTemp(ref topSlot);
                         int fIdx = st.Names.Add(fieldName);
+                        // Always extract: StructFieldGet reproduces the visitor's
+                        // "no field 'f'" error if absent, even for an unused bind.
                         st.Code.Emit3(Opcode.StructFieldGet, fSlot, valueSlot, (byte)fIdx);
                         if (fieldPattern == null)
-                            EmitMatchBinding(fieldName, fSlot, guard, body, node, st);
+                        {
+                            // shorthand bind — skip when unused (slot -1).
+                            if (FindMatchBindingSlot(fieldName, guard, body, st) >= 0)
+                                EmitMatchBinding(fieldName, fSlot, guard, body, node, st);
+                        }
                         else
                             EmitLeafSubpattern(fieldPattern, fSlot, skips, guard, body, node, st, ref topSlot);
                     }
@@ -5608,7 +5702,8 @@ namespace RaLanguage.Interpreter.IR
                         st.Code.Emit3(Opcode.ListElemBack, elemSlot, valueSlot, (byte)(suffixN - i));
                         EmitLeafSubpattern(pat, elemSlot, skips, guard, body, node, st, ref topSlot);
                     }
-                    if (lpat.Rest != null && lpat.Rest.BindName != null)
+                    if (lpat.Rest != null && lpat.Rest.BindName != null
+                        && FindMatchBindingSlot(lpat.Rest.BindName, guard, body, st) >= 0)
                     {
                         byte restSlot = AllocTemp(ref topSlot);
                         int packed = (prefixN << 4) | suffixN;
@@ -5898,34 +5993,31 @@ namespace RaLanguage.Interpreter.IR
             }
         }
 
-        // Find a VariableAccess to `name` in an expression subtree (common pure-
-        // value node kinds; does not descend nested fn/lambda bodies).
+        // The first VariableAccess to `name` anywhere in `node`'s subtree, or
+        // null if the name is never read. COMPLETE — it recurses through every
+        // structural child via the shared StdLibTreeShaker.EnumerateChildren
+        // walker, so a use buried in an assignment RHS / block body / member
+        // access / index / list-or-map literal / interpolation is found, not
+        // just the handful of expression shapes an ad-hoc switch covered.
+        //
+        // Completeness is load-bearing for the match compiler: a binder whose
+        // FindMatchBindingSlot returns -1 is treated as an UNUSED wildcard (the
+        // bind is skipped). If this walk were INCOMPLETE it could miss a real
+        // use and return null for a USED binder, wrongly dropping the bind and
+        // raising "<name> is not defined" at runtime (regression caught by the
+        // --parity oracle). Sharing the maintained EnumerateChildren keeps the
+        // walk in lockstep with new AST node kinds.
         private static Parser.Nodes.Variables.VariableAccessNode? FindVarAccessByName(AstNode? node, string name)
         {
-            switch (node)
+            if (node == null) return null;
+            if (node is Parser.Nodes.Variables.VariableAccessNode va)
+                return va.Name == name ? va : null;
+            foreach (var child in RaLanguage.Interpreter.Archive.StdLibTreeShaker.EnumerateChildren(node))
             {
-                case null: return null;
-                case Parser.Nodes.Variables.VariableAccessNode va:
-                    return va.Name == name ? va : null;
-                case Parser.Nodes.Operations.BinaryOperationNode bo:
-                    return FindVarAccessByName(bo.LeftNode, name) ?? FindVarAccessByName(bo.RightNode, name);
-                case Parser.Nodes.Operations.UnaryOperationNode uo:
-                    return FindVarAccessByName(uo.Node, name);
-                case CastNode cn:
-                    return FindVarAccessByName(cn.Expression, name);
-                case Parser.Nodes.Operations.TernaryNode tn:
-                    return FindVarAccessByName(tn.Condition, name)
-                        ?? FindVarAccessByName(tn.TrueExpression, name)
-                        ?? FindVarAccessByName(tn.FalseExpression, name);
-                case Parser.Nodes.Functions.FunctionCallNode fc:
-                {
-                    var r = FindVarAccessByName(fc.NodeToCall, name);
-                    if (r != null) return r;
-                    foreach (var a in fc.ArgNodes) { r = FindVarAccessByName(a.Expr, name); if (r != null) return r; }
-                    return null;
-                }
-                default: return null;
+                var r = FindVarAccessByName(child, name);
+                if (r != null) return r;
             }
+            return null;
         }
 
         // L7: emit one arrow (`=>`) switch / match arm body. A block body (`{ … }`)
