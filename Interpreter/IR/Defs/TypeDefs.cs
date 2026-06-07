@@ -390,11 +390,15 @@ namespace RaLanguage.Interpreter.IR.Defs
         public readonly WhereConstraintDef[] Wheres;
         public readonly PropertyDef[] Properties;
         public readonly EventDef[] Events;
+        public readonly TypeDescriptor? BaseType;
+        public readonly Values.RuntimeValue?[] BaseArgConsts; // const-folded base-ctor args (record class : Base(args))
+        public readonly bool IsAbstract;
 
         public RecordDef(string name, bool isPublic, bool isRefRecord, bool autoEquals, bool autoToString,
             string[] generics, RecordPrimaryFieldDef[] primaryFields, StructMethodDef[] methods,
             OperatorDef[]? operators = null, WhereConstraintDef[]? wheres = null, PropertyDef[]? properties = null,
-            EventDef[]? events = null)
+            EventDef[]? events = null,
+            TypeDescriptor? baseType = null, Values.RuntimeValue?[]? baseArgConsts = null, bool isAbstract = false)
         {
             Name = name; IsPublic = isPublic; IsRefRecord = isRefRecord;
             AutoEquals = autoEquals; AutoToString = autoToString;
@@ -405,6 +409,9 @@ namespace RaLanguage.Interpreter.IR.Defs
             Wheres = wheres ?? Array.Empty<WhereConstraintDef>();
             Properties = properties ?? Array.Empty<PropertyDef>();
             Events = events ?? Array.Empty<EventDef>();
+            BaseType = baseType;
+            BaseArgConsts = baseArgConsts ?? System.Array.Empty<Values.RuntimeValue?>();
+            IsAbstract = isAbstract;
         }
     }
 

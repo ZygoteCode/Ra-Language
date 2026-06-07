@@ -2640,10 +2640,9 @@ namespace RaLanguage.Interpreter.IR
         private static bool TryBuildRecordDef(Parser.Nodes.Records.RecordDefinitionNode node, out Defs.RecordDef def)
         {
             def = null!;
-            if (node.BaseType != null) return false;       // inheritance → fallback
-            if (node.IsAbstract) return false;
             if (node.HasAnnotations) return false;
-            // L10: operators + where-constraints + auto-properties + events lowered (captured below).
+            // L10: inheritance (base-class + const-folded base-ctor args) + abstract +
+            // operators + where-constraints + auto-properties + events lowered (captured below).
 
             string name = node.NameTok.Value?.ToString() ?? "";
             if (string.IsNullOrWhiteSpace(name)) return false;
@@ -2671,8 +2670,19 @@ namespace RaLanguage.Interpreter.IR
             var generics = (node.GenericTypeParams == null || node.GenericTypeParams.Count == 0)
                 ? System.Array.Empty<string>()
                 : node.GenericTypeParams.ToArray();
+            Values.RuntimeValue?[] baseArgConsts = System.Array.Empty<Values.RuntimeValue?>();
+            if (node.BaseArgs != null && node.BaseArgs.Count > 0)
+            {
+                baseArgConsts = new Values.RuntimeValue?[node.BaseArgs.Count];
+                for (int i = 0; i < node.BaseArgs.Count; i++)
+                {
+                    if (!TryFoldFieldDefaultConst(node.BaseArgs[i], out var c)) return false; // non-const base arg → fallback
+                    baseArgConsts[i] = c;
+                }
+            }
             def = new Defs.RecordDef(name, node.IsPublic, node.IsRefRecord,
-                node.AutoEquals, node.AutoToString, generics, pfields, methods, operators, wheres, properties, events);
+                node.AutoEquals, node.AutoToString, generics, pfields, methods, operators, wheres, properties, events,
+                baseType: node.BaseType, baseArgConsts: baseArgConsts, isAbstract: node.IsAbstract);
             return true;
         }
 

@@ -3145,8 +3145,8 @@ namespace RaLanguage.Interpreter.Vm
 
             var node = new Parser.Nodes.Records.RecordDefinitionNode(
                 new Lexer.Tokens.Token(Lexer.Tokens.TokenType.IDENTIFIER, def.Name, s, e),
-                def.IsPublic, def.IsRefRecord, /*isAbstract*/ false,
-                /*baseType*/ null, /*baseArgs*/ null,
+                def.IsPublic, def.IsRefRecord, def.IsAbstract,
+                def.BaseType, ReconstructConstArgs(def.BaseArgConsts, s, e),
                 primaryFields, methods,
                 ReconstructOperators(def.Operators, s, e),
                 new System.Collections.Generic.List<string>(def.Generics),
@@ -3160,6 +3160,20 @@ namespace RaLanguage.Interpreter.Vm
             var result = Visitors.Records.RecordDefinitionNodeVisitor.Apply(node, ctx, interpreter);
             if (result.Error != null) throw new RaUserError(result.Error);
             return result.Value!;
+        }
+
+        // Rebuild const-folded base-ctor args as NumberNodes carrying CachedValue
+        // (NumberNodeVisitor returns CachedValue verbatim) — byte-identical to the
+        // visitor evaluating the original literal base args.
+        private static System.Collections.Generic.List<AstNode>? ReconstructConstArgs(
+            RuntimeValue?[] consts, Lexer.Position s, Lexer.Position e)
+        {
+            if (consts == null || consts.Length == 0) return null;
+            var list = new System.Collections.Generic.List<AstNode>(consts.Length);
+            foreach (var c in consts)
+                list.Add(new Parser.Nodes.Primitives.NumberNode(
+                    new Lexer.Tokens.Token(Lexer.Tokens.TokenType.INT, "0", s, e)) { CachedValue = c });
+            return list;
         }
 
         // Reconstruct a class method (FunctionDefinitionNode) with stub body +

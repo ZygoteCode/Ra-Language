@@ -3383,6 +3383,17 @@ namespace RaLanguage.Interpreter.Archive
             WriteWhereDefs(w, def.Wheres);
             WritePropertyDefs(w, def.Properties);
             WriteEventDefs(w, def.Events);
+            if (WriterVersion >= ModuleBytecodeIo.PayloadVersion_V10)
+            {
+                WriteOptTd(w, def.BaseType);
+                w.WriteU8(def.IsAbstract ? (byte)1 : (byte)0);
+                w.WriteI32(def.BaseArgConsts.Length);
+                foreach (var c in def.BaseArgConsts)
+                {
+                    if (c == null) w.WriteU8(0);
+                    else { w.WriteU8(1); ModuleBytecodeIo.SerializeConst(w, c, WriterPool); }
+                }
+            }
         }
 
         private static RaLanguage.Interpreter.IR.Defs.RecordDef ReadRecordDef(RacBinaryReader r)
@@ -3411,9 +3422,23 @@ namespace RaLanguage.Interpreter.Archive
             var wheres = ReadWhereDefs(r);
             var properties = ReadPropertyDefs(r);
             var events = ReadEventDefs(r);
+            TypeDescriptor? rBaseType = null;
+            bool rIsAbstract = false;
+            RaLanguage.Interpreter.Values.RuntimeValue?[] rBaseArgs = System.Array.Empty<RaLanguage.Interpreter.Values.RuntimeValue?>();
+            if (ReaderVersion >= ModuleBytecodeIo.PayloadVersion_V10)
+            {
+                rBaseType = ReadOptTd(r);
+                rIsAbstract = r.ReadU8() != 0;
+                int ban = r.ReadI32();
+                if (ban < 0 || ban > 4_000_000) throw new System.IO.InvalidDataException($"rac: record base-arg count {ban} out of range");
+                rBaseArgs = new RaLanguage.Interpreter.Values.RuntimeValue?[ban];
+                for (int i = 0; i < ban; i++)
+                    rBaseArgs[i] = r.ReadU8() != 0 ? ModuleBytecodeIo.DeserializeConst(r, ReaderPool) : null;
+            }
             return new RaLanguage.Interpreter.IR.Defs.RecordDef(
                 name, (rflags & 1) != 0, (rflags & 2) != 0, (rflags & 4) != 0, (rflags & 8) != 0,
-                generics, primaryFields, methods, operators, wheres, properties, events);
+                generics, primaryFields, methods, operators, wheres, properties, events,
+                baseType: rBaseType, baseArgConsts: rBaseArgs, isAbstract: rIsAbstract);
         }
 
         private static void WriteFieldDef(RacBinaryWriter w, RaLanguage.Interpreter.IR.Defs.StructFieldDef fld)
