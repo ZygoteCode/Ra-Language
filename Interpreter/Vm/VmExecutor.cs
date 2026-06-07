@@ -2150,7 +2150,7 @@ namespace RaLanguage.Interpreter.Vm
                         // stack body (NoInlining async) — keeps the dispatch frame
                         // small for sync-completion deep recursion (M85).
                         locals[Encoding.A(instr)] =
-                            await ExecuteCallGeneric(f, locals, instr, ctx).ConfigureAwait(false);
+                            await ExecuteCallGeneric(f, locals, instr, ctx, _interpreter).ConfigureAwait(false);
                         break;
 
                     // M28.3: fused Call + Ret. Same dispatch logic as OP_CALL
@@ -3049,7 +3049,7 @@ namespace RaLanguage.Interpreter.Vm
         [System.Runtime.CompilerServices.MethodImpl(
             System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private static async System.Threading.Tasks.ValueTask<RuntimeValue> ExecuteCallGeneric(
-            VmFrame f, LocalsView locals, uint instr, Context ctx)
+            VmFrame f, LocalsView locals, uint instr, Context ctx, IInterpreter interpreter)
         {
             if (ctx.AreCallsBlocked)
                 throw new RaUserError(MakeIcError(ctx, "function calls are not allowed in this context"));
@@ -3066,14 +3066,36 @@ namespace RaLanguage.Interpreter.Vm
             // Split the contiguous arg band into positionals + named args by each
             // ArgNode's compile-time NameTok (values are runtime, names static) —
             // mirrors FunctionCallNodeVisitor → generic / named / mixed call.
+            // An IsRef arg (`f(&x)` pass-by-reference) was NOT compiled into the
+            // band by the IR compiler — its band slot is null — so materialise it
+            // here via CreateReferenceFromNode (the EXACT helper EvaluateArguments
+            // uses), keeping the produced ReferenceValue + any error byte-identical
+            // to the visitor.
             var argList = RentArgList(argCount);
             System.Collections.Generic.Dictionary<string, RuntimeValue>? named = null;
             for (int i = 0; i < argCount; i++)
             {
-                var a = locals[fnSlot + 1 + i];
-                if (a == null)
-                    throw new RaUserError(MakeIcError(ctx, $"VM: argument {i} slot is null"));
-                var nameTok = gfc.ArgNodes[i].NameTok;
+                var argNode = gfc.ArgNodes[i];
+                RuntimeValue a;
+                if (argNode.IsRef)
+                {
+                    var refRes = await Runtime.Calls.FunctionCallExecutor.CreateReferenceFromNode(
+                        argNode.Expr, ctx, interpreter).ConfigureAwait(false);
+                    if (refRes.Error != null)
+                    {
+                        ReturnArgList(argList);
+                        throw new RaUserError(refRes.Error);
+                    }
+                    a = refRes.Value!;
+                }
+                else
+                {
+                    var slotVal = locals[fnSlot + 1 + i];
+                    if (slotVal == null)
+                        throw new RaUserError(MakeIcError(ctx, $"VM: argument {i} slot is null"));
+                    a = slotVal;
+                }
+                var nameTok = argNode.NameTok;
                 if (nameTok != null)
                 {
                     named ??= new System.Collections.Generic.Dictionary<string, RuntimeValue>(System.StringComparer.Ordinal);

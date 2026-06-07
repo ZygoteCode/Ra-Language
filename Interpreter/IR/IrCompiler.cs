@@ -9954,30 +9954,49 @@ namespace RaLanguage.Interpreter.IR
                     var fc = (FunctionCallNode)expr;
                     // L10: a "complex" call the plain OP_CALL can't carry — explicit
                     // generic type args (`foo<int>(...)`) OR named args
-                    // (`f(x, name: v)`). Park the FunctionCallNode (it round-trips
-                    // with its GenericTypeArgs + per-arg NameTok) and emit
-                    // OP_CALL_GENERIC — the VM evaluates the arg band, then splits it
-                    // into positionals + a named dict by each ArgNode's NameTok and
-                    // threads {args, named, typeArgs} to FunctionCallExecutor.Invoke
-                    // (the SAME chokepoint the visitor uses). Ref / spread args or a
+                    // (`f(x, name: v)`) OR pass-by-reference args (`f(&x)` —
+                    // parsed as ArgumentNode.IsRef, NOT a Borrow expr). Park the
+                    // FunctionCallNode (it round-trips with its GenericTypeArgs +
+                    // per-arg NameTok + per-arg IsRef) and emit OP_CALL_GENERIC —
+                    // the VM evaluates the arg band, then splits it into positionals
+                    // + a named dict by each ArgNode's NameTok and threads
+                    // {args, named, typeArgs} to FunctionCallExecutor.Invoke (the
+                    // SAME chokepoint the visitor uses). For an IsRef arg the VM
+                    // materialises the value via FunctionCallExecutor.CreateReference-
+                    // FromNode (the EXACT helper EvaluateArguments uses) — so the
+                    // produced ReferenceValue and any downstream type-mismatch error
+                    // are byte-identical to the visitor; the band slot is left null
+                    // (no expr compiled) and overridden in the VM. Spread args or a
                     // >u8 arg-count / DefineRefs index → fall back to the visitor.
                     bool fcHasNamed = false;
-                    foreach (var arg in fc.ArgNodes) if (arg.NameTok != null) { fcHasNamed = true; break; }
-                    if ((fc.GenericTypeArgs != null && fc.GenericTypeArgs.Count > 0) || fcHasNamed)
+                    bool fcHasRef = false;
+                    foreach (var arg in fc.ArgNodes)
+                    {
+                        if (arg.NameTok != null) fcHasNamed = true;
+                        if (arg.IsRef) fcHasRef = true;
+                    }
+                    if ((fc.GenericTypeArgs != null && fc.GenericTypeArgs.Count > 0) || fcHasNamed || fcHasRef)
                     {
                         int gArgCount = fc.ArgNodes.Count;
                         if (gArgCount > byte.MaxValue)
                             throw new IrCompileException("complex call has too many args (>255) -> fallback");
                         foreach (var arg in fc.ArgNodes)
                         {
-                            if (arg.IsRef) throw new IrCompileException("complex call has ref arg -> fallback");
                             if (arg.Expr.NodeType == AstNodeType.Spread) throw new IrCompileException("complex call has spread arg -> fallback");
                         }
                         byte gFnSlot = AllocTemp(ref topSlot);
                         for (int i = 0; i < gArgCount; i++) AllocTemp(ref topSlot);
                         CompileExpression(fc.NodeToCall, gFnSlot, st, ref topSlot);
                         for (int i = 0; i < gArgCount; i++)
+                        {
+                            // IsRef args are materialised in the VM via
+                            // CreateReferenceFromNode (reading the parked ArgNode's
+                            // Expr) — do NOT compile the Expr into the band here, so
+                            // a `&v` arg neither double-evaluates nor leaks the
+                            // plain value into the slot (the VM overrides it).
+                            if (fc.ArgNodes[i].IsRef) continue;
                             CompileExpression(fc.ArgNodes[i].Expr, (byte)(gFnSlot + 1 + i), st, ref topSlot);
+                        }
                         if (st.DefineRefs.Count > byte.MaxValue)
                             throw new IrCompileException("DefineRefs index exceeds u8 for OP_CALL_GENERIC -> fallback");
                         byte gRefIdx = (byte)st.DefineRefs.Count;
