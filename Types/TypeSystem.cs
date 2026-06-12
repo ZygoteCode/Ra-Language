@@ -354,6 +354,92 @@ namespace RaLanguage.Types
             return true;
         }
 
+        // Produce a precise, compiler-grade diagnostic when a callable `value`
+        // does NOT satisfy a function-type `target` (`let f: fn(int)->bool =
+        // |a,b| …`, passing a wrong-arity lambda to a typed parameter, …).
+        // Reports the FIRST concrete difference — arity, then a parameter type,
+        // then the return type — in "expected … / found …" form with an
+        // actionable hint. Returns false (no message) when target isn't a
+        // function type, value isn't a callable, the callable is opaque (a
+        // built-in with no declared signature to compare), or the value
+        // actually IS assignable. Untyped lambda parameters are treated as
+        // target-typed (they take the expected type), so an inferable `|x| …`
+        // never draws a spurious "x should be int" — only real
+        // incompatibilities surface.
+        public static bool TryDescribeFunctionMismatch(Context context, TypeDescriptor target, RuntimeValue value,
+            out string message, out string hint)
+        {
+            message = string.Empty;
+            hint = string.Empty;
+            if (target == null || !target.IsFunctionType) return false;
+            if (!(value is RaLanguage.Interpreter.Values.Functions.BaseFunctionValue bfn)) return false;
+            if (IsAssignableToFunctionType(context, target, value)) return false;       // assignable → no diagnostic
+            if (!TryGetCallableSignature(bfn, out var aParams, out var aRet, out var aVar, out var aVarT, out var aArity))
+                return false;                                                            // opaque callable — nothing to compare
+
+            var ePs = target.FunctionParamTypes ?? new List<TypeDescriptor>();
+            string expectedSig = target.ToString();
+            string foundSig = RenderFoundSignature(aParams, aRet, aVar, aVarT, aArity);
+
+            // 1) Arity — the most common and most actionable mismatch.
+            if (!aVar && ePs.Count != aArity)
+            {
+                message = $"expected a callable '{expectedSig}' taking {ePs.Count} argument(s), but found '{foundSig}' taking {aArity}";
+                int diff = aArity - ePs.Count;
+                hint = diff > 0
+                    ? $"remove {diff} parameter(s) — '{expectedSig}' only ever passes {ePs.Count} argument(s)"
+                    : $"add {-diff} parameter(s) — '{expectedSig}' passes {ePs.Count} argument(s)";
+                return true;
+            }
+            if (aVar && ePs.Count < aArity)
+            {
+                message = $"expected a callable '{expectedSig}' taking {ePs.Count} argument(s), but found '{foundSig}' which needs at least {aArity}";
+                hint = $"the callable requires more fixed parameters than '{expectedSig}' supplies";
+                return true;
+            }
+
+            // 2) First parameter whose explicit type is incompatible (contravariant).
+            for (int i = 0; i < ePs.Count && i < aArity; i++)
+            {
+                var ep = ePs[i];
+                var ap = (aParams != null && i < aParams.Count) ? aParams[i] : null;
+                if (ap == null || string.Equals(ap.Name, "any", StringComparison.Ordinal)) continue; // target-typed / wildcard
+                if (ep == null || string.Equals(ep.Name, "any", StringComparison.Ordinal)) continue;
+                if (!IsAssignableType(context, ap, ep))
+                {
+                    message = $"callable parameter #{i + 1} is incompatible: '{expectedSig}' supplies '{ep}', but the callable declares '{ap}'";
+                    hint = $"change parameter #{i + 1} to '{ep}', or leave it untyped to take the expected type";
+                    return true;
+                }
+            }
+
+            // 3) Return type (covariant).
+            var eRet = target.FunctionReturnType;
+            if (eRet != null && !string.Equals(eRet.Name, "any", StringComparison.Ordinal)
+                && aRet != null && !string.Equals(aRet.Name, "any", StringComparison.Ordinal)
+                && !IsAssignableType(context, eRet, aRet))
+            {
+                message = $"callable return type is incompatible: '{expectedSig}' expects '{eRet}', but the callable returns '{aRet}'";
+                hint = $"make the callable return '{eRet}'";
+                return true;
+            }
+
+            return false;   // component-wise fine but the structural check disagreed — defer to the generic message
+        }
+
+        private static string RenderFoundSignature(List<TypeDescriptor?>? ps, TypeDescriptor? ret, bool hasVar, TypeDescriptor? varT, int arity)
+        {
+            var parts = new List<string>(arity + 1);
+            for (int i = 0; i < arity; i++)
+            {
+                var p = (ps != null && i < ps.Count) ? ps[i] : null;
+                parts.Add(p?.ToString() ?? "any");
+            }
+            if (hasVar) parts.Add("..." + (varT?.ToString() ?? "any"));
+            var body = string.Join(", ", parts);
+            return ret == null ? $"fn({body})" : $"fn({body}) -> {ret}";
+        }
+
         // Type-vs-type assignability for callable variance checks. Mirrors
         // IsAssignable(Context, TypeDescriptor, RuntimeValue) but with the
         // RHS being a TypeDescriptor — no runtime value to inspect.

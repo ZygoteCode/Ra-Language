@@ -891,10 +891,28 @@ namespace RaLanguage.Parser
                     res.RegisterAdvancement();
                     Advance();
 
-                    if (_currentToken.Type != TokenType.IDENTIFIER)
+                    Token memberTok;
+                    if (_currentToken.Type == TokenType.IDENTIFIER)
+                    {
+                        memberTok = _currentToken;
+                    }
+                    else if (_currentToken.Type == TokenType.KEYWORD)
+                    {
+                        // Contextual keyword as a member name — `xs.where(p)`,
+                        // `users.in(set)`, … . After '.', a keyword can only be a
+                        // member name, so accept it as one, synthesised as an
+                        // identifier carrying the keyword's source spelling. This
+                        // is strictly more permissive (the alternative was a hard
+                        // parse error) and lets the fluent collection API use
+                        // LINQ/Dart names that happen to be Ra keywords.
+                        var kwText = _currentToken.Value?.ToString()?.ToLowerInvariant() ?? "";
+                        memberTok = new Token(TokenType.IDENTIFIER, kwText, _currentToken.PositionStart, _currentToken.PositionEnd);
+                    }
+                    else
+                    {
                         return res.Failure(ParserDiagnostics.ExpectedMemberName(_currentToken));
+                    }
 
-                    Token memberTok = _currentToken;
                     res.RegisterAdvancement();
                     Advance();
 

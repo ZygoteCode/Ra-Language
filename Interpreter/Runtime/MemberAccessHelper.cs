@@ -923,6 +923,14 @@ namespace RaLanguage.Interpreter.Runtime
                     icSlot.ExtRegistry = context.Extensions;
                     return res.Success(new BoundExtensionMethodGroupValue(target, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
                 }
+
+                // Fluent built-in collection methods (xs.map(f), xs.filter(p), …).
+                // Fallback after user extensions; dispatched dynamically (no IC pin).
+                if (CollectionMethods.TryBind(target, memberName, context, node.PositionStart, node.PositionEnd, out var colRes))
+                {
+                    icSlot.BranchKind = 0;
+                    return colRes;
+                }
             }
 
             return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
@@ -1256,6 +1264,9 @@ namespace RaLanguage.Interpreter.Runtime
                 var ext = context.Extensions.ResolveMethodEntries(target, memberName);
                 if (ext.Count > 0)
                     return res.Success(new BoundExtensionMethodGroupValue(target, ext).SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+
+                if (CollectionMethods.TryBind(target, memberName, context, node.PositionStart, node.PositionEnd, out var colRes))
+                    return colRes;
             }
 
             return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,

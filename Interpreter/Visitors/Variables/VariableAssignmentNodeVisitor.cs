@@ -201,12 +201,19 @@ namespace RaLanguage.Interpreter.Visitors.Variables
             if (entry2.IsStaticallyTyped && entry2.DeclaredType != null)
             {
                 if (!TypeSystem.IsAssignable(context, entry2.DeclaredType, result!))
+                {
+                    if (TypeSystem.TryDescribeFunctionMismatch(context, entry2.DeclaredType, result!, out var fm, out var fh))
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                            $"cannot assign to '{varName}': {fm}", context,
+                            code: DiagnosticCode.RuntimeTypeMismatch,
+                            primaryLabel: "callable signature mismatch", help: fh));
                     return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
                         $"type mismatch: cannot assign value of type '{result.Type.ToString().ToLower()}' to '{varName}' (declared '{entry2.DeclaredType}')",
                         context,
                         code: DiagnosticCode.RuntimeTypeMismatch,
                         primaryLabel: $"value of type '{result.Type.ToString().ToLower()}' assigned here",
                         help: $"either cast the value with 'as {entry2.DeclaredType}' or declare '{varName}' with a compatible type"));
+                }
             }
 
             var declType2 = entry2.DeclarationType;

@@ -1,9 +1,17 @@
 # Ra Predicates — Implementation Progress & Handoff
 
-Status: **P0, P1, P2 shipped and validated. P3 (stdlib HOFs), P4 (narrowing), P5 (tests/bench/docs) remain.**
-Branch: `claude/fervent-galileo-3d6911`. Zero regressions across the 324-file corpus (319 pass / 5 fail-by-design).
+Status: **COMPLETE — P0–P5 all shipped and validated.** The canonical reference is now [`RA_PREDICATES_DESIGN.md`](RA_PREDICATES_DESIGN.md); this file is retained as the historical handoff/decision log.
+Zero regressions across the corpus: **325 files / 5 fail-by-design** (the +1 vs the original 324 is the new `tests/functions/test_predicates.ra`).
 
-This document lets a fresh session finish the predicate system exactly to the original brief: predicates as a **first-class, composable, narrowing-capable boolean function** — better than C#/Java/Kotlin/Dart/Python — with zero new opcodes, zero new AST node kinds, zero new visitors, AOT-safe.
+This document let a fresh session finish the predicate system exactly to the original brief: predicates as a **first-class, composable, narrowing-capable boolean function** — better than C#/Java/Kotlin/Dart/Python — with zero new opcodes, zero new AST node kinds, zero new visitors, AOT-safe.
+
+### Completion note (P3–P5, finished 2026-06-12)
+
+Three design refinements were made vs the plan below; all are reflected in `RA_PREDICATES_DESIGN.md`:
+
+1. **Combinators are `pred_all` / `pred_any` / `pred_none`, NOT `all_of` / `any_of` / `none_of`.** The `*_of` names are reserved built-in **validator annotation** types (`@all_of`, `@any_of`) that live in the always-in-scope CoreSymbolTable, so a bare `all_of(...)` call resolves to the non-callable AnnotationTypeValue and dies with `RA0401 Illegal operation`. The `pred_` prefix is collision-free and mirrors the quantifier HOFs (`all`/`any`/`none`).
+2. **Constant predicates + side-effect-preserving folds shipped** (a `PredicateKind.Const` plus `always_true`/`always_false`): `pred_all()`/`pred_any()` empties return the algebra's identity element, and `p & always_true → p` etc. fold at compose time. `p & always_false` / `p | always_true` are deliberately NOT folded (left side still runs).
+3. **P4 guard detection lives in the PARSER** (`DetectNarrowingGuard`), populating `FunctionDefinitionNode.NarrowsToType/NarrowsNegated`, which feeds BOTH the runtime `PredicateValue` metadata (already wired at `FunctionDefinitionHelper.Apply`) AND the analyzer's `PredicateGuards` map — one detection point, two consumers.
 
 ---
 
@@ -198,18 +206,18 @@ done
 | Requirement | State |
 |---|---|
 | First-class native feature, not a workaround | ✅ `PredicateValue`, `pred` keyword, `pred<T>` type |
-| Clear, rigorous, documented semantics | ✅ model decided; design doc pending (P5) |
+| Clear, rigorous, documented semantics | ✅ model decided; `RA_PREDICATES_DESIGN.md` shipped |
 | Solid in IR + VM | ✅ zero new opcodes; rides BAnd/BOr/NotB + GET_MEMBER |
-| Excellent ergonomics | ✅ operators + methods + literals; HOFs pending (P3) |
+| Excellent ergonomics | ✅ operators + methods + literals + stdlib HOFs + combinators |
 | Robust with generics/capture/short-circuit/composition | ✅ (reuses fn machinery; short-circuit in composite Execute) |
 | Composition `not/and/or/xor` | ✅ `! & |` + `.xor/.implies/.iff` |
 | Null/optional safety, no toxic overloads | ✅ predicates strictly return bool; `and`/`or` left boolean |
-| Type guards / narrowing (Ra narrowing = static `is`-diagnostics, not runtime flow-typing) | ⏳ **P4** — guard-aware diagnostics; true flow-typing is N/A in Ra (future, language-wide) |
+| Type guards / narrowing (Ra narrowing = static `is`-diagnostics, not runtime flow-typing) | ✅ **P4** — guard-aware diagnostics (impossible/redundant `p(v)`); true flow-typing N/A in Ra (future, language-wide) |
 | Compatible with generics / arity variants | ✅ `pred<A,B>`; generic predicates via fn machinery |
 | Reduce allocations / no boxing / AOT-friendly | ✅ thin `BaseFunctionValue` subclass, no reflection |
-| IR fold/peephole where sensible | ◑ `!!p→p` done; `p & always_true→p` pending (P3, optional) |
-| Compiler-grade diagnostics + suggestions | ◑ RA0209/RA0416 + method help; expand in P3/P4 |
-| Tests (core + edges) | ⏳ **P5** |
-| Better/cleaner than other languages | ⏳ prove in the design-doc comparison table (P5) |
+| IR fold/peephole where sensible | ✅ `!!p→p` + side-effect-preserving constant folds (`p & always_true→p`, …) |
+| Compiler-grade diagnostics + suggestions | ✅ RA0209/RA0416 + method help + guard warnings |
+| Tests (core + edges) | ✅ **P5** — `tests/functions/test_predicates.ra` (60 hard asserts) + `bench/bench_predicates.ra` |
+| Better/cleaner than other languages | ✅ comparison table in `RA_PREDICATES_DESIGN.md` §6 |
 
-Legend: ✅ done · ◑ partial · ⏳ remaining.
+Legend: ✅ done · ◑ partial · ⏳ remaining. **All rows ✅ — feature complete.**

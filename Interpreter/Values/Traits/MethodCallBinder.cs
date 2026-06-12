@@ -11,6 +11,37 @@ namespace RaLanguage.Interpreter.Values.Traits
 {
     public static class MethodCallBinder
     {
+        // When overload resolution rejected EVERY candidate, surface a precise
+        // reason for the first candidate whose only obstacle is a callable
+        // signature mismatch (a lambda / `pred` / `fn` passed where a typed
+        // `fn(...)` parameter is expected). Returns null when no candidate
+        // fails for that reason, so the caller keeps its generic "no matching
+        // overload" message. Only candidates whose plain arity already fits are
+        // inspected, so an unrelated overload never produces a misleading hint.
+        public static RuntimeError? DescribeCallableArgMismatch(
+            IEnumerable<ICallableMethodDefinition> candidates,
+            List<RuntimeValue> positionalArgs, Context context,
+            RaLanguage.Lexer.Position p1, RaLanguage.Lexer.Position p2)
+        {
+            foreach (var method in candidates)
+            {
+                if (method == null) continue;
+                var names = method.ArgNameToks;
+                if (!method.HasVarArgs && positionalArgs.Count != names.Count) continue;
+                int n = System.Math.Min(positionalArgs.Count, System.Math.Min(names.Count, method.ArgTypes.Count));
+                for (int i = 0; i < n; i++)
+                {
+                    var expected = method.ArgTypes[i];
+                    if (expected == null || !expected.IsFunctionType) continue;
+                    var name = names[i].Value?.ToString() ?? "";
+                    var err = RaLanguage.Interpreter.Runtime.CallableDiagnostics.TryFunctionMismatch(
+                        context, expected, positionalArgs[i], p1, p2, name);
+                    if (err != null) return err;
+                }
+            }
+            return null;
+        }
+
         public static bool CanBind(ICallableMethodDefinition method, List<RuntimeValue> positionalArgs, Dictionary<string, RuntimeValue> namedArgs, Context context)
         {
             var argNames = method.ArgNameToks.Select(t => t.Value?.ToString() ?? "").ToList();
@@ -142,7 +173,11 @@ namespace RaLanguage.Interpreter.Values.Traits
                 var expected = i < method.ArgTypes.Count ? method.ArgTypes[i] : null;
 
                 if (expected != null && !TypeSystem.IsAssignable(execCtx, expected, actual))
+                {
+                    var fmErr = RaLanguage.Interpreter.Runtime.CallableDiagnostics.TryFunctionMismatch(execCtx, expected, actual, method.NameTok.Value.PositionStart, method.NameTok.Value.PositionEnd, argName);
+                    if (fmErr != null) return (null, fmErr);
                     return (null, new RuntimeError(method.NameTok.Value.PositionStart, method.NameTok.Value.PositionEnd, $"Type mismatch for argument '{argName}'", execCtx));
+                }
             }
 
             for (int i = 0; i < formalCount; i++)
@@ -199,6 +234,8 @@ namespace RaLanguage.Interpreter.Values.Traits
             var selected = Candidates.FirstOrDefault(c => c.HasBody && MethodCallBinder.CanBind(c, positionalArgs, namedArgs, Context));
             if (selected == null)
             {
+                var fmErr = MethodCallBinder.DescribeCallableArgMismatch(Candidates, positionalArgs, Context, PositionStart, PositionEnd);
+                if (fmErr != null) return res.Failure(fmErr);
                 return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"No matching overload found for '{Name}'", Context));
             }
 

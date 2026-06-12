@@ -48,5 +48,46 @@ namespace RaLanguage.Parser
             if (res.Error != null) return res;
             return res.Success(def);
         }
+
+        // A predicate is ALSO a type guard when its whole body is exactly
+        // `param is T` / `param is not T` testing its sole parameter. We record
+        // the refined parameter + tested type on the node so (a) the runtime
+        // PredicateValue carries the guard metadata and (b) the
+        // NarrowingAnalyzer can treat a call `p(v)` exactly like an inline
+        // `v is T`. Anything more complex than a single `is`-test on the lone
+        // parameter is deliberately NOT a guard — we stay silent rather than
+        // guess, keeping guard-awareness free of false positives.
+        internal static void DetectNarrowingGuard(Nodes.Functions.FunctionDefinitionNode node, Nodes.AstNode? body)
+        {
+            if (node.ArgNameToks.Count != 1) return;
+            var paramName = node.ArgNameToks[0].Value?.ToString();
+            if (string.IsNullOrEmpty(paramName)) return;
+
+            var expr = UnwrapGuardExpression(body);
+            if (expr is not Nodes.Operations.IsTypeNode isNode) return;
+            if (isNode.Expression is not Nodes.Variables.VariableAccessNode va) return;
+            if (!string.Equals(va.VarNameTok.Value?.ToString(), paramName, System.StringComparison.Ordinal)) return;
+
+            node.NarrowsParamName = paramName;
+            node.NarrowsToType = isNode.TestedType;
+            node.NarrowsNegated = isNode.Negated;
+        }
+
+        // Reduce a predicate body to its single guard expression: an arrow
+        // body is the expression itself; a block body counts only when it is
+        // exactly one `ret <expr>` statement (a bare expression statement is
+        // not returned, so it cannot be the guard).
+        private static Nodes.AstNode? UnwrapGuardExpression(Nodes.AstNode? body)
+        {
+            switch (body)
+            {
+                case null: return null;
+                case Nodes.Operations.IsTypeNode: return body;
+                case Nodes.Functions.ReturnNode rn: return rn.NodeToReturn;
+                case Nodes.Special.ScopeNode sc:
+                    return sc.Nodes.Count == 1 ? UnwrapGuardExpression(sc.Nodes[0]) : null;
+                default: return null;
+            }
+        }
     }
 }

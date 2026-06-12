@@ -13,7 +13,8 @@ namespace RaLanguage.Interpreter.Values.Functions.Predicates
         Not,    // !Left
         And,    // Left && Right (short-circuit)
         Or,     // Left || Right (short-circuit)
-        Xor     // Left ^ Right  (no short-circuit; both evaluated)
+        Xor,    // Left ^ Right  (no short-circuit; both evaluated)
+        Const   // ignores its argument; always ConstValue (∧/∨ identity element)
     }
 
     // A first-class boolean function. A `pred` declaration or `pred(...)`
@@ -42,6 +43,10 @@ namespace RaLanguage.Interpreter.Values.Functions.Predicates
         public PredicateValue? Left { get; }
         public PredicateValue? Right { get; }
 
+        // Const only: the fixed truth value (`always_true` / `always_false`).
+        public bool ConstValue { get; }
+        public bool IsConst => Kind == PredicateKind.Const;
+
         // Narrowing (user-defined type guard) metadata, set on leaves whose
         // body is exactly `param is T` / `param is not T`. Consumed by the
         // NarrowingAnalyzer to flow-type a call `p(v)` like an inline test.
@@ -64,7 +69,8 @@ namespace RaLanguage.Interpreter.Values.Functions.Predicates
             PredicateValue? right,
             string? narrowsParam = null,
             TypeDescriptor? narrowsTo = null,
-            bool narrowsNegated = false)
+            bool narrowsNegated = false,
+            bool constValue = false)
             : base(name)
         {
             Kind = kind;
@@ -74,6 +80,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Predicates
             NarrowsParam = narrowsParam;
             NarrowsTo = narrowsTo;
             NarrowsNegated = narrowsNegated;
+            ConstValue = constValue;
         }
 
         // ---- Construction -------------------------------------------------
@@ -98,6 +105,15 @@ namespace RaLanguage.Interpreter.Values.Functions.Predicates
             return null;
         }
 
+        // The constant predicates — `always_true` / `always_false`. These are
+        // the identity elements of the composition algebra (∧ identity is
+        // `true`, ∨ identity is `false`) and let the folds below collapse
+        // `p & always_true → p`, `p | always_false → p`, `!always_true →
+        // always_false` at compose time, with zero call-time overhead.
+        public static PredicateValue Constant(bool value) =>
+            new PredicateValue(PredicateKind.Const, value ? "always_true" : "always_false",
+                null, null, null, constValue: value);
+
         private PredicateValue MakeComposite(PredicateKind kind, PredicateValue right, string sym)
         {
             var name = kind == PredicateKind.Not ? $"!{Name}" : $"({Name} {sym} {right.Name})";
@@ -108,6 +124,8 @@ namespace RaLanguage.Interpreter.Values.Functions.Predicates
 
         private PredicateValue Negate()
         {
+            // !always_true == always_false (and vice-versa).
+            if (Kind == PredicateKind.Const) return Constant(!ConstValue);
             // !!p  ==  p — collapse double negation at compose time.
             if (Kind == PredicateKind.Not && Left != null) return Left;
             var p = new PredicateValue(PredicateKind.Not, $"!{Name}", null, this, null);
@@ -126,14 +144,14 @@ namespace RaLanguage.Interpreter.Values.Functions.Predicates
         {
             var r = Lift(other);
             if (r == null) return (null, ComposeError("&", other));
-            return (MakeComposite(PredicateKind.And, r, "&"), null);
+            return (And(r), null);
         }
 
         public override ValueResult BitwiseOredBy(RuntimeValue other)
         {
             var r = Lift(other);
             if (r == null) return (null, ComposeError("|", other));
-            return (MakeComposite(PredicateKind.Or, r, "|"), null);
+            return (Or(r), null);
         }
 
         public override ValueResult Notted() => (Negate(), null);
@@ -149,8 +167,25 @@ namespace RaLanguage.Interpreter.Values.Functions.Predicates
         // `p.xor(q)`, `p.implies(q)`, `p.iff(q)`) reachable through member
         // access. `and` / `or` / `not` are Ra keywords and cannot be member
         // names, so those three live as the operators `&` / `|` / `!`.
-        public PredicateValue And(PredicateValue other) => MakeComposite(PredicateKind.And, other, "&");
-        public PredicateValue Or(PredicateValue other)  => MakeComposite(PredicateKind.Or, other, "|");
+        // Identity / annihilator folds that PRESERVE short-circuit side
+        // effects: an operand is dropped only when the runtime would skip its
+        // evaluation anyway (a constant in the unreachable position) or when
+        // it is a no-op constant. `p & always_false` and `p | always_true`
+        // are deliberately NOT folded — `p` still runs first.
+        public PredicateValue And(PredicateValue other)
+        {
+            if (Kind == PredicateKind.Const) return ConstValue ? other : this;        // true & q → q ; false & q → false
+            if (other.Kind == PredicateKind.Const && other.ConstValue) return this;    // p & true → p
+            return MakeComposite(PredicateKind.And, other, "&");
+        }
+
+        public PredicateValue Or(PredicateValue other)
+        {
+            if (Kind == PredicateKind.Const) return ConstValue ? this : other;         // true | q → true ; false | q → q
+            if (other.Kind == PredicateKind.Const && !other.ConstValue) return this;   // p | false → p
+            return MakeComposite(PredicateKind.Or, other, "|");
+        }
+
         public PredicateValue Not() => Negate();
 
         // Programmatic XOR (there is no `^` predicate operator — `^` is pow).
@@ -233,6 +268,9 @@ namespace RaLanguage.Interpreter.Values.Functions.Predicates
                     if (re != null) return res.Failure(re);
                     return res.Success(BooleanValue.Of(lt ^ rt));
                 }
+
+                case PredicateKind.Const:
+                    return res.Success(BooleanValue.Of(ConstValue));
             }
 
             return res.Failure(new RuntimeError(PositionStart, PositionEnd,

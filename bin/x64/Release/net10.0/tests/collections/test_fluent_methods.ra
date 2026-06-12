@@ -1,0 +1,64 @@
+import std.prelude.*;
+// Fluent collection methods (Dart/C#/JS-style) — hard-assert suite.
+// Always-on method dispatch on lists, sugaring the free-function HOFs; user
+// `extend list` methods take precedence over the built-in fluent methods.
+
+fn check_eq(actual, expected, label) {
+    if actual == expected {
+        print("OK  " + label)
+    } else {
+        throw ("FAIL " + label + "  got=" + (actual as string) + " expected=" + (expected as string))
+    }
+}
+
+let xs = list_range(1, 11)
+
+// --- callable HOFs, including chaining ---
+check_eq(xs.map(|x| x * x).filter(|x| x > 50).len(), 3, "F1 map.filter.len chain")
+check_eq(xs.where(|x| x % 2 == 0).sum(), 30, "F2 where.sum (keyword alias)")
+check_eq(xs.reduce(0, |a, b| a + b), 55, "F3 reduce")
+check_eq(xs.fold(100, |a, b| a + b), 155, "F4 fold with init")
+check_eq(xs.sort_by(|x| 0 - x).first(), 10, "F5 sort_by.first chain")
+check_eq(xs.any(|x| x > 9), true, "F6 any")
+check_eq(xs.some(|x| x > 9), true, "F6b some (alias)")
+check_eq(xs.all(|x| x > 0), true, "F7 all")
+check_eq(xs.every(|x| x > 0), true, "F7b every (alias)")
+check_eq(xs.none(|x| x > 100), true, "F8 none")
+check_eq(xs.count(|x| x % 2 == 0), 5, "F9 count")
+check_eq(xs.find(|x| x > 5), 6, "F10 find")
+check_eq(xs.find_index(|x| x > 5), 5, "F11 find_index")
+check_eq(xs.take_while(|x| x < 4).len(), 3, "F12 take_while")
+check_eq(xs.drop_while(|x| x < 4).len(), 7, "F13 drop_while")
+check_eq(xs.flat_map(|x| [x, x]).len(), 20, "F14 flat_map")
+check_eq(xs.flatMap(|x| [x]).len(), 10, "F14b flatMap (camel alias)")
+check_eq(xs.min_by(|x| 0 - x), 10, "F15 min_by")
+check_eq(xs.max_by(|x| 0 - x), 1, "F16 max_by")
+check_eq(xs.sum_by(|x| x * 2), 110, "F17 sum_by")
+
+// --- plain operations + aliases ---
+check_eq([3, 1, 2].sorted().first(), 1, "F18 sorted (alias)")
+check_eq([3, 1, 2].reversed().first(), 2, "F19 reversed (alias)")
+check_eq([1, 2, 2, 3].distinct().len(), 3, "F20 distinct (alias)")
+check_eq([1, 2, 3, 4].take(2).len(), 2, "F21 take")
+check_eq([1, 2, 3, 4].drop(2).first(), 3, "F22 drop")
+check_eq([1, 2, 3].contains(2), true, "F23 contains")
+check_eq([1, 2, 3].index_of(3), 2, "F24 index_of")
+check_eq([1, 2, 3].len(), 3, "F25 len")
+check_eq([1, 2, 3].size(), 3, "F26 size")
+check_eq([1, 2, 3].max(), 3, "F27 max")
+check_eq([1, 2, 3].sum(), 6, "F28 sum")
+
+// --- group_by / partition / zip_with ---
+let g = xs.group_by(|x| x % 2)
+check_eq(len(map_get(g, 0)), 5, "F29 group_by even bucket")
+let p = xs.partition(|x| x > 5)
+check_eq(len(tuple_at(p, 0)), 5, "F30 partition matching half")
+check_eq([1, 2, 3].zip_with([10, 20, 30], |a, b| a + b).sum(), 66, "F31 zip_with")
+
+// --- user extension takes precedence over the built-in fluent method ---
+extend list {
+    fn map(f) => 999
+}
+check_eq([1, 2].map(|x| x), 999, "F32 user extend wins over built-in fluent method")
+
+print("done")

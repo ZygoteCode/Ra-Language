@@ -207,6 +207,8 @@ namespace RaLanguage.Interpreter.Values.Primitives
                         if (expectedT != null && !expectedT.IsTypeParameter() && !TypeSystem.IsAssignable(execCtxF, expectedT, v))
                         {
                             Vm.VmFrame.Return(frameF);
+                            var fmErr = RaLanguage.Interpreter.Runtime.CallableDiagnostics.TryFunctionMismatch(execCtxF, expectedT, v, PositionStart, PositionEnd, argNames[i]);
+                            if (fmErr != null) return res.Failure(fmErr);
                             return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"Type mismatch for argument '{argNames[i]}': expected '{expectedT}', got '{v.Type}'", Context));
                         }
                         int slot = pslots[i];

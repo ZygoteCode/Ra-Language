@@ -56,6 +56,41 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             BuiltInRegistry.Register("list_shuffle", ListShuffle);
             BuiltInRegistry.Register("list_clear", ListClear);
 
+            // Predicate-driven higher-order list functions. Each accepts ANY
+            // callable as the test — a `pred`, a lambda, or a plain
+            // `fn(T) -> bool` (what flows in is what is called). Bare,
+            // prose-like names because predicates are meant to read aloud:
+            // `filter(xs, even)`, `any(users, is_admin)`. Short-circuit where
+            // the semantics allow (any/all/find/take_while/drop_while).
+            BuiltInRegistry.Register("filter", Filter);
+            BuiltInRegistry.Register("reject", Reject);
+            BuiltInRegistry.Register("find", Find);
+            BuiltInRegistry.Register("find_index", FindIndex);
+            BuiltInRegistry.Register("any", AnyMatch);
+            BuiltInRegistry.Register("all", AllMatch);
+            BuiltInRegistry.Register("none", NoneMatch);
+            BuiltInRegistry.Register("count", CountMatch);
+            BuiltInRegistry.Register("partition", Partition);
+            BuiltInRegistry.Register("take_while", TakeWhile);
+            BuiltInRegistry.Register("drop_while", DropWhile);
+
+            // Transform / aggregate HOFs — same "the callable may be a `pred`,
+            // a lambda, or a plain `fn`" contract, but producing new values
+            // rather than booleans. Fills the list-side gap the stream HOFs
+            // (stream_map / stream_reduce / …) already cover.
+            BuiltInRegistry.Register("map", MapFn);
+            BuiltInRegistry.Register("flat_map", FlatMap);
+            BuiltInRegistry.Register("for_each", ForEach);
+            BuiltInRegistry.Register("reduce", Reduce);
+            BuiltInRegistry.Register("fold", Reduce);
+            BuiltInRegistry.Register("sort_with", SortWith);
+            BuiltInRegistry.Register("sort_by", SortBy);
+            BuiltInRegistry.Register("group_by", GroupBy);
+            BuiltInRegistry.Register("zip_with", ZipWith);
+            BuiltInRegistry.Register("min_by", MinBy);
+            BuiltInRegistry.Register("max_by", MaxBy);
+            BuiltInRegistry.Register("sum_by", SumBy);
+
             BuiltInRegistry.Register("map_get", MapGet);
             BuiltInRegistry.Register("map_get_or", MapGetOr);
             BuiltInRegistry.Register("map_set", MapSet);
@@ -542,6 +577,403 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             if (ListOf(args[0]) is not { } list) return Fail(ctx, p1, p2, "list_clear: arg must be a list");
             list.Clear();
             return Ok(args[0], ctx, p1, p2);
+        }
+
+        // ---- predicate higher-order functions -----------------------------
+        //
+        // Synchronously apply a predicate (any callable) to a single element
+        // and read its truthiness. Mirrors the stream HOFs' calling convention
+        // (`FuncReturnValue ?? Value`, then `IsTrue()`) and the sync bridge
+        // used by `invoke` / the delegate combinators. Returns the matched
+        // flag plus any propagated error so callers can short-circuit on the
+        // first failure rather than swallowing it.
+        private static (bool match, Error? err) TestPredicate(BaseFunctionValue f, RuntimeValue element)
+        {
+            var r = RaLanguage.Interpreter.Runtime.Async.SyncAwait.Get(
+                f.Execute(new List<RuntimeValue> { element }));
+            if (r.Error != null) return (false, r.Error);
+            var v = r.FuncReturnValue ?? r.Value;
+            return (v != null && v.IsTrue(), null);
+        }
+
+        // Validate the universal `(list, predicate)` shape shared by every HOF
+        // below. Accepts any BaseFunctionValue as the predicate so a plain
+        // `fn(T) -> bool` works exactly like a first-class `pred`.
+        private static bool ExpectListPredicate(string name, List<RuntimeValue> args, Context ctx, Position p1, Position p2,
+            out List<RuntimeValue> list, out BaseFunctionValue pred, out RuntimeResult err)
+        {
+            list = null!;
+            pred = null!;
+            if (!ExpectArgs(name, args, 2, ctx, p1, p2, out err)) return false;
+            if (args[0] is not ListValue lv)
+            {
+                err = Fail(ctx, p1, p2, $"{name}: first argument must be a list");
+                return false;
+            }
+            if (args[1] is not BaseFunctionValue f)
+            {
+                err = Fail(ctx, p1, p2, $"{name}: second argument must be a predicate or `fn(T) -> bool`");
+                return false;
+            }
+            list = lv.Elements;
+            pred = f;
+            return true;
+        }
+
+        private static RuntimeResult Filter(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectListPredicate("filter", args, ctx, p1, p2, out var list, out var pred, out var err)) return err;
+            var outList = new List<RuntimeValue>();
+            foreach (var e in list)
+            {
+                var (match, perr) = TestPredicate(pred, e);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                if (match) outList.Add(e);
+            }
+            return Ok(new ListValue(outList), ctx, p1, p2);
+        }
+
+        private static RuntimeResult Reject(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectListPredicate("reject", args, ctx, p1, p2, out var list, out var pred, out var err)) return err;
+            var outList = new List<RuntimeValue>();
+            foreach (var e in list)
+            {
+                var (match, perr) = TestPredicate(pred, e);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                if (!match) outList.Add(e);
+            }
+            return Ok(new ListValue(outList), ctx, p1, p2);
+        }
+
+        private static RuntimeResult Find(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectListPredicate("find", args, ctx, p1, p2, out var list, out var pred, out var err)) return err;
+            foreach (var e in list)
+            {
+                var (match, perr) = TestPredicate(pred, e);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                if (match) return Ok(e, ctx, p1, p2);
+            }
+            return OkNull(ctx, p1, p2);
+        }
+
+        private static RuntimeResult FindIndex(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectListPredicate("find_index", args, ctx, p1, p2, out var list, out var pred, out var err)) return err;
+            for (int i = 0; i < list.Count; i++)
+            {
+                var (match, perr) = TestPredicate(pred, list[i]);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                if (match) return Ok(new IntegerValue(i), ctx, p1, p2);
+            }
+            return Ok(new IntegerValue(-1), ctx, p1, p2);
+        }
+
+        private static RuntimeResult AnyMatch(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectListPredicate("any", args, ctx, p1, p2, out var list, out var pred, out var err)) return err;
+            foreach (var e in list)
+            {
+                var (match, perr) = TestPredicate(pred, e);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                if (match) return Ok(MakeBool(true), ctx, p1, p2);     // ∃ — short-circuit
+            }
+            return Ok(MakeBool(false), ctx, p1, p2);
+        }
+
+        private static RuntimeResult AllMatch(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectListPredicate("all", args, ctx, p1, p2, out var list, out var pred, out var err)) return err;
+            foreach (var e in list)
+            {
+                var (match, perr) = TestPredicate(pred, e);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                if (!match) return Ok(MakeBool(false), ctx, p1, p2);   // ∀ — short-circuit
+            }
+            return Ok(MakeBool(true), ctx, p1, p2);
+        }
+
+        private static RuntimeResult NoneMatch(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectListPredicate("none", args, ctx, p1, p2, out var list, out var pred, out var err)) return err;
+            foreach (var e in list)
+            {
+                var (match, perr) = TestPredicate(pred, e);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                if (match) return Ok(MakeBool(false), ctx, p1, p2);    // ¬∃ — short-circuit
+            }
+            return Ok(MakeBool(true), ctx, p1, p2);
+        }
+
+        private static RuntimeResult CountMatch(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectListPredicate("count", args, ctx, p1, p2, out var list, out var pred, out var err)) return err;
+            int c = 0;
+            foreach (var e in list)
+            {
+                var (match, perr) = TestPredicate(pred, e);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                if (match) c++;
+            }
+            return Ok(new IntegerValue(c), ctx, p1, p2);
+        }
+
+        private static RuntimeResult Partition(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectListPredicate("partition", args, ctx, p1, p2, out var list, out var pred, out var err)) return err;
+            var yes = new List<RuntimeValue>();
+            var no = new List<RuntimeValue>();
+            foreach (var e in list)
+            {
+                var (match, perr) = TestPredicate(pred, e);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                (match ? yes : no).Add(e);
+            }
+            return Ok(new TupleValue(new List<RuntimeValue> { new ListValue(yes), new ListValue(no) }), ctx, p1, p2);
+        }
+
+        private static RuntimeResult TakeWhile(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectListPredicate("take_while", args, ctx, p1, p2, out var list, out var pred, out var err)) return err;
+            var outList = new List<RuntimeValue>();
+            foreach (var e in list)
+            {
+                var (match, perr) = TestPredicate(pred, e);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                if (!match) break;
+                outList.Add(e);
+            }
+            return Ok(new ListValue(outList), ctx, p1, p2);
+        }
+
+        private static RuntimeResult DropWhile(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectListPredicate("drop_while", args, ctx, p1, p2, out var list, out var pred, out var err)) return err;
+            int i = 0;
+            for (; i < list.Count; i++)
+            {
+                var (match, perr) = TestPredicate(pred, list[i]);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                if (!match) break;
+            }
+            var outList = new List<RuntimeValue>(list.Count - i);
+            for (; i < list.Count; i++) outList.Add(list[i]);
+            return Ok(new ListValue(outList), ctx, p1, p2);
+        }
+
+        // ---- transform / aggregate higher-order functions -----------------
+        //
+        // Call a callable for its VALUE (not its truthiness) — the producing
+        // counterpart of TestPredicate. Used by map / reduce / sort_by / etc.
+        private static (RuntimeValue? val, Error? err) Apply1(BaseFunctionValue f, RuntimeValue a)
+        {
+            var r = RaLanguage.Interpreter.Runtime.Async.SyncAwait.Get(
+                f.Execute(new List<RuntimeValue> { a }));
+            if (r.Error != null) return (null, r.Error);
+            return (r.FuncReturnValue ?? r.Value ?? NullValue.Null, null);
+        }
+
+        private static (RuntimeValue? val, Error? err) Apply2(BaseFunctionValue f, RuntimeValue a, RuntimeValue b)
+        {
+            var r = RaLanguage.Interpreter.Runtime.Async.SyncAwait.Get(
+                f.Execute(new List<RuntimeValue> { a, b }));
+            if (r.Error != null) return (null, r.Error);
+            return (r.FuncReturnValue ?? r.Value ?? NullValue.Null, null);
+        }
+
+        // The `(list, callable)` shape for transform HOFs (any callable, not
+        // only a predicate — mirrors ExpectListPredicate with fn wording).
+        private static bool ExpectListFn(string name, List<RuntimeValue> args, Context ctx, Position p1, Position p2,
+            out List<RuntimeValue> list, out BaseFunctionValue fn, out RuntimeResult err)
+        {
+            list = null!;
+            fn = null!;
+            if (!ExpectArgs(name, args, 2, ctx, p1, p2, out err)) return false;
+            if (args[0] is not ListValue lv) { err = Fail(ctx, p1, p2, $"{name}: first argument must be a list"); return false; }
+            if (args[1] is not BaseFunctionValue f) { err = Fail(ctx, p1, p2, $"{name}: second argument must be a function"); return false; }
+            list = lv.Elements;
+            fn = f;
+            return true;
+        }
+
+        // Carries a RuntimeError out of a List.Sort comparison callback so the
+        // user callable's failure propagates cleanly instead of corrupting the
+        // sort. Caught locally; never escapes the builtin.
+        private sealed class CallbackError : System.Exception
+        {
+            public readonly Error Err;
+            public CallbackError(Error err) { Err = err; }
+        }
+
+        private static RuntimeResult MapFn(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectListFn("map", args, ctx, p1, p2, out var list, out var f, out var err)) return err;
+            var outList = new List<RuntimeValue>(list.Count);
+            foreach (var e in list)
+            {
+                var (v, perr) = Apply1(f, e);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                outList.Add(v!);
+            }
+            return Ok(new ListValue(outList), ctx, p1, p2);
+        }
+
+        private static RuntimeResult FlatMap(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectListFn("flat_map", args, ctx, p1, p2, out var list, out var f, out var err)) return err;
+            var outList = new List<RuntimeValue>();
+            foreach (var e in list)
+            {
+                var (v, perr) = Apply1(f, e);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                if (v is ListValue inner) outList.AddRange(inner.Elements);
+                else outList.Add(v!);
+            }
+            return Ok(new ListValue(outList), ctx, p1, p2);
+        }
+
+        private static RuntimeResult ForEach(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectListFn("for_each", args, ctx, p1, p2, out var list, out var f, out var err)) return err;
+            foreach (var e in list)
+            {
+                var (_, perr) = Apply1(f, e);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+            }
+            return Ok(args[0], ctx, p1, p2);   // fluent: returns the source list
+        }
+
+        private static RuntimeResult Reduce(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("reduce", args, 3, ctx, p1, p2, out var err)) return err;
+            if (args[0] is not ListValue lv) return Fail(ctx, p1, p2, "reduce: first argument must be a list");
+            if (args[2] is not BaseFunctionValue f) return Fail(ctx, p1, p2, "reduce: third argument must be a function (acc, elem) -> acc");
+            var acc = args[1];
+            foreach (var e in lv.Elements)
+            {
+                var (v, perr) = Apply2(f, acc, e);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                acc = v!;
+            }
+            return Ok(acc, ctx, p1, p2);
+        }
+
+        private static RuntimeResult SortWith(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectListFn("sort_with", args, ctx, p1, p2, out var list, out var cmp, out var err)) return err;
+            var copy = new List<RuntimeValue>(list);
+            try
+            {
+                // cmp(a, b) truthy means "a comes before b".
+                copy.Sort((a, b) =>
+                {
+                    var (ab, e1) = Apply2(cmp, a, b);
+                    if (e1 != null) throw new CallbackError(e1);
+                    if (ab != null && ab.IsTrue()) return -1;
+                    var (ba, e2) = Apply2(cmp, b, a);
+                    if (e2 != null) throw new CallbackError(e2);
+                    return (ba != null && ba.IsTrue()) ? 1 : 0;
+                });
+            }
+            catch (CallbackError ce) { return new RuntimeResult().Failure(ce.Err); }
+            return Ok(new ListValue(copy), ctx, p1, p2);
+        }
+
+        private static RuntimeResult SortBy(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectListFn("sort_by", args, ctx, p1, p2, out var list, out var keyFn, out var err)) return err;
+            // Precompute keys once (Schwartzian transform) so the user callable
+            // runs O(n) times, not O(n log n), and errors propagate before sorting.
+            var keyed = new List<(RuntimeValue Key, RuntimeValue Val)>(list.Count);
+            foreach (var e in list)
+            {
+                var (k, perr) = Apply1(keyFn, e);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                keyed.Add((k!, e));
+            }
+            keyed.Sort((x, y) =>
+            {
+                var (eq, _) = x.Key.GetComparisonEq(y.Key);
+                if (eq != null && eq.IsTrue()) return 0;
+                var (lt, _) = x.Key.GetComparisonLt(y.Key);
+                return (lt != null && lt.IsTrue()) ? -1 : 1;
+            });
+            var outList = new List<RuntimeValue>(keyed.Count);
+            foreach (var kv in keyed) outList.Add(kv.Val);
+            return Ok(new ListValue(outList), ctx, p1, p2);
+        }
+
+        private static RuntimeResult GroupBy(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectListFn("group_by", args, ctx, p1, p2, out var list, out var keyFn, out var err)) return err;
+            var pairs = new List<(RuntimeValue, RuntimeValue)>();   // key -> ListValue
+            foreach (var e in list)
+            {
+                var (k, perr) = Apply1(keyFn, e);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                int idx = -1;
+                for (int i = 0; i < pairs.Count; i++)
+                {
+                    var (eq, _) = pairs[i].Item1.GetComparisonEq(k!);
+                    if (eq != null && eq.IsTrue()) { idx = i; break; }
+                }
+                if (idx < 0) pairs.Add((k!, new ListValue(new List<RuntimeValue> { e })));
+                else ((ListValue)pairs[idx].Item2).Elements.Add(e);
+            }
+            return Ok(new MapValue(pairs), ctx, p1, p2);
+        }
+
+        private static RuntimeResult ZipWith(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("zip_with", args, 3, ctx, p1, p2, out var err)) return err;
+            if (args[0] is not ListValue a) return Fail(ctx, p1, p2, "zip_with: first argument must be a list");
+            if (args[1] is not ListValue b) return Fail(ctx, p1, p2, "zip_with: second argument must be a list");
+            if (args[2] is not BaseFunctionValue f) return Fail(ctx, p1, p2, "zip_with: third argument must be a function (a, b) -> c");
+            int n = Math.Min(a.Elements.Count, b.Elements.Count);
+            var outList = new List<RuntimeValue>(n);
+            for (int i = 0; i < n; i++)
+            {
+                var (v, perr) = Apply2(f, a.Elements[i], b.Elements[i]);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                outList.Add(v!);
+            }
+            return Ok(new ListValue(outList), ctx, p1, p2);
+        }
+
+        // element of `list` whose key (via keyFn) is the smallest / largest.
+        private static RuntimeResult MinMaxBy(Context ctx, List<RuntimeValue> args, Position p1, Position p2, string name, bool wantMax)
+        {
+            if (!ExpectListFn(name, args, ctx, p1, p2, out var list, out var keyFn, out var err)) return err;
+            if (list.Count == 0) return OkNull(ctx, p1, p2);
+            var (bestKey, e0) = Apply1(keyFn, list[0]);
+            if (e0 != null) return new RuntimeResult().Failure(e0);
+            var best = list[0];
+            for (int i = 1; i < list.Count; i++)
+            {
+                var (k, perr) = Apply1(keyFn, list[i]);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                var (cmp, _) = wantMax ? k!.GetComparisonGt(bestKey!) : k!.GetComparisonLt(bestKey!);
+                if (cmp != null && cmp.IsTrue()) { best = list[i]; bestKey = k; }
+            }
+            return Ok(best, ctx, p1, p2);
+        }
+
+        private static RuntimeResult MinBy(Context ctx, List<RuntimeValue> args, Position p1, Position p2) => MinMaxBy(ctx, args, p1, p2, "min_by", false);
+        private static RuntimeResult MaxBy(Context ctx, List<RuntimeValue> args, Position p1, Position p2) => MinMaxBy(ctx, args, p1, p2, "max_by", true);
+
+        private static RuntimeResult SumBy(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectListFn("sum_by", args, ctx, p1, p2, out var list, out var keyFn, out var err)) return err;
+            double sum = 0; bool anyFloat = false;
+            foreach (var e in list)
+            {
+                var (k, perr) = Apply1(keyFn, e);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                if (k!.Type == RuntimeValueType.Float || k.Type == RuntimeValueType.Double || k.Type == RuntimeValueType.Decimal) anyFloat = true;
+                sum += AsDouble(k);
+            }
+            return Ok(anyFloat ? (RuntimeValue)new DoubleValue(sum) : NumberFor((long)sum), ctx, p1, p2);
         }
 
         private static int FindPair(MapValue mv, RuntimeValue key)

@@ -1,0 +1,67 @@
+import std.prelude.*;
+// Microbenchmark: predicate dispatch & composition.
+//   - leaf predicate call vs a plain fn(int) -> bool call (the predicate
+//     wrapper must add no measurable overhead over the raw function)
+//   - composed (a & b & c)(x) vs hand-written a(x) and b(x) and c(x)
+//   - filter over a large list
+//
+// Run with the release binary:
+//   bin\x64\Release\net10.0\RaLanguage.exe bench\bench_predicates.ra
+
+pred p_even(n: int) => n % 2 == 0
+pred p_pos(n: int) => n > 0
+pred p_small(n: int) => n < 1000000
+
+fn f_even(n: int): bool => n % 2 == 0
+fn f_pos(n: int): bool => n > 0
+fn f_small(n: int): bool => n < 1000000
+
+fn time_pred_call(iter: int): int {
+    var sum = 0
+    for (var i = 0; i < iter; i = i + 1) {
+        if p_even(i) { sum = sum + 1 }
+    }
+    ret sum
+}
+
+fn time_fn_call(iter: int): int {
+    var sum = 0
+    for (var i = 0; i < iter; i = i + 1) {
+        if f_even(i) { sum = sum + 1 }
+    }
+    ret sum
+}
+
+fn time_composed(iter: int): int {
+    let combo = p_even & p_pos & p_small
+    var sum = 0
+    for (var i = 0; i < iter; i = i + 1) {
+        if combo(i) { sum = sum + 1 }
+    }
+    ret sum
+}
+
+fn time_handwritten(iter: int): int {
+    var sum = 0
+    for (var i = 0; i < iter; i = i + 1) {
+        if f_even(i) and f_pos(i) and f_small(i) { sum = sum + 1 }
+    }
+    ret sum
+}
+
+let N = 300000
+
+let a = time_pred_call(N)
+let b = time_fn_call(N)
+let c = time_composed(N)
+let d = time_handwritten(N)
+
+print($"pred  call       matches = ${a}")
+print($"fn    call       matches = ${b}")
+print($"composed &       matches = ${c}")
+print($"handwritten and  matches = ${d}")
+
+let big = list_range(0, 100000)
+let kept = filter(big, p_even)
+print($"filter kept = ${len(kept)}")
+print("done")

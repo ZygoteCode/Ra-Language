@@ -1,0 +1,54 @@
+import std.prelude.*;
+// Callable target-typing + signature-mismatch diagnostics — hard-assert suite.
+//
+// Contract: an UNTYPED lambda is accepted into a typed `fn(...)` slot (it is
+// target-typed to the expected signature); a callable whose arity or explicit
+// parameter / return type CANNOT match is rejected — at declaration, plain-fn
+// argument, extension-method argument, and class-method argument sites alike.
+
+fn check_eq(actual, expected, label) {
+    if actual == expected {
+        print("OK  " + label)
+    } else {
+        throw ("FAIL " + label + "  got=" + (actual as string) + " expected=" + (expected as string))
+    }
+}
+
+fn takes(p: fn(int) -> bool): bool => p(5)
+
+extend list {
+    fn keep(pcb: fn(int) -> bool) => filter(self, pcb)
+}
+
+class Box {
+    pub fn run(f: fn(int) -> bool): bool => f(1)
+}
+
+// --- Accepted: untyped lambda target-typed into the expected signature ---
+let okv: fn(int) -> bool = |x| x > 0
+check_eq(okv(3), true, "D1 untyped lambda accepted into typed slot")
+check_eq(takes(|x| x > 0), true, "D2 untyped lambda accepted as fn argument")
+check_eq(len([1, 2, 3].keep(|x| x > 1)), 2, "D3 untyped lambda accepted as extension argument")
+check_eq(Box().run(|x| x > 0), true, "D4 untyped lambda accepted as method argument")
+
+// --- Rejected: wrong arity, at every binding site ---
+let r1 = try { let f: fn(int) -> bool = |a, b| a > b; "ok" } catch (e) { "rejected" }
+check_eq(r1, "rejected", "D5 wrong-arity callable rejected at declaration")
+
+let r2 = try { takes(|a, b| a > b); "ok" } catch (e) { "rejected" }
+check_eq(r2, "rejected", "D6 wrong-arity callable rejected as fn argument")
+
+let r3 = try { [1, 2, 3].keep(|a, b| a > b); "ok" } catch (e) { "rejected" }
+check_eq(r3, "rejected", "D7 wrong-arity callable rejected as extension argument")
+
+let r4 = try { Box().run(|a, b| a > b); "ok" } catch (e) { "rejected" }
+check_eq(r4, "rejected", "D8 wrong-arity callable rejected as method argument")
+
+// --- Rejected: explicit parameter / return type conflict ---
+let r5 = try { let g: fn(int) -> bool = |x: string| true; "ok" } catch (e) { "rejected" }
+check_eq(r5, "rejected", "D9 explicit parameter-type conflict rejected")
+
+let r6 = try { let h: fn(int) -> int = |x: int| -> bool x > 0; "ok" } catch (e) { "rejected" }
+check_eq(r6, "rejected", "D10 explicit return-type conflict rejected")
+
+print("done")

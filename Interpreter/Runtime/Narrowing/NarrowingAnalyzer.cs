@@ -149,6 +149,16 @@ namespace RaLanguage.Interpreter.Runtime.Narrowing
                     foreach (var c in sc.Nodes) CollectEnums(c, state);
                     return;
                 case FunctionDefinitionNode fn:
+                    // A named predicate whose body is a `param is T` guard
+                    // registers as a type guard so call sites `p(v)` can be
+                    // checked like inline `is`-tests. The parser populates
+                    // NarrowsToType / NarrowsNegated (see DetectNarrowingGuard).
+                    if (fn.IsPredicate && fn.VarNameTok != null && fn.NarrowsToType != null)
+                    {
+                        var gname = fn.VarNameTok.Value.Value?.ToString();
+                        if (!string.IsNullOrEmpty(gname))
+                            state.PredicateGuards[gname!] = (fn.NarrowsToType, fn.NarrowsNegated);
+                    }
                     CollectEnums(fn.BodyNode, state);
                     return;
                 case ClassDefinitionNode cls:
@@ -229,6 +239,12 @@ namespace RaLanguage.Interpreter.Runtime.Narrowing
                 new(System.StringComparer.Ordinal);
             // Direct subclasses of each class (parent -> child names).
             public readonly Dictionary<string, List<string>> Subclasses =
+                new(System.StringComparer.Ordinal);
+            // User-defined predicate type guards: predicate name -> (tested
+            // type, negated). Collected from `pred p(x) => x is T` style
+            // declarations so a call `p(v)` can be reasoned about like an
+            // inline `v is T`.
+            public readonly Dictionary<string, (TypeDescriptor Tested, bool Negated)> PredicateGuards =
                 new(System.StringComparer.Ordinal);
 
             public void PushScope() => Scopes.Add(new Dictionary<string, TypeDescriptor>(System.StringComparer.Ordinal));
@@ -389,8 +405,28 @@ namespace RaLanguage.Interpreter.Runtime.Narrowing
                     Walk(bo.RightNode, state, diags);
                     break;
 
+                case FunctionCallNode fc:
+                    Walk(fc.NodeToCall, state, diags);
+                    foreach (var a in fc.ArgNodes) Walk(a.Expr, state, diags);
+                    CheckGuardCall(fc, state, diags, extraNegated: false);
+                    break;
+
                 case UnaryOperationNode uo:
-                    Walk(uo.Node, state, diags);
+                    // `!p(v)` on a guard predicate flips the verdict. Walk the
+                    // call's parts and guard-check it ONCE with the call-site
+                    // negation folded in — going through the FunctionCallNode
+                    // case as well would double-emit.
+                    if (uo.IsLeft && uo.OpTok.Matches(Lexer.Tokens.Keyword.Not)
+                        && uo.Node is FunctionCallNode negCall)
+                    {
+                        Walk(negCall.NodeToCall, state, diags);
+                        foreach (var a in negCall.ArgNodes) Walk(a.Expr, state, diags);
+                        CheckGuardCall(negCall, state, diags, extraNegated: true);
+                    }
+                    else
+                    {
+                        Walk(uo.Node, state, diags);
+                    }
                     break;
 
                 case TernaryNode tn:
@@ -484,6 +520,64 @@ namespace RaLanguage.Interpreter.Runtime.Narrowing
                         node.PositionStart, node.PositionEnd));
                 }
             }
+        }
+
+        // -------------------- predicate type-guard diagnostics --------------------
+
+        private enum IsVerdict { Indeterminate, AlwaysTrue, AlwaysFalse }
+
+        // Classify `value is tested` (NOT negated) given value's declared
+        // type, using the same overlap / subtype reasoning as CheckIsTest so
+        // an inline `v is T` and a guard call `p(v)` are reported identically.
+        private static IsVerdict ClassifyIsTest(TypeDescriptor declared, TypeDescriptor tested)
+        {
+            if (string.Equals(declared.Name, "any", System.StringComparison.Ordinal)) return IsVerdict.Indeterminate;
+            if (string.Equals(tested.Name, "any", System.StringComparison.Ordinal)) return IsVerdict.AlwaysTrue;
+            if (!TypeSystem.TypesOverlap(null!, declared, tested)) return IsVerdict.AlwaysFalse;
+            if (TypeSystem.IsAssignableType(null!, tested, declared)) return IsVerdict.AlwaysTrue;
+            return IsVerdict.Indeterminate;
+        }
+
+        // A call `p(v)` (optionally written `!p(v)`) where `p` is a
+        // user-defined predicate type guard is statically equivalent to
+        // `v is T`. When `v`'s declared type makes that test constant, emit
+        // the same impossible / redundant diagnostic an inline `is` would —
+        // extending the analyzer's reach across the predicate abstraction
+        // boundary without any runtime flow-typing.
+        private static void CheckGuardCall(FunctionCallNode call, State state, List<StaticAnalyzerDiagnostic> diags, bool extraNegated)
+        {
+            if (call.NodeToCall is not VariableAccessNode callee) return;
+            var pname = callee.VarNameTok.Value?.ToString();
+            if (string.IsNullOrEmpty(pname)) return;
+            if (!state.PredicateGuards.TryGetValue(pname!, out var guard)) return;
+
+            // Only the simple `p(v)` shape: a single positional argument that
+            // is a plain variable we have a declared type for.
+            if (call.ArgNodes.Count != 1) return;
+            var arg = call.ArgNodes[0];
+            if (arg.NameTok != null) return;
+            if (arg.Expr is not VariableAccessNode va) return;
+            var vname = va.VarNameTok.Value?.ToString();
+            if (string.IsNullOrEmpty(vname)) return;
+            var declared = state.Lookup(vname!);
+            if (declared == null) return;
+
+            var verdict = ClassifyIsTest(declared, guard.Tested);
+            if (verdict == IsVerdict.Indeterminate) return;
+
+            // Fold the guard body's `is not` and the call-site `!` together.
+            bool negated = guard.Negated ^ extraNegated;
+            bool alwaysTrue = (verdict == IsVerdict.AlwaysTrue) ^ negated;
+            var label = (extraNegated ? "!" : "") + pname + "(" + vname + ")";
+
+            if (alwaysTrue)
+                diags.Add(new StaticAnalyzerDiagnostic(
+                    $"predicate guard '{label}' always holds: '{vname}' has declared type '{declared}', so the test is redundant.",
+                    call.PositionStart, call.PositionEnd));
+            else
+                diags.Add(new StaticAnalyzerDiagnostic(
+                    $"predicate guard '{label}' can never hold: '{vname}' has declared type '{declared}', so this branch is unreachable.",
+                    call.PositionStart, call.PositionEnd));
         }
 
         // -------------------- Type-pattern binding propagation --------------------

@@ -1,0 +1,163 @@
+import std.prelude.*;
+// Ra Predicates — feature test suite.
+//
+// Hard-asserting: every check prints "OK  <label>" on success and THROWS on
+// failure, aborting the run loudly. Short-circuit is proved with a predicate
+// that THROWS when evaluated — if it is reached, the run dies; if it stays
+// unreached, the check passes. Negative cases assert the offending operation
+// is rejected (caught) rather than silently succeeding.
+
+fn check(cond, label) {
+    if cond { print("OK  " + label) } else { throw ("FAIL " + label) }
+}
+
+fn check_eq(actual, expected, label) {
+    if actual == expected {
+        print("OK  " + label)
+    } else {
+        throw ("FAIL " + label + "  got=" + (actual as string) + " expected=" + (expected as string))
+    }
+}
+
+// ============================================================================
+// Declaration & direct call — named arrow, named block, anonymous literal.
+// ============================================================================
+pred even(n: int) => n % 2 == 0
+
+pred adult(age: int) {
+    ret age >= 18
+}
+
+let big = pred(n) => n > 100
+
+check_eq(even(4), true, "P1 named arrow predicate call (true)")
+check_eq(even(5), false, "P1 named arrow predicate call (false)")
+check_eq(adult(21), true, "P2 named block predicate call")
+check_eq(adult(12), false, "P2 named block predicate call (false)")
+check_eq(big(500), true, "P3 anonymous literal predicate call")
+check_eq(big(50), false, "P3 anonymous literal predicate call (false)")
+
+// ============================================================================
+// Composition operators — & | ! with short-circuit semantics.
+// ============================================================================
+pred yes(n: int) => true
+pred no(n: int) => false
+
+pred boom(n: int) {
+    throw "predicate boom was evaluated — short-circuit failed"
+}
+
+let andp = even & big
+check_eq(andp(4), false, "P4 AND composite (4 is even but not > 100)")
+check_eq(andp(200), true, "P4 AND composite (200 is even and > 100)")
+
+let orp = even | big
+check_eq(orp(5), false, "P5 OR composite (5 is odd and small)")
+check_eq(orp(500), true, "P5 OR composite (500 is > 100)")
+
+let notp = !even
+check_eq(notp(5), true, "P6 NOT composite")
+check_eq(notp(4), false, "P6 NOT composite (false)")
+
+// Short-circuit: `no` is false so AND must never evaluate `boom`.
+check_eq((no & boom)(5), false, "P7 AND short-circuits past a throwing RHS")
+// Short-circuit: `yes` is true so OR must never evaluate `boom`.
+check_eq((yes | boom)(5), true, "P8 OR short-circuits past a throwing RHS")
+
+// Double-negation folds at compose time and behaves as identity.
+check_eq((!(!even))(4), true, "P9 !!p behaves as p")
+
+// ============================================================================
+// Method surface — .negate / .xor / .implies / .iff / .test
+// ============================================================================
+check_eq(even.negate()(5), true, "M1 .negate()")
+check_eq(even.test(4), true, "M2 .test(x) == p(x)")
+check_eq(even.xor(big)(4), true, "M3 .xor (even=T, big=F -> T)")
+check_eq(even.xor(big)(200), false, "M3 .xor (even=T, big=T -> F)")
+check_eq(even.implies(big)(5), true, "M4 .implies (antecedent false -> true)")
+check_eq(even.implies(big)(4), false, "M4 .implies (T -> F -> false)")
+check_eq(even.iff(even)(4), true, "M5 .iff with self is always true")
+
+// ============================================================================
+// Typing — pred<T> slot and fn(T) -> bool interop.
+// ============================================================================
+let pf: pred<int> = even
+check_eq(pf(4), true, "T1 pred<int> slot accepts a predicate")
+
+let pf2: pred<int> = pred(n) => n > 0
+check_eq(pf2(3), true, "T2 pred<int> slot accepts a lambda predicate")
+
+fn takes_fn(f: fn(int) -> bool, x: int): bool => f(x)
+check_eq(takes_fn(even, 4), true, "T3 predicate satisfies fn(int) -> bool")
+check_eq(takes_fn(even & yes, 4), true, "T4 composite satisfies fn(int) -> bool")
+
+// ============================================================================
+// Higher-order list functions.
+// ============================================================================
+let nums = list_range(0, 10)
+
+check_eq(list_sum(filter(nums, even)), 20, "H1 filter keeps matches")
+check_eq(len(filter(nums, even)), 5, "H1 filter length")
+check_eq(list_sum(reject(nums, even)), 25, "H2 reject drops matches")
+check_eq(count(nums, even), 5, "H3 count matches")
+check_eq(any(nums, even), true, "H4 any (exists)")
+check_eq(any(nums, big), false, "H4 any (none)")
+check_eq(all(nums, even), false, "H5 all (not all)")
+check_eq(all(nums, pred(n) => n < 100), true, "H5 all (every)")
+check_eq(none(nums, big), true, "H6 none (no match)")
+check_eq(find(nums, pred(n) => n > 5), 6, "H7 find first match")
+check_eq(find(nums, big), null, "H7 find no match -> null")
+check_eq(find_index(nums, pred(n) => n > 5), 6, "H8 find_index")
+check_eq(find_index(nums, big), -1, "H8 find_index no match -> -1")
+
+let parts = partition(nums, even)
+check_eq(list_sum(tuple_at(parts, 0)), 20, "H9 partition matching half")
+check_eq(list_sum(tuple_at(parts, 1)), 25, "H9 partition non-matching half")
+
+check_eq(list_sum(take_while(nums, pred(n) => n < 4)), 6, "H10 take_while prefix")
+check_eq(len(take_while(nums, pred(n) => n < 4)), 4, "H10 take_while length")
+check_eq(list_sum(drop_while(nums, pred(n) => n < 4)), 39, "H11 drop_while suffix")
+
+// HOFs accept a plain fn(T) -> bool too, not only a `pred`.
+fn is_odd(n: int): bool => n % 2 != 0
+check_eq(count(nums, is_odd), 5, "H12 HOF accepts a plain fn(T) -> bool")
+
+// ============================================================================
+// Combinators — pred_all / pred_any / pred_none / negate / constants.
+// ============================================================================
+let smallEven = pred_all(even, pred(n) => n < 6)
+check_eq(list_sum(filter(nums, smallEven)), 6, "C1 pred_all (0+2+4)")
+
+let oneOrTwo = pred_any(pred(n) => n == 1, pred(n) => n == 2)
+check_eq(list_sum(filter(nums, oneOrTwo)), 3, "C2 pred_any (1+2)")
+
+check_eq(list_sum(filter(nums, pred_none(even))), 25, "C3 pred_none (odds)")
+check_eq(list_sum(filter(nums, negate(even))), 25, "C4 negate (odds)")
+
+check_eq(count(nums, always_true), 10, "C5 always_true matches all")
+check_eq(count(nums, always_false), 0, "C6 always_false matches none")
+
+// Empty folds yield the identity element of the algebra.
+check_eq(count(nums, pred_all()), 10, "C7 pred_all() == always_true")
+check_eq(count(nums, pred_any()), 0, "C8 pred_any() == always_false")
+
+// Constant folds preserve semantics: p & always_true behaves as p.
+check_eq(list_sum(filter(nums, even & always_true)), 20, "C9 p & always_true behaves as p")
+
+// ============================================================================
+// Runtime type-guard behaviour — `param is T` predicate returns a bool.
+// ============================================================================
+pred is_str(x: any) => x is string
+check_eq(is_str("hello"), true, "G1 type-guard predicate (string)")
+check_eq(is_str(42), false, "G2 type-guard predicate (non-string)")
+
+// ============================================================================
+// Negative cases — rejected at runtime, caught rather than silently passing.
+// ============================================================================
+let n1 = try { let bad = even & 5; "no throw" } catch (e) { "rejected" }
+check_eq(n1, "rejected", "N1 composing a predicate with a non-callable is rejected")
+
+let n2 = try { even.no_such_method(); "no throw" } catch (e) { "rejected" }
+check_eq(n2, "rejected", "N2 unknown predicate method is rejected")
+
+print("done")

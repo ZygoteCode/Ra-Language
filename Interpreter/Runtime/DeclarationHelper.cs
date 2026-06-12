@@ -47,8 +47,12 @@ namespace RaLanguage.Interpreter.Runtime
             if (declaredType != null)
             {
                 if (!TypeSystem.IsAssignable(context, declaredType, value))
+                {
+                    var fmErr = CallableDiagnostics.TryFunctionMismatch(context, declaredType, value, node.PositionStart, node.PositionEnd);
+                    if (fmErr != null) return res.Failure(fmErr);
                     return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
                         $"Type mismatch: cannot assign value of type '{value.Type}' to '{declaredType}'", context));
+                }
 
                 if (declaredType.GenericArgs != null && declaredType.GenericArgs.Count > 0)
                 {

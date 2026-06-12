@@ -90,6 +90,7 @@ namespace RaLanguage.Interpreter.Values.Functions
                 RegisterGrouped("asm", AsmBuiltins.Register);
                 RegisterGrouped("regex", RegexBuiltins.Register);
                 RegisterGrouped("func", DelegateBuiltins.Register);
+                RegisterGrouped("func", PredicateBuiltins.Register);
                 RegisterGrouped("encoding", EncodingBuiltins.Register);
                 RegisterGrouped("crypto", CryptoBuiltins.Register);
                 RegisterGrouped("random", RandomBuiltins.Register);

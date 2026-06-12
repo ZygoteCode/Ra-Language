@@ -1,0 +1,66 @@
+import std.prelude.*;
+// Collection transform / aggregate higher-order functions — hard-assert suite.
+// Each callable may be a `pred`, a bar-lambda, or a plain `fn`.
+
+fn check_eq(actual, expected, label) {
+    if actual == expected {
+        print("OK  " + label)
+    } else {
+        throw ("FAIL " + label + "  got=" + (actual as string) + " expected=" + (expected as string))
+    }
+}
+
+let nums = list_range(1, 6)
+
+// map
+let squared = map(nums, |x| x * x)
+check_eq(squared[0], 1, "map first")
+check_eq(squared[4], 25, "map last")
+check_eq(len(squared), 5, "map length")
+
+fn dbl(x) => x * 2
+check_eq(list_sum(map(nums, dbl)), 30, "map accepts a named fn")
+
+// flat_map
+let fm = flat_map(nums, |x| [x, x])
+check_eq(len(fm), 10, "flat_map length")
+check_eq(list_sum(fm), 30, "flat_map sum")
+
+// reduce / fold
+check_eq(reduce(nums, 0, |acc, x| acc + x), 15, "reduce sum")
+check_eq(reduce(nums, 1, |acc, x| acc * x), 120, "reduce product")
+check_eq(fold(nums, 100, |acc, x| acc + x), 115, "fold with init")
+
+// for_each returns the source list (fluent); throwing callable would abort
+check_eq(len(for_each(nums, |x| x)), 5, "for_each returns source")
+
+// sort_with (comparator: a before b)
+let s = sort_with([3, 1, 2], |a, b| a < b)
+check_eq(s[0], 1, "sort_with asc first")
+check_eq(s[2], 3, "sort_with asc last")
+let sd = sort_with([3, 1, 2], |a, b| a > b)
+check_eq(sd[0], 3, "sort_with desc first")
+
+// sort_by (key extractor)
+let sb = sort_by([3, 1, 2], |x| 0 - x)
+check_eq(sb[0], 3, "sort_by descending-key first")
+
+// group_by
+let g = group_by(list_range(0, 6), |x| x % 2)
+check_eq(len(map_get(g, 0)), 3, "group_by even bucket")
+check_eq(len(map_get(g, 1)), 3, "group_by odd bucket")
+
+// zip_with
+let z = zip_with([1, 2, 3], [10, 20, 30], |a, b| a + b)
+check_eq(z[0], 11, "zip_with first")
+check_eq(list_sum(z), 66, "zip_with sum")
+check_eq(len(zip_with([1, 2], [1, 2, 3, 4], |a, b| a)), 2, "zip_with truncates to shorter")
+
+// min_by / max_by / sum_by
+check_eq(min_by([3, 1, 2], |x| x), 1, "min_by")
+check_eq(max_by([3, 1, 2], |x| x), 3, "max_by")
+check_eq(min_by([], |x| x), null, "min_by empty -> null")
+check_eq(sum_by(nums, |x| x), 15, "sum_by")
+check_eq(sum_by(nums, |x| x * 2), 30, "sum_by scaled")
+
+print("done")

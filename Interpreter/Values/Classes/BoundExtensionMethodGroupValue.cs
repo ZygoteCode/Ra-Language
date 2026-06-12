@@ -84,6 +84,8 @@ namespace RaLanguage.Interpreter.Values.Classes
 
             if (selected == null)
             {
+                var fmErr = MethodCallBinder.DescribeCallableArgMismatch(Candidates, positionalArgs, Context, PositionStart, PositionEnd);
+                if (fmErr != null) return res.Failure(fmErr);
                 return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"No matching extension overload found for '{Name}'", Context));
             }
 

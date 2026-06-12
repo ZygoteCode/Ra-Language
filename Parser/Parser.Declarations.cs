@@ -2828,7 +2828,7 @@ namespace RaLanguage.Parser
 
                 AstNode wrappedBody = WrapBodyWithDestructures(body, paramDestructures);
 
-                return res.Success(new FunctionDefinitionNode(
+                var arrowFn = new FunctionDefinitionNode(
                     varNameTok,
                     argNameToks,
                     argTypes,
@@ -2849,7 +2849,9 @@ namespace RaLanguage.Parser
                     whereConstraints,
                     paramAnnotations,
                     captureList
-                ) { VarArgAnnotations = varArgAnnotations, IsAsync = isAsync, IsAsyncStream = isAsyncStream, IsFactory = isFactory, ConstructorName = ctorName, IsPredicate = isPredicate });
+                ) { VarArgAnnotations = varArgAnnotations, IsAsync = isAsync, IsAsyncStream = isAsyncStream, IsFactory = isFactory, ConstructorName = ctorName, IsPredicate = isPredicate };
+                if (isPredicate) DetectNarrowingGuard(arrowFn, body);
+                return res.Success(arrowFn);
             }
 
             while (_currentToken.Type == TokenType.NEWLINE)
@@ -2907,7 +2909,7 @@ namespace RaLanguage.Parser
 
             AstNode wrappedBlockBody = WrapBodyWithDestructures(bodyStmts, paramDestructures);
 
-            return res.Success(new FunctionDefinitionNode(
+            var blockFn = new FunctionDefinitionNode(
                 varNameTok,
                 argNameToks,
                 argTypes,
@@ -2928,7 +2930,9 @@ namespace RaLanguage.Parser
                 whereConstraints,
                 paramAnnotations,
                 captureList
-            ) { VarArgAnnotations = varArgAnnotations, IsAsync = isAsync, IsAsyncStream = isAsyncStream, IsFactory = isFactory, ConstructorName = ctorName, IsPredicate = isPredicate });
+            ) { VarArgAnnotations = varArgAnnotations, IsAsync = isAsync, IsAsyncStream = isAsyncStream, IsFactory = isFactory, ConstructorName = ctorName, IsPredicate = isPredicate };
+            if (isPredicate) DetectNarrowingGuard(blockFn, bodyStmts);
+            return res.Success(blockFn);
             }
             finally
             {

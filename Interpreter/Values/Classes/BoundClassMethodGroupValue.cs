@@ -67,6 +67,8 @@ namespace RaLanguage.Interpreter.Values.Classes
 
             if (selected == null)
             {
+                var fmErr = RaLanguage.Interpreter.Values.Traits.MethodCallBinder.DescribeCallableArgMismatch(Candidates, positionalArgs, Context, PositionStart, PositionEnd);
+                if (fmErr != null) return res.Failure(fmErr);
                 return res.Failure(new RuntimeError(
                     PositionStart,
                     PositionEnd,
@@ -381,6 +383,8 @@ namespace RaLanguage.Interpreter.Values.Classes
 
                 if (expected != null && !TypeSystem.IsAssignable(execCtx, expected, actual))
                 {
+                    var fmErr = RaLanguage.Interpreter.Runtime.CallableDiagnostics.TryFunctionMismatch(execCtx, expected, actual, PositionStart, PositionEnd, name);
+                    if (fmErr != null) return fmErr;
                     return new RuntimeError(
                         PositionStart,
                         PositionEnd,

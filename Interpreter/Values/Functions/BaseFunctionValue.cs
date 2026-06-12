@@ -260,7 +260,11 @@ namespace RaLanguage.Interpreter.Values.Functions
                         {
                             var actual = positionalArgs[i];
                             if (!TypeSystem.IsAssignable(execCtx, expected, actual))
+                            {
+                                if (TypeSystem.TryDescribeFunctionMismatch(execCtx, expected!, actual, out var fm, out var fh))
+                                    return (null, new RuntimeError(PositionStart, PositionEnd, $"argument '{formalNames![i]}': {fm}", Context, code: RaLanguage.Errors.DiagnosticCode.RuntimeTypeMismatch, primaryLabel: "callable signature mismatch", help: fh));
                                 return (null, new RuntimeError(PositionStart, PositionEnd, $"Type mismatch for argument '{formalNames![i]}': expected '{expected}', got '{actual.Type}'", Context));
+                            }
                         }
                     }
                 }
@@ -376,6 +380,8 @@ namespace RaLanguage.Interpreter.Values.Functions
                         var actual = finalAssigned[formalNames[i]];
                         if (!TypeSystem.IsAssignable(execCtx, expected, actual))
                         {
+                            if (TypeSystem.TryDescribeFunctionMismatch(execCtx, expected!, actual, out var fm, out var fh))
+                                return (null, new RuntimeError(PositionStart, PositionEnd, $"argument '{formalNames[i]}': {fm}", Context, code: RaLanguage.Errors.DiagnosticCode.RuntimeTypeMismatch, primaryLabel: "callable signature mismatch", help: fh));
                             return (null, new RuntimeError(PositionStart, PositionEnd, $"Type mismatch for argument '{formalNames[i]}': expected '{expected}', got '{actual.Type}'", Context));
                         }
                     }
@@ -556,6 +562,8 @@ namespace RaLanguage.Interpreter.Values.Functions
                     {
                         if (!expected.IsTypeParameter() && !TypeSystem.IsAssignable(execCtx, expected, args[i]))
                         {
+                            if (TypeSystem.TryDescribeFunctionMismatch(execCtx, expected, args[i], out var fm, out var fh))
+                                return res.Failure(new RuntimeError(PositionStart, PositionEnd, $"argument '{argNames[i]}': {fm}", Context, code: RaLanguage.Errors.DiagnosticCode.RuntimeTypeMismatch, primaryLabel: "callable signature mismatch", help: fh));
                             return res.Failure(new RuntimeError(PositionStart, PositionEnd,
                                 $"Type mismatch for argument '{argNames[i]}': expected '{expected}', got '{args[i].Type}'", Context));
                         }

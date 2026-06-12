@@ -65,7 +65,12 @@ namespace RaLanguage.Interpreter.Visitors.Variables
                 if (declaredType != null)
                 {
                     if (!TypeSystem.IsAssignable(context, declaredType, value))
+                    {
+                        if (TypeSystem.TryDescribeFunctionMismatch(context, declaredType, value, out var fm, out var fh))
+                            return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, fm, context,
+                                code: DiagnosticCode.RuntimeTypeMismatch, primaryLabel: "callable signature mismatch", help: fh));
                         return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd, $"Type mismatch: cannot assign value of type '{value.Type}' to '{declaredType}'", context));
+                    }
 
                     // Late-bind generic element type onto async values when the
                     // declared type carries one (e.g. var ch: channel<int> = ...;).
