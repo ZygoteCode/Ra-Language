@@ -1218,6 +1218,12 @@ namespace RaLanguage.Parser
                 if (res.Error != null) return res;
                 return res.Success(delDef);
             }
+            else if (_currentToken.Matches(Keyword.Pred))
+            {
+                var predDef = res.Register(ParsePredicateDefinition(isPublic: true));
+                if (res.Error != null) return res;
+                return res.Success(predDef);
+            }
 
             return res.Failure(ParserDiagnostics.ExpectedOneOfKeywords(_currentToken, new[] { "struct", "class" }, context: "after the access / modifier list"));
         }
@@ -2259,11 +2265,15 @@ namespace RaLanguage.Parser
         }
 
 
-        private ParserResult ParseFunctionDefinition(string? ownerTypeName = null, bool isPublic = false, bool isOverride = false, bool isAbstract = false, bool isStatic = false, bool isDeclaringConstructor = false, bool isAsync = false, bool isAsyncStream = false, bool isFactory = false)
+        private ParserResult ParseFunctionDefinition(string? ownerTypeName = null, bool isPublic = false, bool isOverride = false, bool isAbstract = false, bool isStatic = false, bool isDeclaringConstructor = false, bool isAsync = false, bool isAsyncStream = false, bool isFactory = false, bool isPredicate = false)
         {
             var res = new ParserResult();
 
-            if (!isDeclaringConstructor)
+            // Predicates (`pred name(...)` / `pred(...)`) reuse the entire
+            // function machinery — params, generics, captures, destructuring,
+            // arrow / block bodies. The caller (ParsePredicateDefinition) has
+            // already consumed the `pred` keyword, so skip the `fn` check.
+            if (!isDeclaringConstructor && !isPredicate)
             {
                 if (!_currentToken.Matches(Keyword.Fn))
                     return res.Failure(ParserDiagnostics.ExpectedKeyword(_currentToken, "fn", context: "to begin a function declaration"));
@@ -2747,6 +2757,21 @@ namespace RaLanguage.Parser
                 returnType = parsed;
             }
 
+            // A predicate returns `bool` by definition. Default the contract
+            // when unannotated; reject an explicit non-bool return type with a
+            // precise diagnostic so the marker can never lie about its result.
+            if (isPredicate)
+            {
+                if (returnType == null)
+                    returnType = TypeDescriptor.Bool;
+                else if (returnType.PrimitiveKind != PrimitiveTypeKind.Bool)
+                    return res.Failure(new InvalidSyntaxError(_currentToken.PositionStart, _currentToken.PositionEnd,
+                        $"a predicate must return 'bool', but '{returnType}' was declared",
+                        DiagnosticCode.ParserPredicateReturn,
+                        help: "drop the ': " + returnType + "' annotation (predicates return bool implicitly), or use 'fn' if you need a non-bool result.",
+                        primaryLabel: "predicate return type must be 'bool'"));
+            }
+
             while (_currentToken.Type == TokenType.NEWLINE)
             {
                 res.RegisterAdvancement();
@@ -2824,7 +2849,7 @@ namespace RaLanguage.Parser
                     whereConstraints,
                     paramAnnotations,
                     captureList
-                ) { VarArgAnnotations = varArgAnnotations, IsAsync = isAsync, IsAsyncStream = isAsyncStream, IsFactory = isFactory, ConstructorName = ctorName });
+                ) { VarArgAnnotations = varArgAnnotations, IsAsync = isAsync, IsAsyncStream = isAsyncStream, IsFactory = isFactory, ConstructorName = ctorName, IsPredicate = isPredicate });
             }
 
             while (_currentToken.Type == TokenType.NEWLINE)
@@ -2865,7 +2890,7 @@ namespace RaLanguage.Parser
                     whereConstraints,
                     paramAnnotations,
                     captureList
-                ) { VarArgAnnotations = varArgAnnotations, IsAsync = isAsync, IsAsyncStream = isAsyncStream, IsFactory = isFactory, ConstructorName = ctorName });
+                ) { VarArgAnnotations = varArgAnnotations, IsAsync = isAsync, IsAsyncStream = isAsyncStream, IsFactory = isFactory, ConstructorName = ctorName, IsPredicate = isPredicate });
             }
 
             res.RegisterAdvancement();
@@ -2903,7 +2928,7 @@ namespace RaLanguage.Parser
                 whereConstraints,
                 paramAnnotations,
                 captureList
-            ) { VarArgAnnotations = varArgAnnotations, IsAsync = isAsync, IsAsyncStream = isAsyncStream, IsFactory = isFactory, ConstructorName = ctorName });
+            ) { VarArgAnnotations = varArgAnnotations, IsAsync = isAsync, IsAsyncStream = isAsyncStream, IsFactory = isFactory, ConstructorName = ctorName, IsPredicate = isPredicate });
             }
             finally
             {

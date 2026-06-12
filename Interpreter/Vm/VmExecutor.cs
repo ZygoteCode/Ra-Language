@@ -4358,13 +4358,29 @@ namespace RaLanguage.Interpreter.Vm
                 {
                     byte b = Encoding.B(instr);
                     bool result;
-                    if (!TryReadAsBool(f, locals, b, out bool bv))
+                    // Typed-bool fast path: the slot already carries a Bool tag.
+                    if (b < f.Slots.Length && f.Slots[b].Tag == ValueSlotTag.Bool)
+                    {
+                        result = (f.Slots[b].Bits & 1) == 0;   // !bits
+                    }
+                    else
                     {
                         EnsureBoxed(f, locals, b);
                         var src = locals[b];
+                        // Overloadable NOT: a predicate composes `!p` into a
+                        // NOT-predicate rather than negating its truthiness. This
+                        // must be checked BEFORE the IsTrue() coercion below
+                        // (TryReadAsBool would otherwise read any value as a bool),
+                        // mirroring the AST UnaryOperationNodeVisitor's `Notted()`.
+                        if (src is RaLanguage.Interpreter.Values.Functions.Predicates.PredicateValue)
+                        {
+                            var (nr, nerr) = src.Notted();
+                            if (nerr != null) throw new RaUserError(nerr);
+                            locals[a] = nr!;   // boxed NOT-predicate (setter writes Tag=Ref)
+                            return;
+                        }
                         result = !(src?.IsTrue() ?? false);
                     }
-                    else result = !bv;
                     ref var sa = ref f.Slots[a];
                     sa.Tag = ValueSlotTag.Bool;
                     sa.Bits = result ? 1 : 0;

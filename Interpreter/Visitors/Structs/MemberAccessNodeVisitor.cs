@@ -39,6 +39,11 @@ namespace RaLanguage.Interpreter.Visitors.Members
                 return res.Success(enumType.GetMember(memberName));
             }
 
+            // Predicate methods — delegate to the shared resolver so the
+            // AST-walk path stays in lock-step with the IR/VM path.
+            if (target.Type == RuntimeValueType.Predicate)
+                return MemberAccessHelper.Apply(node, context, target);
+
             if (target.Type == RuntimeValueType.StructInstance || target.Type == RuntimeValueType.RecordInstance)
             {
                 var instance = (StructInstanceValue)target;

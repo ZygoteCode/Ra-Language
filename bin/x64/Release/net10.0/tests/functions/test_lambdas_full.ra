@@ -160,9 +160,9 @@ print(pure_(3, 4))
 print("[L22] OK")
 
 // ----- L23: lambda assigned to a structural fn slot via target typing -----
-let pred: fn(int) -> bool = |x| x > 0
-print(pred(5))
-print(pred(-1))
+let posf: fn(int) -> bool = |x| x > 0
+print(posf(5))
+print(posf(-1))
 print("[L23] OK")
 
 // ----- L24: lambda used directly at the call site (IIFE) -----

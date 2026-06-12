@@ -83,5 +83,6 @@
         Factory,
         Cancellable,
         Tolerant,
+        Pred,
     }
 }

@@ -285,6 +285,19 @@ namespace RaLanguage.Parser
                 return TypeDescriptor.TypeParameter(baseName);
             }
 
+            // `Pred<T>` / `pred<T>` is sugar for the structural predicate type
+            // `fn(T) -> bool` (and `Pred<A, B>` for `fn(A, B) -> bool`). A bare
+            // `Pred` with no type argument is the unary predicate over `any`.
+            // The `pred` keyword maps to the enum name "Pred" on the keyword
+            // branch above, so both spellings land here.
+            if (string.Equals(baseName, "Pred", System.StringComparison.Ordinal))
+            {
+                var predParams = genericArgs.Count > 0
+                    ? genericArgs
+                    : new List<TypeDescriptor> { new TypeDescriptor("any") };
+                return TypeDescriptor.FunctionType(predParams, TypeDescriptor.Bool);
+            }
+
             return new TypeDescriptor(baseName, genericArgs);
         }
 
