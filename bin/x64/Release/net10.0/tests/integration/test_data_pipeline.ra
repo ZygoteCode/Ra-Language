@@ -37,9 +37,9 @@ fn lmap(xs: list, f): list {
     for x in xs { out = out + [f(x)]; }
     ret out;
 }
-fn lfilter(xs: list, pred): list {
+fn lfilter(xs: list, keep): list {
     var out = [];
-    for x in xs { if pred(x) { out = out + [x]; } }
+    for x in xs { if keep(x) { out = out + [x]; } }
     ret out;
 }
 fn lreduce(xs: list, seed, f) {

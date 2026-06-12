@@ -66,6 +66,12 @@ namespace RaLanguage.Interpreter.Runtime
             string memberName = node.MemberTok.Value?.ToString() ?? "";
             var t = target.Type;
 
+            // Predicate methods (`p.negate`, `p.xor`, …) resolve trivially and
+            // never benefit from inline-cache shape priming — delegate straight
+            // to the non-IC Apply which owns the predicate dispatch.
+            if (t == RuntimeValueType.Predicate)
+                return Apply(node, context, target);
+
             // Fast path: cache hit. The slot was primed on a prior visit and
             // the (TargetType, Shape) pair still matches the current target.
             // Dispatch directly to the branch chosen on first visit; for
@@ -939,6 +945,29 @@ namespace RaLanguage.Interpreter.Runtime
                         primaryLabel: $"'{memberName}' is not a variant",
                         help: $"available variants: {string.Join(", ", enumType.VariantsByName.Keys)}"));
                 return res.Success(enumType.GetMember(memberName));
+            }
+
+            if (target.Type == RuntimeValueType.Predicate)
+            {
+                var pred = (RaLanguage.Interpreter.Values.Functions.Predicates.PredicateValue)target;
+                switch (memberName)
+                {
+                    case "negate":
+                    case "xor":
+                    case "implies":
+                    case "iff":
+                    case "test":
+                        return res.Success(
+                            new RaLanguage.Interpreter.Values.Functions.Predicates.BoundPredicateMethodValue(pred, memberName)
+                                .SetContext(context).SetPos(node.PositionStart, node.PositionEnd));
+                    default:
+                        return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                            $"predicate has no method '{memberName}'",
+                            context,
+                            code: DiagnosticCode.RuntimeUndefinedSymbol,
+                            primaryLabel: "unknown predicate method",
+                            help: "predicates support: negate(), xor(p), implies(p), iff(p), test(x); combine with the operators '&' (and), '|' (or), '!' (not)"));
+                }
             }
 
             if (target.Type == RuntimeValueType.StructInstance || target.Type == RuntimeValueType.RecordInstance)

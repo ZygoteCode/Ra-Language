@@ -1343,6 +1343,7 @@ namespace RaLanguage.Lexer
                 { "step", Keyword.Step },
                 { "while", Keyword.While },
                 { "fn", Keyword.Fn },
+                { "pred", Keyword.Pred },
                 { "ret", Keyword.Ret },
                 { "is", Keyword.Is },
                 { "continue", Keyword.Continue },

@@ -5,6 +5,7 @@ using RaLanguage.Interpreter.Runtime.Annotations;
 using RaLanguage.Interpreter.Runtime.Interop;
 using RaLanguage.Interpreter.Values;
 using RaLanguage.Interpreter.Values.Functions;
+using RaLanguage.Interpreter.Values.Functions.Predicates;
 using RaLanguage.Parser.Nodes.Functions;
 
 namespace RaLanguage.Interpreter.Runtime
@@ -55,9 +56,19 @@ namespace RaLanguage.Interpreter.Runtime
                 if (capErr != null) return res.Failure(capErr);
             }
 
+            // Predicates wrap the freshly built FunctionValue in a leaf
+            // PredicateValue so composition operators (`&` / `|` / `!`) and the
+            // narrowing analyzer recognise it. The wrapper is what gets bound
+            // / returned; the inner FunctionValue still carries the compiled
+            // body + annotations. Narrowing metadata (if the body is a
+            // `param is T` guard) is threaded from the node.
+            BaseFunctionValue resultValue = node.IsPredicate
+                ? PredicateValue.Leaf(funcValue, node.NarrowsParamName, node.NarrowsToType, node.NarrowsNegated)
+                : funcValue;
+
             if (node.VarNameTok != null && funcName != null)
             {
-                context.SymbolTable!.Set(funcName, funcValue, isPublic: node.IsPublic);
+                context.SymbolTable!.Set(funcName, resultValue, isPublic: node.IsPublic);
 
                 if (node.HasAnnotations)
                 {
@@ -84,7 +95,7 @@ namespace RaLanguage.Interpreter.Runtime
                 var paramErr = RegisterParameterAnnotations(node, funcName, context, interpreter);
                 if (paramErr != null) return res.Failure(paramErr);
             }
-            return res.Success(funcValue);
+            return res.Success(resultValue);
         }
 
         // M16/M17: opportunistic IR compile of a function body. Result is

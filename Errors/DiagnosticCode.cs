@@ -49,6 +49,7 @@ namespace RaLanguage.Errors
         public static readonly DiagnosticCode ParserExpectedType       = new("RA0206", "expected-type-annotation");
         public static readonly DiagnosticCode ParserTrailingInput      = new("RA0207", "trailing-input");
         public static readonly DiagnosticCode ParserInvalidSyntax      = new("RA0208", "invalid-syntax");
+        public static readonly DiagnosticCode ParserPredicateReturn    = new("RA0209", "predicate-return-type");
 
         // ---- Static analysis (RA03xx) ----
         public static readonly DiagnosticCode StaticAnnotationViolation = new("RA0301", "annotation-violation");
@@ -69,6 +70,7 @@ namespace RaLanguage.Errors
         public static readonly DiagnosticCode RuntimeConstructorAmbiguous = new("RA0413", "ambiguous-constructor");
         public static readonly DiagnosticCode RuntimeFactoryReturn        = new("RA0414", "factory-return");
         public static readonly DiagnosticCode RuntimeConstructorNotFound  = new("RA0415", "unknown-named-constructor");
+        public static readonly DiagnosticCode RuntimePredicateCompose      = new("RA0416", "predicate-composition");
 
         // ---- Modules / imports (RA05xx) ----
         public static readonly DiagnosticCode ModuleNotFound       = new("RA0501", "module-not-found");

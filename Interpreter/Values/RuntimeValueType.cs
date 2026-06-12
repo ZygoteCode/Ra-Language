@@ -54,6 +54,7 @@
         DelegateType,
         MulticastDelegate,
         PartialFunction,
-        ComposedFunction
+        ComposedFunction,
+        Predicate
     }
 }

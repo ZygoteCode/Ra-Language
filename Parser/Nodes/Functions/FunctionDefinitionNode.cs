@@ -98,6 +98,24 @@ namespace RaLanguage.Parser.Nodes.Functions
         public bool IsFactory { get; set; }
         public string? ConstructorName { get; set; }
 
+        // Predicates v1. `IsPredicate` marks a `pred` declaration / `pred(...)`
+        // literal — a first-class boolean function. The node is an ordinary
+        // FunctionDefinitionNode (VarNameTok null = anonymous, same as
+        // lambdas); the only difference is the marker and a `bool` return
+        // contract. FunctionDefinitionHelper.Apply wraps the produced
+        // FunctionValue in a PredicateValue so composition operators
+        // (`&` / `|` / `!`) and the narrowing analyzer recognise it.
+        public bool IsPredicate { get; set; }
+
+        // Narrowing (user-defined type guard). When the predicate body is
+        // exactly `param is T` / `param is not T`, the parser records the
+        // refined parameter + tested type here so the NarrowingAnalyzer can
+        // flow-type a call `p(v)` like an inline `v is T`. Null = not a
+        // narrowing guard. Populated by DetectNarrowingGuard.
+        public string? NarrowsParamName { get; set; }
+        public TypeDescriptor? NarrowsToType { get; set; }
+        public bool NarrowsNegated { get; set; }
+
         // True for any constructor flavour (generative, named or factory).
         public bool IsAnyConstructor => IsConstructor || IsFactory;
 

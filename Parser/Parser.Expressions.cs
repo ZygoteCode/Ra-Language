@@ -1142,6 +1142,10 @@ namespace RaLanguage.Parser
                     var funcDef = res.Register(ParseFunctionDefinition());
                     if (res.Error != null) return res;
                     return res.Success(funcDef);
+                case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Pred:
+                    var predDef = res.Register(ParsePredicateDefinition());
+                    if (res.Error != null) return res;
+                    return res.Success(predDef);
                 case TokenType.KEYWORD when ((Keyword)tok.Value) == Keyword.Async:
                     var asyncDef = res.Register(ParseAsyncFunctionDefinition());
                     if (res.Error != null) return res;
