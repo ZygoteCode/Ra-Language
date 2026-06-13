@@ -1,0 +1,98 @@
+import std.prelude.*;
+// Tier-3 handle-based reflection — first-class MethodInfo/FieldInfo.
+//   method_handle / field_handle / member_handle / members_of_handles
+//   member_name / member_kind / member_owner / member_is_static / member_is_public
+//   member_invoke / member_get / member_set / is_member_handle
+//
+// Handles bundle (owner type, name, kind, flags) into one value that can be
+// stored and used (invoke/get/set) without re-specifying the type — unlike the
+// string-keyed invoke_method/get_field builtins they delegate to.
+
+fn check_eq(actual, expected, label) {
+    if actual == expected {
+        print("OK  " + label)
+    } else {
+        throw ("FAIL " + label + "  got=" + (actual as string) + " expected=" + (expected as string))
+    }
+}
+
+fn check_true(cond, label) {
+    if cond {
+        print("OK  " + label)
+    } else {
+        throw ("FAIL " + label)
+    }
+}
+
+pub class Counter {
+    pub var count: int = 0;
+    pub fn inc() { self.count = self.count + 1; ret self.count; }
+    pub fn add(n) { self.count = self.count + n; ret self.count; }
+    pub static fn make() { ret Counter(); }
+}
+
+let c = Counter();
+
+// --- method handle: query the bundled metadata ---
+let mh = method_handle(Counter, "inc");
+check_true(is_member_handle(mh), "H1 is_member_handle true");
+check_eq(member_name(mh), "inc", "H2 member_name");
+check_eq(member_kind(mh), "method", "H3 member_kind == method");
+check_eq(member_is_static(mh), false, "H4 instance method not static");
+check_eq(member_is_public(mh), true, "H5 pub method is public");
+
+// --- method handle: invoke (delegates to invoke_method) ---
+member_invoke(mh, c);
+member_invoke(mh, c);
+check_eq(c.count, 2, "H6 member_invoke ran inc twice");
+
+let ah = method_handle(Counter, "add");
+member_invoke(ah, c, 10);
+check_eq(c.count, 12, "H7 member_invoke forwards a trailing arg");
+
+// --- field handle: query + get/set (delegates to get_field/set_field) ---
+let fh = field_handle(Counter, "count");
+check_eq(member_kind(fh), "field", "H8 field handle kind == field");
+check_eq(member_get(fh, c), 12, "H9 member_get reads the field");
+member_set(fh, c, 99);
+check_eq(member_get(fh, c), 99, "H10 member_set then member_get");
+check_eq(c.count, 99, "H11 member_set mutated the instance");
+
+// --- static method handle carries the static flag ---
+let sh = method_handle(Counter, "make");
+check_eq(member_is_static(sh), true, "H12 static method is_static == true");
+
+// --- member_handle dispatches by kind (method first, then field) ---
+check_eq(member_kind(member_handle(Counter, "inc")), "method", "H13 member_handle -> method");
+check_eq(member_kind(member_handle(Counter, "count")), "field", "H14 member_handle -> field");
+
+// --- not found -> null (ergonomic, no throw) ---
+check_eq(method_handle(Counter, "nope"), null, "H15 missing method -> null");
+check_eq(field_handle(Counter, "nope"), null, "H16 missing field -> null");
+
+// --- wrong-kind use is rejected ---
+let kindErr = try { member_get(mh, c); "no throw" } catch (e) { "threw" };
+check_eq(kindErr, "threw", "H17 member_get on a method handle throws");
+
+// --- is_member_handle on a non-handle ---
+check_eq(is_member_handle(5), false, "H18 non-handle -> false");
+
+// --- a handle resolves off an instance, not just the type ---
+let mh2 = method_handle(c, "inc");
+check_true(is_member_handle(mh2), "H19 handle resolved from an instance");
+member_invoke(mh2, c);
+check_eq(c.count, 100, "H20 invoke via instance-derived handle");
+
+// --- members_of_handles enumerates handles ---
+let all = members_of_handles(Counter);
+check_true(len(all) >= 3, "H21 members_of_handles returns >= 3 members");
+check_true(is_member_handle(all[0]), "H22 members_of_handles elements are handles");
+
+// --- member_owner round-trips back to the declaring type ---
+check_eq(member_name(method_handle(member_owner(mh), "inc")), "inc", "H23 member_owner round-trip");
+
+// --- a handle is a first-class value with its own type name ---
+check_eq(type_of(mh), "member_handle", "H24 type_of(handle) == member_handle");
+
+print("");
+print("ALL MEMBER-HANDLE TESTS PASSED");

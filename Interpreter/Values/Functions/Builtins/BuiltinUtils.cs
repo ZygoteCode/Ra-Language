@@ -214,6 +214,7 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
                 case RuntimeValueType.ModuleWrapper: return "module";
                 case RuntimeValueType.GenericTypeBinding: return "generic_binding";
                 case RuntimeValueType.NativeHandle: return "native_handle";
+                case RuntimeValueType.MemberHandle: return "member_handle";
                 case RuntimeValueType.Super: return "super";
                 default: return v.Type.ToString().ToLowerInvariant();
             }

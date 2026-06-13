@@ -25,6 +25,11 @@ namespace RaLanguage.Interpreter.Values.Primitives
     {
         public string ClassName { get; }
 
+        // The namespace this type was declared in (null at global scope).
+        // Stamped once when the type registers into a `namespace` body; read by
+        // `qual_name_of` / `full_name_of` to build the qualified name.
+        public RaLanguage.Interpreter.Values.Namespaces.NamespaceValue? DeclaringNamespace { get; set; }
+
         // Cached self-type descriptor for binding `self` in instance methods.
         // `new TypeDescriptor(ClassName)` is otherwise rebuilt on every method
         // call; the descriptor is immutable and consumed read-only (stored as a

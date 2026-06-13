@@ -28,6 +28,22 @@ namespace RaLanguage.Interpreter.Visitors.Variables
             }
 
             ListAccessNode listAccessNode = (ListAccessNode)node.Target;
+
+            // Multi-parameter index assignment `obj[a, b] = v` (or compound)
+            // → op_index_set(a, b, …) method call.
+            if (listAccessNode.IsMulti)
+            {
+                Parser.Nodes.Functions.FunctionCallNode mcall;
+                if (node.AssignmentToken.Type == TokenType.EQ)
+                    mcall = RaLanguage.Interpreter.Runtime.IndexDesugar.BuildSet(listAccessNode.Target, listAccessNode.Indices, node.Value, node.PositionStart, node.PositionEnd);
+                else if (RaLanguage.Interpreter.Runtime.IndexDesugar.TryCompoundBinaryToken(node.AssignmentToken.Type, node.PositionStart, node.PositionEnd, out var binTok))
+                    mcall = RaLanguage.Interpreter.Runtime.IndexDesugar.BuildCompoundSet(listAccessNode.Target, listAccessNode.Indices, binTok, node.Value, node.PositionStart, node.PositionEnd);
+                else
+                    return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
+                        "compound assignment operator not supported on a multi-parameter index; write 'obj[a, b] = obj[a, b] <op> value'", context));
+                return await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(mcall, context, interpreter);
+            }
+
             var targetList = res.Register(await RaLanguage.Interpreter.Runtime.IrExpressionEvaluator.Evaluate(listAccessNode.Target, context, interpreter));
             if (res.ShouldReturn()) return res;
 

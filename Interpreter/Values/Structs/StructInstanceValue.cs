@@ -189,6 +189,18 @@ namespace RaLanguage.Interpreter.Values.Structs
         // for diagnostics.
         public override ValueResult ListAccess(RuntimeValue other)
         {
+            // Native struct indexer declared in the body — `fn op_index(i): T { ret … }`.
+            // Body indexer takes precedence over an extension indexer.
+            var ownGet = Definition.GetMethod("op_index");
+            if (ownGet != null)
+            {
+                var bound = new BoundStructMethodValue(Definition, this, ownGet)
+                    .SetContext(Context).SetPos(PositionStart, PositionEnd);
+                var r = SyncAwait.Get(bound.Execute(new System.Collections.Generic.List<RuntimeValue> { other }));
+                if (r.Error != null) return (null, r.Error);
+                return (r.FuncReturnValue ?? r.Value, null);
+            }
+
             if (Context?.Extensions != null)
             {
                 var entry = Context.Extensions.ResolveIndexerEntry(this, isAssignment: false, out var amb);
@@ -210,11 +222,27 @@ namespace RaLanguage.Interpreter.Values.Structs
                     return (r.Value, null);
                 }
             }
-            return (null, IllegalOperation(other));
+            return (null, new RuntimeError(PositionStart, PositionEnd,
+                $"type '{Definition.StructName}' has no indexer: '{Definition.StructName}[...]' is not defined",
+                Context,
+                code: RaLanguage.Errors.DiagnosticCode.RuntimeGeneric,
+                primaryLabel: "no readable indexer on this type",
+                help: "define `fn op_index(index): T { ret … }` in the struct body or an `extend` block (add `fn op_index_set(index, value)` to also allow `obj[index] = value`)"));
         }
 
         public override ValueResult ListSet(RuntimeValue index, RuntimeValue value)
         {
+            // Native struct indexer setter declared in the body — `fn op_index_set(i, v) { … }`.
+            var ownSet = Definition.GetMethod("op_index_set");
+            if (ownSet != null)
+            {
+                var bound = new BoundStructMethodValue(Definition, this, ownSet)
+                    .SetContext(Context).SetPos(PositionStart, PositionEnd);
+                var r = SyncAwait.Get(bound.Execute(new System.Collections.Generic.List<RuntimeValue> { index, value }));
+                if (r.Error != null) return (null, r.Error);
+                return (r.FuncReturnValue ?? r.Value ?? value, null);
+            }
+
             if (Context?.Extensions != null)
             {
                 var entry = Context.Extensions.ResolveIndexerEntry(this, isAssignment: true, out var amb);
@@ -236,7 +264,12 @@ namespace RaLanguage.Interpreter.Values.Structs
                     return (r.Value ?? value, null);
                 }
             }
-            return (null, IllegalOperation(this));
+            return (null, new RuntimeError(PositionStart, PositionEnd,
+                $"type '{Definition.StructName}' has no assignable indexer: '{Definition.StructName}[...] = value' is not defined",
+                Context,
+                code: RaLanguage.Errors.DiagnosticCode.RuntimeGeneric,
+                primaryLabel: "no writable indexer on this type",
+                help: "define `fn op_index_set(index, value) { … }` in the struct body or an `extend` block"));
         }
     }
 }

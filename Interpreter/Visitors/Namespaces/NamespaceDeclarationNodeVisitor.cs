@@ -128,10 +128,28 @@ namespace RaLanguage.Interpreter.Visitors.Namespaces
             }
 
             FreezeFunctionClosures(leafNamespace, bodyContext);
+            StampNamespaceOnTypes(leafNamespace);
 
             return res.Success(NullValue.Null
                 .SetContext(context)
                 .SetPos(node.PositionStart, node.PositionEnd));
+        }
+
+        // Record the declaring namespace on each type defined in this body, so
+        // `qual_name_of` / `full_name_of` can build the qualified name. Mirrors
+        // FreezeFunctionClosures: a single pass over the namespace's own members
+        // right after the body has registered them.
+        private static void StampNamespaceOnTypes(NamespaceValue ns)
+        {
+            foreach (var kvp in ns.Members.EnumerateLocal())
+            {
+                switch (kvp.Value.Value)
+                {
+                    case ClassTypeValue ct when ct.DeclaringNamespace == null: ct.DeclaringNamespace = ns; break;
+                    case RaLanguage.Interpreter.Values.Structs.StructTypeValue st when st.DeclaringNamespace == null: st.DeclaringNamespace = ns; break;
+                    case EnumTypeValue et when et.DeclaringNamespace == null: et.DeclaringNamespace = ns; break;
+                }
+            }
         }
 
         private static void FreezeFunctionClosures(NamespaceValue ns, Context bodyContext)

@@ -1,0 +1,98 @@
+import std.prelude.*;
+// Native (body-declared) indexers — hard-assert suite.
+// A class/struct declares `fn op_index(key): T` (read) and
+// `fn op_index_set(key, value)` (write); `obj[key]` / `obj[key] = v` route to
+// them. Body indexers take precedence over extension indexers; a missing
+// indexer produces a clear, catchable error.
+
+fn check_eq(actual, expected, label) {
+    if actual == expected {
+        print("OK  " + label)
+    } else {
+        throw ("FAIL " + label + "  got=" + (actual as string) + " expected=" + (expected as string))
+    }
+}
+
+// --- class indexer over a non-numeric (string) key, with a computed default ---
+class Sparse {
+    pub var data = make_map()
+    pub Sparse() { pass }
+    pub fn op_index(key: string): int {
+        ret map_get_or(self.data, key, 0)
+    }
+    pub fn op_index_set(key: string, v: int) {
+        map_set(self.data, key, v)
+    }
+}
+let s = Sparse()
+s["x"] = 42
+check_eq(s["x"], 42, "I1 class indexer: string-key write + read")
+check_eq(s["missing"], 0, "I2 class indexer: computed default for missing key")
+
+// --- read-only computed class indexer (op_index, no op_index_set) ---
+class Doubler {
+    pub Doubler() { pass }
+    pub fn op_index(i: int): int { ret i * 2 }
+}
+let d = Doubler()
+check_eq(d[5], 10, "I3 read-only computed indexer")
+check_eq(d[0], 0, "I3b read-only computed indexer (zero)")
+let ro = try { d[1] = 9; "NO ERROR" } catch (e) { "rejected" }
+check_eq(ro, "rejected", "I4 read-only indexer rejects assignment")
+
+// --- struct indexer: set persists, computed read ---
+struct Counter {
+    pub var n: int = 0
+    pub fn op_index(i: int): int { ret self.n + i }
+    pub fn op_index_set(i: int, v: int) { self.n = v }
+}
+let c = Counter()
+c[0] = 100
+check_eq(c[0], 100, "I5 struct indexer: set then get")
+check_eq(c[5], 105, "I6 struct indexer: computed read after set")
+
+// --- a type with no indexer rejects [] with a clear, catchable error ---
+class Bare {
+    pub var z = 1
+    pub Bare() { pass }
+}
+let b = Bare()
+let niGet = try { let q = b[0]; "NO ERROR" } catch (e) { "rejected" }
+check_eq(niGet, "rejected", "I7 no-indexer type rejects read []")
+let niSet = try { b[0] = 5; "NO ERROR" } catch (e) { "rejected" }
+check_eq(niSet, "rejected", "I8 no-indexer type rejects write []")
+
+// --- multi-parameter indexer (obj[a, b]) ---
+class Mat {
+    pub var d = [0, 0, 0, 0]
+    pub Mat() { pass }
+    pub fn op_index(r: int, c: int): int { ret self.d[r * 2 + c] }
+    pub fn op_index_set(r: int, c: int, v: int) { self.d[r * 2 + c] = v }
+}
+let mm = Mat()
+mm[0, 1] = 7
+mm[1, 0] = 3
+check_eq(mm[0, 1], 7, "I9 multi-param indexer: set + get")
+check_eq(mm[1, 0], 3, "I10 multi-param indexer: set + get (2)")
+check_eq(mm[1, 1], 0, "I11 multi-param indexer: default cell")
+mm[0, 1] += 3
+check_eq(mm[0, 1], 10, "I12 multi-param indexer: compound assignment")
+
+// --- arity overload: op_index(i) and op_index(i, j) coexist ---
+class Tensor {
+    pub var flat = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    pub Tensor() { pass }
+    pub fn op_index(i: int): int { ret self.flat[i] }
+    pub fn op_index(r: int, c: int): int { ret self.flat[r * 3 + c] }
+}
+let t = Tensor()
+check_eq(t[4], 5, "I13 indexer overload: 1-arg selected")
+check_eq(t[1, 1], 5, "I14 indexer overload: 2-arg selected")
+check_eq(t[2, 0], 7, "I15 indexer overload: 2-arg selected (2)")
+
+// --- slicing via a range index (xs[a..b]) ---
+let sl = [10, 20, 30, 40, 50]
+check_eq(sl[1..3][0], 20, "I16 list slice via range index")
+check_eq(len(sl[1..4]), 3, "I17 list slice length")
+
+print("done")

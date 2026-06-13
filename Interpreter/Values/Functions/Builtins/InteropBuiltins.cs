@@ -360,6 +360,37 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
                 return Ok(new IntegerValue(-1), ctx, p1, p2);
             });
 
+            BuiltInRegistry.Register("native_alignof", (ctx, args, p1, p2) =>
+            {
+                if (!ExpectArgs("native_alignof", args, 1, ctx, p1, p2, out var err)) return err;
+                var t = AsString(args[0]).ToLowerInvariant();
+                int a = t switch
+                {
+                    "u8" or "i8" or "byte" or "bool" => 1,
+                    "u16" or "i16" or "short" => 2,
+                    "u32" or "i32" or "int" or "f32" or "float" => 4,
+                    "u64" or "i64" or "long" or "f64" or "double" => 8,
+                    "ptr" or "pointer" or "void*" => IntPtr.Size,
+                    _ => -1
+                };
+                return a < 0 ? OkNull(ctx, p1, p2) : Ok(new IntegerValue(a), ctx, p1, p2);
+            });
+
+            BuiltInRegistry.Register("struct_align", (ctx, args, p1, p2) =>
+            {
+                if (!ExpectArgs("struct_align", args, 1, ctx, p1, p2, out var err)) return err;
+                RaLanguage.Interpreter.Values.Structs.StructTypeValue? stype = args[0] switch
+                {
+                    RaLanguage.Interpreter.Values.Structs.StructTypeValue t => t,
+                    RaLanguage.Interpreter.Values.Structs.StructInstanceValue i => i.Definition,
+                    _ => null
+                };
+                if (stype == null) return Fail(ctx, p1, p2, "struct_align: argument must be a struct type/instance");
+                var (layout, lerr) = NativeStructLayout.Build(stype, ctx?.SymbolTable);
+                if (lerr != null) return Fail(ctx, p1, p2, lerr);
+                return Ok(new IntegerValue(layout!.Alignment), ctx, p1, p2);
+            });
+
             BuiltInRegistry.Register("native_free_local", (ctx, args, p1, p2) =>
             {
                 if (!ExpectArgs("native_free_local", args, 1, ctx, p1, p2, out var err)) return err;

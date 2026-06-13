@@ -4,19 +4,17 @@ using RaLanguage.Parser.Nodes.Special;
 
 namespace RaLanguage.Interpreter.Runtime
 {
-    // Shared body of NameofNodeVisitor — `nameof x`. Looks up `x` to
-    // verify existence, then returns the *name* as a StringValue.
+    // Shared body of NameofNodeVisitor — `nameof x` / `nameof(a.b.c)`. The
+    // resolved name is computed at parse time (NameofNode.Name; the final
+    // segment of a member chain), so this is a constant — the VM path folds it
+    // to a LoadConst (see IrCompiler), and this AST-fallback path returns the
+    // same constant string with no symbol lookup.
     public static class NameofHelper
     {
         public static RuntimeResult Apply(NameofNode node, Context context)
         {
             var res = new RuntimeResult();
-            string varName = node.Token.Value?.ToString() ?? "";
-            var value = context.SymbolTable!.Get(varName);
-            if (value == null)
-                return res.Failure(new RuntimeError(node.PositionStart, node.PositionEnd,
-                    $"Variable {varName} not defined", context));
-            return res.Success(new StringValue(varName).SetPos(node.PositionStart, node.PositionEnd).SetContext(context));
+            return res.Success(new StringValue(node.Name).SetPos(node.PositionStart, node.PositionEnd).SetContext(context));
         }
     }
 }

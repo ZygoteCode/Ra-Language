@@ -90,8 +90,26 @@ namespace RaLanguage.Parser
                         }
 
                         Token tok = _currentToken;
+                        string finalName = tok.Value?.ToString() ?? "";
+                        var segPath = new List<string> { finalName };
                         res.RegisterAdvancement();
                         Advance();
+
+                        // Member chain: `nameof(obj.field.sub)` → "sub" (the
+                        // final segment, as in C#). Each `.ident` updates the
+                        // resolved name; the whole thing folds to that literal.
+                        // The full segment path is retained for static analysis.
+                        while (_currentToken.Type == TokenType.DOT)
+                        {
+                            res.RegisterAdvancement();
+                            Advance();
+                            if (_currentToken.Type != TokenType.IDENTIFIER)
+                                return res.Failure(ParserDiagnostics.ExpectedMemberName(_currentToken));
+                            finalName = _currentToken.Value?.ToString() ?? "";
+                            segPath.Add(finalName);
+                            res.RegisterAdvancement();
+                            Advance();
+                        }
 
                         if (_currentToken.Type != TokenType.RPAREN)
                         {
@@ -101,7 +119,7 @@ namespace RaLanguage.Parser
                         res.RegisterAdvancement();
                         Advance();
 
-                        return res.Success(new NameofNode(tok));
+                        return res.Success(new NameofNode(tok, finalName, segPath));
                     }
                     else
                     {
@@ -315,13 +333,30 @@ namespace RaLanguage.Parser
                 res.RegisterAdvancement();
                 Advance();
 
+                // `as?` — safe cast (null on failure); `as!` — explicit
+                // throwing cast (same as bare `as`). The marker sits between
+                // `as` and the target type; a type can never start with `?`,
+                // so there is no ambiguity with ternary / null-coalescing.
+                bool safe = false;
+                if (_currentToken.Type == TokenType.QUESTION_MARK)
+                {
+                    safe = true;
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+                else if (_currentToken.Matches(Keyword.Not))
+                {
+                    res.RegisterAdvancement();
+                    Advance();
+                }
+
                 var parsedType = ParseType(res);
                 if (parsedType == null)
                 {
                     return res.Failure(ParserDiagnostics.ExpectedTypeName(_currentToken, after: "'as'"));
                 }
 
-                var castNode = new CastNode(leftNode, parsedType);
+                var castNode = new CastNode(leftNode, parsedType, safe);
                 castNode.PositionStart = leftNode.PositionStart;
                 castNode.PositionEnd = _currentToken.PositionEnd;
                 leftNode = castNode;
@@ -874,8 +909,23 @@ namespace RaLanguage.Parser
                     res.RegisterAdvancement();
                     Advance();
 
-                    var indexNode = res.Register(ParseExpression());
+                    // One or more comma-separated indices. A single index is the
+                    // native fast path (`obj[i]`); two or more form a
+                    // multi-parameter indexer (`obj[a, b]`) routed to op_index.
+                    var indices = new List<AstNode>();
+                    var firstIndex = res.Register(ParseExpression());
                     if (res.Error != null) return res;
+                    indices.Add(firstIndex);
+
+                    while (_currentToken.Type == TokenType.COMMA)
+                    {
+                        res.RegisterAdvancement();
+                        Advance();
+                        while (_currentToken.Type == TokenType.NEWLINE) { res.RegisterAdvancement(); Advance(); }
+                        var nextIndex = res.Register(ParseExpression());
+                        if (res.Error != null) return res;
+                        indices.Add(nextIndex);
+                    }
 
                     if (_currentToken.Type != TokenType.RSQUARE)
                         return res.Failure(ParserDiagnostics.ExpectedClosing(_currentToken, ']', '[', context: "an index expression"));
@@ -884,7 +934,9 @@ namespace RaLanguage.Parser
                     res.RegisterAdvancement();
                     Advance();
 
-                    resultNode = new ListAccessNode(resultNode, indexNode, resultNode.PositionStart, rBracketEndPos);
+                    resultNode = indices.Count == 1
+                        ? new ListAccessNode(resultNode, indices[0], resultNode.PositionStart, rBracketEndPos)
+                        : new ListAccessNode(resultNode, indices, resultNode.PositionStart, rBracketEndPos);
                 }
                 else if (_currentToken.Type == TokenType.DOT)
                 {

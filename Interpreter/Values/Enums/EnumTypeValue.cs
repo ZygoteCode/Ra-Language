@@ -12,6 +12,10 @@ namespace RaLanguage.Interpreter.Values.Primitives
     public class EnumTypeValue : RuntimeValue
     {
         public string EnumName { get; }
+
+        // Declaring namespace (null at global scope); stamped at namespace
+        // registration, read by qual_name_of / full_name_of.
+        public RaLanguage.Interpreter.Values.Namespaces.NamespaceValue? DeclaringNamespace { get; set; }
         public IReadOnlyList<EnumVariantInfo> Variants { get; }
         public IReadOnlyDictionary<string, EnumVariantInfo> VariantsByName { get; }
         public List<string> GenericTypeParams { get; }

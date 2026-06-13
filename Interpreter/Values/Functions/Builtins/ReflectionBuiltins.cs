@@ -13,6 +13,7 @@ using RaLanguage.Interpreter.Values.Functions;
 using RaLanguage.Interpreter.Values.Interfaces;
 using RaLanguage.Interpreter.Values.Namespaces;
 using RaLanguage.Interpreter.Values.Primitives;
+using RaLanguage.Interpreter.Values.Reflection;
 using RaLanguage.Interpreter.Values.Structs;
 using RaLanguage.Interpreter.Values.Traits;
 using RaLanguage.Lexer;
@@ -27,6 +28,14 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             BuiltInRegistry.Register("type_of", TypeOf);
             BuiltInRegistry.Register("type_name", TypeName);
             BuiltInRegistry.Register("type_kind", TypeKindFn);
+            // Tier-2 type identity / defaults / signatures.
+            BuiltInRegistry.Register("type_id", TypeId);
+            BuiltInRegistry.Register("type_key", TypeKey);
+            BuiltInRegistry.Register("signature_of", SignatureOf);
+            BuiltInRegistry.Register("default_of", DefaultOf);
+            BuiltInRegistry.Register("zero_of", DefaultOf);
+            BuiltInRegistry.Register("qual_name_of", QualNameOf);
+            BuiltInRegistry.Register("full_name_of", FullNameOf);
             BuiltInRegistry.Register("is_null", v => v.Type == RuntimeValueType.Null);
             BuiltInRegistry.Register("is_bool", v => v.Type == RuntimeValueType.Boolean);
             BuiltInRegistry.Register("is_string", v => v.Type == RuntimeValueType.String);
@@ -96,6 +105,21 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             BuiltInRegistry.Register("annotation_target", AnnotationTarget);
             BuiltInRegistry.Register("annotation_args", AnnotationArgs);
             BuiltInRegistry.Register("annotation_positional", AnnotationPositional);
+
+            // Tier-3 handle-based reflection — first-class MethodInfo/FieldInfo.
+            BuiltInRegistry.Register("method_handle", MethodHandle);
+            BuiltInRegistry.Register("field_handle", FieldHandle);
+            BuiltInRegistry.Register("member_handle", MemberHandleFn);
+            BuiltInRegistry.Register("members_of_handles", MembersOfHandles);
+            BuiltInRegistry.Register("member_name", MemberNameOf);
+            BuiltInRegistry.Register("member_kind", MemberKindOf);
+            BuiltInRegistry.Register("member_owner", MemberOwnerOf);
+            BuiltInRegistry.Register("member_is_static", MemberIsStatic);
+            BuiltInRegistry.Register("member_is_public", MemberIsPublic);
+            BuiltInRegistry.Register("member_invoke", MemberInvoke);
+            BuiltInRegistry.Register("member_get", MemberGet);
+            BuiltInRegistry.Register("member_set", MemberSet);
+            BuiltInRegistry.Register("is_member_handle", v => v.Type == RuntimeValueType.MemberHandle);
         }
 
         private static void BuiltInRegister(string name, Func<RuntimeValue, bool> pred)
@@ -105,6 +129,167 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
                 if (args.Count != 1) return Fail(ctx, p1, p2, $"{name} expects 1 argument");
                 return Ok(MakeBool(pred(args[0])), ctx, p1, p2);
             });
+        }
+
+        // ---------------- Tier-3 handle-based reflection ----------------
+        // Handles bundle (owner type, name, kind, flags) into one value. Query
+        // ops read the bundled metadata; use ops (invoke/get/set) delegate to the
+        // existing string-keyed runtime builtins so there is a single code path.
+
+        // A type value directly, or an instance → its definition. null otherwise.
+        private static RuntimeValue? OwnerTypeValue(RuntimeValue v) => v switch
+        {
+            ClassTypeValue => v,
+            StructTypeValue => v,
+            ClassInstanceValue ci => ci.Definition,
+            StructInstanceValue si => si.Definition,
+            _ => null
+        };
+
+        // Resolve member `name` on type value `tv`. Methods first (instance, then
+        // static); fields only when `fieldsToo`. Flags are read off the resolved
+        // declaration so a handle carries accurate accessibility/static metadata.
+        private static (bool found, MemberKind kind, bool isStatic, bool isPublic) ResolveMemberInfo(
+            RuntimeValue tv, string name, bool fieldsToo)
+        {
+            if (tv is ClassTypeValue ct)
+            {
+                var inst = ct.ResolveInstanceMethods(name);
+                if (inst.Count > 0) return (true, MemberKind.Method, false, inst[0].IsPublic);
+                var stat = ct.ResolveStaticMethods(name);
+                if (stat.Count > 0) return (true, MemberKind.Method, true, stat[0].IsPublic);
+                if (fieldsToo)
+                {
+                    if (ct.HasField(name)) return (true, MemberKind.Field, false, ct.IsFieldPublic(name));
+                    if (ct.HasStaticField(name)) return (true, MemberKind.Field, true, ct.IsStaticFieldPublic(name));
+                }
+            }
+            else if (tv is StructTypeValue st)
+            {
+                if (st.GetMethod(name) != null) return (true, MemberKind.Method, false, true);
+                if (fieldsToo && st.HasField(name)) return (true, MemberKind.Field, false, st.IsFieldPublic(name));
+            }
+            return (false, MemberKind.Unknown, false, false);
+        }
+
+        private static RuntimeResult MethodHandle(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("method_handle", args, 2, ctx, p1, p2, out var err)) return err;
+            var tv = OwnerTypeValue(args[0]);
+            if (tv == null) return Fail(ctx, p1, p2, "method_handle: first argument must be a type or instance");
+            var name = AsString(args[1]);
+            var info = ResolveMemberInfo(tv, name, false);
+            if (!info.found) return Ok(NullValue.Null, ctx, p1, p2);
+            return Ok(new MemberHandleValue(tv, BuiltinUtils.TypeName(tv), name, MemberKind.Method, info.isStatic, info.isPublic), ctx, p1, p2);
+        }
+
+        private static RuntimeResult FieldHandle(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("field_handle", args, 2, ctx, p1, p2, out var err)) return err;
+            var tv = OwnerTypeValue(args[0]);
+            if (tv == null) return Fail(ctx, p1, p2, "field_handle: first argument must be a type or instance");
+            var name = AsString(args[1]);
+            var info = ResolveMemberInfo(tv, name, true);
+            if (!info.found || info.kind != MemberKind.Field) return Ok(NullValue.Null, ctx, p1, p2);
+            return Ok(new MemberHandleValue(tv, BuiltinUtils.TypeName(tv), name, MemberKind.Field, info.isStatic, info.isPublic), ctx, p1, p2);
+        }
+
+        private static RuntimeResult MemberHandleFn(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("member_handle", args, 2, ctx, p1, p2, out var err)) return err;
+            var tv = OwnerTypeValue(args[0]);
+            if (tv == null) return Fail(ctx, p1, p2, "member_handle: first argument must be a type or instance");
+            var name = AsString(args[1]);
+            var info = ResolveMemberInfo(tv, name, true);
+            if (!info.found) return Ok(NullValue.Null, ctx, p1, p2);
+            return Ok(new MemberHandleValue(tv, BuiltinUtils.TypeName(tv), name, info.kind, info.isStatic, info.isPublic), ctx, p1, p2);
+        }
+
+        private static RuntimeResult MembersOfHandles(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("members_of_handles", args, 1, ctx, p1, p2, out var err)) return err;
+            var tv = OwnerTypeValue(args[0]);
+            if (tv == null) return Fail(ctx, p1, p2, "members_of_handles: argument must be a type or instance");
+            var ownerName = BuiltinUtils.TypeName(tv);
+            var handles = new List<RuntimeValue>();
+            AppendHandles(ctx, p1, p2, "methods_of", tv, ownerName, handles);
+            AppendHandles(ctx, p1, p2, "fields_of", tv, ownerName, handles);
+            return Ok(new ListValue(handles), ctx, p1, p2);
+        }
+
+        private static void AppendHandles(Context ctx, Position p1, Position p2, string lister,
+            RuntimeValue tv, string ownerName, List<RuntimeValue> outList)
+        {
+            var r = BuiltInRegistry.Invoke(lister, ctx, new List<RuntimeValue> { tv }, p1, p2);
+            if (r.Error != null || r.Value is not ListValue names) return;
+            foreach (var n in names.Elements)
+            {
+                var name = AsString(n);
+                var info = ResolveMemberInfo(tv, name, true);
+                if (!info.found) continue;
+                outList.Add(new MemberHandleValue(tv, ownerName, name, info.kind, info.isStatic, info.isPublic));
+            }
+        }
+
+        private static RuntimeResult MemberNameOf(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("member_name", args, 1, ctx, p1, p2, out var err)) return err;
+            if (args[0] is not MemberHandleValue h) return Fail(ctx, p1, p2, "member_name: argument must be a member handle");
+            return Ok(new StringValue(h.MemberName), ctx, p1, p2);
+        }
+
+        private static RuntimeResult MemberKindOf(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("member_kind", args, 1, ctx, p1, p2, out var err)) return err;
+            if (args[0] is not MemberHandleValue h) return Fail(ctx, p1, p2, "member_kind: argument must be a member handle");
+            return Ok(new StringValue(h.Kind.ToString().ToLowerInvariant()), ctx, p1, p2);
+        }
+
+        private static RuntimeResult MemberOwnerOf(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("member_owner", args, 1, ctx, p1, p2, out var err)) return err;
+            if (args[0] is not MemberHandleValue h) return Fail(ctx, p1, p2, "member_owner: argument must be a member handle");
+            return Ok(h.Owner, ctx, p1, p2);
+        }
+
+        private static RuntimeResult MemberIsStatic(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("member_is_static", args, 1, ctx, p1, p2, out var err)) return err;
+            if (args[0] is not MemberHandleValue h) return Fail(ctx, p1, p2, "member_is_static: argument must be a member handle");
+            return Ok(MakeBool(h.IsStatic), ctx, p1, p2);
+        }
+
+        private static RuntimeResult MemberIsPublic(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("member_is_public", args, 1, ctx, p1, p2, out var err)) return err;
+            if (args[0] is not MemberHandleValue h) return Fail(ctx, p1, p2, "member_is_public: argument must be a member handle");
+            return Ok(MakeBool(h.IsPublic), ctx, p1, p2);
+        }
+
+        private static RuntimeResult MemberInvoke(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectMinArgs("member_invoke", args, 2, ctx, p1, p2, out var err)) return err;
+            if (args[0] is not MemberHandleValue h) return Fail(ctx, p1, p2, "member_invoke: first argument must be a member handle");
+            if (h.Kind != MemberKind.Method) return Fail(ctx, p1, p2, $"member_invoke: '{h.MemberName}' is not a method handle");
+            var fwd = new List<RuntimeValue> { args[1], new StringValue(h.MemberName) };
+            for (int i = 2; i < args.Count; i++) fwd.Add(args[i]);
+            return BuiltInRegistry.Invoke("invoke_method", ctx, fwd, p1, p2);
+        }
+
+        private static RuntimeResult MemberGet(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("member_get", args, 2, ctx, p1, p2, out var err)) return err;
+            if (args[0] is not MemberHandleValue h) return Fail(ctx, p1, p2, "member_get: first argument must be a member handle");
+            if (h.Kind != MemberKind.Field) return Fail(ctx, p1, p2, $"member_get: '{h.MemberName}' is not a field handle");
+            return BuiltInRegistry.Invoke("get_field", ctx, new List<RuntimeValue> { args[1], new StringValue(h.MemberName) }, p1, p2);
+        }
+
+        private static RuntimeResult MemberSet(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("member_set", args, 3, ctx, p1, p2, out var err)) return err;
+            if (args[0] is not MemberHandleValue h) return Fail(ctx, p1, p2, "member_set: first argument must be a member handle");
+            if (h.Kind != MemberKind.Field) return Fail(ctx, p1, p2, $"member_set: '{h.MemberName}' is not a field handle");
+            return BuiltInRegistry.Invoke("set_field", ctx, new List<RuntimeValue> { args[1], new StringValue(h.MemberName), args[2] }, p1, p2);
         }
 
         private static RuntimeResult TypeOf(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
@@ -117,6 +302,127 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
         {
             if (!ExpectArgs("type_name", args, 1, ctx, p1, p2, out var err)) return err;
             return Ok(new StringValue(BuiltinUtils.TypeName(args[0])), ctx, p1, p2);
+        }
+
+        // Process-wide canonical-name → stable int intern table backing
+        // `type_id`. GetOrAdd may run the factory more than once under a race
+        // (wasting an id), but the returned id per name stays unique + stable —
+        // exactly the identity contract. AOT-safe (plain dictionary, no codegen).
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> s_typeIds =
+            new(StringComparer.Ordinal);
+        private static int s_nextTypeId;
+
+        // type_id(x) — a stable, compact integer identity for x's type (or for x
+        // itself when x is a type value). Same type ⇒ same id ⇒ O(1) int equality
+        // and dense map keys. A type and its instances share an id (both render
+        // to the same canonical name).
+        private static RuntimeResult TypeId(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("type_id", args, 1, ctx, p1, p2, out var err)) return err;
+            var key = BuiltinUtils.TypeName(args[0]);
+            int id = s_typeIds.GetOrAdd(key, _ => System.Threading.Interlocked.Increment(ref s_nextTypeId));
+            return Ok(new IntegerValue(id), ctx, p1, p2);
+        }
+
+        // type_key(x) — the canonical type-name string (interned for fast
+        // equality), stable across runs and usable directly as a map key.
+        private static RuntimeResult TypeKey(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("type_key", args, 1, ctx, p1, p2, out var err)) return err;
+            return Ok(new StringValue(string.Intern(BuiltinUtils.TypeName(args[0]))), ctx, p1, p2);
+        }
+
+        // signature_of(fn) — the structural signature string `fn(P…) -> R`,
+        // composed from the callable's declared parameter / return types
+        // (untyped slots render as `any`). Mirrors the callable-diagnostics
+        // renderer so signatures read identically everywhere.
+        private static RuntimeResult SignatureOf(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("signature_of", args, 1, ctx, p1, p2, out var err)) return err;
+            if (args[0] is FunctionValue fv)
+            {
+                var ps = new List<string>(fv.ArgTypes.Count);
+                for (int i = 0; i < fv.ArgTypes.Count; i++) ps.Add(fv.ArgTypes[i]?.ToString() ?? "any");
+                if (fv.HasVarArgs) ps.Add("..." + (fv.VarArgType?.ToString() ?? "any"));
+                var ret = fv.ReturnType?.ToString() ?? "any";
+                return Ok(new StringValue($"fn({string.Join(", ", ps)}) -> {ret}"), ctx, p1, p2);
+            }
+            if (args[0] is BaseFunctionValue) return Ok(new StringValue("fn(...)"), ctx, p1, p2);
+            return Fail(ctx, p1, p2, "signature_of: argument must be a function");
+        }
+
+        // default_of(T) / zero_of(T) — the default value for a type, given a
+        // type-name string (matching the native_sizeof("i32") convention) or a
+        // type value. Numeric → 0, bool → false, string → "" ; every reference
+        // / composite / unknown type → null (construct structs explicitly).
+        private static RuntimeResult DefaultOf(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("default_of", args, 1, ctx, p1, p2, out var err)) return err;
+            string tn = (args[0] is StringValue sv ? sv.Value : BuiltinUtils.TypeName(args[0])).ToLowerInvariant();
+            switch (tn)
+            {
+                case "int": case "long": case "short": case "byte":
+                case "uint": case "ulong": case "ushort":
+                case "int128": case "uint128": case "number":
+                    return Ok(new IntegerValue(0), ctx, p1, p2);
+                case "float":
+                    return Ok(new FloatValue(0f), ctx, p1, p2);
+                case "double":
+                    return Ok(new DoubleValue(0.0), ctx, p1, p2);
+                case "bool": case "boolean":
+                    return Ok(MakeBool(false), ctx, p1, p2);
+                case "string":
+                    return Ok(new StringValue(""), ctx, p1, p2);
+                default:
+                    return OkNull(ctx, p1, p2);
+            }
+        }
+
+        // Resolve an instance to its declaring TYPE value (so a class/struct
+        // instance reports the same namespace + declaration site as its type);
+        // anything else passes through unchanged.
+        private static RuntimeValue TypeValueOf(RuntimeValue v) => v switch
+        {
+            ClassInstanceValue ci => ci.Definition,
+            StructInstanceValue si => si.Definition,
+            _ => v
+        };
+
+        private static NamespaceValue? NamespaceOf(RuntimeValue typeVal) => typeVal switch
+        {
+            ClassTypeValue ct => ct.DeclaringNamespace,
+            StructTypeValue st => st.DeclaringNamespace,
+            EnumTypeValue et => et.DeclaringNamespace,
+            _ => null
+        };
+
+        // qual_name_of(x) — the namespace-qualified type name: "A.B.Foo" for a
+        // type declared in `namespace A.B`, else the bare canonical name "Foo".
+        // Accepts a type value or an instance (resolves to its type).
+        private static RuntimeResult QualNameOf(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("qual_name_of", args, 1, ctx, p1, p2, out var err)) return err;
+            var tv = TypeValueOf(args[0]);
+            var name = BuiltinUtils.TypeName(args[0]);
+            var ns = NamespaceOf(tv);
+            var qual = ns != null && !ns.IsRoot ? ns.QualifiedName + "." + name : name;
+            return Ok(new StringValue(qual), ctx, p1, p2);
+        }
+
+        // full_name_of(x) — the qualified name prefixed with the declaring
+        // module (source file, sans extension): "mymod::A.B.Foo". Falls back to
+        // the qualified name when the declaring file is unknown.
+        private static RuntimeResult FullNameOf(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("full_name_of", args, 1, ctx, p1, p2, out var err)) return err;
+            var tv = TypeValueOf(args[0]);
+            var name = BuiltinUtils.TypeName(args[0]);
+            var ns = NamespaceOf(tv);
+            var qual = ns != null && !ns.IsRoot ? ns.QualifiedName + "." + name : name;
+            var file = tv.PositionStart.Fn;
+            if (string.IsNullOrEmpty(file)) return Ok(new StringValue(qual), ctx, p1, p2);
+            var module = System.IO.Path.GetFileNameWithoutExtension(file);
+            return Ok(new StringValue(string.IsNullOrEmpty(module) ? qual : module + "::" + qual), ctx, p1, p2);
         }
 
         private static RuntimeResult TypeKindFn(Context ctx, List<RuntimeValue> args, Position p1, Position p2)

@@ -4010,6 +4010,25 @@ namespace RaLanguage.Interpreter.IR
                     if (st.ListAssignRefs.Count > ushort.MaxValue)
                         throw new IrCompileException("ListAssignRefs overflow (>65535)");
                     var lan = (Parser.Nodes.Variables.ListAccessNode)la.Target;
+                    // Multi-parameter index assignment `obj[a, b] = v` lowers to
+                    // op_index_set(a, b, v); a compound `obj[a, b] += v` lowers to
+                    // op_index_set(a, b, op_index(a, b) + v).
+                    if (lan.IsMulti)
+                    {
+                        Parser.Nodes.Functions.FunctionCallNode mcall;
+                        if (la.AssignmentToken.Type == Lexer.Tokens.TokenType.EQ)
+                            mcall = RaLanguage.Interpreter.Runtime.IndexDesugar.BuildSet(lan.Target, lan.Indices, la.Value, la.PositionStart, la.PositionEnd);
+                        else if (RaLanguage.Interpreter.Runtime.IndexDesugar.TryCompoundBinaryToken(la.AssignmentToken.Type, la.PositionStart, la.PositionEnd, out var binTok))
+                            mcall = RaLanguage.Interpreter.Runtime.IndexDesugar.BuildCompoundSet(lan.Target, lan.Indices, binTok, la.Value, la.PositionStart, la.PositionEnd);
+                        else
+                        {
+                            if (strict) throw new IrCompileException("compound assignment operator not supported on a multi-parameter index");
+                            return false;
+                        }
+                        byte tmpSlot = AllocTemp(ref topSlot);
+                        CompileExpression(mcall, tmpSlot, st, ref topSlot);
+                        return true;
+                    }
                     byte tgtSlot = AllocTemp(ref topSlot);
                     CompileExpression(lan.Target, tgtSlot, st, ref topSlot);
                     // M24: reserve idxSlot + valSlot as a consecutive pair
@@ -9331,6 +9350,13 @@ namespace RaLanguage.Interpreter.IR
                 case AstNodeType.ListAccess:
                 {
                     var la = (Parser.Nodes.Variables.ListAccessNode)expr;
+                    // Multi-parameter index `obj[a, b]` lowers to op_index(a, b).
+                    if (la.IsMulti)
+                    {
+                        var call = RaLanguage.Interpreter.Runtime.IndexDesugar.BuildGet(la.Target, la.Indices, la.PositionStart, la.PositionEnd);
+                        CompileExpression(call, destSlot, st, ref topSlot);
+                        return;
+                    }
                     byte tgtSlot = AllocTemp(ref topSlot);
                     CompileExpression(la.Target, tgtSlot, st, ref topSlot);
                     byte idxSlot = AllocTemp(ref topSlot);
@@ -9485,11 +9511,11 @@ namespace RaLanguage.Interpreter.IR
                 case AstNodeType.Nameof:
                 {
                     var nn = (Parser.Nodes.Special.NameofNode)expr;
-                    if (st.NameofRefs.Count > ushort.MaxValue)
-                        throw new IrCompileException("NameofRefs overflow (>65535)");
-                    ushort refIdx = (ushort)st.NameofRefs.Count;
-                    st.NameofRefs.Add(nn);
-                    st.Code.Emit2(Opcode.Nameof, destSlot, refIdx);
+                    // Compile-time fold: the symbol's textual name is known at
+                    // parse time, so nameof emits a constant string — no runtime
+                    // symbol lookup, no opcode dispatch (true zero-cost).
+                    ushort ci = st.Consts.Add(new RaLanguage.Interpreter.Values.Primitives.StringValue(nn.Name));
+                    st.Code.Emit2(Opcode.LoadConst, destSlot, ci);
                     return;
                 }
                 case AstNodeType.Dereference:

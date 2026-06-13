@@ -1787,13 +1787,26 @@ namespace RaLanguage.Interpreter.Vm
                                 if (hit) break;
                             }
                             // Cold path — virtual CastTo + PIC update.
-                            var castResult = CastIcMissCold(ref slot, v, castNode, ctx);
-                            if (castResult.Error != null) throw new RaUserError(castResult.Error);
+                            ValueResult castResult;
+                            try { castResult = CastIcMissCold(ref slot, v, castNode, ctx); }
+                            catch (RaUserError) { throw; }
+                            catch (System.Exception cex) { castResult = new ValueResult(null, CastThrewError(ctx, v, castNode, cex)); }
+                            if (castResult.Error != null)
+                            {
+                                if (castNode.Safe) { locals[dst] = NullValue.Null.SetContext(ctx).SetPos(castNode.PositionStart, castNode.PositionEnd); break; }
+                                throw new RaUserError(castResult.Error);
+                            }
                             locals[dst] = castResult.Value ?? NullValue.Null.SetContext(ctx).SetPos(castNode.PositionStart, castNode.PositionEnd);
                             break;
                         }
-                        var (casted, castErr) = v.CastTo(castNode.TargetType);
-                        if (castErr != null) throw new RaUserError(castErr);
+                        RuntimeValue? casted; Error? castErr;
+                        try { (casted, castErr) = v.CastTo(castNode.TargetType); }
+                        catch (System.Exception cex) { casted = null; castErr = CastThrewError(ctx, v, castNode, cex); }
+                        if (castErr != null)
+                        {
+                            if (castNode.Safe) { locals[dst] = NullValue.Null.SetContext(ctx).SetPos(castNode.PositionStart, castNode.PositionEnd); break; }
+                            throw new RaUserError(castErr);
+                        }
                         locals[dst] = casted ?? NullValue.Null.SetContext(ctx).SetPos(castNode.PositionStart, castNode.PositionEnd);
                         break;
                     }
@@ -5063,6 +5076,21 @@ namespace RaLanguage.Interpreter.Vm
                 }
             }
             return (sub.Value, null);
+        }
+
+        // A conversion (`x as T` / `as?` / `as!`) whose underlying CastTo threw
+        // a host exception (e.g. numeric overflow on a checked narrowing) is
+        // turned into a clean, positioned Ra error instead of crashing the
+        // interpreter. `as?` swallows it to null; `as` / `as!` surface this.
+        private static Error CastThrewError(Context ctx, RuntimeValue v, Parser.Nodes.Operations.CastNode castNode, System.Exception ex)
+        {
+            string help = ex is System.OverflowException
+                ? "value is out of range for the target type — use a wider type, or `as?` for a null-on-failure cast"
+                : "the value cannot be converted to the target type";
+            return new RaLanguage.Errors.Types.RuntimeError(castNode.PositionStart, castNode.PositionEnd,
+                $"cannot cast '{v.Type}' to '{castNode.TargetType}'", ctx,
+                code: RaLanguage.Errors.DiagnosticCode.RuntimeTypeMismatch,
+                primaryLabel: "conversion failed", help: help);
         }
 
         [System.Runtime.CompilerServices.MethodImpl(

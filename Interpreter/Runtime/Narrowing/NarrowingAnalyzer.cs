@@ -400,6 +400,10 @@ namespace RaLanguage.Interpreter.Runtime.Narrowing
                     CheckIsTest(isNode, state, diags);
                     break;
 
+                case NameofNode nofNode:
+                    CheckNameofMemberChain(nofNode, state, diags);
+                    break;
+
                 case BinaryOperationNode bo:
                     Walk(bo.LeftNode, state, diags);
                     Walk(bo.RightNode, state, diags);
@@ -544,6 +548,36 @@ namespace RaLanguage.Interpreter.Runtime.Narrowing
         // the same impossible / redundant diagnostic an inline `is` would —
         // extending the analyzer's reach across the predicate abstraction
         // boundary without any runtime flow-typing.
+        // Validate a `nameof(base.f1.f2…)` member chain against statically-known
+        // struct / record members: each segment must be a field of the preceding
+        // type. Fires ONLY when every type along the chain is statically known
+        // (a typed local / parameter of a struct or record); bails silently
+        // otherwise, so there are never false positives on untyped values,
+        // classes, or imported types. Catches member-name typos in `nameof`
+        // (`nameof(user.emial)`) — the rename-safety the operator exists for.
+        private static void CheckNameofMemberChain(NameofNode nf, State state, List<StaticAnalyzerDiagnostic> diags)
+        {
+            var path = nf.Path;
+            if (path.Count < 2) return; // bare symbol — full-scope / import validation is the LSP's job
+            var declared = state.Lookup(path[0]);
+            if (declared == null) return; // base type unknown (untyped / global) — no false positive
+            var current = declared;
+            for (int i = 1; i < path.Count; i++)
+            {
+                var typeName = current?.Name;
+                if (string.IsNullOrEmpty(typeName)) return;
+                if (!state.Structs.TryGetValue(typeName!, out var fields)) return; // not a known struct/record — stop
+                if (!fields.TryGetValue(path[i], out var fieldType))
+                {
+                    diags.Add(new StaticAnalyzerDiagnostic(
+                        $"nameof: '{path[i]}' is not a member of '{typeName}' — in 'nameof({string.Join(".", path)})'",
+                        nf.PositionStart, nf.PositionEnd));
+                    return;
+                }
+                current = fieldType;
+            }
+        }
+
         private static void CheckGuardCall(FunctionCallNode call, State state, List<StaticAnalyzerDiagnostic> diags, bool extraNegated)
         {
             if (call.NodeToCall is not VariableAccessNode callee) return;

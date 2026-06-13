@@ -261,6 +261,20 @@ namespace RaLanguage.Interpreter.Values.Primitives
         // dispatch above.
         public override ValueResult ListAccess(RuntimeValue other)
         {
+            // Native class indexer declared in the body — `fn op_index(i): T { ret … }`.
+            // The method group resolves the right overload by arity, so an
+            // op_index(i) and an op_index(i, j) can coexist. A body indexer takes
+            // precedence over an extension indexer (own members win, as for methods).
+            var ownGet = Definition.ResolveInstanceMethods("op_index");
+            if (ownGet.Count > 0)
+            {
+                var group = new Classes.BoundClassMethodGroupValue(Definition, this, ownGet)
+                    .SetContext(Context).SetPos(PositionStart, PositionEnd);
+                var r = SyncAwait.Get(group.Execute(new System.Collections.Generic.List<RuntimeValue> { other }));
+                if (r.Error != null) return (null, r.Error);
+                return (r.FuncReturnValue ?? r.Value, null);
+            }
+
             if (Context?.Extensions != null)
             {
                 var entry = Context.Extensions.ResolveIndexerEntry(this, isAssignment: false, out var amb);
@@ -282,11 +296,28 @@ namespace RaLanguage.Interpreter.Values.Primitives
                     return (r.Value, null);
                 }
             }
-            return (null, IllegalOperation(other));
+            return (null, new RuntimeError(PositionStart, PositionEnd,
+                $"type '{Definition.ClassName}' has no indexer: '{Definition.ClassName}[...]' is not defined",
+                Context,
+                code: RaLanguage.Errors.DiagnosticCode.RuntimeGeneric,
+                primaryLabel: "no readable indexer on this type",
+                help: "define `fn op_index(index): T { ret … }` in the class body or an `extend` block (add `fn op_index_set(index, value)` to also allow `obj[index] = value`)"));
         }
 
         public override ValueResult ListSet(RuntimeValue index, RuntimeValue value)
         {
+            // Native class indexer setter declared in the body —
+            // `fn op_index_set(i, v) { … }` (arity-overloaded; body wins over extension).
+            var ownSet = Definition.ResolveInstanceMethods("op_index_set");
+            if (ownSet.Count > 0)
+            {
+                var group = new Classes.BoundClassMethodGroupValue(Definition, this, ownSet)
+                    .SetContext(Context).SetPos(PositionStart, PositionEnd);
+                var r = SyncAwait.Get(group.Execute(new System.Collections.Generic.List<RuntimeValue> { index, value }));
+                if (r.Error != null) return (null, r.Error);
+                return (r.FuncReturnValue ?? r.Value ?? value, null);
+            }
+
             if (Context?.Extensions != null)
             {
                 var entry = Context.Extensions.ResolveIndexerEntry(this, isAssignment: true, out var amb);
@@ -308,7 +339,12 @@ namespace RaLanguage.Interpreter.Values.Primitives
                     return (r.Value ?? value, null);
                 }
             }
-            return (null, IllegalOperation(this));
+            return (null, new RuntimeError(PositionStart, PositionEnd,
+                $"type '{Definition.ClassName}' has no assignable indexer: '{Definition.ClassName}[...] = value' is not defined",
+                Context,
+                code: RaLanguage.Errors.DiagnosticCode.RuntimeGeneric,
+                primaryLabel: "no writable indexer on this type",
+                help: "define `fn op_index_set(index, value) { … }` in the class body or an `extend` block"));
         }
     }
 }

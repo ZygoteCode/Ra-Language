@@ -1,0 +1,92 @@
+import std.prelude.*;
+import std.sys.ffi;
+// Introspection operators (Tier 1) — hard-assert suite.
+//   nameof: compile-time folded, member chains, functions, types
+//   as? / as! : safe vs throwing casts
+//   alignof: native + struct alignment
+
+fn check_eq(actual, expected, label) {
+    if actual == expected {
+        print("OK  " + label)
+    } else {
+        throw ("FAIL " + label + "  got=" + (actual as string) + " expected=" + (expected as string))
+    }
+}
+
+// --- nameof (folds to a compile-time string constant) ---
+let myVar = 42
+check_eq(nameof myVar, "myVar", "N1 nameof bare")
+check_eq(nameof(myVar), "myVar", "N2 nameof paren")
+
+class Account {
+    pub var balance = 0
+    pub Account() { pass }
+}
+let acc = Account()
+check_eq(nameof(acc.balance), "balance", "N3 nameof member chain -> final segment")
+
+fn compute() => 1
+check_eq(nameof(compute), "compute", "N4 nameof function")
+check_eq(nameof(Account), "Account", "N5 nameof type")
+
+// --- as? (safe) / as / as! (throwing) ---
+check_eq(100 as? int, 100, "C1 as? success")
+check_eq(100 as? long, 100, "C2 as? widening success")
+check_eq(300 as? byte, null, "C3 as? out-of-range -> null (no throw)")
+let bad = try { let z = 300 as byte; "no throw" } catch (e) { "threw" }
+check_eq(bad, "threw", "C4 as throws on failure (clean error, no crash)")
+let bad2 = try { let z = 300 as! byte; "no throw" } catch (e) { "threw" }
+check_eq(bad2, "threw", "C5 as! throws on failure")
+
+// --- alignof / layout ---
+check_eq(native_sizeof("i32"), 4, "L1 native_sizeof i32")
+check_eq(native_alignof("i32"), 4, "L2 native_alignof i32")
+check_eq(native_alignof("i64"), 8, "L3 native_alignof i64")
+
+struct Vec3 {
+    pub var x: float = 0.0
+    pub var y: float = 0.0
+    pub var z: float = 0.0
+}
+check_eq(struct_size(Vec3), 12, "L4 struct_size")
+check_eq(struct_align(Vec3), 4, "L5 struct_align")
+
+// --- Tier 2: type identity / defaults / signatures ---
+class Foo2 {
+    pub var x = 0
+    pub Foo2() { pass }
+}
+let f1 = Foo2()
+let f2 = Foo2()
+check_eq(type_id(f1) == type_id(f2), true, "T1 type_id: same type -> same id")
+check_eq(type_id(f1) == type_id(Foo2), true, "T2 type_id: instance == type")
+check_eq(type_id(5) == type_id(f1), false, "T3 type_id: distinct types differ")
+check_eq(type_id(5) == type_id(6), true, "T4 type_id: same numeric id")
+check_eq(type_key(f1), "Foo2", "T5 type_key: canonical name")
+
+fn cmp(x: int, y: int): bool => x > y
+check_eq(signature_of(cmp), "fn(int, int) -> bool", "T6 signature_of")
+
+check_eq(default_of("int"), 0, "T7 default_of int")
+check_eq(default_of("bool"), false, "T8 default_of bool")
+check_eq(default_of("string"), "", "T9 default_of string")
+check_eq(zero_of("long"), 0, "T10 zero_of long")
+check_eq(default_of(Foo2), null, "T11 default_of class -> null")
+
+// --- qualified names (namespace-aware) ---
+namespace Geo {
+    pub class Pt {
+        pub var x = 0
+        pub Pt() { pass }
+    }
+}
+let pt = Geo.Pt()
+check_eq(qual_name_of(pt), "Geo.Pt", "Q1 qual_name_of: namespaced instance")
+check_eq(qual_name_of(Geo.Pt), "Geo.Pt", "Q2 qual_name_of: namespaced type value")
+check_eq(qual_name_of(Foo2), "Foo2", "Q3 qual_name_of: global type (no namespace)")
+check_eq(qual_name_of(5), "number", "Q4 qual_name_of: primitive")
+// full_name_of prefixes the declaring module (file-dependent); just assert it
+// is non-empty and longer than the qualified name (carries the module prefix).
+check_eq(len(full_name_of(pt)) > len(qual_name_of(pt)), true, "Q5 full_name_of carries a module prefix")
+
+print("done")

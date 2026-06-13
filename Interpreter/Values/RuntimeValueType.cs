@@ -44,6 +44,7 @@
         AsyncStream,
         Namespace,
         NativeHandle,
+        MemberHandle,
         Regex,
         RegexMatch,
         RecordType,

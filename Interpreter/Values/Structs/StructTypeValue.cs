@@ -19,6 +19,10 @@ namespace RaLanguage.Interpreter.Values.Structs
     {
         public string StructName { get; }
 
+        // Declaring namespace (null at global scope); stamped at namespace
+        // registration, read by qual_name_of / full_name_of.
+        public RaLanguage.Interpreter.Values.Namespaces.NamespaceValue? DeclaringNamespace { get; set; }
+
         // Cached self-type descriptor for binding `self` in struct/record
         // methods — see ClassTypeValue.SelfTypeDescriptor. Immutable and
         // read-only; one shared instance per struct definition.

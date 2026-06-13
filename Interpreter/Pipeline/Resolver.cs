@@ -158,7 +158,9 @@ namespace RaLanguage.Interpreter.Pipeline
                     foreach (var e in tup.ElementNodes) Walk(e, s);
                     return;
                 case ListAccessNode la:
-                    Walk(la.Target, s); Walk(la.Index, s); return;
+                    Walk(la.Target, s);
+                    foreach (var ix in la.Indices) Walk(ix, s);
+                    return;
                 case ListAssignmentNode lassign:
                     Walk(lassign.Target, s); Walk(lassign.Value, s); return;
                 case RangeNode rng:
