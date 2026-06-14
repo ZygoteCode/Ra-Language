@@ -1,0 +1,54 @@
+// std.text.inflect — English inflection helpers (pluralize / singularize /
+// ordinal). A *two-level* physical std module (std/text/inflect.ra), proving
+// the resolver handles arbitrarily-deep `std.x.y` paths with real Ra logic.
+// Import explicitly: `import std.text.inflect;`.
+
+import std.prelude.text;
+
+fn is_vowel_char(c) {
+    ret c == "a" or c == "e" or c == "i" or c == "o" or c == "u";
+}
+
+// Naive but useful English pluralization: -s/-x/-z/-ch/-sh -> +es,
+// consonant + y -> -y +ies, otherwise +s.
+pub fn pluralize(word) {
+    let w = str_lower(word);
+    if str_ends_with(w, "s") or str_ends_with(w, "x") or str_ends_with(w, "z") or str_ends_with(w, "ch") or str_ends_with(w, "sh") {
+        ret word + "es";
+    }
+    if str_len(w) >= 2 and str_ends_with(w, "y") {
+        let before = str_substring(w, str_len(w) - 2, str_len(w) - 1);
+        if not is_vowel_char(before) {
+            ret str_substring(word, 0, str_len(word) - 1) + "ies";
+        }
+    }
+    ret word + "s";
+}
+
+// The rough inverse of pluralize.
+pub fn singularize(word) {
+    let w = str_lower(word);
+    if str_len(w) > 3 and str_ends_with(w, "ies") {
+        ret str_substring(word, 0, str_len(word) - 3) + "y";
+    }
+    if str_ends_with(w, "ses") or str_ends_with(w, "xes") or str_ends_with(w, "zes") or str_ends_with(w, "ches") or str_ends_with(w, "shes") {
+        ret str_substring(word, 0, str_len(word) - 2);
+    }
+    if str_ends_with(w, "s") and not str_ends_with(w, "ss") {
+        ret str_substring(word, 0, str_len(word) - 1);
+    }
+    ret word;
+}
+
+// 1 -> "1st", 2 -> "2nd", 3 -> "3rd", 11 -> "11th", 21 -> "21st", ...
+pub fn ordinal(n) {
+    let m100 = n % 100;
+    if m100 >= 11 and m100 <= 13 {
+        ret str(n) + "th";
+    }
+    let m10 = n % 10;
+    if m10 == 1 { ret str(n) + "st"; }
+    if m10 == 2 { ret str(n) + "nd"; }
+    if m10 == 3 { ret str(n) + "rd"; }
+    ret str(n) + "th";
+}

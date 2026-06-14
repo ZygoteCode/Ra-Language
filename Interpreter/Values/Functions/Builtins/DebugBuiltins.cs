@@ -71,6 +71,54 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
                 var msg = args.Count == 3 ? AsString(args[2]) : $"assert_eq failed: {args[0]} != {args[1]}";
                 return Fail(ctx, p1, p2, msg);
             });
+            BuiltInRegistry.Register("assert_ne", (ctx, args, p1, p2) =>
+            {
+                if (!ExpectRangeArgs("assert_ne", args, 2, 3, ctx, p1, p2, out var err)) return err;
+                var (eq, _) = args[0].GetComparisonEq(args[1]);
+                if (eq == null || !eq.IsTrue()) return OkNull(ctx, p1, p2);
+                var msg = args.Count == 3 ? AsString(args[2]) : $"assert_ne failed: {args[0]} == {args[1]}";
+                return Fail(ctx, p1, p2, msg);
+            });
+            BuiltInRegistry.Register("assert_true", (ctx, args, p1, p2) =>
+            {
+                if (!ExpectRangeArgs("assert_true", args, 1, 2, ctx, p1, p2, out var err)) return err;
+                if (AsBool(args[0])) return OkNull(ctx, p1, p2);
+                return Fail(ctx, p1, p2, "assert_true: " + (args.Count == 2 ? AsString(args[1]) : "expected true"));
+            });
+            BuiltInRegistry.Register("assert_false", (ctx, args, p1, p2) =>
+            {
+                if (!ExpectRangeArgs("assert_false", args, 1, 2, ctx, p1, p2, out var err)) return err;
+                if (!AsBool(args[0])) return OkNull(ctx, p1, p2);
+                return Fail(ctx, p1, p2, "assert_false: " + (args.Count == 2 ? AsString(args[1]) : "expected false"));
+            });
+            // assert_approx(a, b [, eps]) — float-tolerant equality. Default
+            // epsilon 1e-9; the form that keeps `==` from biting on rounding.
+            BuiltInRegistry.Register("assert_approx", (ctx, args, p1, p2) =>
+            {
+                if (!ExpectRangeArgs("assert_approx", args, 2, 3, ctx, p1, p2, out var err)) return err;
+                double a = AsDouble(args[0]), b = AsDouble(args[1]);
+                double eps = args.Count == 3 ? Math.Abs(AsDouble(args[2])) : 1e-9;
+                if (Math.Abs(a - b) <= eps) return OkNull(ctx, p1, p2);
+                return Fail(ctx, p1, p2, $"assert_approx failed: |{a} - {b}| > {eps}");
+            });
+            // Unconditional failures, the catchable cousins of Rust's panic! /
+            // todo! / unreachable!. Each raises a runtime error (try/catch-able)
+            // carrying a clear, prefixed message.
+            BuiltInRegistry.Register("panic", (ctx, args, p1, p2) =>
+            {
+                if (!ExpectRangeArgs("panic", args, 0, 1, ctx, p1, p2, out var err)) return err;
+                return Fail(ctx, p1, p2, "panic: " + (args.Count == 1 ? AsString(args[0]) : "explicit panic"));
+            });
+            BuiltInRegistry.Register("todo", (ctx, args, p1, p2) =>
+            {
+                if (!ExpectRangeArgs("todo", args, 0, 1, ctx, p1, p2, out var err)) return err;
+                return Fail(ctx, p1, p2, "todo: not yet implemented" + (args.Count == 1 ? ": " + AsString(args[0]) : ""));
+            });
+            BuiltInRegistry.Register("unreachable", (ctx, args, p1, p2) =>
+            {
+                if (!ExpectRangeArgs("unreachable", args, 0, 1, ctx, p1, p2, out var err)) return err;
+                return Fail(ctx, p1, p2, "unreachable: entered unreachable code" + (args.Count == 1 ? ": " + AsString(args[0]) : ""));
+            });
             BuiltInRegistry.Register("warn", (ctx, args, p1, p2) =>
             {
                 if (!ExpectArgs("warn", args, 1, ctx, p1, p2, out var err)) return err;

@@ -100,8 +100,9 @@ namespace RaLanguage
             InitializeSymbolTable();
         }
 
-        // Full store of every built-in: the 633 functions PLUS the always-on
-        // core (annotation types, Result/Option). It is NOT a runtime parent
+        // Full store of every built-in: every built-in function PLUS the
+        // always-on core (annotation types, Result/Option). (Live function
+        // count is printed by `--selftest-stdlib`.) It is NOT a runtime parent
         // scope — it is the synthesis source for the virtual std modules and
         // the "known names" source for tooling. Built-in *functions* are
         // reachable at runtime only by importing the std module they live in.
@@ -157,7 +158,7 @@ namespace RaLanguage
             // NOT a callable function (the annotation types and the
             // Result/Option ADTs), carried over as the SAME instances from
             // BuiltinSymbolTable so there is no duplicate-type subtlety. The
-            // 633 built-in functions are deliberately excluded — they are
+            // built-in functions are deliberately excluded — they are
             // import-only now (no auto-prelude). This is the one place the
             // "manual import" policy is enforced.
             CoreSymbolTable = new SymbolTable();

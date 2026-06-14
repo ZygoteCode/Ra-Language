@@ -1,0 +1,50 @@
+import std.prelude.*;
+// stdlib/crypto_asym — asymmetric signatures (Ed25519, RSA-PSS, ECDSA-P256)
+// in std.prelude.crypto. Keys/signatures are base64 strings; messages UTF-8.
+// Verified by sign->verify round-trip + tamper/wrong-key rejection (offline,
+// no external vectors needed).
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/crypto_asym ===");
+
+// --- Ed25519 ------------------------------------------------------------
+var ek = ed25519_keypair();
+ok("ED1", str_len(map_get(ek, "private")) > 0 and str_len(map_get(ek, "public")) > 0);
+var esig = ed25519_sign("hello world", map_get(ek, "private"));
+ok("ED2", ed25519_verify("hello world", esig, map_get(ek, "public")));        // valid
+ok("ED3", ed25519_verify("hello world!", esig, map_get(ek, "public")) == false); // tampered msg
+// Ed25519 is deterministic: same message + key -> identical signature
+ok("ED4", ed25519_sign("x", map_get(ek, "private")) == ed25519_sign("x", map_get(ek, "private")));
+// a different keypair must not verify
+var ek2 = ed25519_keypair();
+ok("ED5", ed25519_verify("hello world", esig, map_get(ek2, "public")) == false);
+// malformed key -> catchable error
+var ederr = false;
+try { ed25519_sign("m", "!!notbase64!!"); } catch (e) { ederr = true; }
+ok("ED6", ederr);
+
+// --- RSA-PSS (SHA-256) --------------------------------------------------
+var rk = rsa_keypair(2048);
+ok("RSA1", str_len(map_get(rk, "private")) > 0);
+var rsig = rsa_sign("document", map_get(rk, "private"));
+ok("RSA2", rsa_verify("document", rsig, map_get(rk, "public")));
+ok("RSA3", rsa_verify("document2", rsig, map_get(rk, "public")) == false);
+var rk2 = rsa_keypair(2048);
+ok("RSA4", rsa_verify("document", rsig, map_get(rk2, "public")) == false);
+var rerr = false;
+try { rsa_keypair(1234); } catch (e) { rerr = true; }
+ok("RSA5", rerr);                                                              // invalid bits
+
+// --- ECDSA P-256 (SHA-256) ----------------------------------------------
+var ck = ecdsa_keypair();
+ok("EC1", str_len(map_get(ck, "public")) > 0);
+var csig = ecdsa_sign("payload", map_get(ck, "private"));
+ok("EC2", ecdsa_verify("payload", csig, map_get(ck, "public")));
+ok("EC3", ecdsa_verify("payload!", csig, map_get(ck, "public")) == false);
+var ck2 = ecdsa_keypair();
+ok("EC4", ecdsa_verify("payload", csig, map_get(ck2, "public")) == false);
+
+print("=== done ===");

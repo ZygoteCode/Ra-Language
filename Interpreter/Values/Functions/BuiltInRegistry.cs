@@ -92,10 +92,13 @@ namespace RaLanguage.Interpreter.Values.Functions
                 RegisterGrouped("func", DelegateBuiltins.Register);
                 RegisterGrouped("func", PredicateBuiltins.Register);
                 RegisterGrouped("encoding", EncodingBuiltins.Register);
+                RegisterGrouped("bytes", BytesBuiltins.Register);
                 RegisterGrouped("crypto", CryptoBuiltins.Register);
                 RegisterGrouped("random", RandomBuiltins.Register);
                 RegisterGrouped("serialize", SerializeBuiltins.Register);
+                RegisterGrouped("serialize", TomlBuiltins.Register);
                 RegisterGrouped("net", NetBuiltins.Register);
+                RegisterGrouped("net", NetLiveBuiltins.Register);
                 _initialized = true;
             }
         }

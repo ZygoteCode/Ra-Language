@@ -1,0 +1,37 @@
+import std.prelude.*;
+// stdlib/crypto_ext — SHA-384, HMAC-SHA512/SHA1 and PBKDF2-SHA256 added to
+// std.prelude.crypto. Checked against published test vectors where stable;
+// otherwise via length + determinism + sensitivity properties.
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/crypto_ext ===");
+
+// --- SHA-384 (FIPS 180-4 vectors) ---------------------------------------
+ok("S1", sha384_hex("abc") == "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7");
+ok("S2", sha384_hex("") == "38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b");
+ok("S3", str_len(sha384_hex("anything")) == 96);     // 48 bytes -> 96 hex
+
+// --- PBKDF2-HMAC-SHA256 (RFC-style vector: P="password", S="salt", c=1) --
+ok("PB1", pbkdf2_sha256_hex("password", "salt", 1, 32) == "120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b");
+ok("PB2", str_len(pbkdf2_sha256_hex("pw", "salt", 10, 16)) == 32);   // key_len 16 -> 32 hex
+// more iterations -> a different derived key
+ok("PB3", pbkdf2_sha256_hex("pw", "salt", 1, 32) != pbkdf2_sha256_hex("pw", "salt", 2, 32));
+// bad parameters are catchable
+var pberr = false;
+try { pbkdf2_sha256_hex("pw", "salt", 0, 32); pberr = false; } catch (e) { pberr = true; }
+ok("PB4", pberr);
+
+// --- HMAC-SHA512 / HMAC-SHA1 --------------------------------------------
+ok("H1", str_len(hmac_sha512_hex("key", "msg")) == 128);  // 64 bytes
+ok("H2", str_len(hmac_sha1_hex("key", "msg")) == 40);     // 20 bytes
+// deterministic
+ok("H3", hmac_sha512_hex("k", "m") == hmac_sha512_hex("k", "m"));
+// key-sensitive
+ok("H4", hmac_sha512_hex("k1", "m") != hmac_sha512_hex("k2", "m"));
+// message-sensitive
+ok("H5", hmac_sha1_hex("k", "a") != hmac_sha1_hex("k", "b"));
+
+print("=== done ===");

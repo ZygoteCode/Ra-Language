@@ -91,6 +91,42 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             BuiltInRegistry.Register("max_by", MaxBy);
             BuiltInRegistry.Register("sum_by", SumBy);
 
+            // Structural + key-driven list helpers that round out the
+            // functional surface. `scan` is `fold` that keeps every running
+            // accumulator; `find_last` is `find` from the tail; `count_by` /
+            // `distinct_by` are the frequency / de-dup counterparts of
+            // `group_by`. `list_windows` / `intersperse` / `list_rotate` are
+            // pure (no callable) reshapers.
+            BuiltInRegistry.Register("list_windows", ListWindows);
+            BuiltInRegistry.Register("intersperse", Intersperse);
+            BuiltInRegistry.Register("list_rotate", ListRotate);
+            BuiltInRegistry.Register("find_last", FindLast);
+            BuiltInRegistry.Register("count_by", CountBy);
+            BuiltInRegistry.Register("distinct_by", DistinctBy);
+            BuiltInRegistry.Register("scan", Scan);
+
+            // More list/map/set breadth: ends-slicing, splitting, transposition,
+            // frequency, sortedness, and the map/set algebra the first cut left
+            // out.
+            BuiltInRegistry.Register("list_take_last", ListTakeLast);
+            BuiltInRegistry.Register("list_drop_last", ListDropLast);
+            BuiltInRegistry.Register("list_split_at", ListSplitAt);
+            BuiltInRegistry.Register("list_find_indices", ListFindIndices);
+            BuiltInRegistry.Register("list_count_value", ListCountValue);
+            BuiltInRegistry.Register("list_frequencies", ListFrequencies);
+            BuiltInRegistry.Register("list_average", ListAverage);
+            BuiltInRegistry.Register("list_is_sorted", ListIsSorted);
+            BuiltInRegistry.Register("list_transpose", ListTranspose);
+            BuiltInRegistry.Register("list_dedup", ListDedup);
+            BuiltInRegistry.Register("list_zip3", ListZip3);
+            BuiltInRegistry.Register("map_map_values", MapMapValues);
+            BuiltInRegistry.Register("map_filter", MapFilter);
+            BuiltInRegistry.Register("map_invert", MapInvert);
+            BuiltInRegistry.Register("set_symmetric_diff", SetSymmetricDiff);
+            BuiltInRegistry.Register("set_is_subset", SetIsSubset);
+            BuiltInRegistry.Register("set_is_superset", SetIsSuperset);
+            BuiltInRegistry.Register("set_is_disjoint", SetIsDisjoint);
+
             BuiltInRegistry.Register("map_get", MapGet);
             BuiltInRegistry.Register("map_get_or", MapGetOr);
             BuiltInRegistry.Register("map_set", MapSet);
@@ -618,6 +654,314 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             list = lv.Elements;
             pred = f;
             return true;
+        }
+
+        private static RuntimeResult ListWindows(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("list_windows", args, 2, ctx, p1, p2, out var err)) return err;
+            if (ListOf(args[0]) is not { } list) return Fail(ctx, p1, p2, "list_windows: first argument must be a list");
+            int size = AsInt(args[1]);
+            if (size <= 0) return Fail(ctx, p1, p2, "list_windows: window size must be positive");
+            var outList = new List<RuntimeValue>();
+            for (int i = 0; i + size <= list.Count; i++)
+                outList.Add(new ListValue(list.GetRange(i, size)));
+            return Ok(new ListValue(outList), ctx, p1, p2);
+        }
+
+        private static RuntimeResult Intersperse(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("intersperse", args, 2, ctx, p1, p2, out var err)) return err;
+            if (ListOf(args[0]) is not { } list) return Fail(ctx, p1, p2, "intersperse: first argument must be a list");
+            var sep = args[1];
+            var outList = new List<RuntimeValue>(list.Count == 0 ? 0 : list.Count * 2 - 1);
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (i > 0) outList.Add(sep);
+                outList.Add(list[i]);
+            }
+            return Ok(new ListValue(outList), ctx, p1, p2);
+        }
+
+        private static RuntimeResult ListRotate(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("list_rotate", args, 2, ctx, p1, p2, out var err)) return err;
+            if (ListOf(args[0]) is not { } list) return Fail(ctx, p1, p2, "list_rotate: first argument must be a list");
+            int n = list.Count;
+            if (n == 0) return Ok(new ListValue(new List<RuntimeValue>()), ctx, p1, p2);
+            // Rotate LEFT by k (negative shifts right); element at index k leads.
+            int k = ((AsInt(args[1]) % n) + n) % n;
+            var outList = new List<RuntimeValue>(n);
+            outList.AddRange(list.GetRange(k, n - k));
+            outList.AddRange(list.GetRange(0, k));
+            return Ok(new ListValue(outList), ctx, p1, p2);
+        }
+
+        private static RuntimeResult FindLast(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectListPredicate("find_last", args, ctx, p1, p2, out var list, out var pred, out var err)) return err;
+            for (int i = list.Count - 1; i >= 0; i--)
+            {
+                var (match, perr) = TestPredicate(pred, list[i]);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                if (match) return Ok(list[i], ctx, p1, p2);
+            }
+            return OkNull(ctx, p1, p2);
+        }
+
+        private static RuntimeResult CountBy(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectListFn("count_by", args, ctx, p1, p2, out var list, out var keyFn, out var err)) return err;
+            var pairs = new List<(RuntimeValue, RuntimeValue)>();   // key -> count
+            foreach (var e in list)
+            {
+                var (k, perr) = Apply1(keyFn, e);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                int idx = -1;
+                for (int i = 0; i < pairs.Count; i++)
+                {
+                    var (eq, _) = pairs[i].Item1.GetComparisonEq(k!);
+                    if (eq != null && eq.IsTrue()) { idx = i; break; }
+                }
+                if (idx < 0) pairs.Add((k!, new IntegerValue(1)));
+                else pairs[idx] = (pairs[idx].Item1, new IntegerValue(((IntegerValue)pairs[idx].Item2).Value + 1));
+            }
+            return Ok(new MapValue(pairs), ctx, p1, p2);
+        }
+
+        private static RuntimeResult DistinctBy(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectListFn("distinct_by", args, ctx, p1, p2, out var list, out var keyFn, out var err)) return err;
+            var seen = new List<RuntimeValue>();
+            var outList = new List<RuntimeValue>();
+            foreach (var e in list)
+            {
+                var (k, perr) = Apply1(keyFn, e);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                bool dup = false;
+                foreach (var sk in seen)
+                {
+                    var (eq, _) = sk.GetComparisonEq(k!);
+                    if (eq != null && eq.IsTrue()) { dup = true; break; }
+                }
+                if (!dup) { seen.Add(k!); outList.Add(e); }
+            }
+            return Ok(new ListValue(outList), ctx, p1, p2);
+        }
+
+        private static RuntimeResult Scan(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("scan", args, 3, ctx, p1, p2, out var err)) return err;
+            if (args[0] is not ListValue lv) return Fail(ctx, p1, p2, "scan: first argument must be a list");
+            if (args[2] is not BaseFunctionValue f) return Fail(ctx, p1, p2, "scan: third argument must be a function (acc, elem) -> acc");
+            var acc = args[1];
+            var outList = new List<RuntimeValue>(lv.Elements.Count + 1) { acc };   // include the seed
+            foreach (var e in lv.Elements)
+            {
+                var (v, perr) = Apply2(f, acc, e);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                acc = v!;
+                outList.Add(acc);
+            }
+            return Ok(new ListValue(outList), ctx, p1, p2);
+        }
+
+        private static RuntimeResult ListTakeLast(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("list_take_last", args, 2, ctx, p1, p2, out var err)) return err;
+            if (ListOf(args[0]) is not { } list) return Fail(ctx, p1, p2, "list_take_last: first argument must be a list");
+            int n = Math.Clamp(AsInt(args[1]), 0, list.Count);
+            return Ok(new ListValue(list.GetRange(list.Count - n, n)), ctx, p1, p2);
+        }
+
+        private static RuntimeResult ListDropLast(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("list_drop_last", args, 2, ctx, p1, p2, out var err)) return err;
+            if (ListOf(args[0]) is not { } list) return Fail(ctx, p1, p2, "list_drop_last: first argument must be a list");
+            int n = Math.Clamp(AsInt(args[1]), 0, list.Count);
+            return Ok(new ListValue(list.GetRange(0, list.Count - n)), ctx, p1, p2);
+        }
+
+        private static RuntimeResult ListSplitAt(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("list_split_at", args, 2, ctx, p1, p2, out var err)) return err;
+            if (ListOf(args[0]) is not { } list) return Fail(ctx, p1, p2, "list_split_at: first argument must be a list");
+            int i = AsInt(args[1]);
+            if (i < 0) i += list.Count;
+            i = Math.Clamp(i, 0, list.Count);
+            return Ok(new TupleValue(new List<RuntimeValue> { new ListValue(list.GetRange(0, i)), new ListValue(list.GetRange(i, list.Count - i)) }), ctx, p1, p2);
+        }
+
+        private static RuntimeResult ListFindIndices(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectListPredicate("list_find_indices", args, ctx, p1, p2, out var list, out var pred, out var err)) return err;
+            var outList = new List<RuntimeValue>();
+            for (int i = 0; i < list.Count; i++)
+            {
+                var (match, perr) = TestPredicate(pred, list[i]);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                if (match) outList.Add(new IntegerValue(i));
+            }
+            return Ok(new ListValue(outList), ctx, p1, p2);
+        }
+
+        private static RuntimeResult ListCountValue(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("list_count_value", args, 2, ctx, p1, p2, out var err)) return err;
+            if (ListOf(args[0]) is not { } list) return Fail(ctx, p1, p2, "list_count_value: first argument must be a list");
+            int c = 0;
+            foreach (var e in list) { var (eq, _) = e.GetComparisonEq(args[1]); if (eq != null && eq.IsTrue()) c++; }
+            return Ok(new IntegerValue(c), ctx, p1, p2);
+        }
+
+        private static RuntimeResult ListFrequencies(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("list_frequencies", args, 1, ctx, p1, p2, out var err)) return err;
+            if (ListOf(args[0]) is not { } list) return Fail(ctx, p1, p2, "list_frequencies: argument must be a list");
+            var pairs = new List<(RuntimeValue, RuntimeValue)>();
+            foreach (var e in list)
+            {
+                int idx = -1;
+                for (int i = 0; i < pairs.Count; i++) { var (eq, _) = pairs[i].Item1.GetComparisonEq(e); if (eq != null && eq.IsTrue()) { idx = i; break; } }
+                if (idx < 0) pairs.Add((e, new IntegerValue(1)));
+                else pairs[idx] = (pairs[idx].Item1, new IntegerValue(((IntegerValue)pairs[idx].Item2).Value + 1));
+            }
+            return Ok(new MapValue(pairs), ctx, p1, p2);
+        }
+
+        private static RuntimeResult ListAverage(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("list_average", args, 1, ctx, p1, p2, out var err)) return err;
+            if (ListOf(args[0]) is not { } list) return Fail(ctx, p1, p2, "list_average: argument must be a list");
+            if (list.Count == 0) return Fail(ctx, p1, p2, "list_average: list is empty");
+            double sum = 0; foreach (var e in list) sum += AsDouble(e);
+            return Ok(new DoubleValue(sum / list.Count), ctx, p1, p2);
+        }
+
+        private static RuntimeResult ListIsSorted(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("list_is_sorted", args, 1, ctx, p1, p2, out var err)) return err;
+            if (ListOf(args[0]) is not { } list) return Fail(ctx, p1, p2, "list_is_sorted: argument must be a list");
+            for (int i = 1; i < list.Count; i++)
+            {
+                var (gt, _) = list[i - 1].GetComparisonGt(list[i]);
+                if (gt != null && gt.IsTrue()) return Ok(MakeBool(false), ctx, p1, p2);
+            }
+            return Ok(MakeBool(true), ctx, p1, p2);
+        }
+
+        private static RuntimeResult ListTranspose(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("list_transpose", args, 1, ctx, p1, p2, out var err)) return err;
+            if (ListOf(args[0]) is not { } rows) return Fail(ctx, p1, p2, "list_transpose: argument must be a list of lists");
+            if (rows.Count == 0) return Ok(new ListValue(new List<RuntimeValue>()), ctx, p1, p2);
+            int cols = int.MaxValue;
+            foreach (var r in rows) { if (r is not ListValue rl) return Fail(ctx, p1, p2, "list_transpose: every element must be a list"); cols = Math.Min(cols, rl.Elements.Count); }
+            var outRows = new List<RuntimeValue>(cols);
+            for (int c = 0; c < cols; c++)
+            {
+                var col = new List<RuntimeValue>(rows.Count);
+                foreach (var r in rows) col.Add(((ListValue)r).Elements[c]);
+                outRows.Add(new ListValue(col));
+            }
+            return Ok(new ListValue(outRows), ctx, p1, p2);
+        }
+
+        private static RuntimeResult ListDedup(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("list_dedup", args, 1, ctx, p1, p2, out var err)) return err;
+            if (ListOf(args[0]) is not { } list) return Fail(ctx, p1, p2, "list_dedup: argument must be a list");
+            var outList = new List<RuntimeValue>();
+            foreach (var e in list)
+            {
+                if (outList.Count > 0) { var (eq, _) = outList[outList.Count - 1].GetComparisonEq(e); if (eq != null && eq.IsTrue()) continue; }
+                outList.Add(e);
+            }
+            return Ok(new ListValue(outList), ctx, p1, p2);
+        }
+
+        private static RuntimeResult ListZip3(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("list_zip3", args, 3, ctx, p1, p2, out var err)) return err;
+            if (args[0] is not ListValue a || args[1] is not ListValue b || args[2] is not ListValue c)
+                return Fail(ctx, p1, p2, "list_zip3: all three arguments must be lists");
+            int n = Math.Min(a.Elements.Count, Math.Min(b.Elements.Count, c.Elements.Count));
+            var outList = new List<RuntimeValue>(n);
+            for (int i = 0; i < n; i++)
+                outList.Add(new TupleValue(new List<RuntimeValue> { a.Elements[i], b.Elements[i], c.Elements[i] }));
+            return Ok(new ListValue(outList), ctx, p1, p2);
+        }
+
+        private static RuntimeResult MapMapValues(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("map_map_values", args, 2, ctx, p1, p2, out var err)) return err;
+            if (args[0] is not MapValue m) return Fail(ctx, p1, p2, "map_map_values: first argument must be a map");
+            if (args[1] is not BaseFunctionValue f) return Fail(ctx, p1, p2, "map_map_values: second argument must be a function");
+            var pairs = new List<(RuntimeValue, RuntimeValue)>(m.Pairs.Count);
+            foreach (var (k, v) in m.Pairs)
+            {
+                var (nv, perr) = Apply1(f, v);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                pairs.Add((k, nv!));
+            }
+            return Ok(new MapValue(pairs), ctx, p1, p2);
+        }
+
+        private static RuntimeResult MapFilter(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("map_filter", args, 2, ctx, p1, p2, out var err)) return err;
+            if (args[0] is not MapValue m) return Fail(ctx, p1, p2, "map_filter: first argument must be a map");
+            if (args[1] is not BaseFunctionValue f) return Fail(ctx, p1, p2, "map_filter: second argument must be a predicate over values");
+            var pairs = new List<(RuntimeValue, RuntimeValue)>();
+            foreach (var (k, v) in m.Pairs)
+            {
+                var (match, perr) = TestPredicate(f, v);
+                if (perr != null) return new RuntimeResult().Failure(perr);
+                if (match) pairs.Add((k, v));
+            }
+            return Ok(new MapValue(pairs), ctx, p1, p2);
+        }
+
+        private static RuntimeResult MapInvert(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("map_invert", args, 1, ctx, p1, p2, out var err)) return err;
+            if (args[0] is not MapValue m) return Fail(ctx, p1, p2, "map_invert: argument must be a map");
+            var pairs = new List<(RuntimeValue, RuntimeValue)>(m.Pairs.Count);
+            foreach (var (k, v) in m.Pairs) pairs.Add((v, k));
+            return Ok(new MapValue(pairs), ctx, p1, p2);
+        }
+
+        private static RuntimeResult SetSymmetricDiff(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("set_symmetric_diff", args, 2, ctx, p1, p2, out var err)) return err;
+            if (args[0] is not SetValue a || args[1] is not SetValue b) return Fail(ctx, p1, p2, "set_symmetric_diff: args must be sets");
+            var hs = new HashSet<RuntimeValue>();
+            foreach (var e in a.Elements) if (!ContainsByValueEq(b.Elements, e)) hs.Add(e);
+            foreach (var e in b.Elements) if (!ContainsByValueEq(a.Elements, e)) hs.Add(e);
+            return Ok(new SetValue(hs), ctx, p1, p2);
+        }
+
+        private static RuntimeResult SetIsSubset(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("set_is_subset", args, 2, ctx, p1, p2, out var err)) return err;
+            if (args[0] is not SetValue a || args[1] is not SetValue b) return Fail(ctx, p1, p2, "set_is_subset: args must be sets");
+            foreach (var e in a.Elements) if (!ContainsByValueEq(b.Elements, e)) return Ok(MakeBool(false), ctx, p1, p2);
+            return Ok(MakeBool(true), ctx, p1, p2);
+        }
+
+        private static RuntimeResult SetIsSuperset(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("set_is_superset", args, 2, ctx, p1, p2, out var err)) return err;
+            if (args[0] is not SetValue a || args[1] is not SetValue b) return Fail(ctx, p1, p2, "set_is_superset: args must be sets");
+            foreach (var e in b.Elements) if (!ContainsByValueEq(a.Elements, e)) return Ok(MakeBool(false), ctx, p1, p2);
+            return Ok(MakeBool(true), ctx, p1, p2);
+        }
+
+        private static RuntimeResult SetIsDisjoint(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("set_is_disjoint", args, 2, ctx, p1, p2, out var err)) return err;
+            if (args[0] is not SetValue a || args[1] is not SetValue b) return Fail(ctx, p1, p2, "set_is_disjoint: args must be sets");
+            foreach (var e in a.Elements) if (ContainsByValueEq(b.Elements, e)) return Ok(MakeBool(false), ctx, p1, p2);
+            return Ok(MakeBool(true), ctx, p1, p2);
         }
 
         private static RuntimeResult Filter(Context ctx, List<RuntimeValue> args, Position p1, Position p2)

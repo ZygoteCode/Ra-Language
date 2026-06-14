@@ -87,6 +87,48 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
                 if (!ExpectArgs("time_add_ms", args, 2, ctx, p1, p2, out var err)) return err;
                 return Ok(new LongValue(AsLong(args[0]) + AsLong(args[1])), ctx, p1, p2);
             });
+
+            // Calendar helpers (all UTC / invariant-culture, AOT-safe).
+            BuiltInRegistry.Register("is_leap_year", (ctx, args, p1, p2) =>
+            {
+                if (!ExpectArgs("is_leap_year", args, 1, ctx, p1, p2, out var err)) return err;
+                int y = AsInt(args[0]);
+                if (y < 1 || y > 9999) return Fail(ctx, p1, p2, "is_leap_year: year out of range [1, 9999]");
+                return Ok(MakeBool(DateTime.IsLeapYear(y)), ctx, p1, p2);
+            });
+            BuiltInRegistry.Register("days_in_month", (ctx, args, p1, p2) =>
+            {
+                if (!ExpectArgs("days_in_month", args, 2, ctx, p1, p2, out var err)) return err;
+                int y = AsInt(args[0]), m = AsInt(args[1]);
+                if (y < 1 || y > 9999 || m < 1 || m > 12) return Fail(ctx, p1, p2, "days_in_month: year/month out of range");
+                return Ok(new IntegerValue(DateTime.DaysInMonth(y, m)), ctx, p1, p2);
+            });
+            BuiltInRegistry.Register("month_name", (ctx, args, p1, p2) =>
+            {
+                if (!ExpectArgs("month_name", args, 1, ctx, p1, p2, out var err)) return err;
+                int m = AsInt(args[0]);
+                if (m < 1 || m > 12) return Fail(ctx, p1, p2, "month_name: month must be in [1, 12]");
+                return Ok(new StringValue(DateTimeFormatInfo.InvariantInfo.GetMonthName(m)), ctx, p1, p2);
+            });
+            BuiltInRegistry.Register("weekday_name", (ctx, args, p1, p2) =>
+            {
+                if (!ExpectArgs("weekday_name", args, 1, ctx, p1, p2, out var err)) return err;
+                int d = AsInt(args[0]);
+                if (d < 0 || d > 6) return Fail(ctx, p1, p2, "weekday_name: index must be in [0, 6] (0 = Sunday)");
+                return Ok(new StringValue(DateTimeFormatInfo.InvariantInfo.GetDayName((DayOfWeek)d)), ctx, p1, p2);
+            });
+            BuiltInRegistry.Register("unix_to_iso", (ctx, args, p1, p2) =>
+            {
+                if (!ExpectArgs("unix_to_iso", args, 1, ctx, p1, p2, out var err)) return err;
+                return Ok(new StringValue(DateTimeOffset.FromUnixTimeSeconds(AsLong(args[0])).ToString("o", CultureInfo.InvariantCulture)), ctx, p1, p2);
+            });
+            BuiltInRegistry.Register("iso_to_unix", (ctx, args, p1, p2) =>
+            {
+                if (!ExpectArgs("iso_to_unix", args, 1, ctx, p1, p2, out var err)) return err;
+                if (!DateTimeOffset.TryParse(AsString(args[0]), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var dto))
+                    return Fail(ctx, p1, p2, "iso_to_unix: could not parse timestamp");
+                return Ok(new LongValue(dto.ToUnixTimeSeconds()), ctx, p1, p2);
+            });
         }
 
         private static RuntimeResult TimeField(Context ctx, List<RuntimeValue> args, Position p1, Position p2, string name, Func<DateTime, int> f)

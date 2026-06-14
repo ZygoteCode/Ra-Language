@@ -86,7 +86,9 @@ namespace RaLanguage.Interpreter.Modules
                 Assign(map, Prelude + ".io",
                     "println", "print_no_newline", "eprint", "eprintln",
                     "read_line", "clear_console");
-                Assign(map, Prelude + ".errors", "assert", "assert_eq", "warn");
+                Assign(map, Prelude + ".errors",
+                    "assert", "assert_eq", "assert_ne", "assert_true", "assert_false",
+                    "assert_approx", "panic", "todo", "unreachable", "warn");
                 //    RuntimeBuiltins -> reflective access + error helpers
                 //    (the value-semantics helpers such as clone/hash/equals
                 //    stay under std.prelude.runtime via the group tag).

@@ -1,0 +1,46 @@
+import std.prelude.*;
+// stdlib/random_ext — sampling, gaussian draws and random strings added to
+// std.prelude.random. Seeded where a value is asserted; otherwise checked by
+// structural invariants (length, distinctness, range).
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/random_ext ===");
+
+random_seed(1234);
+
+// --- random_sample: distinct, drawn from the source, source untouched ----
+var src = [1, 2, 3, 4, 5];
+var p = random_sample(src, 5);
+ok("SA1", len(p) == 5);
+ok("SA2", len(list_unique(p)) == 5);                 // all distinct
+ok("SA3", list_sum(p) == 15);                        // a permutation of 1..5
+ok("SA4", len(src) == 5);                            // source list unchanged
+var s3 = random_sample(src, 3);
+ok("SA5", len(s3) == 3 and len(list_unique(s3)) == 3);
+ok("SA6", len(random_sample(src, 0)) == 0);
+var saerr = false;
+try { random_sample(src, 6); saerr = false; } catch (e) { saerr = true; }
+ok("SA7", saerr);                                    // k > len -> error
+
+// --- random_gaussian ----------------------------------------------------
+ok("G1", is_number(random_gaussian()));
+ok("G2", random_gaussian(5, 0) == 5);                // zero stddev -> the mean
+ok("G3", is_number(random_gaussian(100, 15)));
+
+// --- random_string ------------------------------------------------------
+ok("RS1", str_len(random_string(8)) == 8);
+ok("RS2", random_string(0) == "");
+ok("RS3", random_string(5, "a") == "aaaaa");         // single-char alphabet
+var rserr = false;
+try { random_string(3, ""); rserr = false; } catch (e) { rserr = true; }
+ok("RS4", rserr);                                    // empty alphabet -> error
+
+// --- random_hex ---------------------------------------------------------
+ok("RH1", str_len(random_hex(4)) == 8);              // n bytes -> 2n hex chars
+ok("RH2", random_hex(0) == "");
+ok("RH3", str_len(random_hex(16)) == 32);
+
+print("=== done ===");

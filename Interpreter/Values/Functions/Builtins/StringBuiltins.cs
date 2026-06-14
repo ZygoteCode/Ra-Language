@@ -71,9 +71,311 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             BuiltInRegistry.Register("str_hex_decode", StrHexDecode);
             BuiltInRegistry.Register("str_base64_encode", StrBase64Encode);
             BuiltInRegistry.Register("str_base64_decode", StrBase64Decode);
+
+            // Affix / fragment helpers. `strip_prefix`/`strip_suffix` remove an
+            // affix only when present (returning the string unchanged
+            // otherwise — distinct from trim, which strips a char SET). The
+            // partition pair splits once on the first/last separator into a
+            // (before, sep, after) tuple — the empty-sep case (`("ab","","")`)
+            // tells "not found" apart from "found at the edge".
+            BuiltInRegistry.Register("str_strip_prefix", StrStripPrefix);
+            BuiltInRegistry.Register("str_strip_suffix", StrStripSuffix);
+            BuiltInRegistry.Register("str_remove", StrRemove);
+            BuiltInRegistry.Register("str_replace_first", StrReplaceFirst);
+            BuiltInRegistry.Register("str_partition", StrPartition);
+            BuiltInRegistry.Register("str_rpartition", StrRPartition);
+            BuiltInRegistry.Register("str_swapcase", StrSwapcase);
+            BuiltInRegistry.Register("str_center", StrCenter);
+            BuiltInRegistry.Register("str_truncate", StrTruncate);
+            BuiltInRegistry.Register("str_is_empty", StrIsEmpty);
+            BuiltInRegistry.Register("str_is_blank", StrIsBlank);
+            BuiltInRegistry.Register("str_eq_ignore_case", StrEqIgnoreCase);
+
+            // Case-style conversions, slugs, word ops and small affixers.
+            BuiltInRegistry.Register("str_to_snake", StrToSnake);
+            BuiltInRegistry.Register("str_to_kebab", StrToKebab);
+            BuiltInRegistry.Register("str_to_camel", StrToCamel);
+            BuiltInRegistry.Register("str_to_pascal", StrToPascal);
+            BuiltInRegistry.Register("str_slug", StrSlug);
+            BuiltInRegistry.Register("str_count_char", StrCountChar);
+            BuiltInRegistry.Register("str_words", StrWords);
+            BuiltInRegistry.Register("str_word_count", StrWordCount);
+            BuiltInRegistry.Register("str_indices_of", StrIndicesOf);
+            BuiltInRegistry.Register("str_starts_with_any", StrStartsWithAny);
+            BuiltInRegistry.Register("str_ends_with_any", StrEndsWithAny);
+            BuiltInRegistry.Register("str_common_prefix", StrCommonPrefix);
+            BuiltInRegistry.Register("str_zfill", StrZfill);
+            BuiltInRegistry.Register("str_is_numeric", StrIsNumeric);
+            BuiltInRegistry.Register("str_ensure_prefix", StrEnsurePrefix);
+            BuiltInRegistry.Register("str_ensure_suffix", StrEnsureSuffix);
+        }
+
+        // Split on whitespace / '_' / '-' and at lower->upper camelCase
+        // boundaries; lowercased word tokens (the basis of case conversion).
+        private static List<string> WordTokens(string s)
+        {
+            var words = new List<string>();
+            var cur = new StringBuilder();
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (c == ' ' || c == '\t' || c == '_' || c == '-' || c == '/' || c == '.')
+                {
+                    if (cur.Length > 0) { words.Add(cur.ToString()); cur.Clear(); }
+                }
+                else
+                {
+                    if (cur.Length > 0 && char.IsUpper(c) && !char.IsUpper(s[i - 1])) { words.Add(cur.ToString()); cur.Clear(); }
+                    cur.Append(char.ToLowerInvariant(c));
+                }
+            }
+            if (cur.Length > 0) words.Add(cur.ToString());
+            return words;
+        }
+
+        private static string Cap(string w) => w.Length == 0 ? w : char.ToUpperInvariant(w[0]) + w.Substring(1);
+
+        private static RuntimeResult StrToSnake(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_to_snake", args, 1, ctx, p1, p2, out var err)) return err;
+            return Ok(new StringValue(string.Join("_", WordTokens(Get(args[0])))), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrToKebab(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_to_kebab", args, 1, ctx, p1, p2, out var err)) return err;
+            return Ok(new StringValue(string.Join("-", WordTokens(Get(args[0])))), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrToCamel(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_to_camel", args, 1, ctx, p1, p2, out var err)) return err;
+            var w = WordTokens(Get(args[0]));
+            var sb = new StringBuilder();
+            for (int i = 0; i < w.Count; i++) sb.Append(i == 0 ? w[i] : Cap(w[i]));
+            return Ok(new StringValue(sb.ToString()), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrToPascal(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_to_pascal", args, 1, ctx, p1, p2, out var err)) return err;
+            var sb = new StringBuilder();
+            foreach (var w in WordTokens(Get(args[0]))) sb.Append(Cap(w));
+            return Ok(new StringValue(sb.ToString()), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrSlug(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_slug", args, 1, ctx, p1, p2, out var err)) return err;
+            var sb = new StringBuilder();
+            bool dash = false;
+            foreach (char c in Get(args[0]))
+            {
+                if (char.IsLetterOrDigit(c)) { sb.Append(char.ToLowerInvariant(c)); dash = false; }
+                else if (!dash && sb.Length > 0) { sb.Append('-'); dash = true; }
+            }
+            string s = sb.ToString();
+            if (s.EndsWith("-")) s = s.Substring(0, s.Length - 1);
+            return Ok(new StringValue(s), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrCountChar(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_count_char", args, 2, ctx, p1, p2, out var err)) return err;
+            string s = Get(args[0]), ch = Get(args[1]);
+            if (ch.Length == 0) return Ok(new IntegerValue(0), ctx, p1, p2);
+            int c = 0; foreach (char x in s) if (x == ch[0]) c++;
+            return Ok(new IntegerValue(c), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrWords(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_words", args, 1, ctx, p1, p2, out var err)) return err;
+            var words = Get(args[0]).Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+            var list = new List<RuntimeValue>(words.Length);
+            foreach (var w in words) list.Add(new StringValue(w));
+            return Ok(new ListValue(list), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrWordCount(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_word_count", args, 1, ctx, p1, p2, out var err)) return err;
+            return Ok(new IntegerValue(Get(args[0]).Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries).Length), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrIndicesOf(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_indices_of", args, 2, ctx, p1, p2, out var err)) return err;
+            string s = Get(args[0]), sub = Get(args[1]);
+            var list = new List<RuntimeValue>();
+            if (sub.Length > 0)
+            {
+                int i = 0;
+                while ((i = s.IndexOf(sub, i, StringComparison.Ordinal)) >= 0) { list.Add(new IntegerValue(i)); i += sub.Length; }
+            }
+            return Ok(new ListValue(list), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrStartsWithAny(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_starts_with_any", args, 2, ctx, p1, p2, out var err)) return err;
+            if (args[1] is not ListValue lv) return Fail(ctx, p1, p2, "str_starts_with_any: second argument must be a list");
+            string s = Get(args[0]);
+            foreach (var e in lv.Elements) if (s.StartsWith(Get(e), StringComparison.Ordinal)) return Ok(MakeBool(true), ctx, p1, p2);
+            return Ok(MakeBool(false), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrEndsWithAny(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_ends_with_any", args, 2, ctx, p1, p2, out var err)) return err;
+            if (args[1] is not ListValue lv) return Fail(ctx, p1, p2, "str_ends_with_any: second argument must be a list");
+            string s = Get(args[0]);
+            foreach (var e in lv.Elements) if (s.EndsWith(Get(e), StringComparison.Ordinal)) return Ok(MakeBool(true), ctx, p1, p2);
+            return Ok(MakeBool(false), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrCommonPrefix(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_common_prefix", args, 2, ctx, p1, p2, out var err)) return err;
+            string a = Get(args[0]), b = Get(args[1]);
+            int n = Math.Min(a.Length, b.Length), i = 0;
+            while (i < n && a[i] == b[i]) i++;
+            return Ok(new StringValue(a.Substring(0, i)), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrZfill(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_zfill", args, 2, ctx, p1, p2, out var err)) return err;
+            string s = Get(args[0]);
+            int width = AsInt(args[1]);
+            if (s.Length >= width) return Ok(new StringValue(s), ctx, p1, p2);
+            if (s.Length > 0 && (s[0] == '-' || s[0] == '+'))
+                return Ok(new StringValue(s[0] + s.Substring(1).PadLeft(width - 1, '0')), ctx, p1, p2);
+            return Ok(new StringValue(s.PadLeft(width, '0')), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrIsNumeric(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_is_numeric", args, 1, ctx, p1, p2, out var err)) return err;
+            string s = Get(args[0]);
+            if (s.Length == 0) return Ok(MakeBool(false), ctx, p1, p2);
+            foreach (char c in s) if (!char.IsDigit(c)) return Ok(MakeBool(false), ctx, p1, p2);
+            return Ok(MakeBool(true), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrEnsurePrefix(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_ensure_prefix", args, 2, ctx, p1, p2, out var err)) return err;
+            string s = Get(args[0]), p = Get(args[1]);
+            return Ok(new StringValue(s.StartsWith(p, StringComparison.Ordinal) ? s : p + s), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrEnsureSuffix(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_ensure_suffix", args, 2, ctx, p1, p2, out var err)) return err;
+            string s = Get(args[0]), p = Get(args[1]);
+            return Ok(new StringValue(s.EndsWith(p, StringComparison.Ordinal) ? s : s + p), ctx, p1, p2);
         }
 
         private static string Get(RuntimeValue v) => v is StringValue sv ? sv.Value : v?.ToString() ?? "";
+
+        private static RuntimeResult StrStripPrefix(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_strip_prefix", args, 2, ctx, p1, p2, out var err)) return err;
+            string s = Get(args[0]), pre = Get(args[1]);
+            return Ok(new StringValue(pre.Length > 0 && s.StartsWith(pre, StringComparison.Ordinal) ? s.Substring(pre.Length) : s), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrStripSuffix(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_strip_suffix", args, 2, ctx, p1, p2, out var err)) return err;
+            string s = Get(args[0]), suf = Get(args[1]);
+            return Ok(new StringValue(suf.Length > 0 && s.EndsWith(suf, StringComparison.Ordinal) ? s.Substring(0, s.Length - suf.Length) : s), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrRemove(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_remove", args, 2, ctx, p1, p2, out var err)) return err;
+            string sub = Get(args[1]);
+            string s = Get(args[0]);
+            return Ok(new StringValue(sub.Length == 0 ? s : s.Replace(sub, "")), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrReplaceFirst(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_replace_first", args, 3, ctx, p1, p2, out var err)) return err;
+            string s = Get(args[0]), oldv = Get(args[1]), newv = Get(args[2]);
+            if (oldv.Length == 0) return Ok(new StringValue(s), ctx, p1, p2);
+            int i = s.IndexOf(oldv, StringComparison.Ordinal);
+            if (i < 0) return Ok(new StringValue(s), ctx, p1, p2);
+            return Ok(new StringValue(s.Substring(0, i) + newv + s.Substring(i + oldv.Length)), ctx, p1, p2);
+        }
+
+        private static RuntimeResult Partition(Context ctx, List<RuntimeValue> args, Position p1, Position p2, string name, bool fromEnd)
+        {
+            if (!ExpectArgs(name, args, 2, ctx, p1, p2, out var err)) return err;
+            string s = Get(args[0]), sep = Get(args[1]);
+            int i = (sep.Length == 0) ? -1 : (fromEnd ? s.LastIndexOf(sep, StringComparison.Ordinal) : s.IndexOf(sep, StringComparison.Ordinal));
+            string before, mid, after;
+            if (i < 0) { before = s; mid = ""; after = ""; }
+            else { before = s.Substring(0, i); mid = sep; after = s.Substring(i + sep.Length); }
+            return Ok(new TupleValue(new List<RuntimeValue> { new StringValue(before), new StringValue(mid), new StringValue(after) }), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrPartition(Context ctx, List<RuntimeValue> args, Position p1, Position p2) => Partition(ctx, args, p1, p2, "str_partition", false);
+        private static RuntimeResult StrRPartition(Context ctx, List<RuntimeValue> args, Position p1, Position p2) => Partition(ctx, args, p1, p2, "str_rpartition", true);
+
+        private static RuntimeResult StrSwapcase(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_swapcase", args, 1, ctx, p1, p2, out var err)) return err;
+            string s = Get(args[0]);
+            var sb = new StringBuilder(s.Length);
+            foreach (char c in s)
+                sb.Append(char.IsUpper(c) ? char.ToLowerInvariant(c) : char.IsLower(c) ? char.ToUpperInvariant(c) : c);
+            return Ok(new StringValue(sb.ToString()), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrCenter(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectRangeArgs("str_center", args, 2, 3, ctx, p1, p2, out var err)) return err;
+            string s = Get(args[0]);
+            int width = AsInt(args[1]);
+            char fill = ' ';
+            if (args.Count == 3) { string f = Get(args[2]); if (f.Length == 0) return Fail(ctx, p1, p2, "str_center: fill must be a single character"); fill = f[0]; }
+            if (s.Length >= width) return Ok(new StringValue(s), ctx, p1, p2);
+            int total = width - s.Length, left = total / 2, right = total - left;
+            return Ok(new StringValue(new string(fill, left) + s + new string(fill, right)), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrTruncate(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectRangeArgs("str_truncate", args, 2, 3, ctx, p1, p2, out var err)) return err;
+            string s = Get(args[0]);
+            int max = AsInt(args[1]);
+            string ell = args.Count == 3 ? Get(args[2]) : "...";
+            if (max < 0) max = 0;
+            if (s.Length <= max) return Ok(new StringValue(s), ctx, p1, p2);
+            int keep = Math.Max(0, max - ell.Length);
+            return Ok(new StringValue(s.Substring(0, keep) + ell), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrIsEmpty(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_is_empty", args, 1, ctx, p1, p2, out var err)) return err;
+            return Ok(MakeBool(Get(args[0]).Length == 0), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrIsBlank(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_is_blank", args, 1, ctx, p1, p2, out var err)) return err;
+            return Ok(MakeBool(string.IsNullOrWhiteSpace(Get(args[0]))), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StrEqIgnoreCase(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("str_eq_ignore_case", args, 2, ctx, p1, p2, out var err)) return err;
+            return Ok(MakeBool(string.Equals(Get(args[0]), Get(args[1]), StringComparison.OrdinalIgnoreCase)), ctx, p1, p2);
+        }
 
         private static RuntimeResult Str(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
         {

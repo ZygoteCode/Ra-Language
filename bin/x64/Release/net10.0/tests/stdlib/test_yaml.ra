@@ -1,0 +1,85 @@
+import std.prelude.*;
+// stdlib/yaml — pragmatic YAML subset parse / stringify in
+// std.prelude.serialize (block mappings + sequences, flow collections,
+// scalar inference). Out of scope: anchors, tags, block scalars.
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/yaml ===");
+
+// --- scalar inference ---------------------------------------------------
+var s = yaml_parse("name: Ra\nport: 8080\nratio: 1.5\nactive: true\ndisabled: false\nempty: null\n");
+ok("Y1", map_get(s, "name") == "Ra");
+ok("Y2", map_get(s, "port") == 8080);
+ok("Y3", map_get(s, "ratio") == 1.5);
+ok("Y4", map_get(s, "active") == true and map_get(s, "disabled") == false);
+ok("Y5", map_get(s, "empty") == null);
+
+// --- nested mappings ----------------------------------------------------
+var nested = yaml_parse("server:\n  host: localhost\n  port: 5432\n  auth:\n    user: admin\n");
+ok("Y6", map_get(map_get(nested, "server"), "host") == "localhost");
+ok("Y7", map_get(map_get(map_get(nested, "server"), "auth"), "user") == "admin");
+
+// --- block sequences ----------------------------------------------------
+var seq = yaml_parse("fruits:\n  - apple\n  - banana\n  - cherry\n");
+ok("Y8", len(map_get(seq, "fruits")) == 3);
+ok("Y9", map_get(seq, "fruits")[1] == "banana");
+
+// --- sequence of mappings -----------------------------------------------
+var users = yaml_parse("users:\n  - name: alice\n    age: 30\n  - name: bob\n    age: 25\n");
+ok("Y10", len(map_get(users, "users")) == 2);
+ok("Y11", map_get(map_get(users, "users")[0], "name") == "alice");
+ok("Y12", map_get(map_get(users, "users")[1], "age") == 25);
+
+// --- flow collections ---------------------------------------------------
+var flow = yaml_parse("nums: [1, 2, 3]\npoint: {x: 10, y: 20}\n");
+ok("Y13", len(map_get(flow, "nums")) == 3 and map_get(flow, "nums")[2] == 3);
+ok("Y14", map_get(map_get(flow, "point"), "x") == 10);
+
+// --- quoted strings keep their literal value ----------------------------
+var q = yaml_parse("greeting: \"hello: world\"\nnum_as_str: \"42\"\n");
+ok("Y15", map_get(q, "greeting") == "hello: world");
+ok("Y16", map_get(q, "num_as_str") == "42");
+
+// --- comments -----------------------------------------------------------
+var cmt = yaml_parse("# header\nkey: value # trailing\n");
+ok("Y17", map_get(cmt, "key") == "value");
+
+// --- round-trip ---------------------------------------------------------
+var rt = yaml_parse(yaml_stringify(nested));
+ok("Y18", map_get(map_get(rt, "server"), "port") == 5432);
+var rt2 = yaml_parse(yaml_stringify(seq));
+ok("Y19", len(map_get(rt2, "fruits")) == 3);
+var rt3 = yaml_parse(yaml_stringify(users));
+ok("Y20", map_get(map_get(rt3, "users")[0], "name") == "alice");
+
+// --- block scalars: literal (|) keeps newlines, folded (>) joins ---------
+var lit = yaml_parse("desc: |\n  line one\n  line two\n");
+ok("Y21", map_get(lit, "desc") == "line one\nline two");
+var fold = yaml_parse("note: >\n  word a\n  word b\n");
+ok("Y22", map_get(fold, "note") == "word a word b");
+// block scalar nested under a key alongside siblings
+var mix = yaml_parse("name: x\nbody: |\n  a\n  b\nafter: y\n");
+ok("Y23", map_get(mix, "body") == "a\nb" and map_get(mix, "after") == "y");
+
+// --- anchors (&) and aliases (*) ----------------------------------------
+var an = yaml_parse("base: &b\n  host: localhost\n  port: 5432\nprimary: *b\n");
+ok("Y24", map_get(map_get(an, "primary"), "host") == "localhost");
+ok("Y25", map_get(map_get(an, "primary"), "port") == 5432);
+
+// --- tags (!!type) force the scalar type --------------------------------
+var tg = yaml_parse("a: !!str 42\nb: !!int \"7\"\nc: !!bool yes\nd: !!float \"1.5\"\n");
+ok("Y26", map_get(tg, "a") == "42" and is_string(map_get(tg, "a")));
+ok("Y27", map_get(tg, "b") == 7 and map_get(tg, "c") == true);
+ok("Y28", map_get(tg, "d") == 1.5);
+
+// --- multi-document stream ----------------------------------------------
+var docs = yaml_parse_all("a: 1\n---\nb: 2\n---\nc: 3\n");
+ok("Y29", len(docs) == 3);
+ok("Y30", map_get(docs[0], "a") == 1 and map_get(docs[2], "c") == 3);
+// a leading '---' is just a start marker (not an empty doc)
+ok("Y31", len(yaml_parse_all("---\nx: 1\n")) == 1);
+
+print("=== done ===");

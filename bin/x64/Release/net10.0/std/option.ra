@@ -1,0 +1,89 @@
+// std.option — combinators over the core Option<T> ADT.
+//
+// A *physical*, Ra-authored stdlib module that pairs with `Option.Some` /
+// `Option.None`. Import explicitly: `import std.option;`.
+//
+//   let o = Option.Some(7);
+//   let v = unwrap_or_some(map_some(o, |x| x + 1), 0);   // 8
+//
+// `unwrap_some` raises a catchable error on `None`; everything else is total.
+
+import std.prelude.errors;
+
+pub fn is_some(o) {
+    ret match o {
+        case Some(_) -> true
+        case None -> false
+    };
+}
+
+pub fn is_none(o) {
+    ret match o {
+        case Some(_) -> false
+        case None -> true
+    };
+}
+
+pub fn unwrap_some(o) {
+    ret match o {
+        case Some(v) -> v
+        case None -> panic("Option.unwrap_some() called on None")
+    };
+}
+
+pub fn unwrap_or_some(o, fallback) {
+    ret match o {
+        case Some(v) -> v
+        case None -> fallback
+    };
+}
+
+pub fn unwrap_or_else_some(o, f) {
+    ret match o {
+        case Some(v) -> v
+        case None -> f()
+    };
+}
+
+pub fn map_some(o, f) {
+    ret match o {
+        case Some(v) -> Option.Some(f(v))
+        case None -> Option.None
+    };
+}
+
+pub fn and_then_some(o, f) {
+    ret match o {
+        case Some(v) -> f(v)
+        case None -> Option.None
+    };
+}
+
+pub fn filter_some(o, predicate) {
+    ret match o {
+        case Some(v) -> pick_some(predicate(v), v)
+        case None -> Option.None
+    };
+}
+
+// internal: branch without relying on if-as-expression
+fn pick_some(keep, v) {
+    if keep {
+        ret Option.Some(v);
+    }
+    ret Option.None;
+}
+
+pub fn ok_or(o, error) {
+    ret match o {
+        case Some(v) -> Result.Ok(v)
+        case None -> Result.Err(error)
+    };
+}
+
+pub fn option_or(o, fallback) {
+    ret match o {
+        case Some(v) -> o
+        case None -> fallback
+    };
+}

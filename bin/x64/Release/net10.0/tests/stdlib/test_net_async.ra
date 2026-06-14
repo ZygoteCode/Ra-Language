@@ -1,0 +1,33 @@
+import std.prelude.*;
+// stdlib/net_async — async networking builtins return a Task that composes
+// with std.prelude.async (await / gather). Offline-deterministic surface only:
+// localhost DNS, and error propagation through await.
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/net_async ===");
+
+// --- the async variants hand back a Task --------------------------------
+ok("A1", is_task(dns_resolve_async("localhost")));
+ok("A2", is_task(http_get_async("http://localhost:9/")));
+ok("A3", is_task(tcp_request_async("127.0.0.1", 1, "x", 300)));
+
+// --- await resolves the task to its value -------------------------------
+let r = await dns_resolve_async("localhost");
+ok("A4", len(r) > 0);
+
+// --- gather runs them concurrently and collects results -----------------
+let g = await gather([dns_resolve_async("localhost"), dns_resolve_async("localhost")]);
+ok("A5", len(g) == 2 and len(g[0]) > 0 and len(g[1]) > 0);
+
+// --- a failure inside the task surfaces as a catchable error on await ----
+var threw = false;
+try {
+    let x = await dns_resolve_async("no.such.host.invalid");
+    threw = false;
+} catch (e) { threw = true; }
+ok("A6", threw);
+
+print("=== done ===");

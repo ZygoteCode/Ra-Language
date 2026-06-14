@@ -1,0 +1,52 @@
+import std.prelude.*;
+// stdlib/collections_ext2 — ends-slicing, splitting, frequency, transpose,
+// and map/set algebra added to std.prelude.collections.
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/collections_ext2 ===");
+
+// --- ends slicing / split -----------------------------------------------
+var tl = list_take_last([1, 2, 3, 4, 5], 2);
+ok("TL1", len(tl) == 2 and tl[0] == 4 and tl[1] == 5);
+ok("DL1", len(list_drop_last([1, 2, 3, 4, 5], 2)) == 3);
+ok("TL2", len(list_take_last([1, 2], 9)) == 2);          // clamp
+var sp = list_split_at([1, 2, 3, 4, 5], 2);
+ok("SP1", len(tuple_at(sp, 0)) == 2 and tuple_at(sp, 1)[0] == 3);
+
+// --- find/count/frequency -----------------------------------------------
+var fi = list_find_indices([1, 2, 3, 4], |x| x % 2 == 0);
+ok("FI1", len(fi) == 2 and fi[0] == 1 and fi[1] == 3);
+ok("CV1", list_count_value([1, 1, 2, 1], 1) == 3);
+var fr = list_frequencies([1, 1, 2, 3, 3, 3]);
+ok("FQ1", map_get(fr, 1) == 2 and map_get(fr, 3) == 3);
+ok("AV1", list_average([2, 4, 6]) == 4);
+
+// --- sortedness / dedup / transpose / zip3 ------------------------------
+ok("IS1", list_is_sorted([1, 2, 3]) and list_is_sorted([]) and list_is_sorted([5]));
+ok("IS2", list_is_sorted([3, 1, 2]) == false);
+ok("DD1", len(list_dedup([1, 1, 2, 2, 3, 1])) == 4);
+var tr = list_transpose([[1, 2, 3], [4, 5, 6]]);
+ok("TR1", len(tr) == 3 and tr[0][1] == 4 and tr[2][0] == 3);
+var z3 = list_zip3([1, 2], [3, 4], [5, 6]);
+ok("Z3", len(z3) == 2 and tuple_at(z3[0], 2) == 5);
+
+// --- map algebra --------------------------------------------------------
+var mv = map_map_values(make_map("a", 1, "b", 2), |v| v * 10);
+ok("MV1", map_get(mv, "a") == 10 and map_get(mv, "b") == 20);
+var mf = map_filter(make_map("a", 1, "b", 2, "c", 3), |v| v > 1);
+ok("MF1", map_size(mf) == 2 and map_has(mf, "a") == false and map_has(mf, "c"));
+var mi = map_invert(make_map("a", 1, "b", 2));
+ok("MI1", map_get(mi, 1) == "a" and map_get(mi, 2) == "b");
+
+// --- set algebra --------------------------------------------------------
+ok("SD1", set_size(set_symmetric_diff(make_set(1, 2, 3), make_set(2, 3, 4))) == 2);
+ok("SB1", set_is_subset(make_set(1, 2), make_set(1, 2, 3)));
+ok("SB2", set_is_subset(make_set(1, 5), make_set(1, 2, 3)) == false);
+ok("SU1", set_is_superset(make_set(1, 2, 3), make_set(1, 2)));
+ok("DJ1", set_is_disjoint(make_set(1, 2), make_set(3, 4)));
+ok("DJ2", set_is_disjoint(make_set(1, 2), make_set(2, 3)) == false);
+
+print("=== done ===");

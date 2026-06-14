@@ -1,0 +1,53 @@
+import std.prelude.*;
+import std.result;
+import std.option;
+// stdlib/result_option — the Ra-authored std.result + std.option combinator
+// modules over the core Result<T,E> / Option<T> ADTs.
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/result_option ===");
+
+// --- Result -------------------------------------------------------------
+var r = Result.Ok(5);
+var e = Result.Err("bad");
+ok("R1", is_ok(r) and is_err(e));
+ok("R2", is_ok(e) == false);
+ok("R3", unwrap(r) == 5);
+ok("R4", unwrap_or(e, 99) == 99 and unwrap_or(r, 99) == 5);
+ok("R5", unwrap_err(e) == "bad");
+ok("R6", unwrap(map_ok(r, |x| x * 10)) == 50);
+ok("R7", is_err(map_ok(e, |x| x * 10)));               // Err short-circuits
+ok("R8", unwrap_err(map_err(e, |s| s + "!")) == "bad!");
+ok("R9", unwrap(and_then(r, |x| Result.Ok(x + 1))) == 6);
+ok("R10", is_err(and_then(e, |x| Result.Ok(x))));
+ok("R11", unwrap(or_else(e, |s| Result.Ok(0))) == 0);
+ok("R12", unwrap_or_else(e, |s| 7) == 7);
+ok("R13", expect(r, "must be ok") == 5);
+ok("R14", is_some(result_to_option(r)) and is_none(result_to_option(e)));
+var rthrow = false;
+try { unwrap(e); } catch (ex) { rthrow = true; }
+ok("R15", rthrow);                                     // unwrap on Err raises
+
+// --- Option -------------------------------------------------------------
+var s = Option.Some(3);
+var n = Option.None;
+ok("O1", is_some(s) and is_none(n));
+ok("O2", unwrap_some(s) == 3);
+ok("O3", unwrap_or_some(n, 42) == 42 and unwrap_or_some(s, 42) == 3);
+ok("O4", unwrap_some(map_some(s, |x| x + 1)) == 4);
+ok("O5", is_none(map_some(n, |x| x)));
+ok("O6", unwrap_some(and_then_some(s, |x| Option.Some(x * 2))) == 6);
+ok("O7", is_none(filter_some(s, |x| x > 10)));
+ok("O8", is_some(filter_some(s, |x| x > 0)));
+ok("O9", unwrap(ok_or(s, "err")) == 3);                // Some -> Ok
+ok("O10", is_err(ok_or(n, "err")));                    // None -> Err
+ok("O11", unwrap_some(option_or(n, Option.Some(9))) == 9);
+ok("O12", unwrap_or_else_some(n, || 11) == 11);
+var othrow = false;
+try { unwrap_some(n); } catch (ex) { othrow = true; }
+ok("O13", othrow);                                     // unwrap_some on None raises
+
+print("=== done ===");

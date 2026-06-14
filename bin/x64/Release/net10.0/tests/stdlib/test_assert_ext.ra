@@ -1,0 +1,62 @@
+import std.prelude.*;
+// stdlib/assert_ext — the assertion / failure helpers added to
+// std.prelude.errors: assert_ne, assert_true, assert_false, assert_approx,
+// panic, todo, unreachable. Each raises a CATCHABLE runtime error on
+// failure; passing cases are silent.
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/assert_ext ===");
+
+// --- assert_ne ----------------------------------------------------------
+var a1 = true;
+try { assert_ne(1, 2); } catch (e) { a1 = false; }
+ok("NE1", a1);                                       // distinct -> passes
+var a2 = false;
+try { assert_ne(5, 5); } catch (e) { a2 = true; }
+ok("NE2", a2);                                       // equal -> throws
+
+// --- assert_true / assert_false -----------------------------------------
+var t1 = true;
+try { assert_true(1 == 1); } catch (e) { t1 = false; }
+ok("TR1", t1);
+var t2 = false;
+try { assert_true(1 == 2); } catch (e) { t2 = true; }
+ok("TR2", t2);
+var f1 = true;
+try { assert_false(1 == 2); } catch (e) { f1 = false; }
+ok("FA1", f1);
+var f2 = false;
+try { assert_false(1 == 1, "should be false"); } catch (e) { f2 = true; }
+ok("FA2", f2);
+
+// --- assert_approx (float tolerance) ------------------------------------
+var p1 = true;
+try { assert_approx(0.1 + 0.2, 0.3); } catch (e) { p1 = false; }
+ok("AP1", p1);                                       // within default eps
+var p2 = false;
+try { assert_approx(1, 2); } catch (e) { p2 = true; }
+ok("AP2", p2);
+var p3 = true;
+try { assert_approx(10, 10.5, 1); } catch (e) { p3 = false; }
+ok("AP3", p3);                                       // custom eps
+
+// --- panic / todo / unreachable always throw ----------------------------
+var pa = false;
+try { panic("boom"); } catch (e) { pa = true; }
+ok("PA1", pa);
+var td = false;
+try { todo(); } catch (e) { td = true; }
+ok("TD1", td);
+var ur = false;
+try { unreachable("x"); } catch (e) { ur = true; }
+ok("UR1", ur);
+
+// the thrown message is readable through error_message
+var msg = "";
+try { panic("custom message"); } catch (e) { msg = error_message(e); }
+ok("MSG1", str_contains(msg, "custom message"));
+
+print("=== done ===");

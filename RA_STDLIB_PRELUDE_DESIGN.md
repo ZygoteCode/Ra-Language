@@ -63,10 +63,10 @@ not hand-listed**:
 | Module | Contents (examples) |
 |---|---|
 | `std.prelude.io` | `print`, `println`, `print_ret`, `eprint`, `eprintln`, `read_line`, `clear_console` |
-| `std.prelude.text` | `str_upper`, `str_lower`, split/join/trim/replace … |
+| `std.prelude.text` | `str_upper`, `str_lower`, split/join/trim/replace, `str_strip_prefix/suffix`, `str_partition/rpartition`, `str_swapcase`, `str_center`, `str_truncate`, `str_is_empty/blank`, `str_eq_ignore_case` … |
 | `std.prelude.regex` | `regex`, `re_match`, `re_replace_all`, `re_split` … |
-| `std.prelude.collections` | `len`, `list_*`, `map_*`, `set_*`, `tuple_*`, `make_*` |
-| `std.prelude.math` | `abs`, `min`, `max`, `clamp`, `floor`, `sqrt`, `pow` … |
+| `std.prelude.collections` | `len`, `list_*`, `map_*`, `set_*`, `tuple_*`, `make_*`, `list_windows`, `intersperse`, `list_rotate`, `find_last`, `count_by`, `distinct_by`, `scan` |
+| `std.prelude.math` | `abs`, `min`, `max`, `clamp`, `floor`, `sqrt`, `pow`, `lerp`, `inv_lerp`, `remap`, `clamp01`, `copysign`, `fmod`, `round_to`, `is_even/odd`, `next_pow2`, `mean`, `median`, `variance`, `stddev` … |
 | `std.prelude.convert` | `to_int`, `to_string`, `parse_int`, `format_hex` … |
 | `std.prelude.fs` | `fs_read_text`, `fs_write_text`, `fs_list_dir`, `fs_glob` … |
 | `std.prelude.time` | `now_unix_ms`, `monotonic_ns`, `time_format`, `tz_name` … |
@@ -74,18 +74,20 @@ not hand-listed**:
 | `std.prelude.process` | process spawn / wait / pipe helpers |
 | `std.prelude.reflect` | `type_of`, `is_*`, `fields_of`, `lookup`, `get_field`, `annotations_of` … |
 | `std.prelude.runtime` | `clone`, `equals`, `hash`, `compare`, `drop`, `current_file` |
-| `std.prelude.errors` | `throw_error`, `error_message`, `assert`, `assert_eq`, `warn` |
+| `std.prelude.errors` | `throw_error`, `error_message`, `assert`, `assert_eq`, `assert_ne`, `assert_true`, `assert_false`, `assert_approx`, `panic`, `todo`, `unreachable`, `warn` |
 | `std.prelude.func` | `partial`, `compose`, `combine`, `invoke` |
 | `std.prelude.async` | `sleep`, `gather`, `race`, `channel*`, `select` … |
 | `std.prelude.stream` | `stream_*`, `astream_*` |
 | `std.prelude.validate` | `validate`, `validate_target`, `validate_deferred`, `coerce_value` |
 | `std.prelude.test` | `run_tests` |
 | `std.prelude.debug` | `dump`, `gc_collect`, `breakpoint` … |
-| `std.prelude.encoding` | `base64_encode/decode`, `hex_encode/decode`, `url_encode/decode` |
-| `std.prelude.crypto` | `sha256_hex`, `sha1_hex`, `sha512_hex`, `md5_hex`, `hmac_sha256_hex`, `crc32` |
-| `std.prelude.random` | `random`, `random_int`, `random_float`, `random_bool`, `random_bytes`, `random_choice`, `random_seed`, `uuid_v4` |
-| `std.prelude.serialize` | `json_stringify`, `json_pretty`, `json_parse` |
-| `std.prelude.net` | `uri_parse`, `uri_scheme/host/port/path/query/fragment`, `uri_is_valid`, `uri_join` |
+| `std.prelude.encoding` | `base64_encode/decode`, `base64url_encode/decode`, `base32_encode/decode`, `hex_encode/decode`, `url_encode/decode` |
+| `std.prelude.crypto` | hashing (`sha256_hex` …) + **signatures**: `ed25519_keypair/sign/verify`, `rsa_keypair/sign/verify` (PSS), `ecdsa_keypair/sign/verify` (P-256) |
+| `std.prelude.random` | `random`, `random_int`, `random_float`, `random_bool`, `random_bytes`, `random_choice`, `random_sample`, `random_gaussian`, `random_string`, `random_hex`, `random_seed`, `uuid_v4` |
+| `std.prelude.serialize` | `json_*`, `csv_parse`/`csv_parse_objects`/`csv_stringify`, `toml_parse`/`toml_stringify`, `yaml_parse`/`yaml_stringify` |
+| `std.prelude.bytes` | `bytes_from_string/to_string`, `bytes_to_hex/from_hex`, `bytes_to_base64/from_base64`, `bytes_concat`, `bytes_slice`, `bytes_eq`, `bytes_xor`, `bytes_fill`, `bytes_read_u16/u32_{le,be}` |
+| `std.prelude.net` | URI: `uri_parse`/`uri_is_valid`/`uri_join`/`uri_port`. **Live**: `dns_resolve`/`dns_resolve_one`/`dns_reverse`, `tcp_port_open`/`tcp_request`, `http_get`/`http_post`/`http_request`/`http_status`/`http_download` |
+| `std.result` / `std.option` | **Ra-authored** combinators over the core `Result`/`Option` ADTs: `is_ok`/`is_err`/`unwrap`/`unwrap_or`/`map_ok`/`map_err`/`and_then`/`or_else`/…; `is_some`/`unwrap_some`/`map_some`/`filter_some`/`ok_or`/… |
 | `std.prelude.platform` | **physical** `.ra` facade: `name`, `arch`, `version`, `is_windows`, `is_linux`, `is_macos`, `is_unix` |
 
 The `encoding` / `crypto` / `random` / `serialize` / `net` modules are native
@@ -201,22 +203,107 @@ what it uses. Consequences handled in this change:
 set against the live built-in set and fails on any **uncategorised** built-in
 (a new one nobody placed) or **phantom** manifest entry (a stale/typo name).
 This makes "every built-in lives in a module" an enforced invariant rather
-than a hope. Current status: **661 built-ins across 26 virtual std modules
-(+ the physical `std.prelude.platform`), complete and exact.**
+than a hope. Current status: **871 built-ins across 27 virtual std modules
+(+ the physical `std.prelude.platform`, `std.result`, `std.option`,
+`std.text.inflect`), complete and exact.** (Verify the live total any time with
+`--selftest-stdlib`, which prints the per-module counts and re-runs the audit.)
+
+## Expansion log (2026-06)
+
+A breadth pass closing the ergonomic gaps that the flat surface still had —
+all native, AOT-safe (BCL one-shot APIs + hand-written parsers, no
+reflection), deterministic, offline-testable, and auto-categorised by the
+group-tag taxonomy (so `--selftest-stdlib` stayed green with no manifest
+edits). Tests at `tests/stdlib/test_{math,text,collections,assert,csv,
+encoding,crypto,random}_ext.ra` (the CSV file is `test_csv.ra`).
+
+* **serialize** — `csv_parse` / `csv_parse_objects` / `csv_stringify`
+  (RFC 4180: quoted fields, `""` escapes, embedded CR/LF, custom delimiter).
+* **math** — `lerp` / `inv_lerp` / `remap` / `clamp01`, `copysign` / `fmod` /
+  `round_to` / `next_pow2` / `is_even` / `is_odd`, and the descriptive stats
+  `mean` / `median` / `variance` / `stddev` (population; list-or-variadic).
+* **text** — `str_strip_prefix/suffix`, `str_remove`, `str_replace_first`,
+  `str_partition/rpartition`, `str_swapcase`, `str_center`, `str_truncate`,
+  `str_is_empty/blank`, `str_eq_ignore_case`.
+* **collections** — `list_windows`, `intersperse`, `list_rotate`,
+  `find_last`, `count_by`, `distinct_by`, `scan`.
+* **errors** — `assert_ne` / `assert_true` / `assert_false` / `assert_approx`
+  and the catchable `panic` / `todo` / `unreachable`.
+* **encoding** — `base64url_encode/decode` (RFC 4648 §5) + `base32_encode/decode`.
+* **crypto** — `sha384_hex`, `hmac_sha512_hex`, `hmac_sha1_hex`, and
+  `pbkdf2_sha256_hex` (the standard password-stretching KDF).
+* **random** — `random_sample` (without replacement), `random_gaussian`
+  (Box-Muller), `random_string`, `random_hex`.
+
+## Expansion log (2026-06, wave 2) — the former "Future work"
+
+The four deferred items are now shipped (all native unless noted, AOT-safe,
+offline-tested where the surface allows; full suite stays 0-fail). Tests at
+`tests/stdlib/test_{crypto_asym,toml,yaml,net_live,bytes,math_ext2,text_ext2,
+collections_ext2,time_ext,result_option}.ra`.
+
+* **Asymmetric crypto** (`crypto`) — `ed25519_*`, `rsa_*` (PSS/SHA-256),
+  `ecdsa_*` (P-256) keypair/sign/verify. Ed25519 reuses the vendored
+  `Interpreter/Archive/Crypto/Ed25519.cs`; RSA/ECDSA are BCL one-shot. Keys
+  and signatures are base64 strings. Verified by sign→verify + tamper/wrong-key.
+* **More serialize formats** (`serialize`) — `toml_*` (tables, arrays-of-tables,
+  dotted keys, inline tables, int bases, multi-line arrays) and a pragmatic
+  `yaml_*` (block maps/seqs, flow collections, scalar inference). Both
+  hand-written. YAML out of scope: anchors/tags/block-scalars (documented).
+* **Live networking** (`net`) — blocking: `dns_resolve`/`dns_resolve_one`/
+  `dns_reverse`, `tcp_port_open`/`tcp_request`, `http_get`/`http_post`/
+  `http_request`/`http_status`/`http_download`. **Async** (return a Ra Task that
+  composes with `std.prelude.async` await/gather): `http_get_async`/
+  `http_post_async`/`http_request_async`, `dns_resolve_async`,
+  `tcp_request_async`. **100% NativeAOT-clean** — `dotnet publish -c Release -r
+  win-x64` emits ZERO IL2026/IL3050 from the net code; System.Net.Http /
+  Sockets / Dns are reflection-free under .NET 10 AOT, and async/await lowers to
+  a reflection-free state machine — no RootDescriptor or feature switch needed.
+  Offline-tested via localhost DNS, closed ports, refused/invalid-host errors
+  and await error-propagation; live success is smoke-only.
+* **Ra-authored modules** (`std.result`, `std.option`) — real combinator logic
+  (match-based, not re-exports) over the core `Result`/`Option` ADTs. Import
+  explicitly (`import std.result;`). Proves the "drop a `.ra` under `std/`"
+  extension path with genuine library code.
+* **Bytes** (new `bytes` module) — binary-buffer helpers over `list<int 0..255>`:
+  text/hex/base64 conversion, slice/concat/xor/fill, LE/BE integer reads.
+* **Breadth** — `math` (shaping, integer division, combinatorics, extra
+  transcendentals), `text` (case styles, slugs, word ops), `collections`
+  (split/transpose/frequency, map & set algebra), `time` (calendar helpers).
+
+## Expansion log (2026-06, wave 3) — residual completed
+
+The wave-2 "Future work" is now closed. **Ra is NativeAOT-only**; everything
+below is verified AOT-clean — `dotnet publish -c Release -r win-x64` emits **8
+IL3050 warnings total, all pre-existing FFI**, and **zero** from any stdlib
+addition (the ILC trim/AOT analysis runs fully even where the MSVC *link* step
+is unavailable on a given box).
+
+* **AOT verification** — the earlier "may need a RootDescriptor" caveat was
+  wrong. HttpClient (SocketsHttpHandler), Sockets, Dns and async/await state
+  machines are all reflection-free under .NET 10 AOT. No RootDescriptor, no
+  feature switch.
+* **Async net** — `http_*_async`, `dns_resolve_async`, `tcp_request_async`
+  return a Ra Task (via `AsyncScheduler`) that composes with await / gather.
+* **TOML datetimes** — an RFC 3339 *offset* date-time now parses to a real
+  instant (Unix-ms, the time-module representation); local date/time/datetime
+  (no offset) stay strings (no unambiguous instant).
+* **YAML completeness** — block scalars (`|` literal / `>` folded, with `-`/`+`
+  chomping), anchors (`&a`) + aliases (`*a`), tags (`!!str/int/float/bool/null`),
+  and multi-document streams via `yaml_parse_all`.
+* **Deeper sub-modules** — `std.text.inflect` (physical `std/text/inflect.ra`)
+  is a two-level module with real logic (`pluralize`/`singularize`/`ordinal`),
+  proving arbitrarily-deep `std.x.y` nesting.
 
 ## Future work
 
-Deliberately deferred (each is either untestable in an offline/sandboxed
-build or carries AOT/cross-platform risk that warrants a focused pass):
-
-* **Live networking** — `net.http` (GET/POST), `net.tcp`, DNS. Not added yet:
-  not unit-testable without a server, and HttpClient/sockets need an explicit
-  AOT/trim validation pass. The `net` module today is URI-only.
-* **More serialize formats** — CSV, TOML, YAML (JSON is in).
-* **Asymmetric crypto** — Ed25519 / RSA / ECDSA already exist in the archive
-  subsystem (`Interpreter/Archive/Crypto`); expose them as `crypto` APIs.
-* **Deeper sub-modules** — the resolver already supports arbitrary depth
-  (`std.prelude.x.y`); the taxonomy is one level deep for now by choice.
+* **TOML/YAML edge cases** — TOML local-datetime/date/time stay strings (no Ra
+  date type yet); YAML merge keys (`<<`), complex/flow keys and `%` directives
+  remain out of scope. The covered surface handles the vast majority of configs.
+* **HTTP/2 + streaming** — the net surface is HTTP/1.1 request/response and
+  whole-body reads; chunked streaming bodies could become an `astream`.
+* **A first-class date/time type** — would let TOML/YAML datetimes round-trip
+  losslessly and give the `time` module richer ergonomics.
 
 ## Files
 

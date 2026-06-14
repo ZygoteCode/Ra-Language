@@ -1,0 +1,54 @@
+import std.prelude.*;
+// stdlib/text_ext — affix, fragment and shaping helpers added to
+// std.prelude.text.
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/text_ext ===");
+
+// --- strip prefix / suffix (no-op when absent) --------------------------
+ok("SP1", str_strip_prefix("foobar", "foo") == "bar");
+ok("SP2", str_strip_prefix("foobar", "xyz") == "foobar");
+ok("SP3", str_strip_suffix("foobar", "bar") == "foo");
+ok("SP4", str_strip_suffix("foobar", "xyz") == "foobar");
+
+// --- remove / replace_first ---------------------------------------------
+ok("RM1", str_remove("a-b-c", "-") == "abc");
+ok("RM2", str_remove("hello", "") == "hello");
+ok("RF1", str_replace_first("a-b-c", "-", "+") == "a+b-c");
+ok("RF2", str_replace_first("abc", "z", "+") == "abc");
+
+// --- partition / rpartition ---------------------------------------------
+var p = str_partition("a=b=c", "=");
+ok("PT1", tuple_at(p, 0) == "a");
+ok("PT2", tuple_at(p, 1) == "=");
+ok("PT3", tuple_at(p, 2) == "b=c");
+var rp = str_rpartition("a=b=c", "=");
+ok("PT4", tuple_at(rp, 0) == "a=b");
+ok("PT5", tuple_at(rp, 2) == "c");
+// not found -> (whole, "", "")
+var pn = str_partition("abc", "=");
+ok("PT6", tuple_at(pn, 0) == "abc" and tuple_at(pn, 1) == "");
+
+// --- swapcase / center / truncate ---------------------------------------
+ok("SW1", str_swapcase("Hello") == "hELLO");
+ok("SW2", str_swapcase("aBc123") == "AbC123");
+ok("CE1", str_center("hi", 6) == "  hi  ");
+ok("CE2", str_center("hi", 5, "*") == "*hi**");
+ok("CE3", str_center("toolong", 3) == "toolong");   // already wider
+ok("TR1", str_truncate("hello world", 8) == "hello...");
+ok("TR2", str_truncate("hi", 8) == "hi");
+ok("TR3", str_truncate("hello", 4, "~") == "hel~");
+
+// --- predicates ---------------------------------------------------------
+ok("EM1", str_is_empty(""));
+ok("EM2", str_is_empty("x") == false);
+ok("BL1", str_is_blank("   "));
+ok("BL2", str_is_blank("\t\n"));
+ok("BL3", str_is_blank("x") == false);
+ok("EQ1", str_eq_ignore_case("ABC", "abc"));
+ok("EQ2", str_eq_ignore_case("abc", "abd") == false);
+
+print("=== done ===");

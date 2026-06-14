@@ -64,6 +64,50 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             BuiltInRegistry.Register("rotl", RotateLeftFn);
             BuiltInRegistry.Register("rotr", RotateRightFn);
             BuiltInRegistry.Register("hypot", Hypot);
+
+            // Interpolation / remapping — the staples of graphics, animation
+            // and signal code. `lerp`/`inv_lerp` are inverses; `remap` chains
+            // them to move a value between two ranges; `clamp01` is the unit
+            // clamp that pairs with `lerp(a, b, clamp01(t))`.
+            BuiltInRegistry.Register("lerp", Lerp);
+            BuiltInRegistry.Register("inv_lerp", InvLerp);
+            BuiltInRegistry.Register("remap", Remap);
+            BuiltInRegistry.Register("clamp01", Clamp01);
+            BuiltInRegistry.Register("copysign", CopySign);
+            BuiltInRegistry.Register("fmod", FMod);
+            BuiltInRegistry.Register("round_to", RoundTo);
+            BuiltInRegistry.Register("is_even", IsEven);
+            BuiltInRegistry.Register("is_odd", IsOdd);
+            BuiltInRegistry.Register("next_pow2", NextPow2);
+            // Descriptive statistics over a list (or a variadic number run,
+            // exactly like math_min/math_max). Population variance / stddev.
+            BuiltInRegistry.Register("mean", Mean);
+            BuiltInRegistry.Register("median", Median);
+            BuiltInRegistry.Register("variance", Variance);
+            BuiltInRegistry.Register("stddev", StdDev);
+
+            // Shaping, integer division, combinatorics and the extra
+            // transcendentals the BCL exposes but the first cut skipped.
+            BuiltInRegistry.Register("smoothstep", SmoothStep);
+            BuiltInRegistry.Register("unit_step", StepFn);
+            BuiltInRegistry.Register("wrap", Wrap);
+            BuiltInRegistry.Register("ceil_div", CeilDiv);
+            BuiltInRegistry.Register("floor_div", FloorDiv);
+            BuiltInRegistry.Register("divmod", DivMod);
+            BuiltInRegistry.Register("is_prime", IsPrime);
+            BuiltInRegistry.Register("combinations", Combinations);
+            BuiltInRegistry.Register("permutations", Permutations);
+            BuiltInRegistry.Register("fibonacci", Fibonacci);
+            BuiltInRegistry.Register("sigmoid", Sigmoid);
+            BuiltInRegistry.Register("log_base", LogBase);
+            BuiltInRegistry.Register("nth_root", NthRoot);
+            BuiltInRegistry.Register("midpoint", Midpoint);
+            BuiltInRegistry.Register("hypot3", Hypot3);
+            BuiltInRegistry.Register("asinh", Asinh);
+            BuiltInRegistry.Register("acosh", Acosh);
+            BuiltInRegistry.Register("atanh", Atanh);
+            BuiltInRegistry.Register("expm1", Expm1);
+            BuiltInRegistry.Register("log1p", Log1p);
         }
 
         private static RuntimeResult D1(Context ctx, List<RuntimeValue> args, Position p1, Position p2, string name, Func<double, double> f)
@@ -272,5 +316,275 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
             int k = AsInt(args[1]) & 63;
             return Ok(new LongValue((long)System.Numerics.BitOperations.RotateRight(v, k)), ctx, p1, p2);
         }
+
+        private static RuntimeResult Lerp(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("lerp", args, 3, ctx, p1, p2, out var err)) return err;
+            double a = AsDouble(args[0]), b = AsDouble(args[1]), t = AsDouble(args[2]);
+            return Ok(new DoubleValue(a + (b - a) * t), ctx, p1, p2);
+        }
+
+        private static RuntimeResult InvLerp(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("inv_lerp", args, 3, ctx, p1, p2, out var err)) return err;
+            double a = AsDouble(args[0]), b = AsDouble(args[1]), v = AsDouble(args[2]);
+            if (a == b) return Ok(new DoubleValue(0.0), ctx, p1, p2);
+            return Ok(new DoubleValue((v - a) / (b - a)), ctx, p1, p2);
+        }
+
+        private static RuntimeResult Remap(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("remap", args, 5, ctx, p1, p2, out var err)) return err;
+            double v = AsDouble(args[0]);
+            double inLo = AsDouble(args[1]), inHi = AsDouble(args[2]);
+            double outLo = AsDouble(args[3]), outHi = AsDouble(args[4]);
+            if (inLo == inHi) return Ok(new DoubleValue(outLo), ctx, p1, p2);
+            double t = (v - inLo) / (inHi - inLo);
+            return Ok(new DoubleValue(outLo + (outHi - outLo) * t), ctx, p1, p2);
+        }
+
+        private static RuntimeResult Clamp01(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+            => D1(ctx, args, p1, p2, "clamp01", x => Math.Clamp(x, 0.0, 1.0));
+
+        private static RuntimeResult CopySign(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("copysign", args, 2, ctx, p1, p2, out var err)) return err;
+            return Ok(new DoubleValue(Math.CopySign(AsDouble(args[0]), AsDouble(args[1]))), ctx, p1, p2);
+        }
+
+        private static RuntimeResult FMod(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("fmod", args, 2, ctx, p1, p2, out var err)) return err;
+            double a = AsDouble(args[0]), b = AsDouble(args[1]);
+            return Ok(new DoubleValue(b == 0.0 ? double.NaN : a % b), ctx, p1, p2);
+        }
+
+        private static RuntimeResult RoundTo(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("round_to", args, 2, ctx, p1, p2, out var err)) return err;
+            int digits = AsInt(args[1]);
+            if (digits < 0 || digits > 15) return Fail(ctx, p1, p2, "round_to: digits must be in [0, 15]");
+            return Ok(new DoubleValue(Math.Round(AsDouble(args[0]), digits, MidpointRounding.AwayFromZero)), ctx, p1, p2);
+        }
+
+        private static RuntimeResult IsEven(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("is_even", args, 1, ctx, p1, p2, out var err)) return err;
+            return Ok(MakeBool((AsLong(args[0]) & 1L) == 0L), ctx, p1, p2);
+        }
+
+        private static RuntimeResult IsOdd(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("is_odd", args, 1, ctx, p1, p2, out var err)) return err;
+            return Ok(MakeBool((AsLong(args[0]) & 1L) != 0L), ctx, p1, p2);
+        }
+
+        private static RuntimeResult NextPow2(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("next_pow2", args, 1, ctx, p1, p2, out var err)) return err;
+            long n = AsLong(args[0]);
+            if (n <= 1) return Ok(new LongValue(1), ctx, p1, p2);
+            ulong v = (ulong)(n - 1);
+            int shift = 64 - System.Numerics.BitOperations.LeadingZeroCount(v);
+            if (shift >= 63) return Fail(ctx, p1, p2, "next_pow2: result overflows int64");
+            return Ok(new LongValue(1L << shift), ctx, p1, p2);
+        }
+
+        // Gather the numeric sample: either a single list argument or a
+        // variadic run of numbers (mirrors math_min / math_max). Returns null
+        // when the sample is empty so the caller can report it.
+        private static List<double>? Sample(List<RuntimeValue> args)
+        {
+            IEnumerable<RuntimeValue> src = (args.Count == 1 && args[0] is ListValue lv) ? lv.Elements : args;
+            var nums = new List<double>();
+            foreach (var v in src) nums.Add(AsDouble(v));
+            return nums.Count == 0 ? null : nums;
+        }
+
+        private static RuntimeResult Mean(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectMinArgs("mean", args, 1, ctx, p1, p2, out var err)) return err;
+            if (Sample(args) is not { } s) return Fail(ctx, p1, p2, "mean: sample is empty");
+            double sum = 0; foreach (var x in s) sum += x;
+            return Ok(new DoubleValue(sum / s.Count), ctx, p1, p2);
+        }
+
+        private static RuntimeResult Median(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectMinArgs("median", args, 1, ctx, p1, p2, out var err)) return err;
+            if (Sample(args) is not { } s) return Fail(ctx, p1, p2, "median: sample is empty");
+            s.Sort();
+            int n = s.Count;
+            double m = (n & 1) == 1 ? s[n / 2] : (s[n / 2 - 1] + s[n / 2]) / 2.0;
+            return Ok(new DoubleValue(m), ctx, p1, p2);
+        }
+
+        // Population variance (divide by N). stddev is its square root.
+        private static double VarianceOf(List<double> s)
+        {
+            double mean = 0; foreach (var x in s) mean += x; mean /= s.Count;
+            double acc = 0; foreach (var x in s) { double d = x - mean; acc += d * d; }
+            return acc / s.Count;
+        }
+
+        private static RuntimeResult Variance(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectMinArgs("variance", args, 1, ctx, p1, p2, out var err)) return err;
+            if (Sample(args) is not { } s) return Fail(ctx, p1, p2, "variance: sample is empty");
+            return Ok(new DoubleValue(VarianceOf(s)), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StdDev(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectMinArgs("stddev", args, 1, ctx, p1, p2, out var err)) return err;
+            if (Sample(args) is not { } s) return Fail(ctx, p1, p2, "stddev: sample is empty");
+            return Ok(new DoubleValue(Math.Sqrt(VarianceOf(s))), ctx, p1, p2);
+        }
+
+        private static RuntimeResult SmoothStep(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("smoothstep", args, 3, ctx, p1, p2, out var err)) return err;
+            double e0 = AsDouble(args[0]), e1 = AsDouble(args[1]), x = AsDouble(args[2]);
+            double t = e0 == e1 ? (x < e0 ? 0.0 : 1.0) : Math.Clamp((x - e0) / (e1 - e0), 0.0, 1.0);
+            return Ok(new DoubleValue(t * t * (3.0 - 2.0 * t)), ctx, p1, p2);
+        }
+
+        private static RuntimeResult StepFn(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("step", args, 2, ctx, p1, p2, out var err)) return err;
+            return Ok(new IntegerValue(AsDouble(args[1]) < AsDouble(args[0]) ? 0 : 1), ctx, p1, p2);
+        }
+
+        private static RuntimeResult Wrap(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("wrap", args, 3, ctx, p1, p2, out var err)) return err;
+            double x = AsDouble(args[0]), lo = AsDouble(args[1]), hi = AsDouble(args[2]);
+            double range = hi - lo;
+            if (range == 0) return Ok(new DoubleValue(lo), ctx, p1, p2);
+            double m = (x - lo) % range;
+            if (m < 0) m += range;
+            return Ok(new DoubleValue(lo + m), ctx, p1, p2);
+        }
+
+        private static long FloorDivL(long a, long b)
+        {
+            long q = a / b;
+            if ((a % b != 0) && ((a < 0) != (b < 0))) q--;
+            return q;
+        }
+
+        private static RuntimeResult CeilDiv(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("ceil_div", args, 2, ctx, p1, p2, out var err)) return err;
+            long b = AsLong(args[1]);
+            if (b == 0) return Fail(ctx, p1, p2, "ceil_div: division by zero");
+            return Ok(NumberFor(-FloorDivL(-AsLong(args[0]), b)), ctx, p1, p2);
+        }
+
+        private static RuntimeResult FloorDiv(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("floor_div", args, 2, ctx, p1, p2, out var err)) return err;
+            long b = AsLong(args[1]);
+            if (b == 0) return Fail(ctx, p1, p2, "floor_div: division by zero");
+            return Ok(NumberFor(FloorDivL(AsLong(args[0]), b)), ctx, p1, p2);
+        }
+
+        private static RuntimeResult DivMod(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("divmod", args, 2, ctx, p1, p2, out var err)) return err;
+            long a = AsLong(args[0]), b = AsLong(args[1]);
+            if (b == 0) return Fail(ctx, p1, p2, "divmod: division by zero");
+            long q = FloorDivL(a, b), r = a - q * b;
+            return Ok(new TupleValue(new List<RuntimeValue> { NumberFor(q), NumberFor(r) }), ctx, p1, p2);
+        }
+
+        private static RuntimeResult IsPrime(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("is_prime", args, 1, ctx, p1, p2, out var err)) return err;
+            long n = AsLong(args[0]);
+            if (n < 2) return Ok(MakeBool(false), ctx, p1, p2);
+            if (n < 4) return Ok(MakeBool(true), ctx, p1, p2);
+            if ((n & 1) == 0 || n % 3 == 0) return Ok(MakeBool(false), ctx, p1, p2);
+            for (long i = 5; i * i <= n; i += 6)
+                if (n % i == 0 || n % (i + 2) == 0) return Ok(MakeBool(false), ctx, p1, p2);
+            return Ok(MakeBool(true), ctx, p1, p2);
+        }
+
+        private static RuntimeResult Combinations(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("combinations", args, 2, ctx, p1, p2, out var err)) return err;
+            long n = AsLong(args[0]), k = AsLong(args[1]);
+            if (k < 0 || k > n || n < 0) return Ok(new LongValue(0), ctx, p1, p2);
+            if (k > n - k) k = n - k;
+            try
+            {
+                long r = 1;
+                checked { for (long i = 0; i < k; i++) r = r * (n - i) / (i + 1); }
+                return Ok(NumberFor(r), ctx, p1, p2);
+            }
+            catch (OverflowException) { return Fail(ctx, p1, p2, "combinations: result overflows int64"); }
+        }
+
+        private static RuntimeResult Permutations(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("permutations", args, 2, ctx, p1, p2, out var err)) return err;
+            long n = AsLong(args[0]), k = AsLong(args[1]);
+            if (k < 0 || k > n || n < 0) return Ok(new LongValue(0), ctx, p1, p2);
+            try
+            {
+                long r = 1;
+                checked { for (long i = 0; i < k; i++) r *= (n - i); }
+                return Ok(NumberFor(r), ctx, p1, p2);
+            }
+            catch (OverflowException) { return Fail(ctx, p1, p2, "permutations: result overflows int64"); }
+        }
+
+        private static RuntimeResult Fibonacci(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("fibonacci", args, 1, ctx, p1, p2, out var err)) return err;
+            long n = AsLong(args[0]);
+            if (n < 0) return Fail(ctx, p1, p2, "fibonacci: argument must be non-negative");
+            if (n > 92) return Fail(ctx, p1, p2, "fibonacci: argument too large for int64 (max 92)");
+            long a = 0, b = 1;
+            for (long i = 0; i < n; i++) (a, b) = (b, a + b);
+            return Ok(new LongValue(a), ctx, p1, p2);
+        }
+
+        private static RuntimeResult Sigmoid(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+            => D1(ctx, args, p1, p2, "sigmoid", x => 1.0 / (1.0 + Math.Exp(-x)));
+
+        private static RuntimeResult LogBase(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("log_base", args, 2, ctx, p1, p2, out var err)) return err;
+            return Ok(new DoubleValue(Math.Log(AsDouble(args[0]), AsDouble(args[1]))), ctx, p1, p2);
+        }
+
+        private static RuntimeResult NthRoot(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("nth_root", args, 2, ctx, p1, p2, out var err)) return err;
+            double x = AsDouble(args[0]), n = AsDouble(args[1]);
+            if (x < 0 && Math.Abs(n % 2 - 1) < 1e-9) return Ok(new DoubleValue(-Math.Pow(-x, 1.0 / n)), ctx, p1, p2);
+            return Ok(new DoubleValue(Math.Pow(x, 1.0 / n)), ctx, p1, p2);
+        }
+
+        private static RuntimeResult Midpoint(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("midpoint", args, 2, ctx, p1, p2, out var err)) return err;
+            double a = AsDouble(args[0]), b = AsDouble(args[1]);
+            return Ok(new DoubleValue(a + (b - a) / 2.0), ctx, p1, p2);
+        }
+
+        private static RuntimeResult Hypot3(Context ctx, List<RuntimeValue> args, Position p1, Position p2)
+        {
+            if (!ExpectArgs("hypot3", args, 3, ctx, p1, p2, out var err)) return err;
+            double a = AsDouble(args[0]), b = AsDouble(args[1]), c = AsDouble(args[2]);
+            return Ok(new DoubleValue(Math.Sqrt(a * a + b * b + c * c)), ctx, p1, p2);
+        }
+
+        private static RuntimeResult Asinh(Context ctx, List<RuntimeValue> args, Position p1, Position p2) => D1(ctx, args, p1, p2, "asinh", Math.Asinh);
+        private static RuntimeResult Acosh(Context ctx, List<RuntimeValue> args, Position p1, Position p2) => D1(ctx, args, p1, p2, "acosh", Math.Acosh);
+        private static RuntimeResult Atanh(Context ctx, List<RuntimeValue> args, Position p1, Position p2) => D1(ctx, args, p1, p2, "atanh", Math.Atanh);
+        private static RuntimeResult Expm1(Context ctx, List<RuntimeValue> args, Position p1, Position p2) => D1(ctx, args, p1, p2, "expm1", x => Math.Exp(x) - 1.0);
+        private static RuntimeResult Log1p(Context ctx, List<RuntimeValue> args, Position p1, Position p2) => D1(ctx, args, p1, p2, "log1p", x => Math.Log(1.0 + x));
     }
 }

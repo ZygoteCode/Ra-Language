@@ -1,0 +1,57 @@
+import std.prelude.*;
+// stdlib/math_ext — interpolation, remapping, parity, rounding and the
+// descriptive-statistics helpers added to std.prelude.math.
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/math_ext ===");
+
+// --- interpolation / remap ----------------------------------------------
+ok("LERP1", lerp(0, 10, 0.5) == 5);
+ok("LERP2", lerp(10, 20, 0) == 10);
+ok("LERP3", lerp(10, 20, 1) == 20);
+ok("ILERP1", inv_lerp(0, 10, 5) == 0.5);
+ok("ILERP2", inv_lerp(4, 4, 9) == 0);              // degenerate range -> 0
+ok("REMAP1", remap(5, 0, 10, 0, 100) == 50);
+ok("REMAP2", remap(0, 0, 1, 20, 30) == 20);
+
+// --- clamp01 / copysign / fmod ------------------------------------------
+ok("C01A", clamp01(1.5) == 1);
+ok("C01B", clamp01(0 - 0.5) == 0);
+ok("C01C", clamp01(0.25) == 0.25);
+ok("CS1", copysign(3, 0 - 1) == (0 - 3));
+ok("CS2", copysign(0 - 4, 2) == 4);
+ok("FMOD1", fmod(10, 3) == 1);
+ok("FMOD2", is_nan(fmod(1, 0)));
+
+// --- rounding / parity / pow2 -------------------------------------------
+ok("RT1", round_to(3.14159, 2) == 3.14);
+ok("RT2", round_to(2.5, 0) == 3);                  // away-from-zero
+ok("EVEN1", is_even(4));
+ok("EVEN2", is_even(7) == false);
+ok("ODD1", is_odd(7));
+ok("ODD2", is_odd(4) == false);
+ok("P2A", next_pow2(17) == 32);
+ok("P2B", next_pow2(16) == 16);
+ok("P2C", next_pow2(1) == 1);
+ok("P2D", next_pow2(0) == 1);
+
+// --- descriptive statistics (population) --------------------------------
+// Classic worked example: [2,4,4,4,5,5,7,9] -> mean 5, variance 4, stddev 2.
+var data = [2, 4, 4, 4, 5, 5, 7, 9];
+ok("MEAN1", mean(data) == 5);
+ok("VAR1", variance(data) == 4);
+ok("STD1", stddev(data) == 2);
+ok("MEAN2", mean([1, 2, 3, 4]) == 2.5);
+ok("MED1", median([1, 2, 3]) == 2);               // odd count
+ok("MED2", median([1, 2, 3, 4]) == 2.5);          // even count -> average
+ok("MEANV", mean(10, 20, 30) == 20);              // variadic form
+
+// --- empty sample is a catchable error ----------------------------------
+var m1 = false;
+try { mean([]); m1 = false; } catch (e) { m1 = true; }
+ok("ERR1", m1);
+
+print("=== done ===");

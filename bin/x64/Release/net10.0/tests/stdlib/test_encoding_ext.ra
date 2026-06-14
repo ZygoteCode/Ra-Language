@@ -1,0 +1,33 @@
+import std.prelude.*;
+// stdlib/encoding_ext — Base64URL and Base32 added to std.prelude.encoding.
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/encoding_ext ===");
+
+// --- base64url (URL-safe, unpadded) -------------------------------------
+ok("U1", base64url_encode("Hi") == "SGk");           // padding stripped
+ok("U2", base64url_decode("SGk") == "Hi");
+ok("U3", base64url_decode(base64url_encode("hello world")) == "hello world");
+ok("U4", base64url_decode(base64url_encode("àéî—🚀")) == "àéî—🚀");
+// URL-safe alphabet never emits '+', '/', or '='
+var enc = base64url_encode("any carnal pleasure?");
+ok("U5", str_contains(enc, "=") == false);
+ok("U6", str_contains(enc, "/") == false and str_contains(enc, "+") == false);
+ok("U7", base64url_encode("") == "");
+
+// --- base32 (RFC 4648) --------------------------------------------------
+ok("B1", base32_encode("foobar") == "MZXW6YTBOI======");
+ok("B2", base32_decode("MZXW6YTBOI======") == "foobar");
+ok("B3", base32_encode("") == "");
+ok("B4", base32_decode(base32_encode("Hello, World!")) == "Hello, World!");
+// decode is case-insensitive and tolerates missing padding
+ok("B5", base32_decode("mzxw6ytboi") == "foobar");
+// invalid alphabet character is a catchable error
+var b6 = false;
+try { base32_decode("0189"); b6 = false; } catch (e) { b6 = true; }
+ok("B6", b6);
+
+print("=== done ===");

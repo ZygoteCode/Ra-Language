@@ -88,6 +88,67 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
                 return Ok(lv.Elements[idx], ctx, p1, p2);
             });
 
+            // random_sample(list, k) -> k DISTINCT elements (without replacement),
+            // in random order. Partial Fisher-Yates over a copy, so the source
+            // list is untouched. k must be in [0, len].
+            BuiltInRegistry.Register("random_sample", (ctx, args, p1, p2) =>
+            {
+                if (!ExpectArgs("random_sample", args, 2, ctx, p1, p2, out var err)) return err;
+                if (args[0] is not ListValue lv) return Fail(ctx, p1, p2, "random_sample: first argument must be a list");
+                int k = AsInt(args[1]);
+                if (k < 0 || k > lv.Elements.Count) return Fail(ctx, p1, p2, $"random_sample: k must be in [0, {lv.Elements.Count}]");
+                var pool = new List<RuntimeValue>(lv.Elements);
+                var outList = new List<RuntimeValue>(k);
+                lock (_lock)
+                {
+                    for (int i = 0; i < k; i++)
+                    {
+                        int j = i + _rng.Next(pool.Count - i);
+                        (pool[i], pool[j]) = (pool[j], pool[i]);
+                        outList.Add(pool[i]);
+                    }
+                }
+                return Ok(new ListValue(outList), ctx, p1, p2);
+            });
+
+            // random_gaussian([mean, stddev]) -> normally-distributed double.
+            // Defaults to the standard normal (mean 0, stddev 1). Box-Muller.
+            BuiltInRegistry.Register("random_gaussian", (ctx, args, p1, p2) =>
+            {
+                if (!ExpectRangeArgs("random_gaussian", args, 0, 2, ctx, p1, p2, out var err)) return err;
+                double mean = args.Count >= 1 ? AsDouble(args[0]) : 0.0;
+                double sd = args.Count == 2 ? AsDouble(args[1]) : 1.0;
+                double u1, u2;
+                lock (_lock) { u1 = 1.0 - _rng.NextDouble(); u2 = _rng.NextDouble(); }
+                double z = Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
+                return Ok(new DoubleValue(mean + sd * z), ctx, p1, p2);
+            });
+
+            // random_string(len [, alphabet]) -> random string drawn from the
+            // alphabet (default: ASCII alphanumerics).
+            BuiltInRegistry.Register("random_string", (ctx, args, p1, p2) =>
+            {
+                if (!ExpectRangeArgs("random_string", args, 1, 2, ctx, p1, p2, out var err)) return err;
+                int n = AsInt(args[0]);
+                if (n < 0) return Fail(ctx, p1, p2, "random_string: length must be non-negative");
+                string alphabet = args.Count == 2 ? AsString(args[1]) : "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+                if (alphabet.Length == 0) return Fail(ctx, p1, p2, "random_string: alphabet must not be empty");
+                var chars = new char[n];
+                lock (_lock) { for (int i = 0; i < n; i++) chars[i] = alphabet[_rng.Next(alphabet.Length)]; }
+                return Ok(new StringValue(new string(chars)), ctx, p1, p2);
+            });
+
+            // random_hex(n) -> lowercase hex of n random bytes (length 2*n)
+            BuiltInRegistry.Register("random_hex", (ctx, args, p1, p2) =>
+            {
+                if (!ExpectArgs("random_hex", args, 1, ctx, p1, p2, out var err)) return err;
+                int n = AsInt(args[0]);
+                if (n < 0) return Fail(ctx, p1, p2, "random_hex: count must be non-negative");
+                var buf = new byte[n];
+                lock (_lock) { _rng.NextBytes(buf); }
+                return Ok(new StringValue(Convert.ToHexString(buf).ToLowerInvariant()), ctx, p1, p2);
+            });
+
             // uuid_v4() -> a random RFC 4122 v4 UUID string
             BuiltInRegistry.Register("uuid_v4", (ctx, args, p1, p2) =>
             {

@@ -47,6 +47,124 @@ namespace RaLanguage.Interpreter.Values.Functions.Builtins
                 }
                 catch (JsonError je) { return Fail(ctx, p1, p2, "json_parse: " + je.Message); }
             });
+
+            // csv_parse(text [, delimiter]) -> list of rows, each a list of
+            // string cells. RFC 4180: double-quoted fields may contain the
+            // delimiter, CR/LF, and "" escaped quotes; both LF and CRLF end a
+            // row; a trailing newline yields no empty row.
+            BuiltInRegistry.Register("csv_parse", (ctx, args, p1, p2) =>
+            {
+                if (!ExpectRangeArgs("csv_parse", args, 1, 2, ctx, p1, p2, out var err)) return err;
+                char delim = Delimiter(args);
+                var rows = ParseCsv(AsString(args[0]), delim);
+                var outRows = new List<RuntimeValue>(rows.Count);
+                foreach (var r in rows)
+                {
+                    var cells = new List<RuntimeValue>(r.Count);
+                    foreach (var c in r) cells.Add(new StringValue(c));
+                    outRows.Add(new ListValue(cells));
+                }
+                return Ok(new ListValue(outRows), ctx, p1, p2);
+            });
+
+            // csv_parse_objects(text [, delimiter]) -> list of maps keyed by the
+            // header row (the first record). Short rows pad with "" ; extra
+            // cells past the header are dropped.
+            BuiltInRegistry.Register("csv_parse_objects", (ctx, args, p1, p2) =>
+            {
+                if (!ExpectRangeArgs("csv_parse_objects", args, 1, 2, ctx, p1, p2, out var err)) return err;
+                char delim = Delimiter(args);
+                var rows = ParseCsv(AsString(args[0]), delim);
+                var outList = new List<RuntimeValue>();
+                if (rows.Count == 0) return Ok(new ListValue(outList), ctx, p1, p2);
+                var header = rows[0];
+                for (int ri = 1; ri < rows.Count; ri++)
+                {
+                    var row = rows[ri];
+                    var pairs = new List<(RuntimeValue, RuntimeValue)>(header.Count);
+                    for (int ci = 0; ci < header.Count; ci++)
+                        pairs.Add((new StringValue(header[ci]), new StringValue(ci < row.Count ? row[ci] : "")));
+                    outList.Add(new MapValue(pairs));
+                }
+                return Ok(new ListValue(outList), ctx, p1, p2);
+            });
+
+            // csv_stringify(rows [, delimiter]) -> CSV text. `rows` is a list of
+            // lists; each cell is stringified and quoted only when it contains
+            // the delimiter, a quote, or a newline. Rows are LF-terminated.
+            BuiltInRegistry.Register("csv_stringify", (ctx, args, p1, p2) =>
+            {
+                if (!ExpectRangeArgs("csv_stringify", args, 1, 2, ctx, p1, p2, out var err)) return err;
+                if (args[0] is not ListValue rows) return Fail(ctx, p1, p2, "csv_stringify: first argument must be a list of rows");
+                char delim = Delimiter(args);
+                var sb = new StringBuilder();
+                for (int ri = 0; ri < rows.Elements.Count; ri++)
+                {
+                    if (rows.Elements[ri] is not ListValue row)
+                        return Fail(ctx, p1, p2, $"csv_stringify: row {ri} must be a list of cells");
+                    for (int ci = 0; ci < row.Elements.Count; ci++)
+                    {
+                        if (ci > 0) sb.Append(delim);
+                        sb.Append(QuoteCell(AsString(row.Elements[ci]), delim));
+                    }
+                    sb.Append('\n');
+                }
+                return Ok(new StringValue(sb.ToString()), ctx, p1, p2);
+            });
+        }
+
+        // ---- CSV (RFC 4180) ----------------------------------------------
+
+        private static char Delimiter(List<RuntimeValue> args)
+        {
+            if (args.Count >= 2)
+            {
+                string d = AsString(args[1]);
+                if (d.Length > 0) return d[0];
+            }
+            return ',';
+        }
+
+        private static List<List<string>> ParseCsv(string text, char delim)
+        {
+            var rows = new List<List<string>>();
+            var field = new StringBuilder();
+            var row = new List<string>();
+            bool inQuotes = false, fieldStart = true, rowHasData = false;
+            int i = 0, n = text.Length;
+
+            void EndField() { row.Add(field.ToString()); field.Clear(); fieldStart = true; }
+            void EndRow() { EndField(); rows.Add(row); row = new List<string>(); rowHasData = false; }
+
+            while (i < n)
+            {
+                char c = text[i];
+                if (inQuotes)
+                {
+                    if (c == '"')
+                    {
+                        if (i + 1 < n && text[i + 1] == '"') { field.Append('"'); i += 2; }
+                        else { inQuotes = false; i++; }
+                    }
+                    else { field.Append(c); i++; }
+                }
+                else if (c == '"' && fieldStart) { inQuotes = true; fieldStart = false; rowHasData = true; i++; }
+                else if (c == delim) { EndField(); rowHasData = true; i++; }
+                else if (c == '\r') { i += (i + 1 < n && text[i + 1] == '\n') ? 2 : 1; EndRow(); }
+                else if (c == '\n') { i++; EndRow(); }
+                else { field.Append(c); fieldStart = false; rowHasData = true; i++; }
+            }
+            if (field.Length > 0 || row.Count > 0 || rowHasData) EndRow();
+            return rows;
+        }
+
+        private static string QuoteCell(string s, char delim)
+        {
+            bool needs = false;
+            foreach (char c in s)
+                if (c == delim || c == '"' || c == '\n' || c == '\r') { needs = true; break; }
+            if (!needs) return s;
+            return "\"" + s.Replace("\"", "\"\"") + "\"";
         }
 
         // ---- writer ------------------------------------------------------

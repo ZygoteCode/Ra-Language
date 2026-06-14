@@ -1,0 +1,41 @@
+import std.prelude.*;
+// stdlib/net_live — live networking (DNS / TCP / HTTP) in std.prelude.net.
+// Only the offline-deterministic surface is asserted: localhost DNS always
+// resolves, an unused low port is closed, and unreachable/invalid hosts
+// surface a CATCHABLE error rather than crashing. Live-network success paths
+// (real HTTP GET) are intentionally not asserted here.
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/net_live ===");
+
+// --- DNS (localhost is resolvable on every machine) ---------------------
+var addrs = dns_resolve("localhost");
+ok("N1", len(addrs) > 0);
+ok("N2", dns_resolve_one("localhost") != null);
+// an invalid TLD must raise a catchable error
+var n3 = false;
+try { dns_resolve("no.such.host.invalid"); n3 = false; } catch (e) { n3 = true; }
+ok("N3", n3);
+
+// --- TCP port probe -----------------------------------------------------
+// Port 1 on loopback is (effectively always) closed -> false, no throw.
+ok("N4", tcp_port_open("127.0.0.1", 1, 500) == false);
+// a refused connection through tcp_request is a catchable error
+var n5 = false;
+try { tcp_request("127.0.0.1", 1, "ping", 500); n5 = false; } catch (e) { n5 = true; }
+ok("N5", n5);
+
+// --- HTTP error handling ------------------------------------------------
+// an unresolvable host yields a catchable error (not a crash)
+var n6 = false;
+try { http_get("http://no.such.host.invalid:9/"); n6 = false; } catch (e) { n6 = true; }
+ok("N6", n6);
+// a malformed URL is also catchable
+var n7 = false;
+try { http_status("not a url"); n7 = false; } catch (e) { n7 = true; }
+ok("N7", n7);
+
+print("=== done ===");

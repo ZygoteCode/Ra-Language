@@ -1,0 +1,35 @@
+import std.prelude.*;
+import std.text.inflect;
+// stdlib/inflect — the two-level physical std module std.text.inflect, proving
+// deeper `std.x.y` sub-module nesting with real Ra logic.
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/inflect ===");
+
+// --- pluralize ----------------------------------------------------------
+ok("P1", pluralize("cat") == "cats");
+ok("P2", pluralize("box") == "boxes");
+ok("P3", pluralize("bus") == "buses");
+ok("P4", pluralize("city") == "cities");      // consonant + y
+ok("P5", pluralize("boy") == "boys");         // vowel + y
+ok("P6", pluralize("dish") == "dishes");
+
+// --- singularize --------------------------------------------------------
+ok("S1", singularize("cats") == "cat");
+ok("S2", singularize("cities") == "city");
+ok("S3", singularize("boxes") == "box");
+ok("S4", singularize("sheep") == "sheep");    // no rule -> unchanged
+
+// --- ordinal ------------------------------------------------------------
+ok("O1", ordinal(1) == "1st");
+ok("O2", ordinal(2) == "2nd");
+ok("O3", ordinal(3) == "3rd");
+ok("O4", ordinal(4) == "4th");
+ok("O5", ordinal(11) == "11th" and ordinal(12) == "12th" and ordinal(13) == "13th");
+ok("O6", ordinal(21) == "21st" and ordinal(22) == "22nd" and ordinal(23) == "23rd");
+ok("O7", ordinal(100) == "100th" and ordinal(101) == "101st" and ordinal(112) == "112th");
+
+print("=== done ===");

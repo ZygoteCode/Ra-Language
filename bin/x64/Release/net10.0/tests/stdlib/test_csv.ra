@@ -1,0 +1,59 @@
+import std.prelude.*;
+// stdlib/csv — RFC 4180 CSV parse / stringify added to std.prelude.serialize.
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/csv ===");
+
+// --- basic parse --------------------------------------------------------
+var r = csv_parse("a,b,c\n1,2,3");
+ok("P1", len(r) == 2);
+ok("P2", r[0][0] == "a" and r[0][2] == "c");
+ok("P3", r[1][1] == "2");
+
+// a trailing newline does NOT add an empty row
+ok("P4", len(csv_parse("a\nb\n")) == 2);
+
+// CRLF and LF both terminate a row
+ok("P5", len(csv_parse("a\r\nb\r\nc")) == 3);
+
+// empty input -> no rows
+ok("P6", len(csv_parse("")) == 0);
+
+// --- quoted fields ------------------------------------------------------
+// embedded delimiter
+ok("Q1", csv_parse("\"a,b\",c")[0][0] == "a,b");
+// escaped quote ("" -> ")
+ok("Q2", csv_parse("\"she said \"\"hi\"\"\",x")[0][0] == "she said \"hi\"");
+// embedded newline inside quotes stays one field / one row
+var nl = csv_parse("\"line1\nline2\",b");
+ok("Q3", len(nl) == 1 and nl[0][0] == "line1\nline2");
+
+// --- custom delimiter ---------------------------------------------------
+var semi = csv_parse("a;b;c", ";");
+ok("D1", len(semi[0]) == 3 and semi[0][1] == "b");
+
+// --- objects keyed by header --------------------------------------------
+var obj = csv_parse_objects("name,age\nAlice,30\nBob,25");
+ok("O1", len(obj) == 2);
+ok("O2", map_get(obj[0], "name") == "Alice");
+ok("O3", map_get(obj[1], "age") == "25");
+// short row pads missing cells with ""
+var sparse = csv_parse_objects("a,b,c\n1,2");
+ok("O4", map_get(sparse[0], "c") == "");
+
+// --- stringify + round-trip ---------------------------------------------
+var s = csv_stringify([["a", "b"], ["c,d", "e"]]);
+// the cell containing the delimiter must be quoted
+ok("S1", str_contains(s, "\"c,d\""));
+var back = csv_parse(s);
+ok("S2", back[0][0] == "a" and back[1][0] == "c,d");
+// a cell with a quote round-trips
+var rt = csv_parse(csv_stringify([["he said \"hi\""]]));
+ok("S3", rt[0][0] == "he said \"hi\"");
+// custom delimiter stringify
+ok("S4", csv_stringify([["x", "y"]], ";") == "x;y\n");
+
+print("=== done ===");

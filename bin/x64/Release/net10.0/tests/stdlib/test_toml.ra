@@ -1,0 +1,68 @@
+import std.prelude.*;
+// stdlib/toml — TOML parse / stringify in std.prelude.serialize.
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/toml ===");
+
+// --- scalars ------------------------------------------------------------
+var s = toml_parse("title = \"Ra\"\nport = 8080\npi = 3.14\nenabled = true\noff = false\n");
+ok("T1", map_get(s, "title") == "Ra");
+ok("T2", map_get(s, "port") == 8080);
+ok("T3", map_get(s, "pi") == 3.14);
+ok("T4", map_get(s, "enabled") == true and map_get(s, "off") == false);
+
+// --- integer bases + underscores ----------------------------------------
+var nums = toml_parse("hex = 0xFF\noct = 0o17\nbin = 0b1010\nbig = 1_000_000\n");
+ok("T5", map_get(nums, "hex") == 255);
+ok("T6", map_get(nums, "oct") == 15);
+ok("T7", map_get(nums, "bin") == 10);
+ok("T8", map_get(nums, "big") == 1000000);
+
+// --- arrays + inline tables ---------------------------------------------
+var arr = toml_parse("tags = [\"a\", \"b\", \"c\"]\nnums = [1, 2, 3]\npoint = { x = 1, y = 2 }\n");
+ok("T9", len(map_get(arr, "tags")) == 3 and map_get(arr, "tags")[1] == "b");
+ok("T10", map_get(arr, "nums")[2] == 3);
+ok("T11", map_get(map_get(arr, "point"), "x") == 1 and map_get(map_get(arr, "point"), "y") == 2);
+
+// --- nested tables + dotted keys ----------------------------------------
+var nested = toml_parse("[server]\nhost = \"localhost\"\nport = 5432\n\n[server.auth]\nuser = \"admin\"\n");
+ok("T12", map_get(map_get(nested, "server"), "host") == "localhost");
+ok("T13", map_get(map_get(map_get(nested, "server"), "auth"), "user") == "admin");
+var dotted = toml_parse("a.b.c = 42\n");
+ok("T14", map_get(map_get(map_get(dotted, "a"), "b"), "c") == 42);
+
+// --- arrays of tables ---------------------------------------------------
+var aot = toml_parse("[[item]]\nname = \"x\"\n\n[[item]]\nname = \"y\"\nqty = 5\n");
+ok("T15", len(map_get(aot, "item")) == 2);
+ok("T16", map_get(map_get(aot, "item")[0], "name") == "x");
+ok("T17", map_get(map_get(aot, "item")[1], "qty") == 5);
+
+// --- comments ignored ---------------------------------------------------
+var cmt = toml_parse("# a comment\nkey = \"value\" # trailing\n");
+ok("T18", map_get(cmt, "key") == "value");
+
+// --- stringify round-trip -----------------------------------------------
+var rt = toml_parse(toml_stringify(nested));
+ok("T19", map_get(map_get(rt, "server"), "port") == 5432);
+var rt2 = toml_parse(toml_stringify(aot));
+ok("T20", len(map_get(rt2, "item")) == 2 and map_get(map_get(rt2, "item")[1], "qty") == 5);
+
+// --- malformed input is a catchable error -------------------------------
+var merr = false;
+try { toml_parse("[unterminated\n"); merr = false; } catch (e) { merr = true; }
+ok("T21", merr);
+
+// --- datetimes: an offset date-time is a real instant (Unix ms), while a
+//     local date / time (no offset) has no instant and stays a string ----
+var dt = toml_parse("when = 1970-01-01T00:00:00Z\nlocal = 2024-05-27T07:32:00\nday = 1979-05-27\n");
+ok("T22", is_number(map_get(dt, "when")) and map_get(dt, "when") == 0);   // epoch
+ok("T23", is_string(map_get(dt, "local")) and map_get(dt, "local") == "2024-05-27T07:32:00");
+ok("T24", is_string(map_get(dt, "day")) and map_get(dt, "day") == "1979-05-27");
+// the offset instant composes with the time module
+var off = toml_parse("t = 2001-09-09T01:46:40Z");   // 1_000_000_000 s
+ok("T25", map_get(off, "t") == 1000000000000);
+
+print("=== done ===");

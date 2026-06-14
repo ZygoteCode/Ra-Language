@@ -1,0 +1,49 @@
+import std.prelude.*;
+// stdlib/bytes — binary-buffer helpers (std.prelude.bytes). A buffer is a
+// list of integers in [0, 255].
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/bytes ===");
+
+// --- text <-> bytes -----------------------------------------------------
+var b = bytes_from_string("Hi");
+ok("B1", len(b) == 2 and b[0] == 72 and b[1] == 105);
+ok("B2", bytes_to_string([72, 105]) == "Hi");
+ok("B3", bytes_to_string(bytes_from_string("àéî—🚀")) == "àéî—🚀");
+
+// --- hex / base64 -------------------------------------------------------
+ok("B4", bytes_to_hex([72, 105]) == "4869");
+ok("B5", bytes_to_string(bytes_from_hex("4869")) == "Hi");
+ok("B6", bytes_to_base64(bytes_from_string("Hi")) == "SGk=");
+ok("B7", bytes_to_string(bytes_from_base64("SGk=")) == "Hi");
+
+// --- concat / slice -----------------------------------------------------
+var cc = bytes_concat([1, 2], [3, 4]);
+ok("B8", len(cc) == 4 and cc[2] == 3);
+var sl = bytes_slice([1, 2, 3, 4, 5], 1, 3);
+ok("B9", len(sl) == 2 and sl[0] == 2 and sl[1] == 3);
+ok("B10", len(bytes_slice([1, 2, 3, 4, 5], 0 - 2, 5)) == 2);   // negative start
+
+// --- eq / xor / fill ----------------------------------------------------
+ok("B11", bytes_eq([1, 2, 3], [1, 2, 3]) and bytes_eq([1, 2], [1, 3]) == false);
+var x = bytes_xor([255, 0], [255, 255]);
+ok("B12", x[0] == 0 and x[1] == 255);
+var f = bytes_fill(3, 7);
+ok("B13", len(f) == 3 and f[0] == 7 and f[2] == 7);
+
+// --- endian reads -------------------------------------------------------
+ok("B14", bytes_read_u16le([1, 0], 0) == 1 and bytes_read_u16be([1, 0], 0) == 256);
+ok("B15", bytes_read_u32le([1, 0, 0, 0], 0) == 1 and bytes_read_u32be([0, 0, 0, 1], 0) == 1);
+
+// --- range validation is a catchable error ------------------------------
+var berr = false;
+try { bytes_to_hex([256]); berr = false; } catch (e) { berr = true; }
+ok("B16", berr);
+var oerr = false;
+try { bytes_read_u32le([1, 2], 0); oerr = false; } catch (e) { oerr = true; }
+ok("B17", oerr);                                               // offset past end
+
+print("=== done ===");

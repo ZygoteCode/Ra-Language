@@ -1,0 +1,48 @@
+import std.prelude.*;
+// stdlib/text_ext2 — case-style conversions, slugs, word ops, affixers
+// added to std.prelude.text.
+
+fn ok(id, cond) {
+    if cond { print("[" + id + "] OK"); } else { print("[" + id + "] FAIL"); }
+}
+
+print("=== stdlib/text_ext2 ===");
+
+// --- case styles --------------------------------------------------------
+ok("SN1", str_to_snake("helloWorldFoo") == "hello_world_foo");
+ok("SN2", str_to_snake("Hello World") == "hello_world");
+ok("KB1", str_to_kebab("Hello World") == "hello-world");
+ok("CM1", str_to_camel("hello_world") == "helloWorld");
+ok("CM2", str_to_camel("foo-bar-baz") == "fooBarBaz");
+ok("PA1", str_to_pascal("hello world") == "HelloWorld");
+
+// --- slug ---------------------------------------------------------------
+ok("SL1", str_slug("Hello, World! 123") == "hello-world-123");
+ok("SL2", str_slug("  spaced  out  ") == "spaced-out");
+
+// --- word ops -----------------------------------------------------------
+ok("WC1", str_count_char("banana", "a") == 3);
+var w = str_words("  a b  c ");
+ok("WD1", len(w) == 3 and w[0] == "a" and w[2] == "c");
+ok("WD2", str_word_count("one two three") == 3);
+var idx = str_indices_of("aXaXa", "a");
+ok("IX1", len(idx) == 3 and idx[1] == 2);
+ok("IX2", len(str_indices_of("abc", "z")) == 0);
+
+// --- prefix/suffix probes -----------------------------------------------
+ok("SA1", str_starts_with_any("hello", ["hi", "he"]));
+ok("SA2", str_starts_with_any("hello", ["a", "b"]) == false);
+ok("EA1", str_ends_with_any("file.txt", [".md", ".txt"]));
+ok("CP1", str_common_prefix("flower", "flow") == "flow");
+ok("CP2", str_common_prefix("abc", "xyz") == "");
+
+// --- zfill / numeric / ensure -------------------------------------------
+ok("ZF1", str_zfill("42", 5) == "00042");
+ok("ZF2", str_zfill("-7", 4) == "-007");
+ok("ZF3", str_zfill("123", 2) == "123");
+ok("NM1", str_is_numeric("12345") and str_is_numeric("12a") == false and str_is_numeric("") == false);
+ok("EP1", str_ensure_prefix("world", "hello ") == "hello world");
+ok("EP2", str_ensure_prefix("hello world", "hello ") == "hello world");
+ok("ES1", str_ensure_suffix("file", "!") == "file!" and str_ensure_suffix("file!", "!") == "file!");
+
+print("=== done ===");

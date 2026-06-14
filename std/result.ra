@@ -1,0 +1,97 @@
+// std.result — combinators over the core Result<T, E> ADT.
+//
+// A *physical*, Ra-authored stdlib module (real logic, not a re-export):
+// the monadic/utility helpers that pair with `Result.Ok` / `Result.Err`
+// and the `?` operator. Import explicitly: `import std.result;`.
+//
+//   let r = Result.Ok(2);
+//   let d = unwrap_or(map_ok(r, |x| x * 10), 0);   // 20
+//
+// `unwrap` / `unwrap_err` / `expect` raise a catchable error on the wrong
+// variant (via std.prelude.errors `panic`); every other combinator is total.
+
+import std.prelude.errors;
+
+pub fn is_ok(r) {
+    ret match r {
+        case Ok(_) -> true
+        case Err(_) -> false
+    };
+}
+
+pub fn is_err(r) {
+    ret match r {
+        case Ok(_) -> false
+        case Err(_) -> true
+    };
+}
+
+pub fn unwrap(r) {
+    ret match r {
+        case Ok(v) -> v
+        case Err(e) -> panic("Result.unwrap() called on an Err value")
+    };
+}
+
+pub fn unwrap_err(r) {
+    ret match r {
+        case Ok(v) -> panic("Result.unwrap_err() called on an Ok value")
+        case Err(e) -> e
+    };
+}
+
+pub fn unwrap_or(r, fallback) {
+    ret match r {
+        case Ok(v) -> v
+        case Err(_) -> fallback
+    };
+}
+
+pub fn unwrap_or_else(r, f) {
+    ret match r {
+        case Ok(v) -> v
+        case Err(e) -> f(e)
+    };
+}
+
+pub fn expect(r, message) {
+    ret match r {
+        case Ok(v) -> v
+        case Err(e) -> panic(message)
+    };
+}
+
+pub fn map_ok(r, f) {
+    ret match r {
+        case Ok(v) -> Result.Ok(f(v))
+        case Err(e) -> Result.Err(e)
+    };
+}
+
+pub fn map_err(r, f) {
+    ret match r {
+        case Ok(v) -> Result.Ok(v)
+        case Err(e) -> Result.Err(f(e))
+    };
+}
+
+pub fn and_then(r, f) {
+    ret match r {
+        case Ok(v) -> f(v)
+        case Err(e) -> Result.Err(e)
+    };
+}
+
+pub fn or_else(r, f) {
+    ret match r {
+        case Ok(v) -> Result.Ok(v)
+        case Err(e) -> f(e)
+    };
+}
+
+pub fn result_to_option(r) {
+    ret match r {
+        case Ok(v) -> Option.Some(v)
+        case Err(_) -> Option.None
+    };
+}
